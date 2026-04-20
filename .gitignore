@@ -6,3 +6,4 @@
 .env
 .envrc
 config.yaml
+.pi/todos/
