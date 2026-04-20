@@ -1,0 +1,13 @@
+services:
+  irc-service:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/data
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      DATA_DIR: /data
+      CONFIG_PATH: /app/config.yaml
+      ADDR: ":8080"
+    restart: unless-stopped

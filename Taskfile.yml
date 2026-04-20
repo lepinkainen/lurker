@@ -1,0 +1,43 @@
+version: '3'
+
+tasks:
+  build:
+    desc: Build the irc-service binary
+    cmds:
+      - go build -o irc-service .
+
+  dev:
+    desc: Run the service locally
+    cmds:
+      - go run .
+
+  test:
+    desc: Run the test suite
+    cmds:
+      - go test ./...
+
+  tidy:
+    desc: Tidy Go module dependencies
+    cmds:
+      - go mod tidy
+
+  clean:
+    desc: Remove build artifacts and local data
+    cmds:
+      - rm -f irc-service
+      - rm -rf data
+
+  docker:
+    desc: Build the Docker image
+    cmds:
+      - docker build -t irc-service .
+
+  up:
+    desc: Start the docker compose stack
+    cmds:
+      - docker compose up -d --build
+
+  down:
+    desc: Stop the docker compose stack
+    cmds:
+      - docker compose down

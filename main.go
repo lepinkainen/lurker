@@ -1,0 +1,88 @@
+package main
+
+import (
+	"context"
+	"embed"
+	"errors"
+	"io/fs"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/lepinkainen/research/irc-service/api"
+	"github.com/lepinkainen/research/irc-service/db"
+	"github.com/lepinkainen/research/irc-service/hub"
+	"github.com/lepinkainen/research/irc-service/irc"
+)
+
+//go:embed web
+var webFS embed.FS
+
+func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	cfg := loadConfig()
+
+	stores, err := db.OpenMultiStore(cfg.DataDir)
+	if err != nil {
+		slog.Error("open stores", "err", err, "data_dir", cfg.DataDir)
+		os.Exit(1)
+	}
+	defer stores.Close()
+	slog.Info("stores ready", "control_db", cfg.ControlDBPath)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	shutdownCtx, shutdownCancel := context.WithTimeoutCause(context.Background(), 10*time.Second, errors.New("shutdown timeout"))
+	defer shutdownCancel()
+
+	evHub := hub.New()
+	mgr := irc.NewManager(stores, evHub)
+	if nets := cfg.Networks; len(nets) > 0 {
+		if err := mgr.Start(ctx, nets); err != nil {
+			slog.Error("start bootstrap networks", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("irc bootstrap networks started", "count", len(nets))
+	} else {
+		slog.Info("no bootstrap networks configured; set CONFIG_PATH to seed control.db on startup")
+	}
+
+	webSub, err := fs.Sub(webFS, "web")
+	if err != nil {
+		slog.Error("web fs sub", "err", err)
+		os.Exit(1)
+	}
+
+	apiSrv := &api.Server{
+		Stores:  stores,
+		Hub:     evHub,
+		Manager: mgr,
+		Web:     webSub,
+	}
+
+	srv := &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           apiSrv.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	go func() {
+		slog.Info("http listening", "addr", cfg.Addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("http serve", "err", err)
+			stop()
+		}
+	}()
+
+	<-ctx.Done()
+	slog.Info("shutting down")
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("http shutdown", "err", err)
+	}
+	mgr.Wait()
+	slog.Info("bye")
+}

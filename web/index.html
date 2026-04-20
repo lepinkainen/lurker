@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>irc-service</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <header>
+          <h1>irc-service</h1>
+          <div id="conn-dot" class="dot offline" title="disconnected"></div>
+        </header>
+        <form id="search-form">
+          <input id="search-input" type="search" placeholder="Search active buffer" />
+          <div id="search-status"></div>
+        </form>
+        <div id="search-results" aria-label="Search results"></div>
+        <nav id="buffer-list" aria-label="Buffers"></nav>
+      </aside>
+      <main id="main">
+        <header id="buffer-header">
+          <span id="buffer-name">—</span>
+          <span id="buffer-topic"></span>
+        </header>
+        <section id="messages" aria-live="polite"></section>
+        <form id="input-form">
+          <input
+            id="input"
+            type="text"
+            autocomplete="off"
+            placeholder="Say something (or /cmd)"
+            disabled
+          />
+        </form>
+      </main>
+    </div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

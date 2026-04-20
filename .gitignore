@@ -1,0 +1,8 @@
+/irc-service
+/data/
+*.db
+*.db-wal
+*.db-shm
+.env
+.envrc
+config.yaml

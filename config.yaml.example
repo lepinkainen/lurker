@@ -1,0 +1,21 @@
+nick: globalnick
+user: globaluser
+realname: Global Real Name
+
+networks:
+  - network: Ircnet
+    nick: mynick
+    user: myuser
+    realname: My Real Name
+    channels:
+      - "#test"
+      - "#golang"
+    sasl_user: mynick
+    sasl_pass: secret
+    servers:
+      - host: irc.ircnet.com
+        port: 6697
+        tls: true
+      - host: open.ircnet.net
+        port: 6697
+        tls: true
