@@ -22,7 +22,7 @@ func TestNetworkCRUDAndDeleteRetainsLogDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stores.Close()
+	defer func() { _ = stores.Close() }()
 
 	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(stores, hub.New())}
 	h := srv.Handler()
@@ -53,7 +53,7 @@ func TestNetworkCRUDAndDeleteRetainsLogDB(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodDelete, "/api/networks/"+fmt.Sprintf("%d", created.ID), nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/networks/"+fmt.Sprintf("%d", created.ID), http.NoBody)
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d body=%s", rec.Code, rec.Body.String())
@@ -73,7 +73,7 @@ func TestConnectDisconnectEndpointsUpdateState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stores.Close()
+	defer func() { _ = stores.Close() }()
 
 	n, err := ircdb.CreateNetwork(ctx, stores.Control, ircdb.Network{Name: "Libera", Host: "127.0.0.1", Port: 1, TLS: false, Nick: "tester"})
 	if err != nil {
@@ -84,7 +84,7 @@ func TestConnectDisconnectEndpointsUpdateState(t *testing.T) {
 	h := srv.Handler()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/networks/"+fmt.Sprintf("%d", n.ID)+"/connect", nil).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodPost, "/api/networks/"+fmt.Sprintf("%d", n.ID)+"/connect", http.NoBody).WithContext(ctx)
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("connect status = %d body=%s", rec.Code, rec.Body.String())
@@ -95,7 +95,7 @@ func TestConnectDisconnectEndpointsUpdateState(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/networks/"+fmt.Sprintf("%d", n.ID)+"/disconnect", nil).WithContext(ctx)
+	req = httptest.NewRequest(http.MethodPost, "/api/networks/"+fmt.Sprintf("%d", n.ID)+"/disconnect", http.NoBody).WithContext(ctx)
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("disconnect status = %d body=%s", rec.Code, rec.Body.String())

@@ -31,9 +31,9 @@ func parseOptionalQueryInt64(w http.ResponseWriter, r *http.Request, key, msg st
 	return v, true
 }
 
-func clampLimit(raw string, def, max int) int {
+func clampLimit(raw string, def, maxLimit int) int {
 	limit, _ := strconv.Atoi(raw)
-	if limit <= 0 || limit > max {
+	if limit <= 0 || limit > maxLimit {
 		return def
 	}
 	return limit

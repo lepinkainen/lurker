@@ -8,7 +8,7 @@ func TestQueryBufferCreationAndBufferFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ms.Close()
+	defer func() { _ = ms.Close() }()
 
 	n, err := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
 	if err != nil {
@@ -36,16 +36,16 @@ func TestQueryBufferCreationAndBufferFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := UpdateLogBufferJoined(ctx, logStore.DB, "#go", true); err != nil {
-		t.Fatal(err)
-	}
+	err = UpdateLogBufferJoined(ctx, logStore.DB, "#go", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := UpdateLogBufferTopic(ctx, logStore.DB, "#go", "new topic"); err != nil {
+	err = UpdateLogBufferTopic(ctx, logStore.DB, "#go", "new topic")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := UpdateLogBufferLastSeen(ctx, logStore.DB, "#go", 42); err != nil {
+	err = UpdateLogBufferLastSeen(ctx, logStore.DB, "#go", 42)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -79,7 +79,7 @@ func TestMarkBufferLastSeenPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ms.Close()
+	defer func() { _ = ms.Close() }()
 
 	n, _ := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
 	globalID, _, _, _ := ms.UpsertBufferRegistry(ctx, n.ID, "#go", BufferChannel)

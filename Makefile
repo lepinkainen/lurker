@@ -1,26 +1,4 @@
-.PHONY: build dev test clean docker up down tidy
+.PHONY: build build-linux build-ci dev test test-ci lint tidy clean docker up down
 
-build:
-	go build -o irc-service .
-
-dev:
-	go run .
-
-test:
-	go test ./...
-
-tidy:
-	go mod tidy
-
-clean:
-	rm -f irc-service
-	rm -rf data
-
-docker:
-	docker build -t irc-service .
-
-up:
-	docker compose up -d --build
-
-down:
-	docker compose down
+build build-linux build-ci dev test test-ci lint tidy clean docker up down:
+	task $@

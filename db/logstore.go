@@ -22,6 +22,7 @@ func OpenLogStore(networkID int64, path string) (*LogStore, error) {
 	return &LogStore{NetworkID: networkID, DB: d}, nil
 }
 
+// Close closes the underlying SQLite handle.
 func (s *LogStore) Close() error {
 	if s == nil || s.DB == nil {
 		return nil
@@ -49,6 +50,7 @@ type LogMessageInput struct {
 	Raw       string
 }
 
+// UpsertLogBuffer creates or looks up a per-network buffer row.
 func UpsertLogBuffer(ctx context.Context, d *sql.DB, networkID int64, name, kind string) (id int64, created bool, buf LogBuffer, err error) {
 	name, kind = normalizeBufferIdentity(name, kind)
 	now := Now()
@@ -67,6 +69,7 @@ func UpsertLogBuffer(ctx context.Context, d *sql.DB, networkID int64, name, kind
 	)
 }
 
+// InsertLogMessage inserts an IRC event into the per-network log.
 func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id int64, ts string, inserted bool, err error) {
 	ts = FormatTime(m.Timestamp)
 	insert := messageInsert{
@@ -89,6 +92,7 @@ func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id int
 	)
 }
 
+// ListLogBuffers returns every buffer stored in a per-network log DB.
 func ListLogBuffers(ctx context.Context, d *sql.DB, networkID int64) ([]LogBuffer, error) {
 	rows, err := d.QueryContext(ctx,
 		`SELECT id, name, kind, COALESCE(topic,''), joined, COALESCE(last_seen_id,0), created_at
@@ -98,8 +102,9 @@ func ListLogBuffers(ctx context.Context, d *sql.DB, networkID int64) ([]LogBuffe
 	}
 	scanned, err := scanBufferRows(rows, func(b *bufferRow) error {
 		var joined int
-		if err := rows.Scan(&b.ID, &b.Name, &b.Kind, &b.Topic, &joined, &b.LastSeenID, &b.CreatedAt); err != nil {
-			return err
+		scanErr := rows.Scan(&b.ID, &b.Name, &b.Kind, &b.Topic, &joined, &b.LastSeenID, &b.CreatedAt)
+		if scanErr != nil {
+			return scanErr
 		}
 		b.NetworkID = networkID
 		b.Joined = joined == 1
@@ -111,6 +116,7 @@ func ListLogBuffers(ctx context.Context, d *sql.DB, networkID int64) ([]LogBuffe
 	return scanned, nil
 }
 
+// RecentLogMessages returns recent messages for a buffer in ascending order.
 func RecentLogMessages(ctx context.Context, d *sql.DB, networkID, bufferID int64, limit int) ([]LogMessage, error) {
 	return logMessagesQuery(ctx, d, networkID,
 		`SELECT id, buffer_id, COALESCE(msgid,''), ts, sender,
@@ -121,6 +127,7 @@ func RecentLogMessages(ctx context.Context, d *sql.DB, networkID, bufferID int64
 		bufferID, limit)
 }
 
+// LogMessagesBefore returns messages before a given message ID.
 func LogMessagesBefore(ctx context.Context, d *sql.DB, networkID, bufferID, before int64, limit int) ([]LogMessage, error) {
 	return logMessagesQuery(ctx, d, networkID,
 		`SELECT id, buffer_id, COALESCE(msgid,''), ts, sender,
@@ -132,6 +139,7 @@ func LogMessagesBefore(ctx context.Context, d *sql.DB, networkID, bufferID, befo
 		bufferID, before, limit)
 }
 
+// LookupLogBuffer returns the name and kind for a local log buffer.
 func LookupLogBuffer(ctx context.Context, d *sql.DB, bufferID int64) (name, kind string, err error) {
 	err = d.QueryRowContext(ctx,
 		`SELECT name, kind FROM buffers WHERE id = ?`, bufferID,
@@ -154,6 +162,7 @@ func logMessagesQuery(ctx context.Context, d *sql.DB, networkID int64, q string,
 	})
 }
 
+// EnsureStatusBuffer ensures the synthetic status buffer exists for a network.
 func EnsureStatusBuffer(ctx context.Context, store *MultiStore, networkID int64) (int64, error) {
 	logStore, err := store.LogStore(networkID)
 	if err != nil {
@@ -170,6 +179,7 @@ func EnsureStatusBuffer(ctx context.Context, store *MultiStore, networkID int64)
 	return registryID, nil
 }
 
+// UpdateLogBufferJoined updates the joined state for a channel buffer.
 func UpdateLogBufferJoined(ctx context.Context, d *sql.DB, name string, joined bool) error {
 	joinedInt := 0
 	if joined {
@@ -179,16 +189,19 @@ func UpdateLogBufferJoined(ctx context.Context, d *sql.DB, name string, joined b
 	return err
 }
 
+// UpdateLogBufferTopic updates the topic for a buffer.
 func UpdateLogBufferTopic(ctx context.Context, d *sql.DB, name, topic string) error {
 	_, err := d.ExecContext(ctx, `UPDATE buffers SET topic = ? WHERE name = ?`, topic, name)
 	return err
 }
 
+// UpdateLogBufferLastSeen updates the last seen message ID for a buffer.
 func UpdateLogBufferLastSeen(ctx context.Context, d *sql.DB, name string, lastSeenID int64) error {
 	_, err := d.ExecContext(ctx, `UPDATE buffers SET last_seen_id = ? WHERE name = ?`, lastSeenID, name)
 	return err
 }
 
+// SearchLogMessages searches a per-network log DB using FTS.
 func SearchLogMessages(ctx context.Context, d *sql.DB, networkID int64, query string, bufferID int64, limit int) ([]LogMessage, error) {
 	if limit <= 0 {
 		limit = 100

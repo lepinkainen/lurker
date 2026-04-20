@@ -12,7 +12,7 @@ func TestJoinUsesNetworkIDChannelAndPartUsesBufferID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stores.Close()
+	defer func() { _ = stores.Close() }()
 
 	n, err := stores.UpsertNetwork(ctx, ircdb.Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
 	if err != nil {

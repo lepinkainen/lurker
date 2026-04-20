@@ -15,6 +15,7 @@ import (
 	"github.com/lepinkainen/research/irc-service/api"
 	"github.com/lepinkainen/research/irc-service/db"
 	"github.com/lepinkainen/research/irc-service/hub"
+	"github.com/lepinkainen/research/irc-service/internal/closeutil"
 	"github.com/lepinkainen/research/irc-service/irc"
 )
 
@@ -30,7 +31,7 @@ func main() {
 		slog.Error("open stores", "err", err, "data_dir", cfg.DataDir)
 		os.Exit(1)
 	}
-	defer stores.Close()
+	defer closeutil.Ignore(stores, "component", "stores")
 	slog.Info("stores ready", "control_db", cfg.ControlDBPath)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -41,8 +42,9 @@ func main() {
 	evHub := hub.New()
 	mgr := irc.NewManager(stores, evHub)
 	if nets := cfg.Networks; len(nets) > 0 {
-		if err := mgr.Start(ctx, nets); err != nil {
-			slog.Error("start bootstrap networks", "err", err)
+		startErr := mgr.Start(ctx, nets)
+		if startErr != nil {
+			slog.Error("start bootstrap networks", "err", startErr)
 			os.Exit(1)
 		}
 		slog.Info("irc bootstrap networks started", "count", len(nets))
@@ -57,10 +59,14 @@ func main() {
 	}
 
 	apiSrv := &api.Server{
-		Stores:  stores,
-		Hub:     evHub,
-		Manager: mgr,
-		Web:     webSub,
+		Stores:    stores,
+		Hub:       evHub,
+		Manager:   mgr,
+		Web:       webSub,
+		AppName:   appName,
+		Version:   version,
+		GitHash:   gitHash,
+		BuildTime: buildTime,
 	}
 
 	srv := &http.Server{

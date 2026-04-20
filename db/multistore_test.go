@@ -14,7 +14,7 @@ func TestMultiStoreOpensDistinctNetworkDBs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ms.Close()
+	defer func() { _ = ms.Close() }()
 
 	first, err := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
 	if err != nil {

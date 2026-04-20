@@ -4,6 +4,7 @@
 package api
 
 import (
+	"encoding/json"
 	"io/fs"
 	"net/http"
 
@@ -14,17 +15,23 @@ import (
 
 // Server bundles the dependencies every API handler needs.
 type Server struct {
-	Stores  *ircdb.MultiStore
-	Hub     *hub.Hub
-	Manager *irc.Manager
-	Web     fs.FS // embedded web UI; nil disables serving
+	Stores    *ircdb.MultiStore
+	Hub       *hub.Hub
+	Manager   *irc.Manager
+	Web       fs.FS // embedded web UI; nil disables serving
+	AppName   string
+	Version   string
+	GitHash   string
+	BuildTime string
 }
 
 // Handler returns an http.Handler with all routes wired. Route pattern
 // syntax uses Go 1.22+ ServeMux.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", s.healthz)
 	mux.HandleFunc("GET /healthz", s.healthz)
+	mux.HandleFunc("GET /whoami", s.whoami)
 	mux.HandleFunc("GET /api/state", s.state)
 	mux.HandleFunc("GET /api/buffers/{id}/history", s.history)
 	mux.HandleFunc("GET /api/search", s.search)
@@ -46,5 +53,15 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "db unreachable", http.StatusServiceUnavailable)
 		return
 	}
-	w.Write([]byte("ok"))
+	_, _ = w.Write([]byte("ok"))
+}
+
+func (s *Server) whoami(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"name":       s.AppName,
+		"version":    s.Version,
+		"hash":       s.GitHash,
+		"build_time": s.BuildTime,
+	})
 }

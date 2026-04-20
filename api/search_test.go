@@ -16,7 +16,7 @@ func TestSearchRoutesAcrossNetworksAndBuffers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stores.Close()
+	defer func() { _ = stores.Close() }()
 
 	n1, _ := stores.UpsertNetwork(ctx, ircdb.Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
 	n2, _ := stores.UpsertNetwork(ctx, ircdb.Network{Name: "OFTC", Host: "irc.oftc.net", Port: 6697, TLS: true, Nick: "b"})
@@ -32,7 +32,7 @@ func TestSearchRoutesAcrossNetworksAndBuffers(t *testing.T) {
 	s := &Server{Stores: stores}
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/search?q=needle", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/search?q=needle", http.NoBody)
 	s.search(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
@@ -47,7 +47,7 @@ func TestSearchRoutesAcrossNetworksAndBuffers(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	r = httptest.NewRequest(http.MethodGet, "/api/search?q=needle&buffer="+itoa(b1), nil)
+	r = httptest.NewRequest(http.MethodGet, "/api/search?q=needle&buffer="+itoa(b1), http.NoBody)
 	s.search(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())

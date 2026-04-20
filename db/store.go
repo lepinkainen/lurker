@@ -107,7 +107,7 @@ func tableHasColumn(ctx context.Context, d *sql.DB, table, column string) (bool,
 	if err != nil {
 		return false, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var cid int
@@ -126,6 +126,7 @@ func tableHasColumn(ctx context.Context, d *sql.DB, table, column string) (bool,
 	return false, rows.Err()
 }
 
+// ListNetworks returns every network row for API state responses.
 func ListNetworks(ctx context.Context, d *sql.DB) ([]Network, error) {
 	rows, err := d.QueryContext(ctx,
 		`SELECT id, name, host, port, tls, nick, COALESCE(realname,'')
@@ -133,7 +134,7 @@ func ListNetworks(ctx context.Context, d *sql.DB) ([]Network, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Network
 	for rows.Next() {
 		var n Network

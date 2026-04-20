@@ -12,7 +12,7 @@ func TestOpenControlAppliesMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	assertTableExists(t, d, "schema_migrations")
 	assertTableExists(t, d, "networks")
@@ -33,7 +33,7 @@ func TestControlNetworksNameCIUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	_, err = d.Exec(`INSERT INTO networks(name, name_ci, host, port, tls, nick, autoconnect, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,

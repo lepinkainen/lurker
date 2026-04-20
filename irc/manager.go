@@ -26,6 +26,7 @@ func debugWriter() io.Writer {
 	return io.Discard
 }
 
+// ServerConfig describes one IRC server endpoint.
 type ServerConfig struct {
 	Host        string // hostname of the IRC server
 	Port        int    // TCP port
@@ -45,6 +46,7 @@ type NetworkConfig struct {
 	SASLPass string
 }
 
+// PrimaryServer returns the first configured server, if any.
 func (n NetworkConfig) PrimaryServer() ServerConfig {
 	if len(n.Servers) == 0 {
 		return ServerConfig{}
@@ -65,6 +67,7 @@ type networkRuntime struct {
 	cancel context.CancelFunc
 }
 
+// Manager owns IRC clients and connection lifecycle for all networks.
 type Manager struct {
 	stores  *ircdb.MultiStore
 	hub     *hub.Hub
@@ -75,10 +78,12 @@ type Manager struct {
 	runtime map[int64]networkRuntime
 }
 
+// NewManager constructs a Manager.
 func NewManager(stores *ircdb.MultiStore, h *hub.Hub) *Manager {
 	return &Manager{stores: stores, hub: h, conn: map[int64]*girc.Client{}, state: map[int64]string{}, runtime: map[int64]networkRuntime{}}
 }
 
+// Start upserts and starts all configured networks.
 func (m *Manager) Start(ctx context.Context, nets []NetworkConfig) error {
 	for _, nc := range nets {
 		server := nc.PrimaryServer()
@@ -102,6 +107,7 @@ func (m *Manager) Start(ctx context.Context, nets []NetworkConfig) error {
 	return nil
 }
 
+// StartNetwork starts managing one network runtime.
 func (m *Manager) StartNetwork(parent context.Context, networkID int64, nc NetworkConfig) error {
 	m.mu.Lock()
 	if _, ok := m.runtime[networkID]; ok {
@@ -119,6 +125,7 @@ func (m *Manager) StartNetwork(parent context.Context, networkID int64, nc Netwo
 	return nil
 }
 
+// StopNetwork stops a running network runtime.
 func (m *Manager) StopNetwork(networkID int64) error {
 	m.mu.Lock()
 	rt, ok := m.runtime[networkID]
@@ -142,10 +149,13 @@ func (m *Manager) StopNetwork(networkID int64) error {
 	return nil
 }
 
+// Wait blocks until all network runtimes exit.
 func (m *Manager) Wait() { m.wg.Wait() }
 
+// ErrNotConnected indicates that a network has no active IRC connection.
 var ErrNotConnected = errors.New("irc: network not connected")
 
+// Send sends a PRIVMSG to a target on a connected network.
 func (m *Manager) Send(networkID int64, target, content string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
@@ -157,6 +167,7 @@ func (m *Manager) Send(networkID int64, target, content string) error {
 	return nil
 }
 
+// Join sends a JOIN command on a connected network.
 func (m *Manager) Join(networkID int64, channel string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
@@ -168,6 +179,7 @@ func (m *Manager) Join(networkID int64, channel string) error {
 	return nil
 }
 
+// Part sends a PART command on a connected network.
 func (m *Manager) Part(networkID int64, channel, reason string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
@@ -179,6 +191,7 @@ func (m *Manager) Part(networkID int64, channel, reason string) error {
 	return nil
 }
 
+// StateSnapshot returns a copy of current network states.
 func (m *Manager) StateSnapshot() map[int64]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()

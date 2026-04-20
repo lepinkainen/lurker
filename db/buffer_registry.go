@@ -5,6 +5,7 @@ import (
 	"database/sql"
 )
 
+// UpsertBufferRegistry creates or looks up a global buffer registry row.
 func UpsertBufferRegistry(ctx context.Context, d *sql.DB, networkID int64, name, kind string) (id int64, created bool, buf Buffer, err error) {
 	name, kind = normalizeBufferIdentity(name, kind)
 	now := Now()
@@ -19,6 +20,7 @@ func UpsertBufferRegistry(ctx context.Context, d *sql.DB, networkID int64, name,
 	)
 }
 
+// LookupBufferRegistry resolves a global buffer registry row by ID.
 func LookupBufferRegistry(ctx context.Context, d *sql.DB, bufferID int64) (networkID int64, name, kind string, err error) {
 	err = d.QueryRowContext(ctx,
 		`SELECT network_id, name, kind FROM buffer_registry WHERE id = ?`, bufferID,

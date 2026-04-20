@@ -1,10 +1,39 @@
 version: '3'
 
+vars:
+  APP_NAME: irc-service
+  BUILD_DIR: build
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  GIT_HASH:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo unknown
+  BUILD_TIME:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+  LDFLAGS: >-
+    -s -w
+    -X main.version={{.VERSION}}
+    -X main.gitHash={{.GIT_HASH}}
+    -X main.buildTime={{.BUILD_TIME}}
+
 tasks:
   build:
-    desc: Build the irc-service binary
+    desc: Run lint and tests, then build the local binary
+    deps: [lint, test]
     cmds:
-      - go build -o irc-service .
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
+
+  build-linux:
+    desc: Build the Linux binary into build/
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}}-linux-amd64 .
+
+  build-ci:
+    desc: CI build only
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
 
   dev:
     desc: Run the service locally
@@ -16,6 +45,17 @@ tasks:
     cmds:
       - go test ./...
 
+  test-ci:
+    desc: Run CI tests with coverage
+    cmds:
+      - go test -tags=ci -cover -v ./... | tee coverage.out
+
+  lint:
+    desc: Run formatting and lint checks
+    cmds:
+      - goimports -w .
+      - golangci-lint run ./...
+
   tidy:
     desc: Tidy Go module dependencies
     cmds:
@@ -24,13 +64,13 @@ tasks:
   clean:
     desc: Remove build artifacts and local data
     cmds:
-      - rm -f irc-service
+      - rm -rf {{.BUILD_DIR}}
       - rm -rf data
 
   docker:
     desc: Build the Docker image
     cmds:
-      - docker build -t irc-service .
+      - docker build --build-arg VERSION={{.VERSION}} --build-arg GIT_HASH={{.GIT_HASH}} --build-arg BUILD_TIME={{.BUILD_TIME}} -t {{.APP_NAME}} .
 
   up:
     desc: Start the docker compose stack

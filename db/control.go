@@ -6,8 +6,10 @@ import (
 	"errors"
 )
 
+// ErrNetworkNotFound indicates the requested network row does not exist.
 var ErrNetworkNotFound = errors.New("db: network not found")
 
+// GetNetwork returns a network by ID.
 func GetNetwork(ctx context.Context, d *sql.DB, id int64) (Network, error) {
 	var n Network
 	var tls int
@@ -28,6 +30,7 @@ func GetNetwork(ctx context.Context, d *sql.DB, id int64) (Network, error) {
 	return n, nil
 }
 
+// CreateNetwork inserts a network row and returns the stored record.
 func CreateNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 	if err := ValidateNetworkName(n.Name); err != nil {
 		return Network{}, err
@@ -56,6 +59,7 @@ func CreateNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 	return GetNetwork(ctx, d, id)
 }
 
+// UpdateNetwork updates a network row and returns the stored record.
 func UpdateNetwork(ctx context.Context, d *sql.DB, id int64, n Network) (Network, error) {
 	current, err := GetNetwork(ctx, d, id)
 	if err != nil {
@@ -80,8 +84,9 @@ func UpdateNetwork(ctx context.Context, d *sql.DB, id int64, n Network) (Network
 		n.SASLUser = current.SASLUser
 		n.SASLPass = current.SASLPass
 	}
-	if err := ValidateNetworkName(n.Name); err != nil {
-		return Network{}, err
+	validateErr := ValidateNetworkName(n.Name)
+	if validateErr != nil {
+		return Network{}, validateErr
 	}
 	nameCI := NormalizeNetworkName(n.Name)
 	tls := 0
@@ -111,6 +116,7 @@ func UpdateNetwork(ctx context.Context, d *sql.DB, id int64, n Network) (Network
 	return GetNetwork(ctx, d, id)
 }
 
+// DeleteNetwork deletes a network row by ID.
 func DeleteNetwork(ctx context.Context, d *sql.DB, id int64) error {
 	res, err := d.ExecContext(ctx, `DELETE FROM networks WHERE id = ?`, id)
 	if err != nil {

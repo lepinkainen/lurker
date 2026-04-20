@@ -1,4 +1,5 @@
 /irc-service
+/build/
 /data/
 *.db
 *.db-wal
@@ -6,4 +7,5 @@
 .env
 .envrc
 config.yaml
+coverage.out
 .pi/todos/

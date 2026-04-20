@@ -8,7 +8,7 @@ func TestBufferRegistryStableAllocationAndRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ms.Close()
+	defer func() { _ = ms.Close() }()
 
 	n1, err := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
 	if err != nil {
@@ -54,7 +54,7 @@ func TestHistoryRoutingByGlobalBufferID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ms.Close()
+	defer func() { _ = ms.Close() }()
 
 	n1, _ := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
 	n2, _ := ms.UpsertNetwork(ctx, Network{Name: "OFTC", Host: "irc.oftc.net", Port: 6697, TLS: true, Nick: "b"})
@@ -91,7 +91,7 @@ func TestWritesStayInPerNetworkDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ms.Close()
+	defer func() { _ = ms.Close() }()
 
 	n1, _ := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
 	n2, _ := ms.UpsertNetwork(ctx, Network{Name: "OFTC", Host: "irc.oftc.net", Port: 6697, TLS: true, Nick: "b"})

@@ -42,7 +42,7 @@ type messageInsert struct {
 	Raw       string
 }
 
-func normalizeBufferIdentity(name, kind string) (string, string) {
+func normalizeBufferIdentity(name, kind string) (normalizedName, normalizedKind string) {
 	if name == "" {
 		return "*status*", BufferStatus
 	}
@@ -57,7 +57,7 @@ func nullableString(v string) sql.NullString {
 }
 
 func scanBufferRows(rows *sql.Rows, scan func(*bufferRow) error) ([]bufferRow, error) {
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []bufferRow
 	for rows.Next() {
 		var row bufferRow
@@ -70,7 +70,7 @@ func scanBufferRows(rows *sql.Rows, scan func(*bufferRow) error) ([]bufferRow, e
 }
 
 func scanMessageRows(rows *sql.Rows, scan func(*messageRow) error) ([]messageRow, error) {
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []messageRow
 	for rows.Next() {
 		var row messageRow

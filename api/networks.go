@@ -71,7 +71,8 @@ func (s *Server) patchNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req networkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	decodeErr := json.NewDecoder(r.Body).Decode(&req)
+	if decodeErr != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}

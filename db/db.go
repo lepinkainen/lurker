@@ -42,11 +42,11 @@ func openAndMigrate(path string, migrationFS embed.FS, migrationDir string) (*sq
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	if err := d.Ping(); err != nil {
-		d.Close()
+		_ = d.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
 	if err := migrate(d, migrationFS, migrationDir); err != nil {
-		d.Close()
+		_ = d.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return d, nil
@@ -100,11 +100,11 @@ func migrate(d *sql.DB, migrationFS fs.FS, migrationDir string) error {
 			return err
 		}
 		if _, err := tx.Exec(string(sqlBytes)); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("apply %s: %w", name, err)
 		}
 		if _, err := tx.Exec(`INSERT INTO schema_migrations(version) VALUES (?)`, name); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return err
 		}
 		if err := tx.Commit(); err != nil {

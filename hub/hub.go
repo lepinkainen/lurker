@@ -21,7 +21,7 @@ func New() *Hub { return &Hub{subs: make(map[chan any]struct{})} }
 // Subscribe registers a new subscriber and returns a receive channel
 // plus a cleanup func. The buffer controls how many events can queue up
 // before sends start dropping.
-func (h *Hub) Subscribe(buf int) (<-chan any, func()) {
+func (h *Hub) Subscribe(buf int) (events <-chan any, unsubscribe func()) {
 	ch := make(chan any, buf)
 	h.mu.Lock()
 	h.subs[ch] = struct{}{}

@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	ircdb "github.com/lepinkainen/research/irc-service/db"
+	"github.com/lepinkainen/research/irc-service/internal/closeutil"
 )
 
 // clientCmd is the set of verbs a client can send. We union-decode from
@@ -63,7 +64,9 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		slog.Error("ws accept", "err", err)
 		return
 	}
-	defer c.Close(websocket.StatusNormalClosure, "")
+	defer closeutil.Ignore(closeFunc(func() error {
+		return c.Close(websocket.StatusNormalClosure, "")
+	}), "component", "websocket")
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -242,3 +245,8 @@ func writeWSErr(ctx context.Context, c *websocket.Conn, reqID, msg string) {
 // Unused but exposed so json.Marshal errors in hub events surface in
 // tests rather than silently dropping bytes on the wire.
 var _ = json.Marshal
+
+type closeFunc func() error
+
+// Close adapts a function to io.Closer.
+func (f closeFunc) Close() error { return f() }

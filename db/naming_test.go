@@ -58,7 +58,7 @@ func TestUpsertNetworkRejectsInvalidName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	_, err = UpsertNetwork(t.Context(), d, Network{
 		Name: "bad/name",
@@ -77,7 +77,7 @@ func TestUpsertNetworkCaseInsensitiveDuplicateReturnsSameRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	first, err := UpsertNetwork(t.Context(), d, Network{
 		Name: "Libera",
