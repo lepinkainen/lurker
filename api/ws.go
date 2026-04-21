@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -161,26 +162,14 @@ func (s *Server) cmdHistory(ctx context.Context, c *websocket.Conn, cmd clientCm
 		writeWSErr(ctx, c, cmd.ReqID, "history requires buffer_id")
 		return
 	}
-	limit := cmd.Limit
-	if limit <= 0 || limit > 500 {
-		limit = 200
-	}
-	var (
-		msgs []ircdb.StoredMessage
-		err  error
-	)
-	if cmd.Before > 0 {
-		msgs, err = s.Stores.MessagesBefore(ctx, cmd.BufferID, cmd.Before, limit)
-	} else {
-		msgs, err = s.Stores.RecentMessages(ctx, cmd.BufferID, limit)
-	}
+	msgs, err := s.loadHistory(ctx, cmd.BufferID, cmd.Before, clampLimit(strconv.Itoa(cmd.Limit), 200, 500))
 	if err != nil {
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return
 	}
 	_ = wsjson.Write(ctx, c, historyResult{
 		Type: "history_result", ReqID: cmd.ReqID,
-		BufferID: cmd.BufferID, Messages: toMessageDTOs(msgs),
+		BufferID: cmd.BufferID, Messages: msgs,
 	})
 }
 

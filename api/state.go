@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -117,24 +118,31 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
-	limit := clampLimit(r.URL.Query().Get("limit"), 200, 500)
-	var (
-		msgs []ircdb.StoredMessage
-		err  error
-	)
-	if before > 0 {
-		msgs, err = s.Stores.MessagesBefore(r.Context(), bufferID, before, limit)
-	} else {
-		msgs, err = s.Stores.RecentMessages(r.Context(), bufferID, limit)
-	}
+	msgs, err := s.loadHistory(r.Context(), bufferID, before, clampLimit(r.URL.Query().Get("limit"), 200, 500))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"buffer_id": bufferID,
-		"messages":  toMessageDTOs(msgs),
+		"messages":  msgs,
 	})
+}
+
+func (s *Server) loadHistory(ctx context.Context, bufferID, before int64, limit int) ([]messageDTO, error) {
+	var (
+		msgs []ircdb.StoredMessage
+		err  error
+	)
+	if before > 0 {
+		msgs, err = s.Stores.MessagesBefore(ctx, bufferID, before, limit)
+	} else {
+		msgs, err = s.Stores.RecentMessages(ctx, bufferID, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return toMessageDTOs(msgs), nil
 }
 
 func toMessageDTOs(in []ircdb.StoredMessage) []messageDTO {
