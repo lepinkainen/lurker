@@ -1,4 +1,18 @@
 import "./style.css";
+import {
+  classifyKind,
+  dayKeyOf,
+  dotClass,
+  escapeHTML,
+  formatTime,
+  highlightMentions,
+  inlineCode,
+  isSelf,
+  linkify,
+  mentionsMe,
+  nickClass,
+  sysBodyHTML,
+} from "./format";
 
 type LayoutSettings = {
   collapsed: Record<number, boolean>;
@@ -41,6 +55,20 @@ type Member = {
   prefix: string;
   away: boolean;
   self: boolean;
+};
+
+type StateResponse = {
+  current_nick?: string;
+  nick?: string;
+  user?: { nick: string };
+  networks?: Network[];
+  buffers?: Omit<Buffer, "unread" | "mentions">[];
+  initial_messages?: Record<string, Message[]>;
+  members?: Record<string, Member[]>;
+};
+
+type ReorderResponse = {
+  networks?: Network[];
 };
 
 type SlashCommand = {
@@ -131,8 +159,8 @@ function init() {
 async function hydrate() {
   try {
     const res = await fetch("/api/state");
-    if (!res.ok) throw new Error("state " + res.status);
-    const s: any = await res.json();
+    if (!res.ok) throw new Error(`state ${res.status}`);
+    const s: StateResponse = await res.json();
     state.me.nick = s.current_nick || s.nick || s.user?.nick || "you";
     inputNickEl.textContent = state.me.nick;
     for (const n of s.networks || []) state.networks.set(n.id, n);
@@ -154,7 +182,7 @@ async function hydrate() {
 
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(proto + "//" + location.host + "/api/stream");
+  const ws = new WebSocket(`${proto}//${location.host}/api/stream`);
   state.ws = ws;
   ws.addEventListener("open", () => {
     state.wsReady = true;
@@ -163,8 +191,11 @@ function connectWS() {
     renderSidebar();
   });
   ws.addEventListener("message", (ev) => {
-    try { handleWSMessage(JSON.parse(ev.data)); }
-    catch { console.warn("non-json ws frame", ev.data); }
+    try {
+      handleWSMessage(JSON.parse(ev.data));
+    } catch {
+      console.warn("non-json ws frame", ev.data);
+    }
   });
   ws.addEventListener("close", () => {
     state.wsReady = false;
@@ -222,13 +253,14 @@ function handleWSMessage(msg) {
 function onMessage(msg) {
   const list = state.messages.get(msg.buffer_id) || [];
   const idx = list.findIndex((m) => m.id === msg.id);
-  if (idx >= 0) list[idx] = msg; else list.push(msg);
+  if (idx >= 0) list[idx] = msg;
+  else list.push(msg);
   list.sort((a, b) => a.id - b.id);
   state.messages.set(msg.buffer_id, list);
   const b = state.buffers.get(msg.buffer_id);
   if (b && msg.buffer_id !== state.activeId && msg.id > (b.last_seen_id || 0)) {
     b.unread = (b.unread || 0) + 1;
-    if (mentionsMe(msg)) b.mentions = (b.mentions || 0) + 1;
+    if (mentionsMe(msg, state.me.nick)) b.mentions = (b.mentions || 0) + 1;
   }
   if (msg.buffer_id === state.activeId) {
     renderActiveView();
@@ -240,9 +272,9 @@ function onMessage(msg) {
 function onBufferUpdate(msg) {
   const b = state.buffers.get(msg.id);
   if (!b) return;
-  if (Object.prototype.hasOwnProperty.call(msg, "topic")) b.topic = msg.topic || "";
-  if (Object.prototype.hasOwnProperty.call(msg, "joined")) b.joined = !!msg.joined;
-  if (Object.prototype.hasOwnProperty.call(msg, "last_seen_id")) b.last_seen_id = msg.last_seen_id || 0;
+  if (Object.hasOwn(msg, "topic")) b.topic = msg.topic || "";
+  if (Object.hasOwn(msg, "joined")) b.joined = !!msg.joined;
+  if (Object.hasOwn(msg, "last_seen_id")) b.last_seen_id = msg.last_seen_id || 0;
   inferUnreadCounts();
   renderHeader();
   renderSidebar();
@@ -267,7 +299,7 @@ function inferUnreadCounts() {
     const list = state.messages.get(b.id) || [];
     const lastSeen = b.last_seen_id || 0;
     const unread = list.filter((m) => m.id > lastSeen).length;
-    const mentions = list.filter((m) => m.id > lastSeen && mentionsMe(m)).length;
+    const mentions = list.filter((m) => m.id > lastSeen && mentionsMe(m, state.me.nick)).length;
     b.unread = b.id === state.activeId ? 0 : unread;
     b.mentions = b.id === state.activeId ? 0 : mentions;
   }
@@ -290,9 +322,7 @@ function renderSidebar() {
   sbScrollEl.innerHTML = "";
 
   // Pinned section
-  const pinned = (state.layout.pinned || [])
-    .map((id) => state.buffers.get(id))
-    .filter(Boolean);
+  const pinned = (state.layout.pinned || []).map((id) => state.buffers.get(id)).filter(Boolean);
   if (pinned.length) {
     const sec = document.createElement("div");
     sec.className = "sb-section";
@@ -312,8 +342,9 @@ function renderSidebar() {
   const add = document.createElement("button");
   add.type = "button";
   add.className = "sb-add";
-  add.innerHTML = '<span>+</span><span>Add a network</span>';
-  add.style.cssText = "margin:10px 10px 6px;padding:6px 10px;width:calc(100% - 20px);display:flex;align-items:center;gap:8px;color:var(--fg-2);font-family:var(--sans);font-size:12px;border:1px dashed var(--hair-strong);border-radius:5px;";
+  add.innerHTML = "<span>+</span><span>Add a network</span>";
+  add.style.cssText =
+    "margin:10px 10px 6px;padding:6px 10px;width:calc(100% - 20px);display:flex;align-items:center;gap:8px;color:var(--fg-2);font-family:var(--sans);font-size:12px;border:1px dashed var(--hair-strong);border-radius:5px;";
   sbScrollEl.appendChild(add);
 }
 
@@ -325,11 +356,16 @@ function networkSection(n) {
     "netsection",
     state.drag.id === n.id && "dragging",
     state.drag.over === n.id && state.drag.id !== n.id && "dragover",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
   sec.draggable = true;
   sec.addEventListener("dragstart", (e) => {
     state.drag.id = n.id;
-    try { e.dataTransfer.setData("text/plain", String(n.id)); e.dataTransfer.effectAllowed = "move"; } catch {}
+    try {
+      e.dataTransfer.setData("text/plain", String(n.id));
+      e.dataTransfer.effectAllowed = "move";
+    } catch {}
     sec.classList.add("dragging");
   });
   sec.addEventListener("dragend", () => {
@@ -340,10 +376,15 @@ function networkSection(n) {
   sec.addEventListener("dragover", (e) => {
     if (state.drag.id == null || state.drag.id === n.id) return;
     e.preventDefault();
-    if (state.drag.over !== n.id) { state.drag.over = n.id; renderSidebar(); }
+    if (state.drag.over !== n.id) {
+      state.drag.over = n.id;
+      renderSidebar();
+    }
   });
   sec.addEventListener("dragleave", () => {
-    if (state.drag.over === n.id) { state.drag.over = null; }
+    if (state.drag.over === n.id) {
+      state.drag.over = null;
+    }
   });
   sec.addEventListener("drop", (e) => {
     e.preventDefault();
@@ -366,7 +407,9 @@ function networkSection(n) {
 
   const hdr = document.createElement("button");
   hdr.type = "button";
-  hdr.className = ["sb-hdr", "net-hdr", headerActive && "active", collapsed && "collapsed", dot].filter(Boolean).join(" ");
+  hdr.className = ["sb-hdr", "net-hdr", headerActive && "active", collapsed && "collapsed", dot]
+    .filter(Boolean)
+    .join(" ");
   hdr.title = `${n.host || ""} · ${n.status || "offline"} · click to show server log`;
 
   const caret = document.createElement("span");
@@ -393,7 +436,9 @@ function networkSection(n) {
     actions.appendChild(badge("unreadbadge", unreadTotal));
   }
   hdr.append(caret, grip, name, actions);
-  hdr.addEventListener("click", () => { if (statusB) setActive(statusB.id); });
+  hdr.addEventListener("click", () => {
+    if (statusB) setActive(statusB.id);
+  });
   sec.appendChild(hdr);
 
   if (!collapsed) {
@@ -404,11 +449,15 @@ function networkSection(n) {
       arch.type = "button";
       arch.className = "sbrow archives";
       const nm = document.createElement("span");
-      nm.className = "name"; nm.textContent = "Archives";
+      nm.className = "name";
+      nm.textContent = "Archives";
       const cnt = document.createElement("span");
-      cnt.className = "archcount"; cnt.textContent = String(parted.length);
+      cnt.className = "archcount";
+      cnt.textContent = String(parted.length);
       arch.append(nm, cnt);
-      arch.addEventListener("click", () => { if (statusB) setActive(statusB.id); });
+      arch.addEventListener("click", () => {
+        if (statusB) setActive(statusB.id);
+      });
       sec.appendChild(arch);
     }
   }
@@ -420,13 +469,17 @@ function bufferRow(b, opts: { pinned?: boolean } = {}) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = [
-    "sbrow", "chan", b.kind,
+    "sbrow",
+    "chan",
+    b.kind,
     opts.pinned && "pinned",
     b.id === state.activeId && "active",
     b.unread > 0 && "unread",
     b.mentions > 0 && "mention",
     b.kind === "channel" && b.joined === false && "parted",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
   const display = b.kind === "status" ? "(status)" : b.name;
   const nm = document.createElement("span");
   nm.className = "name";
@@ -467,7 +520,7 @@ async function reorderNetwork(fromId, toId) {
       body: JSON.stringify({ ids }),
     });
     if (!res.ok) throw new Error(`reorder ${res.status}`);
-    const data: any = await res.json();
+    const data: ReorderResponse = await res.json();
     for (const n of data.networks || []) state.networks.set(n.id, n);
     renderSidebar();
   } catch (err) {
@@ -521,7 +574,8 @@ function renderHeader() {
   const edit = document.createElement("span");
   edit.className = "edit";
   edit.setAttribute("aria-hidden", "true");
-  edit.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 14l3.5-1L13 5.5 10.5 3 3 10.5 2 14z" stroke-linejoin="round"/><path d="M9.5 4L12 6.5"/></svg>';
+  edit.innerHTML =
+    '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 14l3.5-1L13 5.5 10.5 3 3 10.5 2 14z" stroke-linejoin="round"/><path d="M9.5 4L12 6.5"/></svg>';
   bufferTopicEl.appendChild(edit);
 
   inputEl.placeholder = `Message ${b.name}`;
@@ -565,10 +619,17 @@ function statusLine(m) {
   ts.className = "stts";
   ts.textContent = formatTime(m.ts);
   const cat = document.createElement("span");
-  let catText = "-->", catCls = "";
-  if (m.kind === "connected") { catText = "OK"; catCls = "ok"; }
-  else if (m.kind === "disconnected" || m.kind === "error") { catText = "ERR"; catCls = "bad"; }
-  else if (m.kind === "notice") { catText = "<--"; }
+  let catText = "-->",
+    catCls = "";
+  if (m.kind === "connected") {
+    catText = "OK";
+    catCls = "ok";
+  } else if (m.kind === "disconnected" || m.kind === "error") {
+    catText = "ERR";
+    catCls = "bad";
+  } else if (m.kind === "notice") {
+    catText = "<--";
+  }
   cat.className = `stcat ${catCls}`.trim();
   cat.textContent = catText;
   const body = document.createElement("span");
@@ -610,8 +671,8 @@ function messageRow(m) {
   const row = document.createElement("div");
   row.dataset.id = m.id;
   const kind = classifyKind(m.kind);
-  const isMention = mentionsMe(m);
-  const self = isSelf(m);
+  const isMention = mentionsMe(m, state.me.nick);
+  const self = isSelf(m, state.me.nick);
   row.className = `msg ${kind === "message" ? "flat" : kind}${isMention ? " mention" : ""}${self ? " self" : ""}`;
 
   const ts = document.createElement("span");
@@ -623,8 +684,8 @@ function messageRow(m) {
   body.className = "body";
 
   if (kind === "sys") {
-    const arrowCls = m.kind === "join" ? "in" : (m.kind === "part" || m.kind === "quit") ? "out" : "nil";
-    const glyph = m.kind === "join" ? "→" : (m.kind === "part" || m.kind === "quit") ? "←" : "·";
+    const arrowCls = m.kind === "join" ? "in" : m.kind === "part" || m.kind === "quit" ? "out" : "nil";
+    const glyph = m.kind === "join" ? "→" : m.kind === "part" || m.kind === "quit" ? "←" : "·";
     gutter.innerHTML = `<span class="arrow ${arrowCls}">${glyph}</span>`;
     body.innerHTML = sysBodyHTML(m);
     row.append(ts, gutter, body);
@@ -640,7 +701,7 @@ function messageRow(m) {
 
   const nick = document.createElement("span");
   nick.className = `nick ${nickClass(m.sender || "")}`;
-  nick.textContent = kind === "notice" ? `-${m.sender || "*"}-` : (m.sender || "*");
+  nick.textContent = kind === "notice" ? `-${m.sender || "*"}-` : m.sender || "*";
   body.innerHTML = renderBodyHTML(m);
   if (kind === "action") {
     body.innerHTML = `${escapeHTML(m.sender || "")} ${renderBodyHTML(m)}`;
@@ -650,42 +711,9 @@ function messageRow(m) {
   return row;
 }
 
-function classifyKind(kind) {
-  if (["join", "part", "quit", "nick", "kick", "mode", "topic", "connected", "disconnected"].includes(kind)) return "sys";
-  if (kind === "notice") return "notice";
-  if (kind === "action") return "action";
-  return "message";
-}
-
 function renderBodyHTML(m) {
   const body = m.content || "";
-  return highlightMentions(linkify(inlineCode(escapeHTML(body))));
-}
-
-function sysBodyHTML(m) {
-  const sender = `<span class="nickref ${nickClass(m.sender || "")}">${escapeHTML(m.sender || "")}</span>`;
-  const extra = m.content ? ` (${escapeHTML(m.content)})` : "";
-  switch (m.kind) {
-    case "join": return `${sender} joined`;
-    case "part": return `${sender} left${extra}`;
-    case "quit": return `${sender} quit${extra}`;
-    case "nick": return m.target
-      ? `${sender} is now known as <span class="nickref ${nickClass(m.target)}">${escapeHTML(m.target)}</span>`
-      : escapeHTML(m.content || "nick change");
-    case "kick": return `<span class="nickref ${nickClass(m.target || "")}">${escapeHTML(m.target || "")}</span> was kicked by ${sender}${extra}`;
-    case "mode": return `${sender} set mode ${escapeHTML(m.content || "")}${m.target ? ` on ${escapeHTML(m.target)}` : ""}`;
-    case "topic": return `${sender} set topic: ${escapeHTML(m.content || "")}`;
-    case "connected": return "connected";
-    case "disconnected": return `disconnected${extra}`;
-    default: return escapeHTML(m.content || "");
-  }
-}
-
-function dayKeyOf(ts) {
-  if (!ts) return null;
-  const d = new Date(ts);
-  if (isNaN(d.getTime())) return null;
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  return highlightMentions(linkify(inlineCode(escapeHTML(body))), state.me.nick);
 }
 
 function daySeparator(ts) {
@@ -695,9 +723,15 @@ function daySeparator(ts) {
   const d = new Date(ts);
   const today = new Date();
   const isToday = d.toDateString() === today.toDateString();
-  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
   const isYesterday = d.toDateString() === yesterday.toDateString();
-  const dateLabel = d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  const dateLabel = d.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
   label.textContent = isToday ? `Today · ${dateLabel}` : isYesterday ? `Yesterday · ${dateLabel}` : dateLabel;
   sep.appendChild(label);
   return sep;
@@ -764,16 +798,19 @@ function populateMembersForActive() {
   }
   if (state.me.nick) names.add(state.me.nick);
   const sorted = [...names].sort((a, b) => a.localeCompare(b));
-  state.members.set(b.id, sorted.map((nick) => ({
-    nick,
-    prefix: nick === state.me.nick ? "+" : "",
-    away: false,
-    self: nick === state.me.nick,
-  })));
+  state.members.set(
+    b.id,
+    sorted.map((nick) => ({
+      nick,
+      prefix: nick === state.me.nick ? "+" : "",
+      away: false,
+      self: nick === state.me.nick,
+    })),
+  );
 }
 
 function membersForActive() {
-  return state.activeId != null ? (state.members.get(state.activeId) || []) : [];
+  return state.activeId != null ? state.members.get(state.activeId) || [] : [];
 }
 
 /* =================================================================
@@ -793,58 +830,8 @@ function setActive(id) {
   inputEl.focus();
 }
 
-function dotClass(status) {
-  if (status === "connected") return "on";
-  if (status === "connecting") return "warn";
-  return "bad";
-}
-
-function mentionsMe(m) {
-  if (!state.me.nick || !m.content) return false;
-  return new RegExp(`\\b${escapeRegExp(state.me.nick)}\\b`, "i").test(m.content);
-}
-
-function isSelf(m) {
-  return (m.sender || "").toLowerCase() === (state.me.nick || "").toLowerCase();
-}
-
-function nickClass(nick) {
-  let h = 5381;
-  const s = String(nick || "").toLowerCase();
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return `n${Math.abs(h) % 10}`;
-}
-
-function linkify(html) {
-  return html.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noreferrer">$1</a>');
-}
-
-function inlineCode(html) {
-  return html.replace(/`([^`]+)`/g, "<code>$1</code>");
-}
-
-function highlightMentions(html) {
-  if (!state.me.nick) return html;
-  const re = new RegExp(`\\b(${escapeRegExp(state.me.nick)})\\b`, "gi");
-  return html.replace(re, '<span class="selfmention">$1</span>');
-}
-
-function formatTime(iso) {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
-}
-
-function byName(a: Buffer, b: Buffer) { return a.name.localeCompare(b.name); }
-
-function escapeHTML(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-}
-
-function escapeRegExp(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function byName(a: Buffer, b: Buffer) {
+  return a.name.localeCompare(b.name);
 }
 
 function onMessagesScroll() {
@@ -916,7 +903,11 @@ function handleSlashCommand(text: string, buf: Buffer) {
 
 function initCmdPop() {
   inputEl.addEventListener("input", updateCmdPop);
-  inputEl.addEventListener("blur", () => setTimeout(() => { cmdPopEl.hidden = true; }, 100));
+  inputEl.addEventListener("blur", () =>
+    setTimeout(() => {
+      cmdPopEl.hidden = true;
+    }, 100),
+  );
 }
 
 function updateCmdPop() {
@@ -927,7 +918,10 @@ function updateCmdPop() {
   }
   const q = v.slice(1).split(/\s+/)[0].toLowerCase();
   const matches = SLASH_COMMANDS.filter((c) => c.cmd.slice(1).startsWith(q));
-  if (!matches.length) { cmdPopEl.hidden = true; return; }
+  if (!matches.length) {
+    cmdPopEl.hidden = true;
+    return;
+  }
   cmdPopEl.innerHTML = "";
   matches.forEach((c, i) => {
     const row = document.createElement("div");
@@ -953,9 +947,15 @@ function loadLayout(): LayoutSettings {
   try {
     const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}");
     return { ...DEFAULT_LAYOUT, ...saved };
-  } catch { return { ...DEFAULT_LAYOUT }; }
+  } catch {
+    return { ...DEFAULT_LAYOUT };
+  }
 }
-function saveLayout(l: LayoutSettings) { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(l)); } catch {} }
+function saveLayout(l: LayoutSettings) {
+  try {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(l));
+  } catch {}
+}
 
 function applyThemeDefaults() {
   document.documentElement.dataset.accent = "green";
