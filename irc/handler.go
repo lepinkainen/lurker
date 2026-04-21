@@ -130,10 +130,15 @@ func (h *handler) onPrivmsg(_ *girc.Client, e girc.Event) {
 		bufferKind = ircdb.BufferChannel
 		kind = "privmsg"
 	default:
-		if e.Source != nil {
-			bufName = e.Source.Name
+		if e.Command == girc.NOTICE && (e.Source == nil || e.Source.Ident == "") {
+			// Server notice (no userhost) — route to network status buffer.
+			bufferKind = ircdb.BufferStatus
+		} else {
+			if e.Source != nil {
+				bufName = e.Source.Name
+			}
+			bufferKind = ircdb.BufferQuery
 		}
-		bufferKind = ircdb.BufferQuery
 		kind = "privmsg"
 	}
 	if e.Command == girc.NOTICE {
