@@ -183,6 +183,7 @@ Assumptions:
 - no in-app auth
 - not internet-facing
 - exposed only through loopback, Tailnet, or equivalent private networking
+- TODO: Make the web UI "tailnet" indicator functional or relabel/remove it; it is currently a static decorative badge, not actual connectivity/detection state.
 
 Typical deployment:
 
