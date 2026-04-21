@@ -1,41 +1,71 @@
-// Minimal IRC client UI.
-//
-// Data flow:
-//   1. fetch /api/state to hydrate networks/buffers/messages
-//   2. open /api/stream (WebSocket) for live updates
-//   3. user actions → WS commands; server echoes + messages flow back.
+const TWEAKS_KEY = "lurker.tweaks";
+const LAYOUT_KEY = "lurker.layout";
+const DEFAULT_TWEAKS = {
+  accent: "blue",
+  density: "dense",
+  showSeconds: false,
+  showMemberList: true,
+};
+const DEFAULT_LAYOUT = { order: [], collapsed: {}, pinned: [] };
+
+const SLASH_COMMANDS = [
+  { cmd: "/join", args: "<channel>", desc: "Join a channel" },
+  { cmd: "/part", args: "[reason]", desc: "Leave the current channel" },
+  { cmd: "/msg", args: "<nick> <text>", desc: "Open a private message" },
+  { cmd: "/me", args: "<action>", desc: "Send a /me action" },
+  { cmd: "/nick", args: "<newnick>", desc: "Change your nick" },
+];
 
 const state = {
-  networks: new Map(), // id -> {id,name,host,...,status}
-  buffers: new Map(), // id -> {id,network_id,name,kind,topic,...}
-  messages: new Map(), // buffer_id -> [message,...] (oldest → newest)
+  networks: new Map(),
+  buffers: new Map(),
+  messages: new Map(),
+  members: new Map(),
   activeId: null,
-  pendingReqs: new Map(), // req_id -> resolver
   ws: null,
   wsReady: false,
   loadingHistory: new Set(),
   historyExhausted: new Set(),
-  searchResults: [],
   lastMarkedReadId: new Map(),
+  me: { nick: "you" },
+  tweaks: loadTweaks(),
+  layout: loadLayout(),
+  drag: { id: null, over: null },
 };
 
 const el = (id) => document.getElementById(id);
-const sidebarEl = el("buffer-list");
+const sbScrollEl = el("sb-scroll");
 const messagesEl = el("messages");
+const statusViewEl = el("status-view");
 const bufferNameEl = el("buffer-name");
 const bufferTopicEl = el("buffer-topic");
+const bufferMemcountEl = el("buffer-memcount");
+const memberCountInlineEl = el("member-count-inline");
+const toggleMembersEl = el("toggle-members");
 const inputEl = el("input");
 const inputForm = el("input-form");
-const connDot = el("conn-dot");
-const searchForm = el("search-form");
-const searchInput = el("search-input");
-const searchResultsEl = el("search-results");
-const searchStatusEl = el("search-status");
+const inputNickEl = el("input-nick");
+const cmdPopEl = el("cmd-pop");
+const memberListEl = el("member-list");
+const memberCountEl = el("member-count");
+const memberPaneEl = el("member-pane");
+const tweaksTabEl = el("tweaks-tab");
+const tweaksPanelEl = el("tweaks-panel");
+const tweaksCloseEl = el("tweaks-close");
 
 function init() {
+  applyTweaks(state.tweaks);
+  initTweaksPanel();
+  initCmdPop();
   inputForm.addEventListener("submit", onSubmit);
   messagesEl.addEventListener("scroll", onMessagesScroll);
-  if (searchForm) searchForm.addEventListener("submit", onSearch);
+  toggleMembersEl.addEventListener("click", () => {
+    state.tweaks.showMemberList = !state.tweaks.showMemberList;
+    saveTweaks(state.tweaks);
+    applyTweaks(state.tweaks);
+    syncTweaksPanel();
+    renderMembers();
+  });
   hydrate();
 }
 
@@ -44,14 +74,15 @@ async function hydrate() {
     const res = await fetch("/api/state");
     if (!res.ok) throw new Error("state " + res.status);
     const s = await res.json();
+    state.me.nick = s.current_nick || s.nick || s.user?.nick || "you";
+    inputNickEl.textContent = state.me.nick;
     for (const n of s.networks || []) state.networks.set(n.id, n);
-    for (const b of s.buffers || []) state.buffers.set(b.id, b);
-    for (const [id, msgs] of Object.entries(s.initial_messages || {})) {
-      state.messages.set(+id, msgs);
-    }
+    for (const b of s.buffers || []) state.buffers.set(b.id, { unread: 0, mentions: 0, ...b });
+    for (const [id, msgs] of Object.entries(s.initial_messages || {})) state.messages.set(+id, msgs);
+    inferUnreadCounts();
     renderSidebar();
     if (!state.activeId && state.buffers.size) {
-      const firstChannel = [...state.buffers.values()].find((b) => b.kind === "channel");
+      const firstChannel = [...state.buffers.values()].find((b) => b.kind === "channel" && b.joined !== false);
       setActive((firstChannel || state.buffers.values().next().value).id);
     }
     connectWS();
@@ -63,33 +94,22 @@ async function hydrate() {
 
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const url = proto + "//" + location.host + "/api/stream";
-  const ws = new WebSocket(url);
+  const ws = new WebSocket(proto + "//" + location.host + "/api/stream");
   state.ws = ws;
   ws.addEventListener("open", () => {
     state.wsReady = true;
-    connDot.classList.remove("offline");
-    connDot.classList.add("online");
-    connDot.title = "connected";
     updateInputEnabled();
     maybeMarkActiveRead();
+    renderSidebar();
   });
   ws.addEventListener("message", (ev) => {
-    let msg;
-    try {
-      msg = JSON.parse(ev.data);
-    } catch (e) {
-      console.warn("non-json ws frame", ev.data);
-      return;
-    }
-    handleWSMessage(msg);
+    try { handleWSMessage(JSON.parse(ev.data)); }
+    catch { console.warn("non-json ws frame", ev.data); }
   });
   ws.addEventListener("close", () => {
     state.wsReady = false;
-    connDot.classList.remove("online");
-    connDot.classList.add("offline");
-    connDot.title = "disconnected";
     updateInputEnabled();
+    renderSidebar();
     setTimeout(connectWS, 1000);
   });
   ws.addEventListener("error", () => ws.close());
@@ -108,7 +128,8 @@ function handleWSMessage(msg) {
         kind: msg.kind,
         joined: true,
         topic: "",
-        created_at: msg.created_at,
+        unread: 0,
+        mentions: 0,
         last_seen_id: 0,
       });
       renderSidebar();
@@ -121,34 +142,29 @@ function handleWSMessage(msg) {
       if (n) {
         n.status = msg.state;
         renderSidebar();
+        renderHeader();
       }
       break;
     }
     case "history_result":
       onHistoryResult(msg);
       break;
-    case "ack":
-      break;
-    case "error":
-      console.warn("server error", msg.message, "req_id=", msg.req_id);
-      break;
-    default:
-      console.debug("unknown ws type", msg.type, msg);
   }
 }
 
 function onMessage(msg) {
   const list = state.messages.get(msg.buffer_id) || [];
-  const idx = list.findIndex((m) => m.id === msg.id || (m.id < 0 && sameRenderedMessage(m, msg)));
-  if (idx >= 0) {
-    list[idx] = msg;
-  } else {
-    list.push(msg);
-  }
+  const idx = list.findIndex((m) => m.id === msg.id);
+  if (idx >= 0) list[idx] = msg; else list.push(msg);
   list.sort((a, b) => a.id - b.id);
   state.messages.set(msg.buffer_id, list);
+  const b = state.buffers.get(msg.buffer_id);
+  if (b && msg.buffer_id !== state.activeId && msg.id > (b.last_seen_id || 0)) {
+    b.unread = (b.unread || 0) + 1;
+    if (mentionsMe(msg)) b.mentions = (b.mentions || 0) + 1;
+  }
   if (msg.buffer_id === state.activeId) {
-    renderMessages();
+    renderActiveView();
     maybeMarkActiveRead();
   }
   renderSidebar();
@@ -160,206 +176,595 @@ function onBufferUpdate(msg) {
   if (Object.prototype.hasOwnProperty.call(msg, "topic")) b.topic = msg.topic || "";
   if (Object.prototype.hasOwnProperty.call(msg, "joined")) b.joined = !!msg.joined;
   if (Object.prototype.hasOwnProperty.call(msg, "last_seen_id")) b.last_seen_id = msg.last_seen_id || 0;
+  inferUnreadCounts();
+  renderHeader();
   renderSidebar();
-  if (msg.id === state.activeId) {
-    bufferTopicEl.textContent = b.topic || "";
-    updateInputEnabled();
-  }
 }
 
 function onHistoryResult(msg) {
   const existing = state.messages.get(msg.buffer_id) || [];
-  const knownIds = new Set(existing.map((m) => m.id));
-  const prepend = msg.messages.filter((m) => !knownIds.has(m.id));
+  const known = new Set(existing.map((m) => m.id));
+  const prepend = (msg.messages || []).filter((m) => !known.has(m.id));
   state.messages.set(msg.buffer_id, [...prepend, ...existing]);
   if (!prepend.length) state.historyExhausted.add(msg.buffer_id);
   state.loadingHistory.delete(msg.buffer_id);
   if (msg.buffer_id === state.activeId) {
     const oldHeight = messagesEl.scrollHeight;
-    renderMessages();
-    const newHeight = messagesEl.scrollHeight;
-    messagesEl.scrollTop = newHeight - oldHeight;
+    renderActiveView();
+    messagesEl.scrollTop = messagesEl.scrollHeight - oldHeight;
   }
+}
+
+function inferUnreadCounts() {
+  for (const b of state.buffers.values()) {
+    const list = state.messages.get(b.id) || [];
+    const lastSeen = b.last_seen_id || 0;
+    const unread = list.filter((m) => m.id > lastSeen).length;
+    const mentions = list.filter((m) => m.id > lastSeen && mentionsMe(m)).length;
+    b.unread = b.id === state.activeId ? 0 : unread;
+    b.mentions = b.id === state.activeId ? 0 : mentions;
+  }
+}
+
+/* =================================================================
+   Sidebar
+   ================================================================= */
+
+function orderedNetworks() {
+  const all = [...state.networks.values()];
+  const order = state.layout.order || [];
+  const rank = new Map(order.map((id, i) => [id, i]));
+  return all.sort((a, b) => {
+    const ra = rank.has(a.id) ? rank.get(a.id) : 1e9 + a.id;
+    const rb = rank.has(b.id) ? rank.get(b.id) : 1e9 + b.id;
+    return ra - rb;
+  });
 }
 
 function renderSidebar() {
-  const byNetwork = new Map();
-  for (const b of state.buffers.values()) {
-    if (!byNetwork.has(b.network_id)) byNetwork.set(b.network_id, []);
-    byNetwork.get(b.network_id).push(b);
+  if (!sbScrollEl) return;
+  sbScrollEl.innerHTML = "";
+
+  // Pinned section
+  const pinned = (state.layout.pinned || [])
+    .map((id) => state.buffers.get(id))
+    .filter(Boolean);
+  if (pinned.length) {
+    const sec = document.createElement("div");
+    sec.className = "sb-section";
+    const hdr = document.createElement("div");
+    hdr.className = "sb-hdr pinned-hdr";
+    hdr.innerHTML = '<span class="pinico">⚑</span><span class="title">Pinned</span>';
+    sec.appendChild(hdr);
+    for (const b of pinned) sec.appendChild(bufferRow(b, { pinned: true }));
+    sbScrollEl.appendChild(sec);
   }
-  sidebarEl.innerHTML = "";
-  for (const n of [...state.networks.values()].sort((a, b) => a.id - b.id)) {
-    const bufs = (byNetwork.get(n.id) || []).sort((a, b) => {
-      if (a.kind !== b.kind) {
-        const order = { status: 0, channel: 1, query: 2 };
-        return (order[a.kind] ?? 99) - (order[b.kind] ?? 99);
-      }
-      return a.name.localeCompare(b.name);
-    });
-    const block = document.createElement("div");
-    block.className = "network-block";
-    const h = document.createElement("div");
-    h.className = "network-header";
-    h.innerHTML = `<span>${escapeHTML(n.name)}</span>`;
-    const dot = document.createElement("span");
-    dot.className = "dot " + networkDotClass(n.status);
-    h.appendChild(dot);
-    block.appendChild(h);
-    for (const b of bufs) {
-      const item = document.createElement("div");
-      item.className = "buffer-item";
-      if (b.id === state.activeId) item.classList.add("active");
-      if (hasUnread(b.id)) item.classList.add("unread");
-      if (b.joined === false && b.kind === "channel") item.classList.add("inactive");
-      item.innerHTML = `<span>${escapeHTML(displayName(b))}</span><span class="kind">${bufferMeta(b)}</span>`;
-      item.addEventListener("click", () => setActive(b.id));
-      block.appendChild(item);
+
+  // Networks
+  const networks = orderedNetworks();
+  for (const n of networks) sbScrollEl.appendChild(networkSection(n));
+
+  // Add a network button
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "sb-add";
+  add.innerHTML = '<span>+</span><span>Add a network</span>';
+  add.style.cssText = "margin:10px 10px 6px;padding:6px 10px;width:calc(100% - 20px);display:flex;align-items:center;gap:8px;color:var(--fg-2);font-family:var(--sans);font-size:12px;border:1px dashed var(--hair-strong);border-radius:5px;";
+  sbScrollEl.appendChild(add);
+}
+
+function networkSection(n) {
+  const sec = document.createElement("div");
+  const collapsed = !!state.layout.collapsed[n.id];
+  sec.className = [
+    "sb-section",
+    "netsection",
+    state.drag.id === n.id && "dragging",
+    state.drag.over === n.id && state.drag.id !== n.id && "dragover",
+  ].filter(Boolean).join(" ");
+  sec.draggable = true;
+  sec.addEventListener("dragstart", (e) => {
+    state.drag.id = n.id;
+    try { e.dataTransfer.setData("text/plain", String(n.id)); e.dataTransfer.effectAllowed = "move"; } catch {}
+    sec.classList.add("dragging");
+  });
+  sec.addEventListener("dragend", () => {
+    state.drag.id = null;
+    state.drag.over = null;
+    renderSidebar();
+  });
+  sec.addEventListener("dragover", (e) => {
+    if (state.drag.id == null || state.drag.id === n.id) return;
+    e.preventDefault();
+    if (state.drag.over !== n.id) { state.drag.over = n.id; renderSidebar(); }
+  });
+  sec.addEventListener("dragleave", () => {
+    if (state.drag.over === n.id) { state.drag.over = null; }
+  });
+  sec.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const fromId = state.drag.id;
+    if (fromId != null && fromId !== n.id) reorderNetwork(fromId, n.id);
+    state.drag.id = null;
+    state.drag.over = null;
+    renderSidebar();
+  });
+
+  const netBufs = [...state.buffers.values()].filter((b) => b.network_id === n.id);
+  const statusB = netBufs.find((b) => b.kind === "status");
+  const channels = netBufs.filter((b) => b.kind === "channel" && b.joined !== false).sort(byName);
+  const queries = netBufs.filter((b) => b.kind === "query").sort(byName);
+  const parted = netBufs.filter((b) => b.kind === "channel" && b.joined === false).sort(byName);
+  const headerActive = statusB && state.activeId === statusB.id;
+  const dot = dotClass(n.status);
+  const unreadTotal = netBufs.reduce((s, b) => s + (b.unread || 0), 0);
+  const mentionTotal = netBufs.reduce((s, b) => s + (b.mentions || 0), 0);
+
+  const hdr = document.createElement("button");
+  hdr.type = "button";
+  hdr.className = ["sb-hdr", "net-hdr", headerActive && "active", collapsed && "collapsed", dot].filter(Boolean).join(" ");
+  hdr.title = `${n.host || ""} · ${n.status || "offline"} · click to show server log`;
+
+  const caret = document.createElement("span");
+  caret.className = "caret";
+  caret.textContent = collapsed ? "▸" : "▾";
+  caret.addEventListener("click", (e) => {
+    e.stopPropagation();
+    state.layout.collapsed[n.id] = !collapsed;
+    saveLayout(state.layout);
+    renderSidebar();
+  });
+  const grip = document.createElement("span");
+  grip.className = "grip";
+  grip.title = "Drag to reorder";
+  grip.textContent = "⋮⋮";
+  const name = document.createElement("span");
+  name.className = "netname";
+  name.textContent = n.name;
+  const actions = document.createElement("span");
+  actions.className = "netactions";
+  if (collapsed && mentionTotal > 0) {
+    actions.appendChild(badge("mentionbadge", mentionTotal));
+  } else if (collapsed && unreadTotal > 0) {
+    actions.appendChild(badge("unreadbadge", unreadTotal));
+  }
+  hdr.append(caret, grip, name, actions);
+  hdr.addEventListener("click", () => { if (statusB) setActive(statusB.id); });
+  sec.appendChild(hdr);
+
+  if (!collapsed) {
+    for (const b of channels) sec.appendChild(bufferRow(b));
+    for (const b of queries) sec.appendChild(bufferRow(b));
+    if (parted.length) {
+      const arch = document.createElement("button");
+      arch.type = "button";
+      arch.className = "sbrow archives";
+      const nm = document.createElement("span");
+      nm.className = "name"; nm.textContent = "Archives";
+      const cnt = document.createElement("span");
+      cnt.className = "archcount"; cnt.textContent = String(parted.length);
+      arch.append(nm, cnt);
+      arch.addEventListener("click", () => { if (statusB) setActive(statusB.id); });
+      sec.appendChild(arch);
     }
-    sidebarEl.appendChild(block);
+  }
+
+  return sec;
+}
+
+function bufferRow(b, opts = {}) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = [
+    "sbrow", "chan", b.kind,
+    opts.pinned && "pinned",
+    b.id === state.activeId && "active",
+    b.unread > 0 && "unread",
+    b.mentions > 0 && "mention",
+    b.kind === "channel" && b.joined === false && "parted",
+  ].filter(Boolean).join(" ");
+  const display = b.kind === "status" ? "(status)" : b.name;
+  const nm = document.createElement("span");
+  nm.className = "name";
+  nm.textContent = display;
+  btn.appendChild(nm);
+  if (b.mentions > 0) btn.appendChild(badge("mentionbadge", b.mentions));
+  else if (b.unread > 0) btn.appendChild(badge("unreadbadge", b.unread));
+  btn.addEventListener("click", () => setActive(b.id));
+  return btn;
+}
+
+function badge(cls, n) {
+  const el = document.createElement("span");
+  el.className = `badge ${cls}`;
+  el.textContent = n > 99 ? "99+" : String(n);
+  return el;
+}
+
+function reorderNetwork(fromId, toId) {
+  const ids = orderedNetworks().map((n) => n.id);
+  const fromIdx = ids.indexOf(fromId);
+  const toIdx = ids.indexOf(toId);
+  if (fromIdx < 0 || toIdx < 0) return;
+  const [moved] = ids.splice(fromIdx, 1);
+  ids.splice(toIdx, 0, moved);
+  state.layout.order = ids;
+  saveLayout(state.layout);
+}
+
+/* =================================================================
+   Header / Messages / Status view
+   ================================================================= */
+
+function renderHeader() {
+  const b = state.buffers.get(state.activeId);
+  if (!b) return;
+  const isChannel = b.kind === "channel";
+  bufferNameEl.innerHTML = "";
+  if (isChannel) {
+    const hash = document.createElement("span");
+    hash.className = "hash";
+    hash.textContent = "#";
+    bufferNameEl.append(hash, document.createTextNode(b.name.replace(/^#/, "")));
+  } else if (b.kind === "status") {
+    const n = state.networks.get(b.network_id);
+    bufferNameEl.textContent = n ? `${n.name} (status)` : "(status)";
+  } else {
+    bufferNameEl.textContent = b.name;
+  }
+
+  bufferTopicEl.innerHTML = "";
+  const topicText = document.createElement("span");
+  topicText.className = "topictext";
+  if (b.kind === "status") {
+    const n = state.networks.get(b.network_id);
+    topicText.textContent = n ? `${n.host || ""} · ${n.status || "offline"}` : "";
+  } else {
+    topicText.textContent = b.topic || "No topic set";
+    if (!b.topic) topicText.style.color = "var(--fg-3)";
+  }
+  bufferTopicEl.appendChild(topicText);
+  if (b.topic_set_by) {
+    const setter = document.createElement("span");
+    setter.style.cssText = "color:var(--fg-3);font-family:var(--mono);font-size:11px;margin-left:6px;";
+    setter.textContent = `— ${b.topic_set_by}`;
+    bufferTopicEl.appendChild(setter);
+  }
+  const edit = document.createElement("span");
+  edit.className = "edit";
+  edit.setAttribute("aria-hidden", "true");
+  edit.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 14l3.5-1L13 5.5 10.5 3 3 10.5 2 14z" stroke-linejoin="round"/><path d="M9.5 4L12 6.5"/></svg>';
+  bufferTopicEl.appendChild(edit);
+
+  inputEl.placeholder = `Message ${b.name}`;
+}
+
+function renderActiveView() {
+  const b = state.buffers.get(state.activeId);
+  if (!b) return;
+  if (b.kind === "status") {
+    messagesEl.hidden = true;
+    statusViewEl.hidden = false;
+    renderStatusView();
+  } else {
+    statusViewEl.hidden = true;
+    messagesEl.hidden = false;
+    renderMessages();
   }
 }
 
-function networkDotClass(status) {
-  if (status === "connected") return "online";
-  if (status === "connecting") return "connecting";
-  return "offline";
+function renderStatusView() {
+  statusViewEl.innerHTML = "";
+  const b = state.buffers.get(state.activeId);
+  if (!b) return;
+  const wrap = document.createElement("div");
+  wrap.className = "statuslines";
+  const list = state.messages.get(b.id) || [];
+  for (const m of list) wrap.appendChild(statusLine(m));
+  if (!list.length) {
+    const n = state.networks.get(b.network_id);
+    const empty = document.createElement("div");
+    empty.innerHTML = `<span class="stts">—</span><span class="stcat ok">ok</span><span class="stdim">${escapeHTML(n ? `connected to ${n.host || n.name}` : "no log entries yet")}</span>`;
+    wrap.appendChild(empty);
+  }
+  statusViewEl.appendChild(wrap);
+  statusViewEl.scrollTop = statusViewEl.scrollHeight;
 }
 
-function bufferMeta(b) {
-  if (b.kind === "channel") return b.joined === false ? "parted" : "channel";
-  return b.kind;
-}
-
-function hasUnread(bufferId) {
-  if (bufferId === state.activeId) return false;
-  const b = state.buffers.get(bufferId);
-  const list = state.messages.get(bufferId) || [];
-  if (!b || !list.length) return false;
-  return list[list.length - 1].id > (b.last_seen_id || 0);
-}
-
-function displayName(b) {
-  if (b.kind === "status") return "(status)";
-  return b.name;
-}
-
-function setActive(id) {
-  state.activeId = id;
-  const b = state.buffers.get(id);
-  bufferNameEl.textContent = b ? displayName(b) : "—";
-  bufferTopicEl.textContent = (b && b.topic) || "";
-  renderSidebar();
-  renderMessages();
-  updateInputEnabled();
-  maybeMarkActiveRead();
-  inputEl.focus();
+function statusLine(m) {
+  const row = document.createElement("div");
+  const ts = document.createElement("span");
+  ts.className = "stts";
+  ts.textContent = formatTime(m.ts);
+  const cat = document.createElement("span");
+  let catText = "-->", catCls = "";
+  if (m.kind === "connected") { catText = "OK"; catCls = "ok"; }
+  else if (m.kind === "disconnected" || m.kind === "error") { catText = "ERR"; catCls = "bad"; }
+  else if (m.kind === "notice") { catText = "<--"; }
+  cat.className = `stcat ${catCls}`.trim();
+  cat.textContent = catText;
+  const body = document.createElement("span");
+  body.className = "stdim";
+  body.textContent = (m.sender ? `${m.sender} ` : "") + (m.content || m.kind || "");
+  row.append(ts, cat, body);
+  return row;
 }
 
 function renderMessages() {
   messagesEl.innerHTML = "";
   const list = state.messages.get(state.activeId) || [];
-  const frag = document.createDocumentFragment();
-  for (const m of list) frag.appendChild(messageRow(m));
-  messagesEl.appendChild(frag);
+  const b = state.buffers.get(state.activeId);
+  const lastSeen = b?.last_seen_id || 0;
+  let unreadInserted = false;
+  let lastDayKey = null;
+
+  for (const m of list) {
+    const dayKey = dayKeyOf(m.ts);
+    if (dayKey && dayKey !== lastDayKey) {
+      messagesEl.appendChild(daySeparator(m.ts));
+      lastDayKey = dayKey;
+    }
+    if (!unreadInserted && m.id > lastSeen && state.activeId !== null && lastSeen > 0) {
+      const bar = document.createElement("div");
+      bar.className = "unreadbar";
+      const label = document.createElement("span");
+      label.textContent = "New messages";
+      bar.appendChild(label);
+      messagesEl.appendChild(bar);
+      unreadInserted = true;
+    }
+    messagesEl.appendChild(messageRow(m));
+  }
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 function messageRow(m) {
   const row = document.createElement("div");
-  row.className = "msg " + m.kind;
   row.dataset.id = m.id;
-  const ts = formatTime(m.ts);
-  row.innerHTML = `
-    <span class="ts">${ts}</span>
-    <span class="sender"></span>
-    <span class="content"></span>`;
-  row.querySelector(".sender").textContent = senderLabel(m);
-  row.querySelector(".content").textContent = renderBody(m);
+  const kind = classifyKind(m.kind);
+  const isMention = mentionsMe(m);
+  const self = isSelf(m);
+  row.className = `msg ${kind === "message" ? "flat" : kind}${isMention ? " mention" : ""}${self ? " self" : ""}`;
+
+  const ts = document.createElement("span");
+  ts.className = "ts";
+  ts.textContent = formatTime(m.ts);
+  const gutter = document.createElement("span");
+  gutter.className = "gutter";
+  const body = document.createElement("span");
+  body.className = "body";
+
+  if (kind === "sys") {
+    const arrowCls = m.kind === "join" ? "in" : (m.kind === "part" || m.kind === "quit") ? "out" : "nil";
+    const glyph = m.kind === "join" ? "→" : (m.kind === "part" || m.kind === "quit") ? "←" : "·";
+    gutter.innerHTML = `<span class="arrow ${arrowCls}">${glyph}</span>`;
+    body.innerHTML = sysBodyHTML(m);
+    row.append(ts, gutter, body);
+    return row;
+  }
+  if (kind === "notice") {
+    gutter.textContent = "!";
+  } else if (kind === "action") {
+    gutter.textContent = "*";
+  } else {
+    gutter.textContent = "H";
+  }
+
+  const nick = document.createElement("span");
+  nick.className = `nick ${nickClass(m.sender || "")}`;
+  nick.textContent = kind === "notice" ? `-${m.sender || "*"}-` : (m.sender || "*");
+  body.innerHTML = renderBodyHTML(m);
+  if (kind === "action") {
+    body.innerHTML = `${escapeHTML(m.sender || "")} ${renderBodyHTML(m)}`;
+  }
+
+  row.append(ts, gutter, nick, body);
   return row;
 }
 
-function senderLabel(m) {
+function classifyKind(kind) {
+  if (["join", "part", "quit", "nick", "kick", "mode", "topic", "connected", "disconnected"].includes(kind)) return "sys";
+  if (kind === "notice") return "notice";
+  if (kind === "action") return "action";
+  return "message";
+}
+
+function renderBodyHTML(m) {
+  const body = m.content || "";
+  return highlightMentions(linkify(inlineCode(escapeHTML(body))));
+}
+
+function sysBodyHTML(m) {
+  const sender = `<span class="nickref ${nickClass(m.sender || "")}">${escapeHTML(m.sender || "")}</span>`;
+  const extra = m.content ? ` (${escapeHTML(m.content)})` : "";
   switch (m.kind) {
-    case "join":
-    case "part":
-    case "quit":
-    case "nick":
-    case "kick":
-    case "mode":
-    case "topic":
-    case "connected":
-    case "disconnected":
-      return "—";
-    default:
-      return m.sender;
+    case "join": return `${sender} joined`;
+    case "part": return `${sender} left${extra}`;
+    case "quit": return `${sender} quit${extra}`;
+    case "nick": return m.target
+      ? `${sender} is now known as <span class="nickref ${nickClass(m.target)}">${escapeHTML(m.target)}</span>`
+      : escapeHTML(m.content || "nick change");
+    case "kick": return `<span class="nickref ${nickClass(m.target || "")}">${escapeHTML(m.target || "")}</span> was kicked by ${sender}${extra}`;
+    case "mode": return `${sender} set mode ${escapeHTML(m.content || "")}${m.target ? ` on ${escapeHTML(m.target)}` : ""}`;
+    case "topic": return `${sender} set topic: ${escapeHTML(m.content || "")}`;
+    case "connected": return "connected";
+    case "disconnected": return `disconnected${extra}`;
+    default: return escapeHTML(m.content || "");
   }
 }
 
-function renderBody(m) {
-  switch (m.kind) {
-    case "join":
-      return `${m.sender} joined`;
-    case "part":
-      return `${m.sender} left${m.content ? " (" + m.content + ")" : ""}`;
-    case "quit":
-      return `${m.sender} quit${m.content ? " (" + m.content + ")" : ""}`;
-    case "nick":
-      return `${m.sender} is now known as ${m.target}`;
-    case "kick":
-      return `${m.target} was kicked by ${m.sender}${m.content ? " (" + m.content + ")" : ""}`;
-    case "mode":
-      return `${m.sender} set mode ${m.content}${m.target ? " on " + m.target : ""}`;
-    case "topic":
-      return `${m.sender} set topic: ${m.content}`;
-    case "connected":
-      return "connected";
-    case "disconnected":
-      return "disconnected" + (m.content ? " (" + m.content + ")" : "");
-    default:
-      return m.content;
+function dayKeyOf(ts) {
+  if (!ts) return null;
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function daySeparator(ts) {
+  const sep = document.createElement("div");
+  sep.className = "daysep";
+  const label = document.createElement("span");
+  const d = new Date(ts);
+  const today = new Date();
+  const isToday = d.toDateString() === today.toDateString();
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+  const dateLabel = d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  label.textContent = isToday ? `Today · ${dateLabel}` : isYesterday ? `Yesterday · ${dateLabel}` : dateLabel;
+  sep.appendChild(label);
+  return sep;
+}
+
+/* =================================================================
+   Members
+   ================================================================= */
+
+function renderMembers() {
+  const active = state.buffers.get(state.activeId);
+  const isChannel = active && active.kind === "channel";
+  const showPane = state.tweaks.showMemberList && isChannel;
+  memberPaneEl.dataset.hidden = showPane ? "false" : "true";
+  toggleMembersEl.classList.toggle("toggled", state.tweaks.showMemberList);
+
+  const members = isChannel ? membersForActive() : [];
+  memberCountEl.textContent = String(members.length);
+  memberCountInlineEl.textContent = String(members.length);
+  bufferMemcountEl.hidden = !isChannel;
+
+  memberListEl.innerHTML = "";
+  if (!showPane) return;
+
+  const groups = [
+    ["ops", members.filter((m) => m.prefix === "@")],
+    ["half-ops", members.filter((m) => m.prefix === "%")],
+    ["voice", members.filter((m) => m.prefix === "+")],
+    ["regulars", members.filter((m) => !m.prefix)],
+  ];
+  for (const [name, items] of groups) {
+    if (!items.length) continue;
+    const h = document.createElement("div");
+    h.className = "mgroup";
+    h.textContent = `${name} · ${items.length}`;
+    memberListEl.appendChild(h);
+    for (const m of items) memberListEl.appendChild(memberRow(m));
   }
 }
 
-function appendMessageRow(m, stickToBottom) {
-  messagesEl.appendChild(messageRow(m));
-  if (stickToBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+function memberRow(m) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = `member ${m.away ? "away" : ""} ${m.self ? "me" : ""}`.trim();
+  const cls = m.prefix === "@" ? "op" : m.prefix === "%" ? "hop" : m.prefix === "+" ? "voice" : "none";
+  const pfx = document.createElement("span");
+  pfx.className = `pfx ${cls}`;
+  pfx.textContent = m.prefix || "\u00a0";
+  const mn = document.createElement("span");
+  mn.className = `mn ${nickClass(m.nick)}`;
+  mn.textContent = m.nick;
+  btn.append(pfx, mn);
+  return btn;
 }
 
-function sameRenderedMessage(a, b) {
-  return a.kind === b.kind && a.sender === b.sender && a.content === b.content && a.buffer_id === b.buffer_id;
-}
-
-function atBottom() {
-  const gap = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
-  return gap < 40;
-}
-
-function updateInputEnabled() {
+function populateMembersForActive() {
   const b = state.buffers.get(state.activeId);
-  inputEl.disabled = !(state.wsReady && b && (b.kind !== "status") && !(b.kind === "channel" && b.joined === false));
+  state.members.clear();
+  if (!b || b.kind !== "channel") return;
+  const names = new Set();
+  for (const m of state.messages.get(b.id) || []) {
+    if (m.sender) names.add(m.sender);
+    if (m.target && ["kick", "nick"].includes(m.kind)) names.add(m.target);
+  }
+  if (state.me.nick) names.add(state.me.nick);
+  const sorted = [...names].sort((a, b) => a.localeCompare(b));
+  for (const nick of sorted) {
+    state.members.set(nick, {
+      nick,
+      prefix: nick === state.me.nick ? "+" : "",
+      away: false,
+      self: nick === state.me.nick,
+    });
+  }
+}
+
+function membersForActive() {
+  return [...state.members.values()];
+}
+
+/* =================================================================
+   Active buffer
+   ================================================================= */
+
+function setActive(id) {
+  state.activeId = id;
+  inferUnreadCounts();
+  populateMembersForActive();
+  renderSidebar();
+  renderHeader();
+  renderActiveView();
+  renderMembers();
+  updateInputEnabled();
+  maybeMarkActiveRead();
+  inputEl.focus();
+}
+
+function dotClass(status) {
+  if (status === "connected") return "on";
+  if (status === "connecting") return "warn";
+  return "bad";
+}
+
+function mentionsMe(m) {
+  if (!state.me.nick || !m.content) return false;
+  return new RegExp(`\\b${escapeRegExp(state.me.nick)}\\b`, "i").test(m.content);
+}
+
+function isSelf(m) {
+  return (m.sender || "").toLowerCase() === (state.me.nick || "").toLowerCase();
+}
+
+function nickClass(nick) {
+  let h = 5381;
+  const s = String(nick || "").toLowerCase();
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return `n${Math.abs(h) % 10}`;
+}
+
+function linkify(html) {
+  return html.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noreferrer">$1</a>');
+}
+
+function inlineCode(html) {
+  return html.replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function highlightMentions(html) {
+  if (!state.me.nick) return html;
+  const re = new RegExp(`\\b(${escapeRegExp(state.me.nick)})\\b`, "gi");
+  return html.replace(re, '<span class="selfmention">$1</span>');
 }
 
 function formatTime(iso) {
   const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso || "";
-  return (
-    String(d.getHours()).padStart(2, "0") +
-    ":" +
-    String(d.getMinutes()).padStart(2, "0") +
-    ":" +
-    String(d.getSeconds()).padStart(2, "0")
-  );
+  if (isNaN(d.getTime())) return "";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  if (!state.tweaks.showSeconds) return `${hh}:${mm}`;
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
 }
+
+function byName(a, b) { return a.name.localeCompare(b.name); }
 
 function escapeHTML(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function onMessagesScroll() {
-  if (messagesEl.scrollTop <= 40) {
-    loadOlderHistory();
-  }
+  if (messagesEl.scrollTop <= 40) loadOlderHistory();
   maybeMarkActiveRead();
 }
 
@@ -381,9 +786,16 @@ function maybeMarkActiveRead() {
   const sent = state.lastMarkedReadId.get(b.id) || 0;
   if (lastId <= current || lastId <= sent) return;
   b.last_seen_id = lastId;
+  b.unread = 0;
+  b.mentions = 0;
   state.lastMarkedReadId.set(b.id, lastId);
   renderSidebar();
   sendCmd({ type: "mark_read", buffer_id: b.id, message_id: lastId });
+}
+
+function updateInputEnabled() {
+  const b = state.buffers.get(state.activeId);
+  inputEl.disabled = !(state.wsReady && b && b.kind !== "status" && !(b.kind === "channel" && b.joined === false));
 }
 
 function onSubmit(ev) {
@@ -395,98 +807,130 @@ function onSubmit(ev) {
   if (text.startsWith("/")) {
     if (handleSlashCommand(text, buf)) {
       inputEl.value = "";
+      updateCmdPop();
     }
     return;
   }
   sendCmd({ type: "send", buffer_id: buf.id, content: text });
   inputEl.value = "";
+  updateCmdPop();
 }
 
 function handleSlashCommand(text, buf) {
   const [cmd, ...rest] = text.slice(1).split(/\s+/);
   switch ((cmd || "").toLowerCase()) {
-    case "join": {
-      const channel = rest.join(" ").trim();
-      if (!channel) return true;
-      sendCmd({ type: "join", network_id: buf.network_id, channel });
+    case "join":
+      sendCmd({ type: "join", network_id: buf.network_id, channel: rest.join(" ").trim() });
       return true;
-    }
-    case "part": {
-      if (buf.kind !== "channel") return true;
-      const reason = rest.join(" ").trim();
-      sendCmd({ type: "part", buffer_id: buf.id, content: reason });
+    case "part":
+      sendCmd({ type: "part", buffer_id: buf.id, content: rest.join(" ").trim() });
       return true;
-    }
     default:
       return false;
   }
 }
 
-async function onSearch(ev) {
-  ev.preventDefault();
-  const q = (searchInput.value || "").trim();
-  if (!q) {
-    state.searchResults = [];
-    renderSearchResults();
+function initCmdPop() {
+  inputEl.addEventListener("input", updateCmdPop);
+  inputEl.addEventListener("blur", () => setTimeout(() => { cmdPopEl.hidden = true; }, 100));
+}
+
+function updateCmdPop() {
+  const v = inputEl.value;
+  if (!v.startsWith("/")) {
+    cmdPopEl.hidden = true;
     return;
   }
-  searchStatusEl.textContent = "searching…";
-  const params = new URLSearchParams({ q });
-  if (state.activeId) params.set("buffer", String(state.activeId));
-  const res = await fetch("/api/search?" + params.toString());
-  const body = await res.json();
-  state.searchResults = body.results || [];
-  searchStatusEl.textContent = `${state.searchResults.length} result(s)`;
-  renderSearchResults();
-}
-
-function renderSearchResults() {
-  if (!searchResultsEl) return;
-  searchResultsEl.innerHTML = "";
-  for (const r of state.searchResults) {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "search-result";
-    row.innerHTML = `<span class="search-meta">${escapeHTML(formatTime(r.ts))} · ${escapeHTML(r.sender || "*")}</span><span class="search-body">${escapeHTML(r.content || renderBody(r))}</span>`;
-    row.addEventListener("click", async () => {
-      if (state.activeId !== r.buffer_id) setActive(r.buffer_id);
-      await ensureMessageVisible(r.buffer_id, r.id);
-      scrollToMessage(r.id);
-    });
-    searchResultsEl.appendChild(row);
-  }
-}
-
-async function ensureMessageVisible(bufferId, messageId) {
-  let list = state.messages.get(bufferId) || [];
-  let guard = 0;
-  while (!list.some((m) => m.id === messageId) && guard < 20) {
-    if (!list.length) break;
-    const before = list[0].id;
-    const res = await fetch(`/api/buffers/${bufferId}/history?before=${before}&limit=200`);
-    if (!res.ok) break;
-    const body = await res.json();
-    const prepend = (body.messages || []).filter((m) => !list.some((existing) => existing.id === m.id));
-    if (!prepend.length) break;
-    list = [...prepend, ...list];
-    state.messages.set(bufferId, list);
-    guard += 1;
-  }
-  if (bufferId === state.activeId) renderMessages();
-}
-
-function scrollToMessage(messageId) {
-  const node = messagesEl.querySelector(`[data-id="${messageId}"]`);
-  if (!node) return;
-  node.scrollIntoView({ block: "center" });
-  node.classList.add("flash");
-  setTimeout(() => node.classList.remove("flash"), 1200);
+  const q = v.slice(1).split(/\s+/)[0].toLowerCase();
+  const matches = SLASH_COMMANDS.filter((c) => c.cmd.slice(1).startsWith(q));
+  if (!matches.length) { cmdPopEl.hidden = true; return; }
+  cmdPopEl.innerHTML = "";
+  matches.forEach((c, i) => {
+    const row = document.createElement("div");
+    row.className = `ci ${i === 0 ? "hl" : ""}`;
+    row.innerHTML = `<span class="c">${c.cmd} <span style="color:var(--fg-2);font-weight:400">${escapeHTML(c.args)}</span></span><span class="d">${escapeHTML(c.desc)}</span>`;
+    cmdPopEl.appendChild(row);
+  });
+  cmdPopEl.hidden = false;
 }
 
 let reqSeq = 0;
 function sendCmd(cmd) {
-  cmd.req_id = cmd.req_id || "r" + ++reqSeq;
+  if (!state.ws) return;
+  cmd.req_id = cmd.req_id || `r${++reqSeq}`;
   state.ws.send(JSON.stringify(cmd));
+}
+
+/* =================================================================
+   Persistence
+   ================================================================= */
+
+function loadTweaks() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(TWEAKS_KEY) || "{}");
+    return { ...DEFAULT_TWEAKS, ...saved };
+  } catch { return { ...DEFAULT_TWEAKS }; }
+}
+function saveTweaks(t) { try { localStorage.setItem(TWEAKS_KEY, JSON.stringify(t)); } catch {} }
+
+function loadLayout() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}");
+    return { ...DEFAULT_LAYOUT, ...saved };
+  } catch { return { ...DEFAULT_LAYOUT }; }
+}
+function saveLayout(l) { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(l)); } catch {} }
+
+function applyTweaks(t) {
+  document.documentElement.dataset.accent = t.accent;
+  document.documentElement.dataset.density = t.density;
+}
+
+function initTweaksPanel() {
+  tweaksTabEl.addEventListener("click", () => {
+    tweaksPanelEl.hidden = false;
+    tweaksTabEl.hidden = true;
+  });
+  tweaksCloseEl.addEventListener("click", () => {
+    tweaksPanelEl.hidden = true;
+    tweaksTabEl.hidden = false;
+  });
+  for (const seg of tweaksPanelEl.querySelectorAll(".seg")) {
+    const key = seg.dataset.tweak;
+    for (const btn of seg.querySelectorAll("button")) {
+      btn.addEventListener("click", () => {
+        state.tweaks[key] = btn.dataset.value;
+        saveTweaks(state.tweaks);
+        applyTweaks(state.tweaks);
+        syncTweaksPanel();
+      });
+    }
+  }
+  for (const sw of tweaksPanelEl.querySelectorAll(".switch")) {
+    const key = sw.dataset.tweak;
+    sw.addEventListener("click", () => {
+      state.tweaks[key] = !state.tweaks[key];
+      saveTweaks(state.tweaks);
+      applyTweaks(state.tweaks);
+      renderMembers();
+      if (state.activeId) renderActiveView();
+      syncTweaksPanel();
+    });
+  }
+  syncTweaksPanel();
+}
+
+function syncTweaksPanel() {
+  for (const seg of tweaksPanelEl.querySelectorAll(".seg")) {
+    const key = seg.dataset.tweak;
+    for (const btn of seg.querySelectorAll("button")) {
+      btn.classList.toggle("sel", state.tweaks[key] === btn.dataset.value);
+    }
+  }
+  for (const sw of tweaksPanelEl.querySelectorAll(".switch")) {
+    const key = sw.dataset.tweak;
+    sw.classList.toggle("on", !!state.tweaks[key]);
+  }
 }
 
 init();
