@@ -8,7 +8,6 @@
 .envrc
 config.yaml
 coverage.out
-.pi/todos/
 .rodney/
 web/node_modules/
 web/dist/
