@@ -1,265 +1,84 @@
-//go:build integration
-
 package irc
 
 import (
-	"bufio"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
-	"fmt"
-	"math/big"
-	"net"
-	"os"
-	"path/filepath"
-	"strings"
+	"context"
+	"database/sql"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/lepinkainen/research/irc-service/db"
+	"github.com/lrstanley/girc"
+
+	ircdb "github.com/lepinkainen/research/irc-service/db"
 	"github.com/lepinkainen/research/irc-service/hub"
 )
 
-// fakeIRCServer is a minimal ircd that accepts one client, completes the
-// USER/NICK handshake, and then lets tests drive the conversation by
-// calling Send. The advertised caps are controlled by the `caps` field.
-type fakeIRCServer struct {
-	t     *testing.T
-	ln    net.Listener
-	conn  net.Conn
-	rd    *bufio.Reader
-	wr    *bufio.Writer
-	ready chan struct{}
-	caps  string // space-separated caps to advertise in CAP LS
-}
-
-func newFakeIRC(t *testing.T) *fakeIRCServer {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := &fakeIRCServer{t: t, ln: ln, ready: make(chan struct{})}
-	go s.loop()
-	return s
-}
-
-func newFakeIRCTLSWithCert(t *testing.T, cert tls.Certificate) *fakeIRCServer {
-	t.Helper()
-	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := &fakeIRCServer{t: t, ln: ln, ready: make(chan struct{})}
-	go s.loop()
-	return s
-}
-
-func (s *fakeIRCServer) addr() (host string, port int) {
-	a := s.ln.Addr().(*net.TCPAddr)
-	return a.IP.String(), a.Port
-}
-
-func (s *fakeIRCServer) loop() {
-	c, err := s.ln.Accept()
-	if err != nil {
-		return
-	}
-	s.conn = c
-	s.rd = bufio.NewReader(c)
-	s.wr = bufio.NewWriter(c)
-
-	nick := ""
-	welcomed := false
-	for {
-		line, err := s.rd.ReadString('\n')
-		if err != nil {
-			return
-		}
-		line = strings.TrimRight(line, "\r\n")
-		switch {
-		case strings.HasPrefix(line, "CAP LS"):
-			s.send(":fake CAP * LS :%s", s.caps)
-		case strings.HasPrefix(line, "CAP REQ"):
-			reqIdx := strings.Index(line, ":")
-			req := ""
-			if reqIdx >= 0 {
-				req = line[reqIdx+1:]
-			}
-			s.send(":fake CAP * ACK :%s", req)
-		case strings.HasPrefix(line, "CAP END"):
-		case strings.HasPrefix(line, "NICK "):
-			nick = strings.TrimPrefix(line, "NICK ")
-		case strings.HasPrefix(line, "USER "):
-			if nick == "" {
-				nick = "tester"
-			}
-			if !welcomed {
-				welcomed = true
-				s.send(":fake 001 %s :Welcome", nick)
-				s.send(":fake 002 %s :Your host", nick)
-				s.send(":fake 003 %s :This server was created", nick)
-				s.send(":fake 004 %s fake 1.0 o o", nick)
-				s.send(":fake 005 %s CHANTYPES=# :are supported", nick)
-				s.send(":fake 376 %s :End of MOTD", nick)
-				close(s.ready)
-			}
-		case strings.HasPrefix(line, "JOIN "):
-			channel := strings.TrimPrefix(line, "JOIN ")
-			s.send(":%s!~u@h JOIN %s", nick, channel)
-			s.send(":fake 353 %s = %s :%s", nick, channel, nick)
-			s.send(":fake 366 %s %s :End of NAMES", nick, channel)
-		case strings.HasPrefix(line, "PING "):
-			s.send(":fake PONG fake %s", strings.TrimPrefix(line, "PING "))
-		case strings.HasPrefix(line, "QUIT"):
-			return
-		}
-	}
-}
-
-func (s *fakeIRCServer) send(format string, args ...any) {
-	if s.wr == nil {
-		return
-	}
-	fmt.Fprintf(s.wr, format+"\r\n", args...)
-	s.wr.Flush()
-}
-
-func (s *fakeIRCServer) injectPrivmsg(channel, from, text string) {
-	s.send(":%s!~u@h PRIVMSG %s :%s", from, channel, text)
-}
-
-func (s *fakeIRCServer) injectTaggedPrivmsg(tags, channel, from, text string) {
-	s.send("@%s :%s!~u@h PRIVMSG %s :%s", tags, from, channel, text)
-}
-
-func (s *fakeIRCServer) close() {
-	s.ln.Close()
-	if s.conn != nil {
-		s.conn.Close()
-	}
-}
-
 func TestManagerPersistsMessages(t *testing.T) {
 	dir := t.TempDir()
-	stores, err := db.OpenMultiStore(dir)
+	stores, err := ircdb.OpenMultiStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer stores.Close()
 
-	srv := newFakeIRC(t)
-	defer srv.close()
-	host, port := srv.addr()
-
-	ctx := t.Context()
-
-	mgr := NewManager(stores, nil)
-	err = mgr.Start(ctx, []NetworkConfig{{
-		Name: "fake",
-		Servers: []ServerConfig{{
-			Host: host, Port: port, TLS: false,
-		}},
-		Nick:     "tester",
-		User:     "tester",
-		Realname: "tester",
-		Channels: []string{"#test"},
-	}})
+	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	select {
-	case <-srv.ready:
-	case <-time.After(3 * time.Second):
-		t.Fatal("server never saw registration")
+	logStore, err := stores.LogStore(netrow.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	waitFor(t, 5*time.Second, func() bool {
-		logStore, _ := stores.LogStore(1)
-		row := logStore.DB.QueryRow(`SELECT COUNT(*) FROM buffers WHERE name='#test'`)
-		var n int
-		row.Scan(&n)
-		return n == 1
-	}, "join never landed")
+	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
 
-	srv.injectPrivmsg("#test", "alice", "hello from fake")
+	h.onJoin(nil, mustEvent(t, ":tester!~u@h JOIN #test"))
+	h.onPrivmsg(nil, mustEvent(t, ":alice!~u@h PRIVMSG #test :hello from fake"))
 
-	waitFor(t, 5*time.Second, func() bool {
-		var n int
-		logStore, _ := stores.LogStore(1)
-		logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE kind='privmsg' AND content='hello from fake'`).Scan(&n)
-		return n == 1
-	}, "privmsg never persisted")
+	var n int
+	logStore.DB.QueryRow(`SELECT COUNT(*) FROM buffers WHERE name='#test'`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("channel buffer count = %d, want 1", n)
+	}
+
+	logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE kind='privmsg' AND content='hello from fake'`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("persisted privmsg count = %d, want 1", n)
+	}
 
 	var hit string
-	logStore, _ := stores.LogStore(1)
 	err = logStore.DB.QueryRow(`SELECT content FROM messages_fts WHERE messages_fts MATCH 'fake' LIMIT 1`).Scan(&hit)
-	if err != nil || !strings.Contains(hit, "hello from fake") {
+	if err != nil || hit != "hello from fake" {
 		t.Fatalf("fts hit = %q, err = %v", hit, err)
 	}
-
-	mgr.Wait()
 }
 
 func TestMsgIDDedupAndServerTime(t *testing.T) {
 	dir := t.TempDir()
-	stores, err := db.OpenMultiStore(dir)
+	stores, err := ircdb.OpenMultiStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer stores.Close()
 
-	srv := newFakeIRC(t)
-	srv.caps = "message-tags server-time msgid batch"
-	defer srv.close()
-	host, port := srv.addr()
-
-	ctx := t.Context()
-
-	mgr := NewManager(stores, nil)
-	err = mgr.Start(ctx, []NetworkConfig{{
-		Name: "fake",
-		Servers: []ServerConfig{{
-			Host: host, Port: port, TLS: false,
-		}},
-		Nick: "tester", User: "tester", Realname: "tester",
-		Channels: []string{"#test"},
-	}})
+	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	select {
-	case <-srv.ready:
-	case <-time.After(3 * time.Second):
-		t.Fatal("server never saw registration")
+	logStore, err := stores.LogStore(netrow.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	waitFor(t, 5*time.Second, func() bool {
-		var n int
-		logStore, _ := stores.LogStore(1)
-		logStore.DB.QueryRow(`SELECT COUNT(*) FROM buffers WHERE name='#test'`).Scan(&n)
-		return n == 1
-	}, "join never landed")
+	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+
+	h.onJoin(nil, mustEvent(t, ":tester!~u@h JOIN #test"))
 
 	const msgid = "mid-42"
 	const serverTime = "2025-01-02T03:04:05.678Z"
-	tags := "time=" + serverTime + ";msgid=" + msgid
-	srv.injectTaggedPrivmsg(tags, "#test", "alice", "once")
+	e := mustEvent(t, "@time="+serverTime+";msgid="+msgid+" :alice!~u@h PRIVMSG #test :once")
+	h.onPrivmsg(nil, e)
+	h.onPrivmsg(nil, e)
 
-	waitFor(t, 5*time.Second, func() bool {
-		var n int
-		logStore, _ := stores.LogStore(1)
-		logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE msgid=?`, msgid).Scan(&n)
-		return n == 1
-	}, "tagged privmsg never landed")
-
-	srv.injectTaggedPrivmsg(tags, "#test", "alice", "once")
-	time.Sleep(250 * time.Millisecond)
-
-	logStore, _ := stores.LogStore(1)
 	var count int
 	if err := logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE msgid=?`, msgid).Scan(&count); err != nil {
 		t.Fatal(err)
@@ -280,8 +99,188 @@ func TestMsgIDDedupAndServerTime(t *testing.T) {
 	if !gotParsed.Equal(want) {
 		t.Fatalf("ts mismatch: got %s, want %s", gotParsed, want)
 	}
+}
 
-	mgr.Wait()
+func TestPublishMemberListUsesTrackedMembers(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stores.Close()
+
+	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logStore, err := stores.LogStore(netrow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := hub.New()
+	client := newTestClient(t, "tester")
+	handler := &handler{stores: stores, db: logStore.DB, hub: h, networkID: netrow.ID, networkName: "fake"}
+	handler.register(client)
+
+	runClientEvent(client, mustEvent(t, ":tester!u@h JOIN #test"))
+	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :tester"))
+
+	events, unsub := h.Subscribe(16)
+	defer unsub()
+	handler.onEndOfNames(client, mustEvent(t, ":fake 366 tester #test :End of NAMES"))
+
+	var memberList *MemberListEvent
+	for range 8 {
+		select {
+		case ev := <-events:
+			ml, ok := ev.(*MemberListEvent)
+			if ok && ml.Channel == "#test" {
+				memberList = ml
+			}
+		default:
+		}
+	}
+	if memberList == nil {
+		t.Fatal("member_list event never published")
+	}
+	if len(memberList.Members) != 1 || memberList.Members[0].Nick != "tester" || !memberList.Members[0].Self {
+		t.Fatalf("member list = %+v, want self tester", memberList.Members)
+	}
+}
+
+func TestManagerStartAndStopNetworkIndividually(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stores.Close()
+
+	ctx := t.Context()
+	m := NewManager(stores, nil)
+	f := &fakeConnector{waitForClose: true}
+	m.connector = f.connect
+
+	n1, err := stores.UpsertNetwork(ctx, ircdb.Network{Name: "NetOne", Host: "127.0.0.1", Port: 6667, TLS: false, Nick: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n2, err := stores.UpsertNetwork(ctx, ircdb.Network{Name: "NetTwo", Host: "127.0.0.1", Port: 6668, TLS: false, Nick: "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.StartNetwork(ctx, n1.ID, NetworkConfig{Name: n1.Name, Servers: []ServerConfig{{Host: "127.0.0.1", Port: 6667}}, Nick: "a", User: "a", Realname: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.StartNetwork(ctx, n2.ID, NetworkConfig{Name: n2.Name, Servers: []ServerConfig{{Host: "127.0.0.1", Port: 6668}}, Nick: "b", User: "b", Realname: "b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, time.Second, func() bool {
+		return f.callCount() >= 2
+	}, "manager never attempted both network starts")
+
+	if err := m.StopNetwork(n1.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, time.Second, func() bool {
+		state := m.StateSnapshot()
+		return state[n1.ID] == StateDisconnected.String() && state[n2.ID] == StateConnecting.String()
+	}, "stop network affected wrong runtime state")
+
+	if err := m.StopNetwork(n2.ID); err != nil {
+		t.Fatal(err)
+	}
+	m.Wait()
+}
+
+func TestYAMLStyleNetworkUsesOneLogicalConnectionConfigWithMultipleServers(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stores.Close()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	m := NewManager(stores, nil)
+	f := &fakeConnector{returnErr: errors.New("boom")}
+	m.connector = f.connect
+
+	err = m.Start(ctx, []NetworkConfig{{
+		Name: "Ircnet",
+		Servers: []ServerConfig{
+			{Host: "127.0.0.1", Port: 1, TLS: false},
+			{Host: "127.0.0.1", Port: 2, TLS: false},
+		},
+		Nick: "tester", User: "tester", Realname: "tester",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		for _, id := range m.stores.NetworkIDs() {
+			_ = m.StopNetwork(id)
+		}
+		m.Wait()
+	}()
+
+	waitFor(t, 2500*time.Millisecond, func() bool {
+		return f.callCount() >= 2
+	}, "manager never attempted failover to second server")
+
+	nets, err := ircdb.ListNetworks(t.Context(), stores.Control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nets) != 1 {
+		t.Fatalf("networks len = %d, want 1", len(nets))
+	}
+	if nets[0].Host != "127.0.0.1" || nets[0].Port != 1 {
+		t.Fatalf("stored primary server = %s:%d, want 127.0.0.1:1", nets[0].Host, nets[0].Port)
+	}
+}
+
+func TestBuildClientConfiguresTLSInsecureSkipVerify(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stores.Close()
+
+	ctx := context.Background()
+	if _, err := stores.UpsertNetwork(ctx, ircdb.Network{Name: "ircnet", Host: "irc.example", Port: 6697, TLS: true, Nick: "tester"}); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager(stores, nil)
+	client := m.buildClient(ctx, 1, NetworkConfig{Name: "ircnet", Nick: "tester", User: "tester", Realname: "tester"}, ServerConfig{Host: "irc.example", Port: 6697, TLS: true, TLSInsecure: true})
+	if client.Config.TLSConfig == nil {
+		t.Fatal("expected TLS config")
+	}
+	if !client.Config.TLSConfig.InsecureSkipVerify {
+		t.Fatal("expected InsecureSkipVerify to be true")
+	}
+	if client.Config.TLSConfig.ServerName != "irc.example" {
+		t.Fatalf("server name = %q, want irc.example", client.Config.TLSConfig.ServerName)
+	}
+}
+
+func newTestClient(_ *testing.T, nick string) *girc.Client {
+	return girc.New(girc.Config{Server: "test.invalid", Port: 6667, Nick: nick, User: nick, Name: nick})
+}
+
+func mustEvent(t *testing.T, raw string) girc.Event {
+	t.Helper()
+	e := girc.ParseEvent(raw)
+	if e == nil {
+		t.Fatalf("failed to parse event: %q", raw)
+	}
+	return *e
+}
+
+func runClientEvent(c *girc.Client, e girc.Event) {
+	c.RunHandlers(&e)
 }
 
 func waitFor(t *testing.T, timeout time.Duration, fn func() bool, msg string) {
@@ -296,128 +295,31 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool, msg string) {
 	t.Fatal(msg)
 }
 
-func TestChannelMembersFromNames(t *testing.T) {
-	dir := t.TempDir()
-	stores, err := db.OpenMultiStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer stores.Close()
-
-	srv := newFakeIRC(t)
-	defer srv.close()
-	host, port := srv.addr()
-
-	h := hub.New()
-	mgr := NewManager(stores, h)
-	err = mgr.Start(t.Context(), []NetworkConfig{{
-		Name:    "fake",
-		Servers: []ServerConfig{{Host: host, Port: port, TLS: false}},
-		Nick:    "tester", User: "tester", Realname: "tester",
-		Channels: []string{"#test"},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	select {
-	case <-srv.ready:
-	case <-time.After(3 * time.Second):
-		t.Fatal("server never saw registration")
-	}
-
-	waitFor(t, 5*time.Second, func() bool {
-		members := mgr.ChannelMembers(1, "#test")
-		return len(members) == 1 && members[0].Nick == "tester"
-	}, "names never populated channel members")
-
-	events, unsub := h.Subscribe(16)
-	defer unsub()
-	if err := mgr.Join(1, "#test2"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, 5*time.Second, func() bool {
-		for {
-			select {
-			case ev := <-events:
-				ml, ok := ev.(*MemberListEvent)
-				if ok && ml.Channel == "#test2" && len(ml.Members) == 1 && ml.Members[0].Nick == "tester" {
-					return true
-				}
-			default:
-				return false
-			}
-		}
-	}, "member_list event never published")
-
-	mgr.Wait()
+type fakeConnector struct {
+	mu           sync.Mutex
+	calls        []ServerConfig
+	returnErr    error
+	waitForClose bool
 }
 
-func TestTLSInsecureSkipVerify(t *testing.T) {
-	cert, err := selfSignedCert("wrong.example")
-	if err != nil {
-		t.Fatal(err)
+func (f *fakeConnector) connect(ctx context.Context, _ *girc.Client, server ServerConfig) error {
+	f.mu.Lock()
+	f.calls = append(f.calls, server)
+	f.mu.Unlock()
+	if f.waitForClose {
+		<-ctx.Done()
+		return nil
 	}
-	srv := newFakeIRCTLSWithCert(t, cert)
-	defer srv.close()
-	host, port := srv.addr()
-
-	dir := t.TempDir()
-	stores, err := db.OpenMultiStore(dir)
-	if err != nil {
-		t.Fatal(err)
+	if f.returnErr != nil {
+		return f.returnErr
 	}
-	defer stores.Close()
-
-	ctx := t.Context()
-
-	mgr := NewManager(stores, nil)
-	err = mgr.Start(ctx, []NetworkConfig{{
-		Name: "ircnet",
-		Servers: []ServerConfig{{
-			Host: host, Port: port, TLS: true, TLSInsecure: true,
-		}},
-		Nick: "tester", User: "tester", Realname: "tester",
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	time.Sleep(250 * time.Millisecond)
-	waitFor(t, 2*time.Second, func() bool {
-		state := mgr.StateSnapshot()
-		return state[1] == "connected"
-	}, "expected insecure TLS connection to succeed")
-
-	mgr.Wait()
+	return nil
 }
 
-func selfSignedCert(cn string) (tls.Certificate, error) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	serial, err := rand.Int(rand.Reader, big.NewInt(1<<62))
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	tmpl := &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: cn},
-		DNSNames:     []string{cn},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	return tls.X509KeyPair(certPEM, keyPEM)
+func (f *fakeConnector) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
 }
 
-var _ = os.ErrNotExist
-var _ = filepath.Join
+var _ = sql.ErrNoRows
