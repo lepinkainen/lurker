@@ -102,6 +102,40 @@ func TestReorderNetworksEndpointPersistsOrder(t *testing.T) {
 	}
 }
 
+func TestReorderNetworksEndpointRejectsInvalidPermutation(t *testing.T) {
+	ctx := t.Context()
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stores.Close() }()
+
+	n1, err := ircdb.CreateNetwork(ctx, stores.Control, ircdb.Network{Name: "Libera", Host: "127.0.0.1", Port: 1, TLS: false, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = ircdb.CreateNetwork(ctx, stores.Control, ircdb.Network{Name: "OFTC", Host: "127.0.0.2", Port: 2, TLS: false, Nick: "tester"}); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(stores, hub.New())}
+	h := srv.Handler()
+
+	for _, body := range []string{
+		fmt.Sprintf(`{"ids":[%d]}`, n1.ID),
+		fmt.Sprintf(`{"ids":[%d,%d]}`, n1.ID, n1.ID),
+		fmt.Sprintf(`{"ids":[%d,999999]}`, n1.ID),
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/networks/reorder", bytes.NewBufferString(body)).WithContext(ctx)
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("reorder invalid permutation status = %d body=%s", rec.Code, rec.Body.String())
+		}
+	}
+
+}
+
 func TestConnectDisconnectEndpointsUpdateState(t *testing.T) {
 	ctx := t.Context()
 

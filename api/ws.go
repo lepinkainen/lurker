@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -162,7 +161,7 @@ func (s *Server) cmdHistory(ctx context.Context, c *websocket.Conn, cmd clientCm
 		writeWSErr(ctx, c, cmd.ReqID, "history requires buffer_id")
 		return
 	}
-	msgs, err := s.loadHistory(ctx, cmd.BufferID, cmd.Before, clampLimit(strconv.Itoa(cmd.Limit), 200, 500))
+	msgs, err := s.loadHistory(ctx, cmd.BufferID, cmd.Before, clampLimitInt(cmd.Limit, 200, 500))
 	if err != nil {
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return

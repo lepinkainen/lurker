@@ -95,8 +95,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 			Topic: b.Topic, Joined: b.Joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
 		})
 		if b.Kind == ircdb.BufferChannel && s.Manager != nil {
-			members := s.Manager.ChannelMembers(b.NetworkID, b.Name)
-			if len(members) > 0 {
+			if members := s.Manager.ChannelMembers(b.NetworkID, b.Name); members != nil {
 				out.Members[strconv.FormatInt(b.ID, 10)] = toChannelMemberDTOs(members)
 			}
 		}

@@ -84,6 +84,11 @@ func (s *Server) web() http.Handler {
 			return
 		}
 
+		if strings.Contains(path.Base(requested), ".") {
+			http.NotFound(w, r)
+			return
+		}
+
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
 	})

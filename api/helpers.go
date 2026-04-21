@@ -33,6 +33,10 @@ func parseOptionalQueryInt64(w http.ResponseWriter, r *http.Request, key, msg st
 
 func clampLimit(raw string, def, maxLimit int) int {
 	limit, _ := strconv.Atoi(raw)
+	return clampLimitInt(limit, def, maxLimit)
+}
+
+func clampLimitInt(limit, def, maxLimit int) int {
 	if limit <= 0 || limit > maxLimit {
 		return def
 	}
@@ -47,6 +51,9 @@ func writeNetworkDBError(w http.ResponseWriter, err error, fallbackStatus int) {
 	status := fallbackStatus
 	if errors.Is(err, ircdb.ErrNetworkNotFound) {
 		status = http.StatusNotFound
+	}
+	if errors.Is(err, ircdb.ErrInvalidNetworkReorder) {
+		status = http.StatusBadRequest
 	}
 	http.Error(w, err.Error(), status)
 }
