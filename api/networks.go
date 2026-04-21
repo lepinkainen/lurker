@@ -20,6 +20,10 @@ type networkRequest struct {
 	SASLPass string `json:"sasl_pass,omitzero"`
 }
 
+type reorderNetworksRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
 func (r networkRequest) toDBNetwork() ircdb.Network {
 	useTLS := true
 	if r.TLS != nil {
@@ -58,6 +62,36 @@ func (s *Server) createNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, toNetworkDTO(created, stateString(irc.StateDisconnected)))
+}
+
+func (s *Server) reorderNetworks(w http.ResponseWriter, r *http.Request) {
+	var req reorderNetworksRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if len(req.IDs) == 0 {
+		http.Error(w, "ids are required", http.StatusBadRequest)
+		return
+	}
+	if err := ircdb.ReorderNetworks(r.Context(), s.Stores.Control, req.IDs); err != nil {
+		writeNetworkDBError(w, err, http.StatusBadRequest)
+		return
+	}
+	nets, err := ircdb.ListNetworks(r.Context(), s.Stores.Control)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	states := map[int64]string{}
+	if s.Manager != nil {
+		states = s.Manager.StateSnapshot()
+	}
+	out := make([]networkDTO, 0, len(nets))
+	for _, n := range nets {
+		out = append(out, toNetworkDTO(n, states[n.ID]))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"networks": out})
 }
 
 func (s *Server) patchNetwork(w http.ResponseWriter, r *http.Request) {

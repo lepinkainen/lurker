@@ -1,14 +1,6 @@
 import "./style.css";
 
-type TweakSettings = {
-  accent: string;
-  density: string;
-  showSeconds: boolean;
-  showMemberList: boolean;
-};
-
 type LayoutSettings = {
-  order: number[];
   collapsed: Record<number, boolean>;
   pinned: number[];
 };
@@ -18,6 +10,7 @@ type Network = {
   name: string;
   host?: string;
   status?: string;
+  sort_order?: number;
 };
 
 type Buffer = {
@@ -68,20 +61,13 @@ type AppState = {
   historyExhausted: Set<number>;
   lastMarkedReadId: Map<number, number>;
   me: { nick: string };
-  tweaks: TweakSettings;
+  showMemberList: boolean;
   layout: LayoutSettings;
   drag: { id: number | null; over: number | null };
 };
 
-const TWEAKS_KEY = "lurker.tweaks";
 const LAYOUT_KEY = "lurker.layout";
-const DEFAULT_TWEAKS = {
-  accent: "blue",
-  density: "dense",
-  showSeconds: false,
-  showMemberList: true,
-};
-const DEFAULT_LAYOUT = { order: [], collapsed: {}, pinned: [] };
+const DEFAULT_LAYOUT = { collapsed: {}, pinned: [] };
 
 const SLASH_COMMANDS: SlashCommand[] = [
   { cmd: "/join", args: "<channel>", desc: "Join a channel" },
@@ -103,7 +89,7 @@ const state: AppState = {
   historyExhausted: new Set(),
   lastMarkedReadId: new Map(),
   me: { nick: "you" },
-  tweaks: loadTweaks(),
+  showMemberList: true,
   layout: loadLayout(),
   drag: { id: null, over: null },
 };
@@ -129,21 +115,14 @@ const cmdPopEl = mustEl<HTMLElement>("cmd-pop");
 const memberListEl = mustEl<HTMLElement>("member-list");
 const memberCountEl = mustEl<HTMLElement>("member-count");
 const memberPaneEl = mustEl<HTMLElement>("member-pane");
-const tweaksTabEl = mustEl<HTMLButtonElement>("tweaks-tab");
-const tweaksPanelEl = mustEl<HTMLElement>("tweaks-panel");
-const tweaksCloseEl = mustEl<HTMLButtonElement>("tweaks-close");
 
 function init() {
-  applyTweaks(state.tweaks);
-  initTweaksPanel();
+  applyThemeDefaults();
   initCmdPop();
   inputForm.addEventListener("submit", onSubmit);
   messagesEl.addEventListener("scroll", onMessagesScroll);
   toggleMembersEl.addEventListener("click", () => {
-    state.tweaks.showMemberList = !state.tweaks.showMemberList;
-    saveTweaks(state.tweaks);
-    applyTweaks(state.tweaks);
-    syncTweaksPanel();
+    state.showMemberList = !state.showMemberList;
     renderMembers();
   });
   hydrate();
@@ -299,13 +278,10 @@ function inferUnreadCounts() {
    ================================================================= */
 
 function orderedNetworks() {
-  const all = [...state.networks.values()];
-  const order = state.layout.order || [];
-  const rank = new Map(order.map((id, i) => [id, i]));
-  return all.sort((a, b) => {
-    const ra = rank.has(a.id) ? rank.get(a.id) : 1e9 + a.id;
-    const rb = rank.has(b.id) ? rank.get(b.id) : 1e9 + b.id;
-    return ra - rb;
+  return [...state.networks.values()].sort((a, b) => {
+    const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+    const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+    return ao - bo || a.id - b.id;
   });
 }
 
@@ -372,7 +348,7 @@ function networkSection(n) {
   sec.addEventListener("drop", (e) => {
     e.preventDefault();
     const fromId = state.drag.id;
-    if (fromId != null && fromId !== n.id) reorderNetwork(fromId, n.id);
+    if (fromId != null && fromId !== n.id) void reorderNetwork(fromId, n.id);
     state.drag.id = null;
     state.drag.over = null;
     renderSidebar();
@@ -469,15 +445,39 @@ function badge(cls, n) {
   return el;
 }
 
-function reorderNetwork(fromId, toId) {
+async function reorderNetwork(fromId, toId) {
   const ids = orderedNetworks().map((n) => n.id);
   const fromIdx = ids.indexOf(fromId);
   const toIdx = ids.indexOf(toId);
   if (fromIdx < 0 || toIdx < 0) return;
   const [moved] = ids.splice(fromIdx, 1);
   ids.splice(toIdx, 0, moved);
-  state.layout.order = ids;
-  saveLayout(state.layout);
+
+  const previous = orderedNetworks().map((n) => ({ id: n.id, sort_order: n.sort_order }));
+  ids.forEach((id, idx) => {
+    const net = state.networks.get(id);
+    if (net) net.sort_order = idx;
+  });
+  renderSidebar();
+
+  try {
+    const res = await fetch("/api/networks/reorder", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    if (!res.ok) throw new Error(`reorder ${res.status}`);
+    const data: any = await res.json();
+    for (const n of data.networks || []) state.networks.set(n.id, n);
+    renderSidebar();
+  } catch (err) {
+    console.error("reorder failed", err);
+    for (const prev of previous) {
+      const net = state.networks.get(prev.id);
+      if (net) net.sort_order = prev.sort_order;
+    }
+    renderSidebar();
+  }
 }
 
 /* =================================================================
@@ -710,9 +710,9 @@ function daySeparator(ts) {
 function renderMembers() {
   const active = state.buffers.get(state.activeId);
   const isChannel = active && active.kind === "channel";
-  const showPane = state.tweaks.showMemberList && isChannel;
+  const showPane = state.showMemberList && isChannel;
   memberPaneEl.dataset.hidden = showPane ? "false" : "true";
-  toggleMembersEl.classList.toggle("toggled", state.tweaks.showMemberList);
+  toggleMembersEl.classList.toggle("toggled", state.showMemberList);
 
   const members = isChannel ? membersForActive() : [];
   memberCountEl.textContent = String(members.length);
@@ -834,9 +834,7 @@ function formatTime(iso) {
   if (isNaN(d.getTime())) return "";
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
-  if (!state.tweaks.showSeconds) return `${hh}:${mm}`;
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
+  return `${hh}:${mm}`;
 }
 
 function byName(a: Buffer, b: Buffer) { return a.name.localeCompare(b.name); }
@@ -951,14 +949,6 @@ function sendCmd(cmd) {
    Persistence
    ================================================================= */
 
-function loadTweaks(): TweakSettings {
-  try {
-    const saved = JSON.parse(localStorage.getItem(TWEAKS_KEY) || "{}");
-    return { ...DEFAULT_TWEAKS, ...saved };
-  } catch { return { ...DEFAULT_TWEAKS }; }
-}
-function saveTweaks(t: TweakSettings) { try { localStorage.setItem(TWEAKS_KEY, JSON.stringify(t)); } catch {} }
-
 function loadLayout(): LayoutSettings {
   try {
     const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}");
@@ -967,56 +957,9 @@ function loadLayout(): LayoutSettings {
 }
 function saveLayout(l: LayoutSettings) { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(l)); } catch {} }
 
-function applyTweaks(t: TweakSettings) {
-  document.documentElement.dataset.accent = t.accent;
-  document.documentElement.dataset.density = t.density;
-}
-
-function initTweaksPanel() {
-  tweaksTabEl.addEventListener("click", () => {
-    tweaksPanelEl.hidden = false;
-    tweaksTabEl.hidden = true;
-  });
-  tweaksCloseEl.addEventListener("click", () => {
-    tweaksPanelEl.hidden = true;
-    tweaksTabEl.hidden = false;
-  });
-  for (const seg of tweaksPanelEl.querySelectorAll<HTMLElement>(".seg")) {
-    const key = seg.dataset.tweak as keyof TweakSettings;
-    for (const btn of seg.querySelectorAll<HTMLButtonElement>("button")) {
-      btn.addEventListener("click", () => {
-        state.tweaks[key] = btn.dataset.value as never;
-        saveTweaks(state.tweaks);
-        applyTweaks(state.tweaks);
-        syncTweaksPanel();
-      });
-    }
-  }
-  for (const sw of tweaksPanelEl.querySelectorAll<HTMLElement>(".switch")) {
-    const key = sw.dataset.tweak as keyof TweakSettings;
-    sw.addEventListener("click", () => {
-      state.tweaks[key] = !state.tweaks[key] as never;
-      saveTweaks(state.tweaks);
-      applyTweaks(state.tweaks);
-      renderMembers();
-      if (state.activeId) renderActiveView();
-      syncTweaksPanel();
-    });
-  }
-  syncTweaksPanel();
-}
-
-function syncTweaksPanel() {
-  for (const seg of tweaksPanelEl.querySelectorAll<HTMLElement>(".seg")) {
-    const key = seg.dataset.tweak as keyof TweakSettings;
-    for (const btn of seg.querySelectorAll<HTMLButtonElement>("button")) {
-      btn.classList.toggle("sel", state.tweaks[key] === btn.dataset.value);
-    }
-  }
-  for (const sw of tweaksPanelEl.querySelectorAll<HTMLElement>(".switch")) {
-    const key = sw.dataset.tweak as keyof TweakSettings;
-    sw.classList.toggle("on", !!state.tweaks[key]);
-  }
+function applyThemeDefaults() {
+  document.documentElement.dataset.accent = "green";
+  document.documentElement.dataset.density = "dense";
 }
 
 init();

@@ -54,7 +54,7 @@ func writeNetworkDBError(w http.ResponseWriter, err error, fallbackStatus int) {
 func toNetworkDTO(n ircdb.Network, status string) networkDTO {
 	return networkDTO{
 		ID: n.ID, Name: n.Name, Host: n.Host, Port: n.Port,
-		TLS: n.TLS, Nick: n.Nick, Realname: n.Realname, Status: status,
+		TLS: n.TLS, Nick: n.Nick, Realname: n.Realname, Status: status, SortOrder: n.SortOrder,
 	}
 }
 

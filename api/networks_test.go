@@ -66,6 +66,42 @@ func TestNetworkCRUDAndDeleteRetainsLogDB(t *testing.T) {
 	}
 }
 
+func TestReorderNetworksEndpointPersistsOrder(t *testing.T) {
+	ctx := t.Context()
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stores.Close() }()
+
+	n1, err := ircdb.CreateNetwork(ctx, stores.Control, ircdb.Network{Name: "Libera", Host: "127.0.0.1", Port: 1, TLS: false, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n2, err := ircdb.CreateNetwork(ctx, stores.Control, ircdb.Network{Name: "OFTC", Host: "127.0.0.2", Port: 2, TLS: false, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(stores, hub.New())}
+	h := srv.Handler()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/networks/reorder", bytes.NewBufferString(fmt.Sprintf(`{"ids":[%d,%d]}`, n2.ID, n1.ID))).WithContext(ctx)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reorder status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	nets, err := ircdb.ListNetworks(ctx, stores.Control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nets) != 2 || nets[0].ID != n2.ID || nets[1].ID != n1.ID {
+		t.Fatalf("unexpected order after reorder: %+v", nets)
+	}
+}
+
 func TestConnectDisconnectEndpointsUpdateState(t *testing.T) {
 	ctx := t.Context()
 

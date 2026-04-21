@@ -39,6 +39,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/search", s.search)
 	mux.HandleFunc("GET /api/stream", s.stream)
 	mux.HandleFunc("POST /api/networks", s.createNetwork)
+	mux.HandleFunc("POST /api/networks/reorder", s.reorderNetworks)
 	mux.HandleFunc("PATCH /api/networks/{id}", s.patchNetwork)
 	mux.HandleFunc("DELETE /api/networks/{id}", s.deleteNetwork)
 	mux.HandleFunc("POST /api/networks/{id}/connect", s.connectNetwork)

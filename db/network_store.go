@@ -33,10 +33,15 @@ func UpsertNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 		saslUser = n.SASLUser
 		saslPass = n.SASLPass
 	}
+	var nextSortOrder int
+	queryErr := d.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks`).Scan(&nextSortOrder)
+	if queryErr != nil {
+		return Network{}, queryErr
+	}
 	res, err := d.ExecContext(ctx,
-		`INSERT INTO networks(name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
+		`INSERT INTO networks(name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, nextSortOrder, Now())
 	if err != nil {
 		return Network{}, err
 	}
@@ -51,8 +56,8 @@ func UpsertNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 // ListNetworks returns every network row for API state responses.
 func ListNetworks(ctx context.Context, d *sql.DB) ([]Network, error) {
 	rows, err := d.QueryContext(ctx,
-		`SELECT id, name, host, port, tls, nick, COALESCE(realname,'')
-		 FROM networks ORDER BY id`)
+		`SELECT id, name, host, port, tls, nick, COALESCE(realname,''), sort_order
+		 FROM networks ORDER BY sort_order, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +66,7 @@ func ListNetworks(ctx context.Context, d *sql.DB) ([]Network, error) {
 	for rows.Next() {
 		var n Network
 		var tls int
-		if err := rows.Scan(&n.ID, &n.Name, &n.Host, &n.Port, &tls, &n.Nick, &n.Realname); err != nil {
+		if err := rows.Scan(&n.ID, &n.Name, &n.Host, &n.Port, &tls, &n.Nick, &n.Realname, &n.SortOrder); err != nil {
 			return nil, err
 		}
 		n.TLS = tls == 1

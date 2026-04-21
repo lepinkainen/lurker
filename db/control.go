@@ -15,9 +15,9 @@ func GetNetwork(ctx context.Context, d *sql.DB, id int64) (Network, error) {
 	var tls int
 	var saslUser, saslPass sql.NullString
 	err := d.QueryRowContext(ctx,
-		`SELECT id, name, host, port, tls, nick, COALESCE(realname,''), sasl_user, sasl_pass
+		`SELECT id, name, host, port, tls, nick, COALESCE(realname,''), sasl_user, sasl_pass, sort_order
 		 FROM networks WHERE id = ?`, id,
-	).Scan(&n.ID, &n.Name, &n.Host, &n.Port, &tls, &n.Nick, &n.Realname, &saslUser, &saslPass)
+	).Scan(&n.ID, &n.Name, &n.Host, &n.Port, &tls, &n.Nick, &n.Realname, &saslUser, &saslPass, &n.SortOrder)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Network{}, ErrNetworkNotFound
@@ -45,10 +45,14 @@ func CreateNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 		saslUser = n.SASLUser
 		saslPass = n.SASLPass
 	}
+	var nextSortOrder int
+	if err := d.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks`).Scan(&nextSortOrder); err != nil {
+		return Network{}, err
+	}
 	res, err := d.ExecContext(ctx,
-		`INSERT INTO networks(name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
+		`INSERT INTO networks(name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, nextSortOrder, Now())
 	if err != nil {
 		return Network{}, err
 	}
@@ -130,4 +134,49 @@ func DeleteNetwork(ctx context.Context, d *sql.DB, id int64) error {
 		return ErrNetworkNotFound
 	}
 	return nil
+}
+
+// ReorderNetworks sets network ordering to match the given IDs.
+func ReorderNetworks(ctx context.Context, d *sql.DB, ids []int64) error {
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM networks`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+
+	existing := map[int64]struct{}{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		existing[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(existing) != len(ids) {
+		return ErrNetworkNotFound
+	}
+
+	seen := map[int64]struct{}{}
+	for order, id := range ids {
+		if _, ok := existing[id]; !ok {
+			return ErrNetworkNotFound
+		}
+		if _, dup := seen[id]; dup {
+			return ErrNetworkNotFound
+		}
+		seen[id] = struct{}{}
+		if _, err := tx.ExecContext(ctx, `UPDATE networks SET sort_order = ? WHERE id = ?`, order, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

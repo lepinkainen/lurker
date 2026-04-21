@@ -2,15 +2,16 @@ package db
 
 // Network is the minimal network row used at startup.
 type Network struct {
-	ID       int64
-	Name     string
-	Host     string
-	Port     int
-	TLS      bool
-	Nick     string
-	Realname string
-	SASLUser string
-	SASLPass string
+	ID        int64
+	Name      string
+	Host      string
+	Port      int
+	TLS       bool
+	Nick      string
+	Realname  string
+	SASLUser  string
+	SASLPass  string
+	SortOrder int
 }
 
 // BufferKind enumerates the rows allowed in buffers.kind.

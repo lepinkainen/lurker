@@ -35,16 +35,16 @@ func TestControlNetworksNameCIUnique(t *testing.T) {
 	}
 	defer func() { _ = d.Close() }()
 
-	_, err = d.Exec(`INSERT INTO networks(name, name_ci, host, port, tls, nick, autoconnect, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		"Libera", "libera", "irc.libera.chat", 6697, 1, "tester", 1, Now())
+	_, err = d.Exec(`INSERT INTO networks(name, name_ci, host, port, tls, nick, autoconnect, sort_order, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"Libera", "libera", "irc.libera.chat", 6697, 1, "tester", 1, 0, Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = d.Exec(`INSERT INTO networks(name, name_ci, host, port, tls, nick, autoconnect, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		"LIBERA", "libera", "irc.example.net", 6667, 0, "tester2", 1, Now())
+	_, err = d.Exec(`INSERT INTO networks(name, name_ci, host, port, tls, nick, autoconnect, sort_order, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"LIBERA", "libera", "irc.example.net", 6667, 0, "tester2", 1, 1, Now())
 	if err == nil {
 		t.Fatal("expected unique constraint error for networks.name_ci")
 	}

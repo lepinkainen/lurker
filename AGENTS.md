@@ -14,7 +14,8 @@ Primary pieces:
 
 Read these first for project context:
 - `PROJECT.md` — purpose and future direction
-- `README.md` — local dev, Docker, and deployment notes
+- `README.md` — human-focused local dev, Docker, and deployment notes
+- `ai-docs/ARCHITECTURE.md` — technical architecture, storage model, and API notes
 
 ## Important repository constraints
 
@@ -64,7 +65,7 @@ Do not add public-internet deployment assumptions or app-level auth unless the u
 
 ### API expectations
 
-Existing endpoints and behavior are documented in `README.md`.
+Existing endpoints, architecture notes, and behavior are documented in `ai-docs/ARCHITECTURE.md`.
 Preserve the current shape unless the task explicitly changes it.
 
 The service exposes `/whoami`; prefer checking that endpoint when identifying a running instance.
@@ -132,6 +133,7 @@ Do not commit or rely on generated/local-only paths:
 Consult, in order:
 1. `PROJECT.md`
 2. `README.md`
-3. `Taskfile.yml`
+3. `ai-docs/ARCHITECTURE.md`
+4. `Taskfile.yml`
 
 If a task touches shared guidance only conceptually, you may reference `llm-shared/` docs, but do not modify the submodule.

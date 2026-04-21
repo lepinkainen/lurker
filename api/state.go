@@ -12,14 +12,15 @@ import (
 // networkDTO is the wire shape for a network row. We don't ship sasl
 // credentials to clients, ever.
 type networkDTO struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	TLS      bool   `json:"tls"`
-	Nick     string `json:"nick"`
-	Realname string `json:"realname,omitzero"`
-	Status   string `json:"status,omitzero"`
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Host      string `json:"host"`
+	Port      int    `json:"port"`
+	TLS       bool   `json:"tls"`
+	Nick      string `json:"nick"`
+	Realname  string `json:"realname,omitzero"`
+	Status    string `json:"status,omitzero"`
+	SortOrder int    `json:"sort_order"`
 }
 
 type bufferDTO struct {
