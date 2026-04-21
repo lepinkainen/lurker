@@ -18,6 +18,7 @@ func UpsertBufferRegistry(ctx context.Context, d *sql.DB, networkID int64, name,
 		`INSERT INTO buffer_registry(network_id, name, kind, created_at) VALUES (?, ?, ?, ?)`,
 		[]any{networkID, name, kind, now},
 		row,
+		func(row *bufferRegistryRow, id int64) { row.ID = id },
 	)
 	if err != nil {
 		return 0, false, Buffer{}, err

@@ -33,16 +33,15 @@ func UpsertNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 		saslUser = n.SASLUser
 		saslPass = n.SASLPass
 	}
-	var nextSortOrder int
-	queryErr := d.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks`).Scan(&nextSortOrder)
-	if queryErr != nil {
-		return Network{}, queryErr
-	}
 	res, err := d.ExecContext(ctx,
 		`INSERT INTO networks(name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, nextSortOrder, Now())
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks), ?)`,
+		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
 	if err != nil {
+		if err2 := d.QueryRowContext(ctx, `SELECT id FROM networks WHERE name_ci = ?`, nameCI).Scan(&id); err2 == nil {
+			n.ID = id
+			return n, nil
+		}
 		return Network{}, err
 	}
 	id, err = res.LastInsertId()

@@ -65,6 +65,7 @@ func UpsertLogBuffer(ctx context.Context, d *sql.DB, networkID int64, name, kind
 		`INSERT INTO buffers(name, kind, joined, created_at) VALUES (?, ?, ?, ?)`,
 		[]any{name, kind, joined, now},
 		logBufferRow{Name: name, Kind: kind, Joined: joined == 1, CreatedAt: now},
+		func(row *logBufferRow, id int64) { row.ID = id },
 	)
 }
 

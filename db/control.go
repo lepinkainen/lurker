@@ -9,6 +9,10 @@ import (
 // ErrNetworkNotFound indicates the requested network row does not exist.
 var ErrNetworkNotFound = errors.New("db: network not found")
 
+// ErrInvalidNetworkReorder indicates the provided reorder request is not a
+// valid full permutation of the existing network IDs.
+var ErrInvalidNetworkReorder = errors.New("db: invalid network reorder")
+
 // GetNetwork returns a network by ID.
 func GetNetwork(ctx context.Context, d *sql.DB, id int64) (Network, error) {
 	var n Network
@@ -45,14 +49,10 @@ func CreateNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 		saslUser = n.SASLUser
 		saslPass = n.SASLPass
 	}
-	var nextSortOrder int
-	if err := d.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks`).Scan(&nextSortOrder); err != nil {
-		return Network{}, err
-	}
 	res, err := d.ExecContext(ctx,
 		`INSERT INTO networks(name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, nextSortOrder, Now())
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks), ?)`,
+		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
 	if err != nil {
 		return Network{}, err
 	}
@@ -162,16 +162,16 @@ func ReorderNetworks(ctx context.Context, d *sql.DB, ids []int64) error {
 		return err
 	}
 	if len(existing) != len(ids) {
-		return ErrNetworkNotFound
+		return ErrInvalidNetworkReorder
 	}
 
 	seen := map[int64]struct{}{}
 	for order, id := range ids {
 		if _, ok := existing[id]; !ok {
-			return ErrNetworkNotFound
+			return ErrInvalidNetworkReorder
 		}
 		if _, dup := seen[id]; dup {
-			return ErrNetworkNotFound
+			return ErrInvalidNetworkReorder
 		}
 		seen[id] = struct{}{}
 		if _, err := tx.ExecContext(ctx, `UPDATE networks SET sort_order = ? WHERE id = ?`, order, id); err != nil {

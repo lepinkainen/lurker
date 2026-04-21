@@ -87,7 +87,7 @@ func scanLogMessageRows(rows *sql.Rows, scan func(*logMessageRow) error) ([]logM
 	return out, rows.Err()
 }
 
-func upsertBufferRegistryOrLogRow[T bufferRegistryRow | logBufferRow](ctx context.Context, d *sql.DB, selectQuery string, selectArgs []any, insertQuery string, insertArgs []any, row T) (id int64, created bool, out T, err error) {
+func upsertBufferRegistryOrLogRow[T any](ctx context.Context, d *sql.DB, selectQuery string, selectArgs []any, insertQuery string, insertArgs []any, row T, setID func(*T, int64)) (id int64, created bool, out T, err error) {
 	err = d.QueryRowContext(ctx, selectQuery, selectArgs...).Scan(&id)
 	if err == nil {
 		return id, false, out, nil
@@ -107,12 +107,7 @@ func upsertBufferRegistryOrLogRow[T bufferRegistryRow | logBufferRow](ctx contex
 		return 0, false, out, err
 	}
 	out = row
-	switch v := any(&out).(type) {
-	case *bufferRegistryRow:
-		v.ID = id
-	case *logBufferRow:
-		v.ID = id
-	}
+	setID(&out, id)
 	return id, true, out, nil
 }
 
