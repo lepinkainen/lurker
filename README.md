@@ -22,10 +22,27 @@ In-repo clients are intentionally limited to the web UI for v1.
 
 ## Run locally
 
+Backend only:
+
 ```bash
 task dev
 # or
 DATA_DIR=./data ADDR=:8080 go run .
+```
+
+Frontend development with Vite hot reload:
+
+```bash
+task web-install
+task dev      # backend on :8080
+task web-dev  # frontend on :5173
+```
+
+Built frontend served by the Go binary from disk:
+
+```bash
+task web-build
+task dev-web
 ```
 
 ## Run in Docker
@@ -91,8 +108,10 @@ Used for:
 Preferred local workflow uses `task`:
 
 ```bash
+task web-install
 task lint
 task test
+task web-build
 task build
 ```
 

@@ -41,9 +41,24 @@ tasks:
       - go run .
 
   dev-web:
-    desc: Run with web UI served from disk (no recompile on UI changes)
+    desc: Run backend with built web UI served from disk
     cmds:
-      - go run . --web-dir ./web
+      - go run . --web-dir ./web/dist
+
+  web-install:
+    desc: Install frontend dependencies with pnpm
+    cmds:
+      - cd web && pnpm install
+
+  web-dev:
+    desc: Run the Vite dev server for the frontend
+    cmds:
+      - cd web && pnpm dev
+
+  web-build:
+    desc: Build the frontend into web/dist
+    cmds:
+      - cd web && pnpm build
 
   test:
     desc: Run the test suite
@@ -63,9 +78,9 @@ tasks:
       - golangci-lint run ./...
 
   lint-web:
-    desc: Syntax-check web JS assets
+    desc: Type-check and build the frontend
     cmds:
-      - node --check web/app.js && echo OK
+      - cd web && pnpm exec tsc --noEmit
 
   tidy:
     desc: Tidy Go module dependencies
@@ -76,6 +91,7 @@ tasks:
     desc: Remove build artifacts and local data
     cmds:
       - rm -rf {{.BUILD_DIR}}
+      - rm -rf web/dist
       - rm -rf data
 
   docker:

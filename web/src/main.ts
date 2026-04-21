@@ -1,3 +1,78 @@
+import "./style.css";
+
+type TweakSettings = {
+  accent: string;
+  density: string;
+  showSeconds: boolean;
+  showMemberList: boolean;
+};
+
+type LayoutSettings = {
+  order: number[];
+  collapsed: Record<number, boolean>;
+  pinned: number[];
+};
+
+type Network = {
+  id: number;
+  name: string;
+  host?: string;
+  status?: string;
+};
+
+type Buffer = {
+  id: number;
+  network_id: number;
+  name: string;
+  kind: string;
+  joined?: boolean;
+  topic?: string;
+  topic_set_by?: string;
+  last_seen_id?: number;
+  unread: number;
+  mentions: number;
+};
+
+type Message = {
+  id: number;
+  buffer_id: number;
+  sender?: string;
+  target?: string;
+  content?: string;
+  kind?: string;
+  ts?: string;
+};
+
+type Member = {
+  nick: string;
+  prefix: string;
+  away: boolean;
+  self: boolean;
+};
+
+type SlashCommand = {
+  cmd: string;
+  args: string;
+  desc: string;
+};
+
+type AppState = {
+  networks: Map<number, Network>;
+  buffers: Map<number, Buffer>;
+  messages: Map<number, Message[]>;
+  members: Map<string, Member>;
+  activeId: number | null;
+  ws: WebSocket | null;
+  wsReady: boolean;
+  loadingHistory: Set<number>;
+  historyExhausted: Set<number>;
+  lastMarkedReadId: Map<number, number>;
+  me: { nick: string };
+  tweaks: TweakSettings;
+  layout: LayoutSettings;
+  drag: { id: number | null; over: number | null };
+};
+
 const TWEAKS_KEY = "lurker.tweaks";
 const LAYOUT_KEY = "lurker.layout";
 const DEFAULT_TWEAKS = {
@@ -8,7 +83,7 @@ const DEFAULT_TWEAKS = {
 };
 const DEFAULT_LAYOUT = { order: [], collapsed: {}, pinned: [] };
 
-const SLASH_COMMANDS = [
+const SLASH_COMMANDS: SlashCommand[] = [
   { cmd: "/join", args: "<channel>", desc: "Join a channel" },
   { cmd: "/part", args: "[reason]", desc: "Leave the current channel" },
   { cmd: "/msg", args: "<nick> <text>", desc: "Open a private message" },
@@ -16,7 +91,7 @@ const SLASH_COMMANDS = [
   { cmd: "/nick", args: "<newnick>", desc: "Change your nick" },
 ];
 
-const state = {
+const state: AppState = {
   networks: new Map(),
   buffers: new Map(),
   messages: new Map(),
@@ -33,25 +108,30 @@ const state = {
   drag: { id: null, over: null },
 };
 
-const el = (id) => document.getElementById(id);
-const sbScrollEl = el("sb-scroll");
-const messagesEl = el("messages");
-const statusViewEl = el("status-view");
-const bufferNameEl = el("buffer-name");
-const bufferTopicEl = el("buffer-topic");
-const bufferMemcountEl = el("buffer-memcount");
-const memberCountInlineEl = el("member-count-inline");
-const toggleMembersEl = el("toggle-members");
-const inputEl = el("input");
-const inputForm = el("input-form");
-const inputNickEl = el("input-nick");
-const cmdPopEl = el("cmd-pop");
-const memberListEl = el("member-list");
-const memberCountEl = el("member-count");
-const memberPaneEl = el("member-pane");
-const tweaksTabEl = el("tweaks-tab");
-const tweaksPanelEl = el("tweaks-panel");
-const tweaksCloseEl = el("tweaks-close");
+function mustEl<T extends HTMLElement>(id: string): T {
+  const node = document.getElementById(id);
+  if (!node) throw new Error(`missing element #${id}`);
+  return node as T;
+}
+
+const sbScrollEl = mustEl<HTMLDivElement>("sb-scroll");
+const messagesEl = mustEl<HTMLElement>("messages");
+const statusViewEl = mustEl<HTMLElement>("status-view");
+const bufferNameEl = mustEl<HTMLElement>("buffer-name");
+const bufferTopicEl = mustEl<HTMLElement>("buffer-topic");
+const bufferMemcountEl = mustEl<HTMLElement>("buffer-memcount");
+const memberCountInlineEl = mustEl<HTMLElement>("member-count-inline");
+const toggleMembersEl = mustEl<HTMLButtonElement>("toggle-members");
+const inputEl = mustEl<HTMLInputElement>("input");
+const inputForm = mustEl<HTMLFormElement>("input-form");
+const inputNickEl = mustEl<HTMLElement>("input-nick");
+const cmdPopEl = mustEl<HTMLElement>("cmd-pop");
+const memberListEl = mustEl<HTMLElement>("member-list");
+const memberCountEl = mustEl<HTMLElement>("member-count");
+const memberPaneEl = mustEl<HTMLElement>("member-pane");
+const tweaksTabEl = mustEl<HTMLButtonElement>("tweaks-tab");
+const tweaksPanelEl = mustEl<HTMLElement>("tweaks-panel");
+const tweaksCloseEl = mustEl<HTMLButtonElement>("tweaks-close");
 
 function init() {
   applyTweaks(state.tweaks);
@@ -73,12 +153,12 @@ async function hydrate() {
   try {
     const res = await fetch("/api/state");
     if (!res.ok) throw new Error("state " + res.status);
-    const s = await res.json();
+    const s: any = await res.json();
     state.me.nick = s.current_nick || s.nick || s.user?.nick || "you";
     inputNickEl.textContent = state.me.nick;
     for (const n of s.networks || []) state.networks.set(n.id, n);
     for (const b of s.buffers || []) state.buffers.set(b.id, { unread: 0, mentions: 0, ...b });
-    for (const [id, msgs] of Object.entries(s.initial_messages || {})) state.messages.set(+id, msgs);
+    for (const [id, msgs] of Object.entries(s.initial_messages || {})) state.messages.set(+id, msgs as Message[]);
     inferUnreadCounts();
     renderSidebar();
     if (!state.activeId && state.buffers.size) {
@@ -352,7 +432,7 @@ function networkSection(n) {
   return sec;
 }
 
-function bufferRow(b, opts = {}) {
+function bufferRow(b, opts: { pinned?: boolean } = {}) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = [
@@ -669,7 +749,7 @@ function populateMembersForActive() {
   const b = state.buffers.get(state.activeId);
   state.members.clear();
   if (!b || b.kind !== "channel") return;
-  const names = new Set();
+  const names = new Set<string>();
   for (const m of state.messages.get(b.id) || []) {
     if (m.sender) names.add(m.sender);
     if (m.target && ["kick", "nick"].includes(m.kind)) names.add(m.target);
@@ -753,7 +833,7 @@ function formatTime(iso) {
   return `${hh}:${mm}:${ss}`;
 }
 
-function byName(a, b) { return a.name.localeCompare(b.name); }
+function byName(a: Buffer, b: Buffer) { return a.name.localeCompare(b.name); }
 
 function escapeHTML(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -798,7 +878,7 @@ function updateInputEnabled() {
   inputEl.disabled = !(state.wsReady && b && b.kind !== "status" && !(b.kind === "channel" && b.joined === false));
 }
 
-function onSubmit(ev) {
+function onSubmit(ev: SubmitEvent) {
   ev.preventDefault();
   const text = inputEl.value.trim();
   if (!text || !state.wsReady) return;
@@ -816,7 +896,7 @@ function onSubmit(ev) {
   updateCmdPop();
 }
 
-function handleSlashCommand(text, buf) {
+function handleSlashCommand(text: string, buf: Buffer) {
   const [cmd, ...rest] = text.slice(1).split(/\s+/);
   switch ((cmd || "").toLowerCase()) {
     case "join":
@@ -865,23 +945,23 @@ function sendCmd(cmd) {
    Persistence
    ================================================================= */
 
-function loadTweaks() {
+function loadTweaks(): TweakSettings {
   try {
     const saved = JSON.parse(localStorage.getItem(TWEAKS_KEY) || "{}");
     return { ...DEFAULT_TWEAKS, ...saved };
   } catch { return { ...DEFAULT_TWEAKS }; }
 }
-function saveTweaks(t) { try { localStorage.setItem(TWEAKS_KEY, JSON.stringify(t)); } catch {} }
+function saveTweaks(t: TweakSettings) { try { localStorage.setItem(TWEAKS_KEY, JSON.stringify(t)); } catch {} }
 
-function loadLayout() {
+function loadLayout(): LayoutSettings {
   try {
     const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}");
     return { ...DEFAULT_LAYOUT, ...saved };
   } catch { return { ...DEFAULT_LAYOUT }; }
 }
-function saveLayout(l) { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(l)); } catch {} }
+function saveLayout(l: LayoutSettings) { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(l)); } catch {} }
 
-function applyTweaks(t) {
+function applyTweaks(t: TweakSettings) {
   document.documentElement.dataset.accent = t.accent;
   document.documentElement.dataset.density = t.density;
 }
@@ -895,21 +975,21 @@ function initTweaksPanel() {
     tweaksPanelEl.hidden = true;
     tweaksTabEl.hidden = false;
   });
-  for (const seg of tweaksPanelEl.querySelectorAll(".seg")) {
-    const key = seg.dataset.tweak;
-    for (const btn of seg.querySelectorAll("button")) {
+  for (const seg of tweaksPanelEl.querySelectorAll<HTMLElement>(".seg")) {
+    const key = seg.dataset.tweak as keyof TweakSettings;
+    for (const btn of seg.querySelectorAll<HTMLButtonElement>("button")) {
       btn.addEventListener("click", () => {
-        state.tweaks[key] = btn.dataset.value;
+        state.tweaks[key] = btn.dataset.value as never;
         saveTweaks(state.tweaks);
         applyTweaks(state.tweaks);
         syncTweaksPanel();
       });
     }
   }
-  for (const sw of tweaksPanelEl.querySelectorAll(".switch")) {
-    const key = sw.dataset.tweak;
+  for (const sw of tweaksPanelEl.querySelectorAll<HTMLElement>(".switch")) {
+    const key = sw.dataset.tweak as keyof TweakSettings;
     sw.addEventListener("click", () => {
-      state.tweaks[key] = !state.tweaks[key];
+      state.tweaks[key] = !state.tweaks[key] as never;
       saveTweaks(state.tweaks);
       applyTweaks(state.tweaks);
       renderMembers();
@@ -921,14 +1001,14 @@ function initTweaksPanel() {
 }
 
 function syncTweaksPanel() {
-  for (const seg of tweaksPanelEl.querySelectorAll(".seg")) {
-    const key = seg.dataset.tweak;
-    for (const btn of seg.querySelectorAll("button")) {
+  for (const seg of tweaksPanelEl.querySelectorAll<HTMLElement>(".seg")) {
+    const key = seg.dataset.tweak as keyof TweakSettings;
+    for (const btn of seg.querySelectorAll<HTMLButtonElement>("button")) {
       btn.classList.toggle("sel", state.tweaks[key] === btn.dataset.value);
     }
   }
-  for (const sw of tweaksPanelEl.querySelectorAll(".switch")) {
-    const key = sw.dataset.tweak;
+  for (const sw of tweaksPanelEl.querySelectorAll<HTMLElement>(".switch")) {
+    const key = sw.dataset.tweak as keyof TweakSettings;
     sw.classList.toggle("on", !!state.tweaks[key]);
   }
 }

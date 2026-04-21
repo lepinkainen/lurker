@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"path"
+	"strings"
 
 	ircdb "github.com/lepinkainen/research/irc-service/db"
 	"github.com/lepinkainen/research/irc-service/hub"
@@ -43,7 +45,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/networks/{id}/disconnect", s.disconnectNetwork)
 
 	if s.Web != nil {
-		mux.Handle("GET /", http.FileServer(http.FS(s.Web)))
+		mux.Handle("GET /", s.web())
 	}
 	return mux
 }
@@ -63,5 +65,25 @@ func (s *Server) whoami(w http.ResponseWriter, _ *http.Request) {
 		"version":    s.Version,
 		"hash":       s.GitHash,
 		"build_time": s.BuildTime,
+	})
+}
+
+func (s *Server) web() http.Handler {
+	fileServer := http.FileServer(http.FS(s.Web))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested := path.Clean(strings.TrimPrefix(r.URL.Path, "/"))
+		if requested == "." || requested == "/" {
+			r.URL.Path = "/"
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		if _, err := fs.Stat(s.Web, requested); err == nil {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		r.URL.Path = "/"
+		fileServer.ServeHTTP(w, r)
 	})
 }
