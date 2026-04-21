@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"flag"
 	"io/fs"
@@ -13,18 +12,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lepinkainen/research/irc-service/api"
-	"github.com/lepinkainen/research/irc-service/db"
-	"github.com/lepinkainen/research/irc-service/hub"
-	"github.com/lepinkainen/research/irc-service/internal/closeutil"
-	"github.com/lepinkainen/research/irc-service/irc"
+	"github.com/lepinkainen/lurker/api"
+	"github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
+	"github.com/lepinkainen/lurker/internal/closeutil"
+	"github.com/lepinkainen/lurker/irc"
 )
 
-//go:embed web
-var webFS embed.FS
-
 func main() {
-	webDir := flag.String("web-dir", "", "serve web UI from this directory instead of the embedded copy")
+	webDir := flag.String("web-dir", "", "serve built web UI from this directory")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
@@ -59,13 +55,13 @@ func main() {
 	var webSub fs.FS
 	if *webDir != "" {
 		webSub = os.DirFS(*webDir)
-		slog.Info("web UI served from disk", "dir", *webDir)
-	} else {
-		webSub, err = fs.Sub(webFS, "web")
-		if err != nil {
-			slog.Error("web fs sub", "err", err)
+		if _, statErr := fs.Stat(webSub, "index.html"); statErr != nil {
+			slog.Error("web dir missing index.html", "dir", *webDir, "err", statErr)
 			os.Exit(1)
 		}
+		slog.Info("web UI served from disk", "dir", *webDir)
+	} else {
+		slog.Warn("web UI disabled", "hint", "pass --web-dir ./web/dist or run container image")
 	}
 
 	apiSrv := &api.Server{

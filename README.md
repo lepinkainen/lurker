@@ -28,6 +28,8 @@ task dev
 go run .
 ```
 
+Note: without `--web-dir`, backend serves API only. Root `/` will not serve web UI.
+
 Frontend development with Vite hot reload:
 
 ```bash
@@ -52,6 +54,10 @@ task down
 
 The service expects `./data` to be persisted as a bind mount so both `control.db` and per-network log DBs survive restarts.
 
+Docker image builds frontend and serves it from `/app/web/dist` automatically.
+
+On pushes to `main`, GitHub Actions publishes image to `ghcr.io/lepinkainen/lurker` with `latest` and `sha-<commit>` tags.
+
 ## Config
 
 Bootstrap network configuration comes from `config.yaml`.
@@ -70,10 +76,12 @@ task web-build
 task build
 ```
 
+Default local binary output: `build/lurker`
+
 Build artifacts are written to `build/`:
 
-- `build/irc-service`
-- `build/irc-service-linux-amd64`
+- `build/lurker`
+- `build/lurker-linux-amd64`
 
 ## Deployment and privacy assumptions
 

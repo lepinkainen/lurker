@@ -12,4 +12,5 @@ coverage.out
 .rodney/
 web/node_modules/
 web/dist/
+web/.vitest-attachments/
 .pi/todos/

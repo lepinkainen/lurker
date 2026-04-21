@@ -9,7 +9,7 @@ Lurker is a private, single-user IRC bouncer plus web client backend.
 Current in-repo scope:
 
 - Go backend service
-- embedded or disk-served web UI
+- disk-served web UI
 - control-plane SQLite database
 - one SQLite log database per network
 - REST API for state, history, search, and network management
@@ -50,7 +50,7 @@ Primary config inputs:
 - `DATA_DIR` default `./data`
 - `ADDR` default `:8080`
 - `CONFIG_PATH` default `./config.yaml`
-- CLI flag `--web-dir` to serve built frontend from disk instead of embedded assets
+- CLI flag `--web-dir` to serve built frontend from disk
 
 ### Important invariant: `config.yaml` is bootstrap-only
 
@@ -177,8 +177,9 @@ From `main.go`:
 
 Web serving modes:
 
-- default: serve embedded `web/` assets from the Go binary
+- default: API-only mode; no web UI served from `/`
 - `--web-dir ./web/dist`: serve built frontend from disk
+- container image: starts with `--web-dir /app/web/dist`
 
 ## IRC runtime architecture
 
