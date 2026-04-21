@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"flag"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -23,6 +24,9 @@ import (
 var webFS embed.FS
 
 func main() {
+	webDir := flag.String("web-dir", "", "serve web UI from this directory instead of the embedded copy")
+	flag.Parse()
+
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	cfg := loadConfig()
 
@@ -52,10 +56,16 @@ func main() {
 		slog.Info("no bootstrap networks configured; set CONFIG_PATH to seed control.db on startup")
 	}
 
-	webSub, err := fs.Sub(webFS, "web")
-	if err != nil {
-		slog.Error("web fs sub", "err", err)
-		os.Exit(1)
+	var webSub fs.FS
+	if *webDir != "" {
+		webSub = os.DirFS(*webDir)
+		slog.Info("web UI served from disk", "dir", *webDir)
+	} else {
+		webSub, err = fs.Sub(webFS, "web")
+		if err != nil {
+			slog.Error("web fs sub", "err", err)
+			os.Exit(1)
+		}
 	}
 
 	apiSrv := &api.Server{

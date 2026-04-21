@@ -40,6 +40,11 @@ tasks:
     cmds:
       - go run .
 
+  dev-web:
+    desc: Run with web UI served from disk (no recompile on UI changes)
+    cmds:
+      - go run . --web-dir ./web
+
   test:
     desc: Run the test suite
     cmds:
@@ -52,9 +57,15 @@ tasks:
 
   lint:
     desc: Run formatting and lint checks
+    deps: [lint-web]
     cmds:
       - goimports -w .
       - golangci-lint run ./...
+
+  lint-web:
+    desc: Syntax-check web JS assets
+    cmds:
+      - node --check web/app.js && echo OK
 
   tidy:
     desc: Tidy Go module dependencies
