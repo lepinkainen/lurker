@@ -53,7 +53,7 @@ func main() {
 		}
 		slog.Info("irc bootstrap networks started", "count", len(nets))
 	} else {
-		slog.Info("no bootstrap networks configured; set CONFIG_PATH to seed control.db on startup")
+		slog.Info("no bootstrap networks configured; add networks to config.yaml to seed control.db on startup")
 	}
 
 	var webSub fs.FS

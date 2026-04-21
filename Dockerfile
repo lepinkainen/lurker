@@ -30,7 +30,6 @@ COPY --from=builder /build/irc-service .
 EXPOSE 8080
 VOLUME ["/data"]
 ENV DATA_DIR=/data
-ENV CONFIG_PATH=/app/config.yaml
 ENV ADDR=:8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
