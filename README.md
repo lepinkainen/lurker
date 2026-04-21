@@ -5,7 +5,6 @@ Personal IRCCloud-style bouncer + web client backend for a single user on a priv
 See also:
 
 - [PROJECT.md](PROJECT.md) for project purpose and direction
-- [PLAN.md](PLAN.md) for the current architecture overview
 - [IMPLEMENTATION_SPEC.md](IMPLEMENTATION_SPEC.md) for the storage refactor details
 
 ## Status
@@ -27,7 +26,7 @@ Backend only:
 ```bash
 task dev
 # or
-DATA_DIR=./data ADDR=:8080 go run .
+go run .
 ```
 
 Frontend development with Vite hot reload:
@@ -57,11 +56,7 @@ The service expects `./data` to be persisted as a bind mount so both
 
 ## Config
 
-Bootstrap config comes from:
-
-- `DATA_DIR` — default `./data`
-- `ADDR` — default `:8080`
-- `CONFIG_PATH` — default `./config.yaml`
+Bootstrap network configuration comes from `config.yaml`.
 
 `config.yaml` is bootstrap-only seed input.
 
@@ -74,7 +69,8 @@ After startup:
 
 - network definitions are managed through the API
 - connect/disconnect is managed through the API
-- YAML and env/config are not treated as the runtime source of truth
+- YAML is not treated as the runtime source of truth after startup
+- network renames are not part of normal runtime operation; if a name must change in an exceptional case, update config/control-plane state and then restart the backend so it can reload cleanly
 
 ## API
 
