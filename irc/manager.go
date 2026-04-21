@@ -9,8 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -284,37 +282,20 @@ func (m *Manager) ChannelMembers(networkID int64, channel string) []ircdb.Channe
 	if c == nil || !c.IsConnected() || channel == "" {
 		return nil
 	}
-	ch := c.LookupChannel(channel)
-	if ch == nil {
+	members := buildChannelMembers(c, channel)
+	if len(members) == 0 {
 		return nil
 	}
-	members := make([]ircdb.ChannelMember, 0, len(ch.UserList))
-	selfNick := c.GetNick()
-	for _, nick := range ch.UserList {
-		user := c.LookupUser(nick)
-		prefix := ""
-		away := false
-		if user != nil {
-			if perms, ok := user.Perms.Lookup(channel); ok {
-				switch {
-				case perms.Owner:
-					prefix = "~"
-				case perms.Admin:
-					prefix = "&"
-				case perms.Op:
-					prefix = "@"
-				case perms.HalfOp:
-					prefix = "%"
-				case perms.Voice:
-					prefix = "+"
-				}
-			}
-			away = user.Extras.Away != ""
-		}
-		members = append(members, ircdb.ChannelMember{Nick: nick, Prefix: prefix, Away: away, Self: strings.EqualFold(nick, selfNick)})
+	out := make([]ircdb.ChannelMember, 0, len(members))
+	for _, member := range members {
+		out = append(out, ircdb.ChannelMember{
+			Nick:   member.Nick,
+			Prefix: member.Prefix,
+			Away:   member.Away,
+			Self:   member.Self,
+		})
 	}
-	sort.Slice(members, func(i, j int) bool { return strings.ToLower(members[i].Nick) < strings.ToLower(members[j].Nick) })
-	return members
+	return out
 }
 
 func (m *Manager) runNetwork(ctx context.Context, networkID int64, nc NetworkConfig) {

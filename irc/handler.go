@@ -406,8 +406,8 @@ func (h *handler) publishMemberList(c *girc.Client, channel string) {
 	if h.hub == nil || c == nil || channel == "" {
 		return
 	}
-	ch := c.LookupChannel(channel)
-	if ch == nil {
+	members := buildChannelMembers(c, channel)
+	if len(members) == 0 {
 		return
 	}
 	ctx, cancel := h.eventContext()
@@ -417,30 +417,9 @@ func (h *handler) publishMemberList(c *girc.Client, channel string) {
 		slog.Error("ensure names buffer", "err", err, "network", h.networkName, "buffer", channel)
 		return
 	}
-	members := make([]ChannelUser, 0, len(ch.UserList))
-	selfNick := c.GetNick()
-	for _, nick := range ch.UserList {
-		user := c.LookupUser(nick)
-		prefix := ""
-		away := false
-		if user != nil {
-			if perms, ok := user.Perms.Lookup(channel); ok {
-				switch {
-				case perms.Owner:
-					prefix = "~"
-				case perms.Admin:
-					prefix = "&"
-				case perms.Op:
-					prefix = "@"
-				case perms.HalfOp:
-					prefix = "%"
-				case perms.Voice:
-					prefix = "+"
-				}
-			}
-			away = user.Extras.Away != ""
-		}
-		members = append(members, ChannelUser{Nick: nick, Prefix: prefix, Away: away, Self: strings.EqualFold(nick, selfNick)})
+	out := make([]ChannelUser, 0, len(members))
+	for _, member := range members {
+		out = append(out, ChannelUser{Nick: member.Nick, Prefix: member.Prefix, Away: member.Away, Self: member.Self})
 	}
-	h.hub.Publish(&MemberListEvent{Type: "member_list", NetworkID: h.networkID, BufferID: globalBufID, Channel: channel, Members: members})
+	h.hub.Publish(&MemberListEvent{Type: "member_list", NetworkID: h.networkID, BufferID: globalBufID, Channel: channel, Members: out})
 }
