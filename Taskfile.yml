@@ -45,6 +45,19 @@ tasks:
     cmds:
       - go run . --web-dir ./web/dist
 
+  seed-test:
+    desc: Seed ./data-test with fake networks, buffers, and messages
+    cmds:
+      - go run ./cmd/seedtest --data-dir ./data-test --reset
+
+  dev-test:
+    desc: Run backend against seeded ./data-test (no live IRC connections)
+    env:
+      DATA_DIR: ./data-test
+      CONFIG_PATH: /dev/null
+    cmds:
+      - go run . --web-dir ./web/dist
+
   web-install:
     desc: Install frontend dependencies with pnpm
     cmds:
@@ -78,9 +91,15 @@ tasks:
       - golangci-lint run ./...
 
   lint-web:
-    desc: Type-check and build the frontend
+    desc: Type-check and lint the frontend
     cmds:
       - cd web && pnpm exec tsc --noEmit
+      - cd web && pnpm lint:fix
+
+  test-web:
+    desc: Run the frontend test suite
+    cmds:
+      - cd web && pnpm test
 
   tidy:
     desc: Tidy Go module dependencies

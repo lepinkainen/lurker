@@ -73,6 +73,8 @@ The service exposes `/whoami`; prefer checking that endpoint when identifying a 
 ## Development workflow
 
 Preferred commands use `task` via `Taskfile.yml`.
+Always use `task` targets for linters, tests, and builds rather than invoking the underlying tools directly, unless the user explicitly asks otherwise.
+For example, run `task test` for tests and `task build` for builds.
 
 Common commands:
 

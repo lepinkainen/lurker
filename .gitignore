@@ -1,6 +1,7 @@
 /irc-service
 /build/
 /data/
+/data-test/
 *.db
 *.db-wal
 *.db-shm
