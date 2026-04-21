@@ -10,8 +10,8 @@ import (
 
 	"github.com/lrstanley/girc"
 
-	ircdb "github.com/lepinkainen/research/irc-service/db"
-	"github.com/lepinkainen/research/irc-service/hub"
+	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
 )
 
 func TestManagerPersistsMessages(t *testing.T) {
@@ -20,7 +20,11 @@ func TestManagerPersistsMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stores.Close()
+	defer func() {
+		if err := stores.Close(); err != nil {
+			t.Fatalf("close stores: %v", err)
+		}
+	}()
 
 	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
 	if err != nil {
@@ -36,12 +40,16 @@ func TestManagerPersistsMessages(t *testing.T) {
 	h.onPrivmsg(nil, mustEvent(t, ":alice!~u@h PRIVMSG #test :hello from fake"))
 
 	var n int
-	logStore.DB.QueryRow(`SELECT COUNT(*) FROM buffers WHERE name='#test'`).Scan(&n)
+	if err := logStore.DB.QueryRow(`SELECT COUNT(*) FROM buffers WHERE name='#test'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
 	if n != 1 {
 		t.Fatalf("channel buffer count = %d, want 1", n)
 	}
 
-	logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE kind='privmsg' AND content='hello from fake'`).Scan(&n)
+	if err := logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE kind='privmsg' AND content='hello from fake'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
 	if n != 1 {
 		t.Fatalf("persisted privmsg count = %d, want 1", n)
 	}
@@ -59,7 +67,11 @@ func TestMsgIDDedupAndServerTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stores.Close()
+	defer func() {
+		if err := stores.Close(); err != nil {
+			t.Fatalf("close stores: %v", err)
+		}
+	}()
 
 	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
 	if err != nil {
@@ -106,7 +118,11 @@ func TestPublishMemberListUsesTrackedMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stores.Close()
+	defer func() {
+		if err := stores.Close(); err != nil {
+			t.Fatalf("close stores: %v", err)
+		}
+	}()
 
 	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
 	if err != nil {
@@ -152,7 +168,11 @@ func TestManagerStartAndStopNetworkIndividually(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stores.Close()
+	defer func() {
+		if err := stores.Close(); err != nil {
+			t.Fatalf("close stores: %v", err)
+		}
+	}()
 
 	ctx := t.Context()
 	m := NewManager(stores, nil)
@@ -198,7 +218,11 @@ func TestYAMLStyleNetworkUsesOneLogicalConnectionConfigWithMultipleServers(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stores.Close()
+	defer func() {
+		if err := stores.Close(); err != nil {
+			t.Fatalf("close stores: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -246,7 +270,11 @@ func TestBuildClientConfiguresTLSInsecureSkipVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stores.Close()
+	defer func() {
+		if err := stores.Close(); err != nil {
+			t.Fatalf("close stores: %v", err)
+		}
+	}()
 
 	ctx := context.Background()
 	if _, err := stores.UpsertNetwork(ctx, ircdb.Network{Name: "ircnet", Host: "irc.example", Port: 6697, TLS: true, Nick: "tester"}); err != nil {

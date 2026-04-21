@@ -18,7 +18,7 @@ import (
 	"os"
 	"time"
 
-	ircdb "github.com/lepinkainen/research/irc-service/db"
+	ircdb "github.com/lepinkainen/lurker/db"
 )
 
 type seedNetwork struct {

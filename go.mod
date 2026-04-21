@@ -1,4 +1,4 @@
-module github.com/lepinkainen/research/irc-service
+module github.com/lepinkainen/lurker
 
 go 1.26.0
 

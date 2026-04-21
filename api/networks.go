@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	ircdb "github.com/lepinkainen/research/irc-service/db"
-	"github.com/lepinkainen/research/irc-service/irc"
+	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/irc"
 )
 
 type networkRequest struct {

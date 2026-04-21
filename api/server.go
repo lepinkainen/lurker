@@ -10,9 +10,9 @@ import (
 	"path"
 	"strings"
 
-	ircdb "github.com/lepinkainen/research/irc-service/db"
-	"github.com/lepinkainen/research/irc-service/hub"
-	"github.com/lepinkainen/research/irc-service/irc"
+	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
+	"github.com/lepinkainen/lurker/irc"
 )
 
 // Server bundles the dependencies every API handler needs.

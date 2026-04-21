@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/lepinkainen/research/irc-service/irc"
+	"github.com/lepinkainen/lurker/irc"
 )
 
 type Config struct {

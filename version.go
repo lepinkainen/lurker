@@ -1,6 +1,6 @@
 package main
 
-const appName = "irc-service"
+const appName = "lurker"
 
 var (
 	version   = "dev"

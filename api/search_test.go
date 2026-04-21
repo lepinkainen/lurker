@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	ircdb "github.com/lepinkainen/research/irc-service/db"
+	ircdb "github.com/lepinkainen/lurker/db"
 )
 
 func TestSearchRoutesAcrossNetworksAndBuffers(t *testing.T) {

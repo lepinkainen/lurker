@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lepinkainen/research/irc-service/db"
+	"github.com/lepinkainen/lurker/db"
 )
 
 func TestManagerStartAndStopNetworkIndividually(t *testing.T) {

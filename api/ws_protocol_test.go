@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	ircdb "github.com/lepinkainen/research/irc-service/db"
+	ircdb "github.com/lepinkainen/lurker/db"
 )
 
 func TestJoinUsesNetworkIDChannelAndPartUsesBufferID(t *testing.T) {

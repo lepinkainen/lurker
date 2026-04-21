@@ -7,7 +7,7 @@ Guidance for coding agents working in this repository.
 Lurker is a personal IRCCloud-style bouncer + web client backend for a single user on a private network.
 
 Primary pieces:
-- Go backend service (`irc-service`)
+- Go backend service (`lurker`)
 - Web frontend in `web/` built with Vite + TypeScript
 - SQLite storage under `data/`
 - `llm-shared/` git submodule with shared docs and guidelines

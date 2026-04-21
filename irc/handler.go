@@ -10,8 +10,8 @@ import (
 
 	"github.com/lrstanley/girc"
 
-	ircdb "github.com/lepinkainen/research/irc-service/db"
-	"github.com/lepinkainen/research/irc-service/hub"
+	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
 )
 
 // MessageEvent is published after a message row is successfully written.

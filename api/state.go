@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
-	ircdb "github.com/lepinkainen/research/irc-service/db"
+	ircdb "github.com/lepinkainen/lurker/db"
 )
 
 // networkDTO is the wire shape for a network row. We don't ship sasl

@@ -12,8 +12,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	ircdb "github.com/lepinkainen/research/irc-service/db"
-	"github.com/lepinkainen/research/irc-service/internal/closeutil"
+	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/internal/closeutil"
 )
 
 // clientCmd is the set of verbs a client can send. We union-decode from

@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const BACKEND_PORT = process.env.LURKER_TEST_PORT ?? "8099";
 const DATA_DIR = resolve(REPO_ROOT, "data-test");
-const BINARY = resolve(REPO_ROOT, "build", "irc-service-test");
+const BINARY = resolve(REPO_ROOT, "build", "lurker-test");
 const HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/healthz`;
 
 let backend: ChildProcess | undefined;

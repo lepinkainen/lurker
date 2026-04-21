@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strconv"
 
-	ircdb "github.com/lepinkainen/research/irc-service/db"
-	"github.com/lepinkainen/research/irc-service/irc"
+	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/irc"
 )
 
 func parsePathInt64(w http.ResponseWriter, r *http.Request, key, msg string) (int64, bool) {

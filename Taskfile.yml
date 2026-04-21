@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  APP_NAME: irc-service
+  APP_NAME: lurker
   BUILD_DIR: build
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
@@ -14,11 +14,13 @@ vars:
     -X main.version={{.VERSION}}
     -X main.gitHash={{.GIT_HASH}}
     -X main.buildTime={{.BUILD_TIME}}
+  GO_PACKAGES:
+    sh: go list ./... | grep -v '^github.com/lepinkainen/lurker/llm-shared/' | tr '\n' ' '
 
 tasks:
   build:
-    desc: Run lint and tests, then build the local binary
-    deps: [lint, test]
+    desc: Run lint, tests, frontend build, then build the local binary
+    deps: [lint, test, web-build]
     cmds:
       - mkdir -p {{.BUILD_DIR}}
       - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
@@ -30,7 +32,8 @@ tasks:
       - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}}-linux-amd64 .
 
   build-ci:
-    desc: CI build only
+    desc: CI build with frontend assets
+    deps: [web-build]
     cmds:
       - mkdir -p {{.BUILD_DIR}}
       - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
@@ -74,20 +77,20 @@ tasks:
       - cd web && pnpm build
 
   test:
-    desc: Run the test suite
+    desc: Run the test suite (excluding llm-shared)
     cmds:
-      - go test ./...
+      - go test {{.GO_PACKAGES}}
 
   test-ci:
-    desc: Run CI tests with coverage
+    desc: Run CI tests with coverage (excluding llm-shared)
     cmds:
-      - go test -tags=ci -cover -v ./... | tee coverage.out
+      - go test -tags=ci -cover -v {{.GO_PACKAGES}} | tee coverage.out
 
   lint:
-    desc: Run formatting and lint checks
+    desc: Run formatting and lint checks (excluding llm-shared)
     deps: [lint-web]
     cmds:
-      - goimports -w .
+      - goimports -w $(find . -path ./llm-shared -prune -o -name '*.go' -print)
       - golangci-lint run ./...
 
   lint-web:

@@ -14,8 +14,8 @@ import (
 
 	"github.com/lrstanley/girc"
 
-	ircdb "github.com/lepinkainen/research/irc-service/db"
-	"github.com/lepinkainen/research/irc-service/hub"
+	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
 )
 
 // debugWriter returns os.Stderr when IRC_DEBUG is set, io.Discard otherwise.
@@ -403,7 +403,7 @@ func (m *Manager) buildClient(ctx context.Context, networkID int64, nc NetworkCo
 		Nick:        nc.Nick,
 		User:        user,
 		Name:        nc.Realname,
-		Version:     "irc-service",
+		Version:     "lurker",
 		PingDelay:   60 * time.Second,
 		PingTimeout: 30 * time.Second,
 		RecoverFunc: girc.DefaultRecoverHandler,
