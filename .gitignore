@@ -11,3 +11,4 @@ coverage.out
 .rodney/
 web/node_modules/
 web/dist/
+.pi/todos/
