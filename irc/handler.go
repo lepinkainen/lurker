@@ -106,9 +106,15 @@ func (h *handler) register(c *girc.Client) {
 	c.Handlers.Add(girc.PART, h.onPart)
 	c.Handlers.Add(girc.KICK, h.onKick)
 	c.Handlers.Add(girc.TOPIC, h.onTopic)
+	c.Handlers.Add(girc.RPL_TOPIC, h.onTopicReply)
+	c.Handlers.Add(girc.MODE, h.onMode)
+	c.Handlers.Add(girc.RPL_CHANNELMODEIS, h.onChannelModeIs)
+	c.Handlers.Add(girc.INVITE, h.onInvite)
 	c.Handlers.Add(girc.QUIT, h.onQuit)
 	c.Handlers.Add(girc.NICK, h.onNick)
-	c.Handlers.Add(girc.MODE, h.onMode)
+	c.Handlers.Add(girc.CAP_AWAY, h.onAway)
+	c.Handlers.Add(girc.CAP_ACCOUNT, h.onAccount)
+	c.Handlers.Add(girc.CAP_CHGHOST, h.onChghost)
 	c.Handlers.Add(girc.RPL_ENDOFNAMES, h.onEndOfNames)
 	// echo-message: girc routes our own PRIVMSG/NOTICE echoes only through
 	// ALL_EVENTS. Catch them here and feed the normal persistence path so
@@ -171,87 +177,88 @@ func (h *handler) onPrivmsg(_ *girc.Client, e girc.Event) {
 }
 
 func (h *handler) onJoin(_ *girc.Client, e girc.Event) {
-	if len(e.Params) < 1 {
+	channel, ok := channelParam(e)
+	if !ok {
 		return
 	}
-	ctx, cancel := h.eventContext()
-	defer cancel()
-	globalBufID, _, err := h.ensureBuffer(ctx, e.Params[0], ircdb.BufferChannel)
-	if err != nil {
-		slog.Error("ensure join buffer", "err", err, "network", h.networkName, "buffer", e.Params[0])
-	} else {
-		_ = ircdb.UpdateLogBufferJoined(ctx, h.db, e.Params[0], true)
-		h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: true})
-		if h.hub != nil && e.Source != nil {
-			h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, BufferID: globalBufID, Nick: e.Source.Name, State: "join"})
-		}
-	}
-	h.storeEvent(e, e.Params[0], ircdb.BufferChannel, "join", "", "")
+	h.updateChannelJoined(channel, true, "join", e.Source)
+	h.storeEvent(e, channel, ircdb.BufferChannel, "join", "", "")
 }
 
 func (h *handler) onPart(_ *girc.Client, e girc.Event) {
-	if len(e.Params) < 1 {
+	channel, ok := channelParam(e)
+	if !ok {
 		return
 	}
-	reason := ""
-	if len(e.Params) >= 2 {
-		reason = e.Params[1]
-	}
-	ctx, cancel := h.eventContext()
-	defer cancel()
-	globalBufID, _, err := h.ensureBuffer(ctx, e.Params[0], ircdb.BufferChannel)
-	if err != nil {
-		slog.Error("ensure part buffer", "err", err, "network", h.networkName, "buffer", e.Params[0])
-	} else {
-		_ = ircdb.UpdateLogBufferJoined(ctx, h.db, e.Params[0], false)
-		h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: false})
-		if h.hub != nil && e.Source != nil {
-			h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, BufferID: globalBufID, Nick: e.Source.Name, State: "part"})
-		}
-	}
-	h.storeEvent(e, e.Params[0], ircdb.BufferChannel, "part", "", reason)
+	h.updateChannelJoined(channel, false, "part", e.Source)
+	h.storeEvent(e, channel, ircdb.BufferChannel, "part", "", e.Last())
 }
 
-func (h *handler) onKick(_ *girc.Client, e girc.Event) {
+func (h *handler) onKick(c *girc.Client, e girc.Event) {
 	if len(e.Params) < 2 {
 		return
 	}
-	reason := ""
-	if len(e.Params) >= 3 {
-		reason = e.Params[2]
+	channel := e.Params[0]
+	kickedNick := e.Params[1]
+	ctx, cancel := h.eventContext()
+	defer cancel()
+	globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
+	if err != nil {
+		slog.Error("ensure kick buffer", "err", err, "network", h.networkName, "buffer", channel)
+	} else {
+		if h.hub != nil {
+			h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, BufferID: globalBufID, Nick: kickedNick, State: "kick"})
+		}
+		if c != nil && strings.EqualFold(kickedNick, c.GetNick()) {
+			if err := ircdb.UpdateLogBufferJoined(ctx, h.db, channel, false); err != nil {
+				slog.Error("update channel joined", "err", err, "network", h.networkName, "buffer", channel, "joined", false)
+			}
+			h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: false})
+			h.publishMemberList(c, channel)
+		}
 	}
 	// target = the kicked nick
-	h.storeEvent(e, e.Params[0], ircdb.BufferChannel, "kick", e.Params[1], reason)
+	h.storeEvent(e, channel, ircdb.BufferChannel, "kick", kickedNick, e.Last())
 }
 
 func (h *handler) onTopic(_ *girc.Client, e girc.Event) {
-	if len(e.Params) < 1 {
+	channel, topic, ok := channelTopic(e)
+	if !ok {
 		return
 	}
-	ctx, cancel := h.eventContext()
-	defer cancel()
-	globalBufID, _, err := h.ensureBuffer(ctx, e.Params[0], ircdb.BufferChannel)
-	if err != nil {
-		slog.Error("ensure topic buffer", "err", err, "network", h.networkName, "buffer", e.Params[0])
-	} else {
-		_ = ircdb.UpdateLogBufferTopic(ctx, h.db, e.Params[0], e.Last())
-		h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Topic: e.Last(), Joined: true})
+	h.updateChannelTopic(channel, topic)
+	h.storeEvent(e, channel, ircdb.BufferChannel, "topic", "", topic)
+}
+
+func (h *handler) onTopicReply(_ *girc.Client, e girc.Event) {
+	channel, topic, ok := channelTopic(e)
+	if !ok {
+		return
 	}
-	h.storeEvent(e, e.Params[0], ircdb.BufferChannel, "topic", "", e.Last())
+	h.updateChannelTopic(channel, topic)
 }
 
 func (h *handler) onMode(_ *girc.Client, e girc.Event) {
-	if len(e.Params) < 1 {
+	target, modeArgs, ok := modeTargetAndArgs(e)
+	if !ok {
 		return
 	}
-	target := e.Params[0]
 	kind := "mode"
 	if !girc.IsValidChannel(target) {
 		// User mode changes go to the network status buffer.
-		h.storeEvent(e, "", ircdb.BufferStatus, kind, target, strings.Join(e.Params[1:], " "))
+		h.storeEvent(e, "", ircdb.BufferStatus, kind, target, modeArgs)
 		return
 	}
-	h.storeEvent(e, target, ircdb.BufferChannel, kind, "", strings.Join(e.Params[1:], " "))
+	h.touchChannelBuffer(target, "ensure mode buffer")
+	h.storeEvent(e, target, ircdb.BufferChannel, kind, "", modeArgs)
+}
+
+func (h *handler) onChannelModeIs(_ *girc.Client, e girc.Event) {
+	target, _, ok := modeTargetAndArgs(e)
+	if !ok || !girc.IsValidChannel(target) {
+		return
+	}
+	h.touchChannelBuffer(target, "ensure channel mode buffer")
 }
 
 func (h *handler) onQuit(_ *girc.Client, e girc.Event) {
@@ -266,6 +273,48 @@ func (h *handler) onNick(_ *girc.Client, e girc.Event) {
 		h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, Nick: e.Source.Name, State: "nick", Target: newNick})
 	}
 	h.storeEvent(e, "", ircdb.BufferStatus, "nick", newNick, "")
+}
+
+func (h *handler) onInvite(_ *girc.Client, e girc.Event) {
+	if len(e.Params) < 2 {
+		return
+	}
+	h.touchChannelBuffer(e.Params[1], "ensure invite buffer")
+	h.storeEvent(e, e.Params[1], ircdb.BufferChannel, "invite", e.Params[0], "")
+}
+
+func (h *handler) onAway(_ *girc.Client, e girc.Event) {
+	if e.Source == nil {
+		return
+	}
+	state := "back"
+	message := ""
+	if e.Last() != "" {
+		state = "away"
+		message = e.Last()
+	}
+	if h.hub != nil {
+		h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, Nick: e.Source.Name, State: state})
+	}
+	h.storeEvent(e, "", ircdb.BufferStatus, state, e.Source.Name, message)
+}
+
+func (h *handler) onAccount(_ *girc.Client, e girc.Event) {
+	if e.Source == nil {
+		return
+	}
+	account := e.Last()
+	if account == "*" {
+		account = ""
+	}
+	h.storeEvent(e, "", ircdb.BufferStatus, "account", e.Source.Name, account)
+}
+
+func (h *handler) onChghost(_ *girc.Client, e girc.Event) {
+	if e.Source == nil || len(e.Params) < 2 {
+		return
+	}
+	h.storeEvent(e, "", ircdb.BufferStatus, "chghost", e.Source.Name, strings.Join(e.Params[:2], " "))
 }
 
 func (h *handler) onEndOfNames(c *girc.Client, e girc.Event) {
@@ -366,6 +415,72 @@ func (h *handler) logStatus(kind, content string) {
 
 func (h *handler) eventContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeoutCause(context.Background(), 5*time.Second, errors.New("irc event timeout"))
+}
+
+func channelParam(e girc.Event) (string, bool) {
+	if len(e.Params) < 1 || e.Params[0] == "" {
+		return "", false
+	}
+	return e.Params[0], true
+}
+
+func channelTopic(e girc.Event) (channel, topic string, ok bool) {
+	switch len(e.Params) {
+	case 0:
+		return "", "", false
+	case 1:
+		return e.Params[0], "", e.Params[0] != ""
+	case 2:
+		return e.Params[0], e.Last(), e.Params[0] != ""
+	default:
+		return e.Params[1], e.Last(), e.Params[1] != ""
+	}
+}
+
+func modeTargetAndArgs(e girc.Event) (target, args string, ok bool) {
+	if len(e.Params) < 1 || e.Params[0] == "" {
+		return "", "", false
+	}
+	return e.Params[0], strings.Join(e.Params[1:], " "), true
+}
+
+func (h *handler) touchChannelBuffer(channel, action string) {
+	ctx, cancel := h.eventContext()
+	defer cancel()
+	if _, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel); err != nil {
+		slog.Error(action, "err", err, "network", h.networkName, "buffer", channel)
+	}
+}
+
+func (h *handler) updateChannelJoined(channel string, joined bool, presenceState string, source *girc.Source) {
+	ctx, cancel := h.eventContext()
+	defer cancel()
+	globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
+	if err != nil {
+		slog.Error("ensure channel buffer", "err", err, "network", h.networkName, "buffer", channel)
+		return
+	}
+	if err := ircdb.UpdateLogBufferJoined(ctx, h.db, channel, joined); err != nil {
+		slog.Error("update channel joined", "err", err, "network", h.networkName, "buffer", channel, "joined", joined)
+	}
+	h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: joined})
+	if h.hub != nil && source != nil {
+		h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, BufferID: globalBufID, Nick: source.Name, State: presenceState})
+	}
+}
+
+func (h *handler) updateChannelTopic(channel, topic string) {
+	ctx, cancel := h.eventContext()
+	defer cancel()
+	globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
+	if err != nil {
+		slog.Error("ensure topic buffer", "err", err, "network", h.networkName, "buffer", channel)
+		return
+	}
+	if err := ircdb.UpdateLogBufferTopic(ctx, h.db, channel, topic); err != nil {
+		slog.Error("update channel topic", "err", err, "network", h.networkName, "buffer", channel)
+	}
+	h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Topic: topic, Joined: true})
 }
 
 func (h *handler) ensureBuffer(ctx context.Context, name, kind string) (globalBufID, localBufID int64, err error) {
