@@ -311,9 +311,9 @@ func TestChannelMembersFromNames(t *testing.T) {
 	h := hub.New()
 	mgr := NewManager(stores, h)
 	err = mgr.Start(t.Context(), []NetworkConfig{{
-		Name: "fake",
+		Name:    "fake",
 		Servers: []ServerConfig{{Host: host, Port: port, TLS: false}},
-		Nick: "tester", User: "tester", Realname: "tester",
+		Nick:    "tester", User: "tester", Realname: "tester",
 		Channels: []string{"#test"},
 	}})
 	if err != nil {

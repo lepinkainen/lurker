@@ -30,12 +30,11 @@ func (s *LogStore) Close() error {
 	return s.DB.Close()
 }
 
-// LogBuffer is a network-local buffer row plus its owning global network id.
-type LogBuffer = bufferRow
+// LogBufferRow mirrors local per-network buffers table.
+type LogBufferRow = logBufferRow
 
-// LogMessage mirrors the per-network messages table while keeping the owning
-// global network id attached for API responses.
-type LogMessage = messageRow
+// LogMessageRow mirrors local per-network messages table.
+type LogMessageRow = logMessageRow
 
 // LogMessageInput is an inbound IRC event prepared for per-network storage.
 type LogMessageInput struct {
@@ -51,28 +50,28 @@ type LogMessageInput struct {
 }
 
 // UpsertLogBuffer creates or looks up a per-network buffer row.
-func UpsertLogBuffer(ctx context.Context, d *sql.DB, networkID int64, name, kind string) (id int64, created bool, buf LogBuffer, err error) {
+func UpsertLogBuffer(ctx context.Context, d *sql.DB, networkID int64, name, kind string) (id int64, created bool, buf LogBufferRow, err error) {
 	name, kind = normalizeBufferIdentity(name, kind)
 	now := Now()
 	joined := 0
 	if kind == BufferChannel {
 		joined = 1
 	}
-	return upsertBufferRow(
+	return upsertBufferRegistryOrLogRow(
 		ctx,
 		d,
 		`SELECT id FROM buffers WHERE name = ?`,
 		[]any{name},
 		`INSERT INTO buffers(name, kind, joined, created_at) VALUES (?, ?, ?, ?)`,
 		[]any{name, kind, joined, now},
-		bufferRow{NetworkID: networkID, Name: name, Kind: kind, Joined: joined == 1, CreatedAt: now},
+		logBufferRow{Name: name, Kind: kind, Joined: joined == 1, CreatedAt: now},
 	)
 }
 
 // InsertLogMessage inserts an IRC event into the per-network log.
 func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id int64, ts string, inserted bool, err error) {
 	ts = FormatTime(m.Timestamp)
-	insert := messageInsert{
+	insert := logMessageInsert{
 		BufferID: m.BufferID,
 		MsgID:    m.MsgID,
 		TS:       ts,
@@ -93,20 +92,19 @@ func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id int
 }
 
 // ListLogBuffers returns every buffer stored in a per-network log DB.
-func ListLogBuffers(ctx context.Context, d *sql.DB, networkID int64) ([]LogBuffer, error) {
+func ListLogBuffers(ctx context.Context, d *sql.DB) ([]LogBufferRow, error) {
 	rows, err := d.QueryContext(ctx,
 		`SELECT id, name, kind, COALESCE(topic,''), joined, COALESCE(last_seen_id,0), created_at
 		 FROM buffers ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
-	scanned, err := scanBufferRows(rows, func(b *bufferRow) error {
+	scanned, err := scanLogBufferRows(rows, func(b *logBufferRow) error {
 		var joined int
 		scanErr := rows.Scan(&b.ID, &b.Name, &b.Kind, &b.Topic, &joined, &b.LastSeenID, &b.CreatedAt)
 		if scanErr != nil {
 			return scanErr
 		}
-		b.NetworkID = networkID
 		b.Joined = joined == 1
 		return nil
 	})
@@ -117,8 +115,8 @@ func ListLogBuffers(ctx context.Context, d *sql.DB, networkID int64) ([]LogBuffe
 }
 
 // RecentLogMessages returns recent messages for a buffer in ascending order.
-func RecentLogMessages(ctx context.Context, d *sql.DB, networkID, bufferID int64, limit int) ([]LogMessage, error) {
-	return logMessagesQuery(ctx, d, networkID,
+func RecentLogMessages(ctx context.Context, d *sql.DB, bufferID int64, limit int) ([]LogMessageRow, error) {
+	return logMessagesQuery(ctx, d,
 		`SELECT id, buffer_id, COALESCE(msgid,''), ts, sender,
 		        COALESCE(account,''), kind, COALESCE(target,''), content
 		 FROM (
@@ -128,8 +126,8 @@ func RecentLogMessages(ctx context.Context, d *sql.DB, networkID, bufferID int64
 }
 
 // LogMessagesBefore returns messages before a given message ID.
-func LogMessagesBefore(ctx context.Context, d *sql.DB, networkID, bufferID, before int64, limit int) ([]LogMessage, error) {
-	return logMessagesQuery(ctx, d, networkID,
+func LogMessagesBefore(ctx context.Context, d *sql.DB, bufferID, before int64, limit int) ([]LogMessageRow, error) {
+	return logMessagesQuery(ctx, d,
 		`SELECT id, buffer_id, COALESCE(msgid,''), ts, sender,
 		        COALESCE(account,''), kind, COALESCE(target,''), content
 		 FROM (
@@ -147,18 +145,14 @@ func LookupLogBuffer(ctx context.Context, d *sql.DB, bufferID int64) (name, kind
 	return
 }
 
-func logMessagesQuery(ctx context.Context, d *sql.DB, networkID int64, q string, args ...any) ([]LogMessage, error) {
+func logMessagesQuery(ctx context.Context, d *sql.DB, q string, args ...any) ([]LogMessageRow, error) {
 	rows, err := d.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
-	return scanMessageRows(rows, func(m *messageRow) error {
-		if err := rows.Scan(&m.ID, &m.BufferID, &m.MsgID, &m.TS,
-			&m.Sender, &m.Account, &m.Kind, &m.Target, &m.Content); err != nil {
-			return err
-		}
-		m.NetworkID = networkID
-		return nil
+	return scanLogMessageRows(rows, func(m *logMessageRow) error {
+		return rows.Scan(&m.ID, &m.BufferID, &m.MsgID, &m.TS,
+			&m.Sender, &m.Account, &m.Kind, &m.Target, &m.Content)
 	})
 }
 
@@ -202,7 +196,7 @@ func UpdateLogBufferLastSeen(ctx context.Context, d *sql.DB, name string, lastSe
 }
 
 // SearchLogMessages searches a per-network log DB using FTS.
-func SearchLogMessages(ctx context.Context, d *sql.DB, networkID int64, query string, bufferID int64, limit int) ([]LogMessage, error) {
+func SearchLogMessages(ctx context.Context, d *sql.DB, query string, bufferID int64, limit int) ([]LogMessageRow, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -218,7 +212,7 @@ func SearchLogMessages(ctx context.Context, d *sql.DB, networkID int64, query st
 	}
 	q += where + ` ORDER BY m.id DESC LIMIT ?`
 	args = append(args, limit)
-	return logMessagesQuery(ctx, d, networkID, q, args...)
+	return logMessagesQuery(ctx, d, q, args...)
 }
 
 func (s *LogStore) String() string {

@@ -54,10 +54,10 @@ type channelMemberDTO struct {
 }
 
 type stateDTO struct {
-	Networks        []networkDTO                    `json:"networks"`
-	Buffers         []bufferDTO                     `json:"buffers"`
-	InitialMessages map[string][]messageDTO         `json:"initial_messages"` // keyed by buffer id (string so JSON handles large ids cleanly)
-	Members         map[string][]channelMemberDTO   `json:"members,omitzero"`
+	Networks        []networkDTO                  `json:"networks"`
+	Buffers         []bufferDTO                   `json:"buffers"`
+	InitialMessages map[string][]messageDTO       `json:"initial_messages"` // keyed by buffer id (string so JSON handles large ids cleanly)
+	Members         map[string][]channelMemberDTO `json:"members,omitzero"`
 }
 
 // state serves the full snapshot a client needs to render from scratch:

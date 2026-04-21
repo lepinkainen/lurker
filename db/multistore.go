@@ -22,7 +22,7 @@ type bufferNameMappings struct {
 	nameToGlobal map[string]int64
 }
 
-// MultiStore owns the control DB plus zero or more per-network log DB handles.
+// ChannelMember is runtime member state for a channel user.
 type ChannelMember struct {
 	Nick   string
 	Prefix string
@@ -30,6 +30,7 @@ type ChannelMember struct {
 	Self   bool
 }
 
+// MultiStore owns the control DB plus zero or more per-network log DB handles.
 type MultiStore struct {
 	Control *sql.DB
 	DataDir string
@@ -259,11 +260,11 @@ func (ms *MultiStore) RecentMessages(ctx context.Context, globalBufferID int64, 
 	if err != nil {
 		return nil, err
 	}
-	msgs, err := RecentLogMessages(ctx, buf.logStore.DB, buf.networkID, buf.localID, limit)
+	msgs, err := RecentLogMessages(ctx, buf.logStore.DB, buf.localID, limit)
 	if err != nil {
 		return nil, err
 	}
-	return toStoredMessages(globalBufferID, msgs), nil
+	return toStoredMessages(buf.networkID, globalBufferID, msgs), nil
 }
 
 // MessagesBefore returns messages before a given message ID.
@@ -272,11 +273,11 @@ func (ms *MultiStore) MessagesBefore(ctx context.Context, globalBufferID, before
 	if err != nil {
 		return nil, err
 	}
-	msgs, err := LogMessagesBefore(ctx, buf.logStore.DB, buf.networkID, buf.localID, before, limit)
+	msgs, err := LogMessagesBefore(ctx, buf.logStore.DB, buf.localID, before, limit)
 	if err != nil {
 		return nil, err
 	}
-	return toStoredMessages(globalBufferID, msgs), nil
+	return toStoredMessages(buf.networkID, globalBufferID, msgs), nil
 }
 
 // MarkBufferLastSeen updates the last seen message ID for a global buffer.
@@ -295,11 +296,11 @@ func (ms *MultiStore) Search(ctx context.Context, query string, networkID, globa
 		if err != nil {
 			return nil, err
 		}
-		msgs, err := SearchLogMessages(ctx, buf.logStore.DB, buf.networkID, query, buf.localID, limit)
+		msgs, err := SearchLogMessages(ctx, buf.logStore.DB, query, buf.localID, limit)
 		if err != nil {
 			return nil, err
 		}
-		return toStoredMessages(globalBufferID, msgs), nil
+		return toStoredMessages(buf.networkID, globalBufferID, msgs), nil
 	}
 
 	if networkID > 0 {
@@ -322,7 +323,7 @@ func (ms *MultiStore) searchNetwork(ctx context.Context, networkID int64, query 
 	if err != nil {
 		return nil, err
 	}
-	msgs, err := SearchLogMessages(ctx, logStore.DB, networkID, query, 0, limit)
+	msgs, err := SearchLogMessages(ctx, logStore.DB, query, 0, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -330,22 +331,22 @@ func (ms *MultiStore) searchNetwork(ctx context.Context, networkID int64, query 
 	if err != nil {
 		return nil, err
 	}
-	return mapSearchMessagesToGlobal(msgs, mappings)
+	return mapSearchMessagesToGlobal(networkID, msgs, mappings)
 }
 
-func mapSearchMessagesToGlobal(msgs []LogMessage, mappings bufferNameMappings) ([]StoredMessage, error) {
+func mapSearchMessagesToGlobal(networkID int64, msgs []LogMessageRow, mappings bufferNameMappings) ([]StoredMessage, error) {
 	out := make([]StoredMessage, 0, len(msgs))
 	for _, m := range msgs {
 		name, ok := mappings.localToName[m.BufferID]
 		if !ok {
-			return nil, fmt.Errorf("missing local buffer mapping for network %d buffer %d", m.NetworkID, m.BufferID)
+			return nil, fmt.Errorf("missing local buffer mapping for network %d buffer %d", networkID, m.BufferID)
 		}
 		globalBufferID, ok := mappings.nameToGlobal[name]
 		if !ok {
-			return nil, fmt.Errorf("missing global buffer mapping for network %d buffer %q", m.NetworkID, name)
+			return nil, fmt.Errorf("missing global buffer mapping for network %d buffer %q", networkID, name)
 		}
 		out = append(out, StoredMessage{
-			ID: m.ID, NetworkID: m.NetworkID, BufferID: globalBufferID,
+			ID: m.ID, NetworkID: networkID, BufferID: globalBufferID,
 			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Account: m.Account,
 			Kind: m.Kind, Target: m.Target, Content: m.Content,
 		})
@@ -411,11 +412,11 @@ func (ms *MultiStore) bufferNameMappings(ctx context.Context, networkID int64, l
 	return bufferNameMappings{localToName: localToName, nameToGlobal: nameToGlobal}, nil
 }
 
-func toStoredMessages(globalBufferID int64, in []LogMessage) []StoredMessage {
+func toStoredMessages(networkID, globalBufferID int64, in []LogMessageRow) []StoredMessage {
 	out := make([]StoredMessage, 0, len(in))
 	for _, m := range in {
 		out = append(out, StoredMessage{
-			ID: m.ID, NetworkID: m.NetworkID, BufferID: globalBufferID,
+			ID: m.ID, NetworkID: networkID, BufferID: globalBufferID,
 			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Account: m.Account,
 			Kind: m.Kind, Target: m.Target, Content: m.Content,
 		})

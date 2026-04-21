@@ -229,7 +229,9 @@ func (m *Manager) Join(networkID int64, channel string) error {
 		return ErrNotConnected
 	}
 	c.Cmd.Join(channel)
-	c.Cmd.SendRaw("NAMES " + channel)
+	if err := c.Cmd.SendRaw("NAMES " + channel); err != nil {
+		return err
+	}
 	return nil
 }
 

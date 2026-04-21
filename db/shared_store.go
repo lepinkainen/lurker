@@ -5,9 +5,16 @@ import (
 	"database/sql"
 )
 
-type bufferRow struct {
+type bufferRegistryRow struct {
+	ID        int64
+	NetworkID int64
+	Name      string
+	Kind      string
+	CreatedAt string
+}
+
+type logBufferRow struct {
 	ID         int64
-	NetworkID  int64
 	Name       string
 	Kind       string
 	Topic      string
@@ -16,30 +23,28 @@ type bufferRow struct {
 	CreatedAt  string
 }
 
-type messageRow struct {
-	ID        int64
-	NetworkID int64
-	BufferID  int64
-	MsgID     string
-	TS        string
-	Sender    string
-	Account   string
-	Kind      string
-	Target    string
-	Content   string
+type logMessageRow struct {
+	ID       int64
+	BufferID int64
+	MsgID    string
+	TS       string
+	Sender   string
+	Account  string
+	Kind     string
+	Target   string
+	Content  string
 }
 
-type messageInsert struct {
-	NetworkID int64
-	BufferID  int64
-	MsgID     string
-	TS        string
-	Sender    string
-	Account   string
-	Kind      string
-	Target    string
-	Content   string
-	Raw       string
+type logMessageInsert struct {
+	BufferID int64
+	MsgID    string
+	TS       string
+	Sender   string
+	Account  string
+	Kind     string
+	Target   string
+	Content  string
+	Raw      string
 }
 
 func normalizeBufferIdentity(name, kind string) (normalizedName, normalizedKind string) {
@@ -56,11 +61,11 @@ func nullableString(v string) sql.NullString {
 	return sql.NullString{String: v, Valid: true}
 }
 
-func scanBufferRows(rows *sql.Rows, scan func(*bufferRow) error) ([]bufferRow, error) {
+func scanLogBufferRows(rows *sql.Rows, scan func(*logBufferRow) error) ([]logBufferRow, error) {
 	defer func() { _ = rows.Close() }()
-	var out []bufferRow
+	var out []logBufferRow
 	for rows.Next() {
-		var row bufferRow
+		var row logBufferRow
 		if err := scan(&row); err != nil {
 			return nil, err
 		}
@@ -69,11 +74,11 @@ func scanBufferRows(rows *sql.Rows, scan func(*bufferRow) error) ([]bufferRow, e
 	return out, rows.Err()
 }
 
-func scanMessageRows(rows *sql.Rows, scan func(*messageRow) error) ([]messageRow, error) {
+func scanLogMessageRows(rows *sql.Rows, scan func(*logMessageRow) error) ([]logMessageRow, error) {
 	defer func() { _ = rows.Close() }()
-	var out []messageRow
+	var out []logMessageRow
 	for rows.Next() {
-		var row messageRow
+		var row logMessageRow
 		if err := scan(&row); err != nil {
 			return nil, err
 		}
@@ -82,27 +87,33 @@ func scanMessageRows(rows *sql.Rows, scan func(*messageRow) error) ([]messageRow
 	return out, rows.Err()
 }
 
-func upsertBufferRow(ctx context.Context, d *sql.DB, selectQuery string, selectArgs []any, insertQuery string, insertArgs []any, row bufferRow) (id int64, created bool, out bufferRow, err error) {
+func upsertBufferRegistryOrLogRow[T bufferRegistryRow | logBufferRow](ctx context.Context, d *sql.DB, selectQuery string, selectArgs []any, insertQuery string, insertArgs []any, row T) (id int64, created bool, out T, err error) {
 	err = d.QueryRowContext(ctx, selectQuery, selectArgs...).Scan(&id)
 	if err == nil {
-		return id, false, bufferRow{}, nil
+		return id, false, out, nil
 	}
 	if err != sql.ErrNoRows {
-		return 0, false, bufferRow{}, err
+		return 0, false, out, err
 	}
 	res, err := d.ExecContext(ctx, insertQuery, insertArgs...)
 	if err != nil {
 		if err2 := d.QueryRowContext(ctx, selectQuery, selectArgs...).Scan(&id); err2 == nil {
-			return id, false, bufferRow{}, nil
+			return id, false, out, nil
 		}
-		return 0, false, bufferRow{}, err
+		return 0, false, out, err
 	}
 	id, err = res.LastInsertId()
 	if err != nil {
-		return 0, false, bufferRow{}, err
+		return 0, false, out, err
 	}
-	row.ID = id
-	return id, true, row, nil
+	out = row
+	switch v := any(&out).(type) {
+	case *bufferRegistryRow:
+		v.ID = id
+	case *logBufferRow:
+		v.ID = id
+	}
+	return id, true, out, nil
 }
 
 func insertMessageRow(ctx context.Context, d *sql.DB, query string, args []any, ts string) (id int64, storedTS string, inserted bool, err error) {

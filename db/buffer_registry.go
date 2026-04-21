@@ -9,15 +9,22 @@ import (
 func UpsertBufferRegistry(ctx context.Context, d *sql.DB, networkID int64, name, kind string) (id int64, created bool, buf Buffer, err error) {
 	name, kind = normalizeBufferIdentity(name, kind)
 	now := Now()
-	return upsertBufferRow(
+	row := bufferRegistryRow{NetworkID: networkID, Name: name, Kind: kind, CreatedAt: now}
+	id, created, stored, err := upsertBufferRegistryOrLogRow(
 		ctx,
 		d,
 		`SELECT id FROM buffer_registry WHERE network_id = ? AND name = ?`,
 		[]any{networkID, name},
 		`INSERT INTO buffer_registry(network_id, name, kind, created_at) VALUES (?, ?, ?, ?)`,
 		[]any{networkID, name, kind, now},
-		bufferRow{NetworkID: networkID, Name: name, Kind: kind, CreatedAt: now},
+		row,
 	)
+	if err != nil {
+		return 0, false, Buffer{}, err
+	}
+	return id, created, Buffer{
+		ID: stored.ID, NetworkID: stored.NetworkID, Name: stored.Name, Kind: stored.Kind, CreatedAt: stored.CreatedAt,
+	}, nil
 }
 
 // LookupBufferRegistry resolves a global buffer registry row by ID.

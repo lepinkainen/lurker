@@ -20,9 +20,30 @@ const (
 	BufferStatus  = "status"
 )
 
-// Buffer is the DTO returned for newly-created buffers so the API can
-// push a buffer_created event without a second query.
-type Buffer = bufferRow
+// Buffer is global/API-facing buffer view built from control DB rows plus
+// derived or enriched state from per-network log DBs.
+type Buffer struct {
+	ID         int64
+	NetworkID  int64
+	Name       string
+	Kind       string
+	Topic      string
+	Joined     bool
+	LastSeenID int64
+	CreatedAt  string
+}
 
-// StoredMessage mirrors the messages table for API responses.
-type StoredMessage = messageRow
+// StoredMessage is global/API-facing message view built from per-network log
+// rows plus explicit global metadata.
+type StoredMessage struct {
+	ID        int64
+	NetworkID int64
+	BufferID  int64
+	MsgID     string
+	TS        string
+	Sender    string
+	Account   string
+	Kind      string
+	Target    string
+	Content   string
+}
