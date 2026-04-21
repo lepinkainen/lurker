@@ -22,6 +22,14 @@ jobs:
           go-version: '1.26.0'
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Enable corepack
+        run: corepack enable
+
       - name: Install Task
         uses: arduino/setup-task@v2
         with:
@@ -43,8 +51,24 @@ jobs:
           go-version: '1.26.0'
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install frontend dependencies
+        run: cd web && pnpm install --frozen-lockfile
+
       - name: Install goimports
         run: go install golang.org/x/tools/cmd/goimports@latest
+
+      - name: Run frontend lint/typecheck
+        run: task lint-web
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
@@ -65,6 +89,19 @@ jobs:
           go-version: '1.26.0'
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install frontend dependencies
+        run: cd web && pnpm install --frozen-lockfile
+
       - name: Install Task
         uses: arduino/setup-task@v2
         with:
@@ -73,3 +110,4 @@ jobs:
 
       - name: Build
         run: task build-ci
+
