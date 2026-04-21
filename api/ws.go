@@ -150,17 +150,8 @@ func (s *Server) cmdSend(ctx context.Context, c *websocket.Conn, cmd clientCmd) 
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return
 	}
-	if err := wsjson.Write(ctx, c, map[string]any{
-		"type":       "message",
-		"id":         -(time.Now().UnixNano()),
-		"network_id": networkID,
-		"buffer_id":  cmd.BufferID,
-		"ts":         time.Now().UTC().Format(time.RFC3339Nano),
-		"sender":     "me",
-		"kind":       "privmsg",
-		"content":    content,
-	}); err != nil {
-		return
+	if err := s.Manager.LogOutbound(ctx, networkID, name, "privmsg", content); err != nil {
+		slog.Error("log outbound", "err", err, "network_id", networkID, "buffer_id", cmd.BufferID)
 	}
 	writeWSAck(ctx, c, cmd.ReqID)
 }

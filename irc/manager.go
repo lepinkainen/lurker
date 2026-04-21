@@ -167,6 +167,57 @@ func (m *Manager) Send(networkID int64, target, content string) error {
 	return nil
 }
 
+// LogOutbound persists a user-sent message to the per-network log and
+// publishes it on the hub. Necessary because the IRC servers we talk to
+// don't honor the echo-message capability, so outbound PRIVMSGs would
+// otherwise be missing from history and from other connected clients.
+func (m *Manager) LogOutbound(ctx context.Context, networkID int64, target, kind, content string) error {
+	if m.stores == nil {
+		return errors.New("irc: stores unavailable")
+	}
+	bufKind := ircdb.BufferQuery
+	if girc.IsValidChannel(target) {
+		bufKind = ircdb.BufferChannel
+	}
+	globalBufID, _, _, err := m.stores.UpsertBufferRegistry(ctx, networkID, target, bufKind)
+	if err != nil {
+		return err
+	}
+	logStore, err := m.stores.LogStore(networkID)
+	if err != nil {
+		return err
+	}
+	localBufID, _, _, err := ircdb.UpsertLogBuffer(ctx, logStore.DB, networkID, target, bufKind)
+	if err != nil {
+		return err
+	}
+	nick := m.Nick(networkID)
+	id, ts, inserted, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+		BufferID:  localBufID,
+		Timestamp: time.Now(),
+		Sender:    nick,
+		Kind:      kind,
+		Content:   content,
+	})
+	if err != nil {
+		return err
+	}
+	if !inserted || m.hub == nil {
+		return nil
+	}
+	m.hub.Publish(&MessageEvent{
+		Type:      "message",
+		ID:        id,
+		NetworkID: networkID,
+		BufferID:  globalBufID,
+		TS:        ts,
+		Sender:    nick,
+		Kind:      kind,
+		Content:   content,
+	})
+	return nil
+}
+
 // Join sends a JOIN command on a connected network.
 func (m *Manager) Join(networkID int64, channel string) error {
 	m.mu.Lock()
@@ -189,6 +240,24 @@ func (m *Manager) Part(networkID int64, channel, reason string) error {
 	}
 	c.Cmd.Part(channel, reason)
 	return nil
+}
+
+// Nick returns the current nickname for a network. Falls back to the
+// configured nick when the connection isn't active.
+func (m *Manager) Nick(networkID int64) string {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	rt, ok := m.runtime[networkID]
+	m.mu.Unlock()
+	if c != nil && c.IsConnected() {
+		if n := c.GetNick(); n != "" {
+			return n
+		}
+	}
+	if ok {
+		return rt.cfg.Nick
+	}
+	return ""
 }
 
 // StateSnapshot returns a copy of current network states.
