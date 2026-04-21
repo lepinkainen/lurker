@@ -68,19 +68,31 @@ type networkRuntime struct {
 }
 
 // Manager owns IRC clients and connection lifecycle for all networks.
+type connectorFunc func(ctx context.Context, client *girc.Client, server ServerConfig) error
+
 type Manager struct {
-	stores  *ircdb.MultiStore
-	hub     *hub.Hub
-	wg      sync.WaitGroup
-	mu      sync.Mutex
-	conn    map[int64]*girc.Client
-	state   map[int64]string
-	runtime map[int64]networkRuntime
+	stores        *ircdb.MultiStore
+	hub           *hub.Hub
+	wg            sync.WaitGroup
+	mu            sync.Mutex
+	conn          map[int64]*girc.Client
+	state         map[int64]string
+	runtime       map[int64]networkRuntime
+	membersLoaded map[int64]map[string]bool
+	connector     connectorFunc
 }
 
 // NewManager constructs a Manager.
 func NewManager(stores *ircdb.MultiStore, h *hub.Hub) *Manager {
-	return &Manager{stores: stores, hub: h, conn: map[int64]*girc.Client{}, state: map[int64]string{}, runtime: map[int64]networkRuntime{}}
+	return &Manager{
+		stores:        stores,
+		hub:           h,
+		conn:          map[int64]*girc.Client{},
+		state:         map[int64]string{},
+		runtime:       map[int64]networkRuntime{},
+		membersLoaded: map[int64]map[string]bool{},
+		connector:     defaultConnector,
+	}
 }
 
 // Start upserts and starts all configured networks.
@@ -192,6 +204,9 @@ func (m *Manager) LogOutbound(ctx context.Context, networkID int64, target, kind
 		return err
 	}
 	nick := m.Nick(networkID)
+	if nick == "" {
+		return errors.New("irc: cannot log outbound message without known nick")
+	}
 	id, ts, inserted, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
 		BufferID:  localBufID,
 		Timestamp: time.Now(),
@@ -227,9 +242,6 @@ func (m *Manager) Join(networkID int64, channel string) error {
 		return ErrNotConnected
 	}
 	c.Cmd.Join(channel)
-	if err := c.Cmd.SendRaw("NAMES " + channel); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -278,12 +290,16 @@ func (m *Manager) StateSnapshot() map[int64]string {
 func (m *Manager) ChannelMembers(networkID int64, channel string) []ircdb.ChannelMember {
 	m.mu.Lock()
 	c := m.conn[networkID]
+	loaded := m.membersLoaded[networkID][channel]
 	m.mu.Unlock()
 	if c == nil || !c.IsConnected() || channel == "" {
 		return nil
 	}
 	members := buildChannelMembers(c, channel)
-	if len(members) == 0 {
+	if members == nil {
+		if loaded {
+			return []ircdb.ChannelMember{}
+		}
 		return nil
 	}
 	out := make([]ircdb.ChannelMember, 0, len(members))
@@ -296,6 +312,19 @@ func (m *Manager) ChannelMembers(networkID int64, channel string) []ircdb.Channe
 		})
 	}
 	return out
+}
+
+func (m *Manager) clearChannelMembersLoaded(networkID int64, channel string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	channels := m.membersLoaded[networkID]
+	if channels == nil {
+		return
+	}
+	delete(channels, channel)
+	if len(channels) == 0 {
+		delete(m.membersLoaded, networkID)
+	}
 }
 
 func (m *Manager) runNetwork(ctx context.Context, networkID int64, nc NetworkConfig) {
@@ -320,10 +349,11 @@ func (m *Manager) runNetwork(ctx context.Context, networkID int64, nc NetworkCon
 		}
 
 		log.Info("connecting", "host", server.Host, "port", server.Port, "tls", server.TLS)
-		err := client.Connect()
+		err := m.connector(ctx, client, server)
 
 		m.mu.Lock()
 		delete(m.conn, networkID)
+		delete(m.membersLoaded, networkID)
 		if _, ok := m.runtime[networkID]; ok {
 			m.state[networkID] = StateDisconnected.String()
 		}
@@ -355,6 +385,10 @@ func (m *Manager) runNetwork(ctx context.Context, networkID int64, nc NetworkCon
 			backoff = maxBackoff
 		}
 	}
+}
+
+func defaultConnector(_ context.Context, client *girc.Client, _ ServerConfig) error {
+	return client.Connect()
 }
 
 func (m *Manager) buildClient(ctx context.Context, networkID int64, nc NetworkConfig, server ServerConfig) *girc.Client {
@@ -399,7 +433,19 @@ func (m *Manager) buildClient(ctx context.Context, networkID int64, nc NetworkCo
 	h := &handler{stores: m.stores, db: logStore.DB, hub: m.hub, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectedHook: func() {
 		m.mu.Lock()
 		m.state[networkID] = StateConnected.String()
+		if _, ok := m.membersLoaded[networkID]; !ok {
+			m.membersLoaded[networkID] = map[string]bool{}
+		}
 		m.mu.Unlock()
+	}, memberListHook: func(channel string) {
+		m.mu.Lock()
+		if _, ok := m.membersLoaded[networkID]; !ok {
+			m.membersLoaded[networkID] = map[string]bool{}
+		}
+		m.membersLoaded[networkID][channel] = true
+		m.mu.Unlock()
+	}, clearMemberListHook: func(channel string) {
+		m.clearChannelMembersLoaded(networkID, channel)
 	}}
 	h.register(client)
 

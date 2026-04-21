@@ -88,13 +88,15 @@ type NetworkStateEvent struct {
 // handler is the glue between a girc.Client and the SQLite store. One
 // instance per network connection.
 type handler struct {
-	stores        *ircdb.MultiStore
-	db            *sql.DB
-	hub           *hub.Hub
-	networkID     int64
-	networkName   string
-	autojoin      []string
-	connectedHook func()
+	stores              *ircdb.MultiStore
+	db                  *sql.DB
+	hub                 *hub.Hub
+	networkID           int64
+	networkName         string
+	autojoin            []string
+	connectedHook       func()
+	memberListHook      func(channel string)
+	clearMemberListHook func(channel string)
 }
 
 func (h *handler) register(c *girc.Client) {
@@ -185,13 +187,21 @@ func (h *handler) onJoin(_ *girc.Client, e girc.Event) {
 	h.storeEvent(e, channel, ircdb.BufferChannel, "join", "", "")
 }
 
-func (h *handler) onPart(_ *girc.Client, e girc.Event) {
+func (h *handler) onPart(c *girc.Client, e girc.Event) {
 	channel, ok := channelParam(e)
 	if !ok {
 		return
 	}
-	h.updateChannelJoined(channel, false, "part", e.Source)
-	h.storeEvent(e, channel, ircdb.BufferChannel, "part", "", e.Last())
+	reason := ""
+	if len(e.Params) >= 2 {
+		reason = e.Last()
+	}
+	if c != nil && e.Source != nil && strings.EqualFold(e.Source.Name, c.GetNick()) {
+		h.updateChannelJoined(channel, false, "part", e.Source)
+	} else {
+		h.publishRemotePresence(channel, "part", e.Source)
+	}
+	h.storeEvent(e, channel, ircdb.BufferChannel, "part", "", reason)
 }
 
 func (h *handler) onKick(c *girc.Client, e girc.Event) {
@@ -200,6 +210,10 @@ func (h *handler) onKick(c *girc.Client, e girc.Event) {
 	}
 	channel := e.Params[0]
 	kickedNick := e.Params[1]
+	reason := ""
+	if len(e.Params) >= 3 {
+		reason = e.Last()
+	}
 	ctx, cancel := h.eventContext()
 	defer cancel()
 	globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
@@ -210,6 +224,9 @@ func (h *handler) onKick(c *girc.Client, e girc.Event) {
 			h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, BufferID: globalBufID, Nick: kickedNick, State: "kick"})
 		}
 		if c != nil && strings.EqualFold(kickedNick, c.GetNick()) {
+			if h.clearMemberListHook != nil {
+				h.clearMemberListHook(channel)
+			}
 			if err := ircdb.UpdateLogBufferJoined(ctx, h.db, channel, false); err != nil {
 				slog.Error("update channel joined", "err", err, "network", h.networkName, "buffer", channel, "joined", false)
 			}
@@ -218,7 +235,7 @@ func (h *handler) onKick(c *girc.Client, e girc.Event) {
 		}
 	}
 	// target = the kicked nick
-	h.storeEvent(e, channel, ircdb.BufferChannel, "kick", kickedNick, e.Last())
+	h.storeEvent(e, channel, ircdb.BufferChannel, "kick", kickedNick, reason)
 }
 
 func (h *handler) onTopic(_ *girc.Client, e girc.Event) {
@@ -453,6 +470,9 @@ func (h *handler) touchChannelBuffer(channel, action string) {
 }
 
 func (h *handler) updateChannelJoined(channel string, joined bool, presenceState string, source *girc.Source) {
+	if !joined && h.clearMemberListHook != nil {
+		h.clearMemberListHook(channel)
+	}
 	ctx, cancel := h.eventContext()
 	defer cancel()
 	globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
@@ -467,6 +487,20 @@ func (h *handler) updateChannelJoined(channel string, joined bool, presenceState
 	if h.hub != nil && source != nil {
 		h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, BufferID: globalBufID, Nick: source.Name, State: presenceState})
 	}
+}
+
+func (h *handler) publishRemotePresence(channel, state string, source *girc.Source) {
+	if h.hub == nil || source == nil {
+		return
+	}
+	ctx, cancel := h.eventContext()
+	defer cancel()
+	globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
+	if err != nil {
+		slog.Error("ensure presence buffer", "err", err, "network", h.networkName, "buffer", channel)
+		return
+	}
+	h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, BufferID: globalBufID, Nick: source.Name, State: state})
 }
 
 func (h *handler) updateChannelTopic(channel, topic string) {
@@ -518,11 +552,17 @@ func (h *handler) publishNetworkState(state NetworkState) {
 }
 
 func (h *handler) publishMemberList(c *girc.Client, channel string) {
-	if h.hub == nil || c == nil || channel == "" {
+	if c == nil || channel == "" {
 		return
 	}
 	members := buildChannelMembers(c, channel)
-	if len(members) == 0 {
+	if members == nil {
+		return
+	}
+	if h.memberListHook != nil {
+		h.memberListHook(channel)
+	}
+	if h.hub == nil {
 		return
 	}
 	ctx, cancel := h.eventContext()
@@ -534,7 +574,7 @@ func (h *handler) publishMemberList(c *girc.Client, channel string) {
 	}
 	out := make([]ChannelUser, 0, len(members))
 	for _, member := range members {
-		out = append(out, ChannelUser{Nick: member.Nick, Prefix: member.Prefix, Away: member.Away, Self: member.Self})
+		out = append(out, ChannelUser(member))
 	}
 	h.hub.Publish(&MemberListEvent{Type: "member_list", NetworkID: h.networkID, BufferID: globalBufID, Channel: channel, Members: out})
 }
