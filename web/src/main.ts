@@ -60,7 +60,7 @@ type AppState = {
   networks: Map<number, Network>;
   buffers: Map<number, Buffer>;
   messages: Map<number, Message[]>;
-  members: Map<string, Member>;
+  members: Map<number, Member[]>;
   activeId: number | null;
   ws: WebSocket | null;
   wsReady: boolean;
@@ -159,6 +159,7 @@ async function hydrate() {
     for (const n of s.networks || []) state.networks.set(n.id, n);
     for (const b of s.buffers || []) state.buffers.set(b.id, { unread: 0, mentions: 0, ...b });
     for (const [id, msgs] of Object.entries(s.initial_messages || {})) state.messages.set(+id, msgs as Message[]);
+    for (const [id, members] of Object.entries(s.members || {})) state.members.set(+id, members as Member[]);
     inferUnreadCounts();
     renderSidebar();
     if (!state.activeId && state.buffers.size) {
@@ -228,6 +229,13 @@ function handleWSMessage(msg) {
     }
     case "history_result":
       onHistoryResult(msg);
+      break;
+    case "member_list":
+      state.members.set(msg.buffer_id, msg.members || []);
+      if (msg.buffer_id === state.activeId) {
+        renderHeader();
+        renderMembers();
+      }
       break;
   }
 }
@@ -747,8 +755,8 @@ function memberRow(m) {
 
 function populateMembersForActive() {
   const b = state.buffers.get(state.activeId);
-  state.members.clear();
   if (!b || b.kind !== "channel") return;
+  if (state.members.has(b.id)) return;
   const names = new Set<string>();
   for (const m of state.messages.get(b.id) || []) {
     if (m.sender) names.add(m.sender);
@@ -756,18 +764,16 @@ function populateMembersForActive() {
   }
   if (state.me.nick) names.add(state.me.nick);
   const sorted = [...names].sort((a, b) => a.localeCompare(b));
-  for (const nick of sorted) {
-    state.members.set(nick, {
-      nick,
-      prefix: nick === state.me.nick ? "+" : "",
-      away: false,
-      self: nick === state.me.nick,
-    });
-  }
+  state.members.set(b.id, sorted.map((nick) => ({
+    nick,
+    prefix: nick === state.me.nick ? "+" : "",
+    away: false,
+    self: nick === state.me.nick,
+  })));
 }
 
 function membersForActive() {
-  return [...state.members.values()];
+  return state.activeId != null ? (state.members.get(state.activeId) || []) : [];
 }
 
 /* =================================================================

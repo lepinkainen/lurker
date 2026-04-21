@@ -46,10 +46,18 @@ type messageDTO struct {
 	Content   string `json:"content"`
 }
 
+type channelMemberDTO struct {
+	Nick   string `json:"nick"`
+	Prefix string `json:"prefix,omitzero"`
+	Away   bool   `json:"away"`
+	Self   bool   `json:"self"`
+}
+
 type stateDTO struct {
-	Networks        []networkDTO            `json:"networks"`
-	Buffers         []bufferDTO             `json:"buffers"`
-	InitialMessages map[string][]messageDTO `json:"initial_messages"` // keyed by buffer id (string so JSON handles large ids cleanly)
+	Networks        []networkDTO                    `json:"networks"`
+	Buffers         []bufferDTO                     `json:"buffers"`
+	InitialMessages map[string][]messageDTO         `json:"initial_messages"` // keyed by buffer id (string so JSON handles large ids cleanly)
+	Members         map[string][]channelMemberDTO   `json:"members,omitzero"`
 }
 
 // state serves the full snapshot a client needs to render from scratch:
@@ -70,6 +78,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		Networks:        make([]networkDTO, 0, len(nets)),
 		Buffers:         make([]bufferDTO, 0, len(bufs)),
 		InitialMessages: map[string][]messageDTO{},
+		Members:         map[string][]channelMemberDTO{},
 	}
 	states := map[int64]string{}
 	if s.Manager != nil {
@@ -83,6 +92,12 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 			ID: b.ID, NetworkID: b.NetworkID, Name: b.Name, Kind: b.Kind,
 			Topic: b.Topic, Joined: b.Joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
 		})
+		if b.Kind == ircdb.BufferChannel && s.Manager != nil {
+			members := s.Manager.ChannelMembers(b.NetworkID, b.Name)
+			if len(members) > 0 {
+				out.Members[strconv.FormatInt(b.ID, 10)] = toChannelMemberDTOs(members)
+			}
+		}
 		msgs, err := s.Stores.RecentMessages(ctx, b.ID, 100)
 		if err != nil {
 			slog.Error("recent messages", "err", err, "buffer_id", b.ID)
@@ -129,6 +144,14 @@ func toMessageDTOs(in []ircdb.StoredMessage) []messageDTO {
 			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Account: m.Account,
 			Kind: m.Kind, Target: m.Target, Content: m.Content,
 		})
+	}
+	return out
+}
+
+func toChannelMemberDTOs(in []ircdb.ChannelMember) []channelMemberDTO {
+	out := make([]channelMemberDTO, 0, len(in))
+	for _, m := range in {
+		out = append(out, channelMemberDTO{Nick: m.Nick, Prefix: m.Prefix, Away: m.Away, Self: m.Self})
 	}
 	return out
 }

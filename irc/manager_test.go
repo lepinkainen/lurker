@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/lepinkainen/research/irc-service/db"
+	"github.com/lepinkainen/research/irc-service/hub"
 )
 
 // fakeIRCServer is a minimal ircd that accepts one client, completes the
@@ -293,6 +294,63 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool, msg string) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	t.Fatal(msg)
+}
+
+func TestChannelMembersFromNames(t *testing.T) {
+	dir := t.TempDir()
+	stores, err := db.OpenMultiStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stores.Close()
+
+	srv := newFakeIRC(t)
+	defer srv.close()
+	host, port := srv.addr()
+
+	h := hub.New()
+	mgr := NewManager(stores, h)
+	err = mgr.Start(t.Context(), []NetworkConfig{{
+		Name: "fake",
+		Servers: []ServerConfig{{Host: host, Port: port, TLS: false}},
+		Nick: "tester", User: "tester", Realname: "tester",
+		Channels: []string{"#test"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-srv.ready:
+	case <-time.After(3 * time.Second):
+		t.Fatal("server never saw registration")
+	}
+
+	waitFor(t, 5*time.Second, func() bool {
+		members := mgr.ChannelMembers(1, "#test")
+		return len(members) == 1 && members[0].Nick == "tester"
+	}, "names never populated channel members")
+
+	events, unsub := h.Subscribe(16)
+	defer unsub()
+	if err := mgr.Join(1, "#test2"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, func() bool {
+		for {
+			select {
+			case ev := <-events:
+				ml, ok := ev.(*MemberListEvent)
+				if ok && ml.Channel == "#test2" && len(ml.Members) == 1 && ml.Members[0].Nick == "tester" {
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	}, "member_list event never published")
+
+	mgr.Wait()
 }
 
 func TestTLSInsecureSkipVerify(t *testing.T) {

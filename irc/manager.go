@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -227,6 +229,7 @@ func (m *Manager) Join(networkID int64, channel string) error {
 		return ErrNotConnected
 	}
 	c.Cmd.Join(channel)
+	c.Cmd.SendRaw("NAMES " + channel)
 	return nil
 }
 
@@ -269,6 +272,47 @@ func (m *Manager) StateSnapshot() map[int64]string {
 		out[id] = state
 	}
 	return out
+}
+
+// ChannelMembers returns the currently tracked members for a joined channel.
+func (m *Manager) ChannelMembers(networkID int64, channel string) []ircdb.ChannelMember {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() || channel == "" {
+		return nil
+	}
+	ch := c.LookupChannel(channel)
+	if ch == nil {
+		return nil
+	}
+	members := make([]ircdb.ChannelMember, 0, len(ch.UserList))
+	selfNick := c.GetNick()
+	for _, nick := range ch.UserList {
+		user := c.LookupUser(nick)
+		prefix := ""
+		away := false
+		if user != nil {
+			if perms, ok := user.Perms.Lookup(channel); ok {
+				switch {
+				case perms.Owner:
+					prefix = "~"
+				case perms.Admin:
+					prefix = "&"
+				case perms.Op:
+					prefix = "@"
+				case perms.HalfOp:
+					prefix = "%"
+				case perms.Voice:
+					prefix = "+"
+				}
+			}
+			away = user.Extras.Away != ""
+		}
+		members = append(members, ircdb.ChannelMember{Nick: nick, Prefix: prefix, Away: away, Self: strings.EqualFold(nick, selfNick)})
+	}
+	sort.Slice(members, func(i, j int) bool { return strings.ToLower(members[i].Nick) < strings.ToLower(members[j].Nick) })
+	return members
 }
 
 func (m *Manager) runNetwork(ctx context.Context, networkID int64, nc NetworkConfig) {

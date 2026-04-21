@@ -61,6 +61,23 @@ type PresenceEvent struct {
 	Target    string `json:"target,omitzero"`
 }
 
+// MemberListEvent publishes the full known member list for a channel.
+type MemberListEvent struct {
+	Type      string        `json:"type"`
+	NetworkID int64         `json:"network_id"`
+	BufferID  int64         `json:"buffer_id"`
+	Channel   string        `json:"channel"`
+	Members   []ChannelUser `json:"members"`
+}
+
+// ChannelUser is one user in a channel member list.
+type ChannelUser struct {
+	Nick   string `json:"nick"`
+	Prefix string `json:"prefix,omitzero"`
+	Away   bool   `json:"away"`
+	Self   bool   `json:"self"`
+}
+
 // NetworkStateEvent announces connection state transitions.
 type NetworkStateEvent struct {
 	Type      string `json:"type"`
@@ -92,6 +109,7 @@ func (h *handler) register(c *girc.Client) {
 	c.Handlers.Add(girc.QUIT, h.onQuit)
 	c.Handlers.Add(girc.NICK, h.onNick)
 	c.Handlers.Add(girc.MODE, h.onMode)
+	c.Handlers.Add(girc.RPL_ENDOFNAMES, h.onEndOfNames)
 	// echo-message: girc routes our own PRIVMSG/NOTICE echoes only through
 	// ALL_EVENTS. Catch them here and feed the normal persistence path so
 	// outbound messages land in history with the server-assigned msgid.
@@ -250,6 +268,14 @@ func (h *handler) onNick(_ *girc.Client, e girc.Event) {
 	h.storeEvent(e, "", ircdb.BufferStatus, "nick", newNick, "")
 }
 
+func (h *handler) onEndOfNames(c *girc.Client, e girc.Event) {
+	if len(e.Params) < 2 {
+		return
+	}
+	channel := e.Params[1]
+	h.publishMemberList(c, channel)
+}
+
 // --- helpers ---
 
 // storeEvent is the single funnel for inbound IRC events. It upserts the
@@ -374,4 +400,47 @@ func (h *handler) publishNetworkState(state NetworkState) {
 		return
 	}
 	h.hub.Publish(&NetworkStateEvent{Type: "network_state", NetworkID: h.networkID, State: state.String()})
+}
+
+func (h *handler) publishMemberList(c *girc.Client, channel string) {
+	if h.hub == nil || c == nil || channel == "" {
+		return
+	}
+	ch := c.LookupChannel(channel)
+	if ch == nil {
+		return
+	}
+	ctx, cancel := h.eventContext()
+	defer cancel()
+	globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
+	if err != nil {
+		slog.Error("ensure names buffer", "err", err, "network", h.networkName, "buffer", channel)
+		return
+	}
+	members := make([]ChannelUser, 0, len(ch.UserList))
+	selfNick := c.GetNick()
+	for _, nick := range ch.UserList {
+		user := c.LookupUser(nick)
+		prefix := ""
+		away := false
+		if user != nil {
+			if perms, ok := user.Perms.Lookup(channel); ok {
+				switch {
+				case perms.Owner:
+					prefix = "~"
+				case perms.Admin:
+					prefix = "&"
+				case perms.Op:
+					prefix = "@"
+				case perms.HalfOp:
+					prefix = "%"
+				case perms.Voice:
+					prefix = "+"
+				}
+			}
+			away = user.Extras.Away != ""
+		}
+		members = append(members, ChannelUser{Nick: nick, Prefix: prefix, Away: away, Self: strings.EqualFold(nick, selfNick)})
+	}
+	h.hub.Publish(&MemberListEvent{Type: "member_list", NetworkID: h.networkID, BufferID: globalBufID, Channel: channel, Members: members})
 }

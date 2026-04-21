@@ -23,6 +23,13 @@ type bufferNameMappings struct {
 }
 
 // MultiStore owns the control DB plus zero or more per-network log DB handles.
+type ChannelMember struct {
+	Nick   string
+	Prefix string
+	Away   bool
+	Self   bool
+}
+
 type MultiStore struct {
 	Control *sql.DB
 	DataDir string
