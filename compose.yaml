@@ -1,12 +1,9 @@
 services:
   lurker:
-    build: .
+    image: ghcr.io/lepinkainen/lurker:latest
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./data:/data
       - ./config.yaml:/app/config.yaml:ro
-    environment:
-      DATA_DIR: /data
-      ADDR: ":8080"
     restart: unless-stopped
