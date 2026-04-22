@@ -12,7 +12,7 @@ let backend: ChildProcess | undefined;
 
 export async function setup() {
   if (await isHealthy()) {
-    console.log(`[globalSetup] backend already running at ${HEALTH_URL}, skipping spawn`);
+    console.log(`[globalSetup] backend already running at ${HEALTH_URL}, reusing it`);
     return;
   }
   seed();

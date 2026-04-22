@@ -128,23 +128,44 @@ function mustEl<T extends HTMLElement>(id: string): T {
   return node as T;
 }
 
-const sbScrollEl = mustEl<HTMLDivElement>("sb-scroll");
-const messagesEl = mustEl<HTMLElement>("messages");
-const statusViewEl = mustEl<HTMLElement>("status-view");
-const bufferNameEl = mustEl<HTMLElement>("buffer-name");
-const bufferTopicEl = mustEl<HTMLElement>("buffer-topic");
-const bufferMemcountEl = mustEl<HTMLElement>("buffer-memcount");
-const memberCountInlineEl = mustEl<HTMLElement>("member-count-inline");
-const toggleMembersEl = mustEl<HTMLButtonElement>("toggle-members");
-const inputEl = mustEl<HTMLInputElement>("input");
-const inputForm = mustEl<HTMLFormElement>("input-form");
-const inputNickEl = mustEl<HTMLElement>("input-nick");
-const cmdPopEl = mustEl<HTMLElement>("cmd-pop");
-const memberListEl = mustEl<HTMLElement>("member-list");
-const memberCountEl = mustEl<HTMLElement>("member-count");
-const memberPaneEl = mustEl<HTMLElement>("member-pane");
+let sbScrollEl!: HTMLDivElement;
+let messagesEl!: HTMLElement;
+let statusViewEl!: HTMLElement;
+let bufferNameEl!: HTMLElement;
+let bufferTopicEl!: HTMLElement;
+let bufferMemcountEl!: HTMLElement;
+let memberCountInlineEl!: HTMLElement;
+let toggleMembersEl!: HTMLButtonElement;
+let inputEl!: HTMLInputElement;
+let inputForm!: HTMLFormElement;
+let inputNickEl!: HTMLElement;
+let cmdPopEl!: HTMLElement;
+let memberListEl!: HTMLElement;
+let memberCountEl!: HTMLElement;
+let memberPaneEl!: HTMLElement;
+let domReady = false;
 
-function init() {
+function captureDom() {
+  sbScrollEl = mustEl<HTMLDivElement>("sb-scroll");
+  messagesEl = mustEl<HTMLElement>("messages");
+  statusViewEl = mustEl<HTMLElement>("status-view");
+  bufferNameEl = mustEl<HTMLElement>("buffer-name");
+  bufferTopicEl = mustEl<HTMLElement>("buffer-topic");
+  bufferMemcountEl = mustEl<HTMLElement>("buffer-memcount");
+  memberCountInlineEl = mustEl<HTMLElement>("member-count-inline");
+  toggleMembersEl = mustEl<HTMLButtonElement>("toggle-members");
+  inputEl = mustEl<HTMLInputElement>("input");
+  inputForm = mustEl<HTMLFormElement>("input-form");
+  inputNickEl = mustEl<HTMLElement>("input-nick");
+  cmdPopEl = mustEl<HTMLElement>("cmd-pop");
+  memberListEl = mustEl<HTMLElement>("member-list");
+  memberCountEl = mustEl<HTMLElement>("member-count");
+  memberPaneEl = mustEl<HTMLElement>("member-pane");
+  domReady = true;
+}
+
+export function start() {
+  captureDom();
   applyThemeDefaults();
   initCmdPop();
   inputForm.addEventListener("submit", onSubmit);
@@ -153,7 +174,7 @@ function init() {
     state.showMemberList = !state.showMemberList;
     renderMembers();
   });
-  hydrate();
+  return hydrate();
 }
 
 async function hydrate() {
@@ -199,9 +220,12 @@ function connectWS() {
   });
   ws.addEventListener("close", () => {
     state.wsReady = false;
+    if (!domReady) return;
     updateInputEnabled();
     renderSidebar();
-    setTimeout(connectWS, 1000);
+    setTimeout(() => {
+      if (domReady) connectWS();
+    }, 1000);
   });
   ws.addEventListener("error", () => ws.close());
 }
@@ -943,7 +967,7 @@ function sendCmd(cmd) {
    Persistence
    ================================================================= */
 
-function loadLayout(): LayoutSettings {
+export function loadLayout(): LayoutSettings {
   try {
     const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}");
     return { ...DEFAULT_LAYOUT, ...saved };
@@ -951,15 +975,41 @@ function loadLayout(): LayoutSettings {
     return { ...DEFAULT_LAYOUT };
   }
 }
-function saveLayout(l: LayoutSettings) {
+export function saveLayout(l: LayoutSettings) {
   try {
     localStorage.setItem(LAYOUT_KEY, JSON.stringify(l));
   } catch {}
 }
 
-function applyThemeDefaults() {
+export function applyThemeDefaults() {
   document.documentElement.dataset.accent = "green";
   document.documentElement.dataset.density = "dense";
 }
 
-init();
+export function __resetForTests() {
+  try {
+    state.ws?.close();
+  } catch {}
+  state.networks.clear();
+  state.buffers.clear();
+  state.messages.clear();
+  state.members.clear();
+  state.activeId = null;
+  state.ws = null;
+  state.wsReady = false;
+  state.loadingHistory.clear();
+  state.historyExhausted.clear();
+  state.lastMarkedReadId.clear();
+  state.me.nick = "you";
+  state.showMemberList = true;
+  state.layout = loadLayout();
+  state.drag = { id: null, over: null };
+  domReady = false;
+}
+
+export async function __initForTests() {
+  __resetForTests();
+  await start();
+}
+
+export { handleWSMessage as __handleWSMessage };

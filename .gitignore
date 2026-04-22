@@ -13,4 +13,6 @@ coverage.out
 web/node_modules/
 web/dist/
 web/.vitest-attachments/
+web/coverage/
+web/tests/__screenshots__/
 .pi/todos/

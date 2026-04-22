@@ -21,5 +21,11 @@ export default defineConfig({
       instances: [{ browser: "chromium" }],
     },
     include: ["tests/**/*.test.ts"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json-summary", "html"],
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/*.d.ts"],
+    },
   },
 });
