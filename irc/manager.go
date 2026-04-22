@@ -67,9 +67,9 @@ type networkRuntime struct {
 	cancel context.CancelFunc
 }
 
-// Manager owns IRC clients and connection lifecycle for all networks.
 type connectorFunc func(ctx context.Context, client *girc.Client, server ServerConfig) error
 
+// Manager owns IRC clients and connection lifecycle for all networks.
 type Manager struct {
 	stores        *ircdb.MultiStore
 	hub           *hub.Hub

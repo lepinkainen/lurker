@@ -21,8 +21,8 @@ func TestManagerPersistsMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := stores.Close(); err != nil {
-			t.Fatalf("close stores: %v", err)
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
 		}
 	}()
 
@@ -40,15 +40,15 @@ func TestManagerPersistsMessages(t *testing.T) {
 	h.onPrivmsg(nil, mustEvent(t, ":alice!~u@h PRIVMSG #test :hello from fake"))
 
 	var n int
-	if err := logStore.DB.QueryRow(`SELECT COUNT(*) FROM buffers WHERE name='#test'`).Scan(&n); err != nil {
-		t.Fatal(err)
+	if qerr := logStore.DB.QueryRow(`SELECT COUNT(*) FROM buffers WHERE name='#test'`).Scan(&n); qerr != nil {
+		t.Fatal(qerr)
 	}
 	if n != 1 {
 		t.Fatalf("channel buffer count = %d, want 1", n)
 	}
 
-	if err := logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE kind='privmsg' AND content='hello from fake'`).Scan(&n); err != nil {
-		t.Fatal(err)
+	if qerr := logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE kind='privmsg' AND content='hello from fake'`).Scan(&n); qerr != nil {
+		t.Fatal(qerr)
 	}
 	if n != 1 {
 		t.Fatalf("persisted privmsg count = %d, want 1", n)
@@ -68,8 +68,8 @@ func TestMsgIDDedupAndServerTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := stores.Close(); err != nil {
-			t.Fatalf("close stores: %v", err)
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
 		}
 	}()
 
@@ -92,16 +92,16 @@ func TestMsgIDDedupAndServerTime(t *testing.T) {
 	h.onPrivmsg(nil, e)
 
 	var count int
-	if err := logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE msgid=?`, msgid).Scan(&count); err != nil {
-		t.Fatal(err)
+	if qerr := logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE msgid=?`, msgid).Scan(&count); qerr != nil {
+		t.Fatal(qerr)
 	}
 	if count != 1 {
 		t.Fatalf("expected dedup via msgid, got %d rows", count)
 	}
 
 	var gotTS string
-	if err := logStore.DB.QueryRow(`SELECT ts FROM messages WHERE msgid=?`, msgid).Scan(&gotTS); err != nil {
-		t.Fatal(err)
+	if qerr := logStore.DB.QueryRow(`SELECT ts FROM messages WHERE msgid=?`, msgid).Scan(&gotTS); qerr != nil {
+		t.Fatal(qerr)
 	}
 	gotParsed, err := time.Parse("2006-01-02T15:04:05.000Z", gotTS)
 	if err != nil {
@@ -119,8 +119,8 @@ func TestPublishMemberListUsesTrackedMembers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := stores.Close(); err != nil {
-			t.Fatalf("close stores: %v", err)
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
 		}
 	}()
 
@@ -169,8 +169,8 @@ func TestManagerStartAndStopNetworkIndividually(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := stores.Close(); err != nil {
-			t.Fatalf("close stores: %v", err)
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
 		}
 	}()
 
@@ -219,8 +219,8 @@ func TestYAMLStyleNetworkUsesOneLogicalConnectionConfigWithMultipleServers(t *te
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := stores.Close(); err != nil {
-			t.Fatalf("close stores: %v", err)
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
 		}
 	}()
 
@@ -271,8 +271,8 @@ func TestBuildClientConfiguresTLSInsecureSkipVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := stores.Close(); err != nil {
-			t.Fatalf("close stores: %v", err)
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
 		}
 	}()
 
