@@ -112,7 +112,34 @@ Important property:
 - message history is sharded by network DB
 - API-facing buffer IDs are global, but message rows live in each network's log DB
 
-### Why two storage layers exist
+### Preview cache DB
+
+Path:
+
+- `data/previews.db`
+
+Purpose:
+
+- URL metadata cache used by the inline preview feature (images + OpenGraph)
+
+Why it is a separate database:
+
+- the cache is global, not per-network — a link reposted across networks or channels must resolve to one fetch, not N
+- it has no foreign-key relationship to any per-network log, so keeping it out of those files lets each log DB stay self-contained
+- the cache is disposable: wiping `previews.db` only forces re-fetching, it does not lose chat history
+
+Important tables:
+
+- `url_previews` — one row per URL, keyed by URL, holds `kind`, `title`, `description`, `image_url`, `site_name`, `width`, `height`, `mime`, `fetched_at`, `error`
+- `schema_migrations`
+
+The `kind` column is one of `image`, `opengraph`, `none`, `error`. The last two are negative-result rows that prevent retry storms on URLs that don't preview usefully.
+
+Per-message associations live in the per-network log DB (not here), in a `message_previews(message_id, url, position)` table added by log migration `0002_message_previews.sql`. The API joins the two halves in Go rather than in SQL: group messages by network → read `message_previews` from each log DB → batch-load URL rows from `previews.db`.
+
+Migrations for this DB live in `db/preview_migrations/*.sql` and are applied by `db.OpenPreviews`. The store is owned by `MultiStore.Previews` alongside `Control` and the per-network `logs` map; closing `MultiStore` closes all three.
+
+### Why three storage layers exist
 
 The control DB handles global coordination:
 
@@ -125,8 +152,13 @@ The per-network DBs handle network-local data:
 - message logs
 - channel state
 - read state
+- per-message preview URL associations
 
-This avoids putting all message history for all networks into one DB while still allowing one global API surface.
+The preview DB handles cross-network cache data:
+
+- one URL metadata row shared across every network and channel
+
+This avoids putting all message history for all networks into one DB while still allowing one global API surface, and keeps the expensive/disposable URL cache separate from both.
 
 ## Network model
 
@@ -233,6 +265,45 @@ flowchart TD
     G --> L[Message becomes available for REST history and search reads]
     L --> M[State history and search endpoints can return it later]
 ```
+
+### URL preview pipeline
+
+The `preview/` package resolves HTTP(S) URLs mentioned in user-authored messages into inline previews (images + OpenGraph cards). The pipeline is deliberately off the message hot path:
+
+1. `irc/handler.go` and `irc.Manager.LogOutbound` call `PreviewEnqueuer.Enqueue(networkID, bufferID, messageID, content)` only for kinds `privmsg`, `notice`, `action`. System events (joins, modes, etc.) are skipped.
+2. `preview.Service` owns a bounded worker pool (default 4, configurable). Enqueue is non-blocking: a full queue drops the job with a warning rather than stalling IRC handling.
+3. For each worker pickup: `ExtractURLs` pulls de-duplicated URLs in message order. For every URL, the worker consults `db.PreviewStore` (the shared `previews.db`) first, honoring `CacheTTL`. On miss, `Fetcher.Fetch` runs the SSRF guard, does a HEAD, and classifies:
+   - `image/*` → `kind=image` preview
+   - `text/html` → bounded GET capped by `MaxBytes`, parsed for `og:*` meta (falls back to `<title>`)
+   - anything else → `kind=none`
+   - fetch/SSRF errors → `kind=error`
+   YouTube URLs (`youtube.com/watch`, `/shorts/`, `/live/`, `/embed/`, `youtu.be/*`) take a shortcut to the public `youtube.com/oembed` endpoint because the HTML page strips OG tags for non-browser user-agents.
+4. Every fetch is written back to `url_previews` (including negative results, to prevent retry storms).
+5. `(message_id, url, position)` associations are written to the per-network log DB's `message_previews` table.
+6. Only `image`/`opengraph` results are then published as a `preview` event on the hub; the WebSocket writer forwards it verbatim.
+
+On reload, `/api/state` and history endpoints re-attach previews to each `messageDTO` via `Server.attachPreviews`, which groups messages by network, reads `message_previews` from each log DB, and batch-loads the URL rows from `previews.db` with a single `GetMany`. No network calls happen on the read path.
+
+Security notes (all non-negotiable):
+
+- SSRF guard rejects loopback, RFC1918, link-local, multicast, CGNAT, and non-80/443 ports; runs on the initial URL and on every redirect hop
+- redirects are capped at 3 via `CheckRedirect`
+- body size is capped by `io.LimitReader(resp.Body, MaxBytes)`
+- the HTTP client uses a configurable timeout (`Timeout` field, default 5 s)
+- the frontend renders OG text via `textContent` only — never `innerHTML` — so OG strings cannot inject markup
+
+Configuration (YAML block `previews:` in `config.yaml`, populates `config.PreviewConfig`):
+
+- `enabled` — set to `false` to disable Enqueue entirely, no workers run
+- `max_bytes` — cap per GET (default 512 KiB)
+- `timeout_ms` — per-request deadline (default 5000)
+- `cache_ttl_hours` — how long a cached row is considered fresh (default 168 = 7 d)
+- `workers` — worker pool size (default 4)
+
+Operational tips:
+
+- wiping the preview cache is safe: stop the service, `rm data/previews.db`, restart. Message history is untouched; the `message_previews` link rows stay and will re-populate as URLs are re-fetched on demand (new messages only — there is no backfill job yet).
+- error rows are cached under the same TTL as successes. After changing the user-agent or unblocking a host, clear affected rows manually (`DELETE FROM url_previews WHERE ...`) to force re-fetch.
 
 ## Event hub and streaming model
 
@@ -439,6 +510,7 @@ Currently published events include:
 - `buffer_update`
 - `network_state`
 - `member_list`
+- `preview`
 - lightweight presence-style events may also be published
 
 Important event shapes from `irc/handler.go`:
@@ -483,6 +555,15 @@ Important event shapes from `irc/handler.go`:
 - `buffer_id`
 - `channel`
 - `members`
+
+`preview`
+
+- `message_id`
+- `network_id`
+- `buffer_id`
+- `previews` — array of resolved preview objects (`url`, `kind`, `title?`, `description?`, `image_url?`, `site_name?`, `width?`, `height?`, `mime?`)
+
+Only previews with `kind` = `image` or `opengraph` are published. Negative results (`none`, `error`) are cached server-side but never pushed to clients. `/api/state` and history responses attach the same preview shape inline on each `message` under a `previews` field so reloads don't need a follow-up event.
 
 ## Frontend architecture
 

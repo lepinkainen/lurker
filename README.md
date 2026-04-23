@@ -13,6 +13,7 @@ Current implemented scope includes:
 
 - persistent IRC connections per network
 - control-plane SQLite database plus one log SQLite database per network
+- shared URL-preview cache database (images + OpenGraph) rendered inline in the web UI
 - REST API and WebSocket stream for the web UI
 - minimal in-repo web UI with history loading, slash commands, persisted read state, and search
 
