@@ -3,7 +3,13 @@ services:
     image: ghcr.io/lepinkainen/lurker:latest
     ports:
       - "127.0.0.1:8080:8080"
+    environment:
+      THEMES_DIR: /app/themes
     volumes:
-      - ./data:/data
+      - lurker-data:/data
       - ./config.yaml:/app/config.yaml:ro
+      - ./themes:/app/themes:ro
     restart: unless-stopped
+
+volumes:
+  lurker-data:

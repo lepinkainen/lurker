@@ -1,0 +1,33 @@
+name: Solarized Light
+colors:
+  bg-0: "#fdf6e3"
+  bg-1: "#f5efdc"
+  bg-2: "#eee8d5"
+  bg-3: "#e6e0c9"
+  bg-4: "#ded8c0"
+  bg-5: "#d6d0b6"
+  bg-input: "#fffbf0"
+  fg-0: "#073642"
+  fg-1: "#586e75"
+  fg-2: "#657b83"
+  fg-3: "#93a1a1"
+  hair: "#e0dac3"
+  hair-strong: "#c8c2ab"
+  accent: "#268bd2"
+  accent-strong: "#1a6ea8"
+  accent-soft: "rgba(38, 139, 210, 0.14)"
+  green: "#859900"
+  yellow: "#b58900"
+  orange: "#cb4b16"
+  red: "#dc322f"
+  magenta: "#d33682"
+  cyan: "#2aa198"
+  mention: "#b58900"
+  mention-soft: "rgba(181, 137, 0, 0.12)"
+fonts:
+  sans: '"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+  mono: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+nicks:
+  saturation: 55
+  lightness: 40
+  hue_offset: 0

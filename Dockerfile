@@ -34,12 +34,14 @@ LABEL org.opencontainers.image.title="lurker" \
 
 WORKDIR /app
 COPY --from=builder /build/lurker .
+COPY --from=builder /build/themes ./themes
 COPY --from=web-builder /web/dist ./web/dist
 
 EXPOSE 8080
 VOLUME ["/data"]
 ENV DATA_DIR=/data
 ENV ADDR=:8080
+ENV THEMES_DIR=/app/themes
 ENTRYPOINT ["./lurker", "--web-dir", "/app/web/dist"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

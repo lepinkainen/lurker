@@ -1,0 +1,33 @@
+name: Tokyo Night
+colors:
+  bg-0: "#0b0c10"
+  bg-1: "#121319"
+  bg-2: "#171823"
+  bg-3: "#1a1b26"
+  bg-4: "#1f2030"
+  bg-5: "#24253a"
+  bg-input: "#0b0c13"
+  fg-0: "#c0caf5"
+  fg-1: "#a9b1d6"
+  fg-2: "#787c99"
+  fg-3: "#565a7a"
+  hair: "#20212d"
+  hair-strong: "#2a2b3a"
+  accent: "#9ece6a"
+  accent-strong: "#b4d88a"
+  accent-soft: "rgba(158, 206, 106, 0.14)"
+  green: "#9ece6a"
+  yellow: "#e0af68"
+  orange: "#ff9e64"
+  red: "#f7768e"
+  magenta: "#bb9af7"
+  cyan: "#7dcfff"
+  mention: "#e0af68"
+  mention-soft: "rgba(224, 175, 104, 0.1)"
+fonts:
+  sans: '"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+  mono: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+nicks:
+  saturation: 60
+  lightness: 70
+  hue_offset: 0

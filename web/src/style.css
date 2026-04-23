@@ -15,9 +15,9 @@
   --hair: #20212d;
   --hair-strong: #2a2b3a;
 
-  --accent: #7aa2f7;
-  --accent-soft: rgba(122, 162, 247, 0.14);
-  --accent-strong: #89b4ff;
+  --accent: #9ece6a;
+  --accent-soft: rgba(158, 206, 106, 0.14);
+  --accent-strong: #b4d88a;
 
   --green: #9ece6a;
   --yellow: #e0af68;
@@ -29,54 +29,31 @@
   --mention: #e0af68;
   --mention-soft: rgba(224, 175, 104, 0.1);
 
-  --nick-0: #7aa2f7;
-  --nick-1: #9ece6a;
-  --nick-2: #bb9af7;
-  --nick-3: #7dcfff;
-  --nick-4: #e0af68;
-  --nick-5: #f7768e;
-  --nick-6: #ff9e64;
-  --nick-7: #73daca;
-  --nick-8: #cfc9c2;
-  --nick-9: #b4f9f8;
+  --nick-sat: 60%;
+  --nick-light: 70%;
+  --nick-hue-offset: 0deg;
 
   --row-pad-y: 1px;
-  --msg-font-size: 12px;
+  --msg-font-size: 0.9rem;
   --msg-line-height: 1.45;
 
   --sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-html[data-accent="blue"] {
-  --accent: #7aa2f7;
-  --accent-strong: #89b4ff;
-  --accent-soft: rgba(122, 162, 247, 0.14);
-}
-html[data-accent="green"] {
-  --accent: #9ece6a;
-  --accent-strong: #b4d88a;
-  --accent-soft: rgba(158, 206, 106, 0.14);
-}
-html[data-accent="magenta"] {
-  --accent: #bb9af7;
-  --accent-strong: #cbb0fb;
-  --accent-soft: rgba(187, 154, 247, 0.16);
-}
-
 html[data-density="dense"] {
   --row-pad-y: 1px;
-  --msg-font-size: 12px;
+  --msg-font-size: 0.9rem;
   --msg-line-height: 1.45;
 }
 html[data-density="balanced"] {
   --row-pad-y: 3px;
-  --msg-font-size: 12.5px;
+  --msg-font-size: 0.95rem;
   --msg-line-height: 1.55;
 }
 html[data-density="comfortable"] {
   --row-pad-y: 6px;
-  --msg-font-size: 13px;
+  --msg-font-size: 1rem;
   --msg-line-height: 1.6;
 }
 
@@ -90,7 +67,7 @@ body {
   background: var(--bg-0);
   color: var(--fg-0);
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: 1rem;
   -webkit-font-smoothing: antialiased;
 }
 body {
@@ -121,13 +98,13 @@ textarea {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: #23243380;
+  background: color-mix(in srgb, var(--hair-strong) 80%, transparent);
   border-radius: 10px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: #31324680;
+  background: color-mix(in srgb, var(--fg-3) 70%, transparent);
   background-clip: padding-box;
 }
 
@@ -183,7 +160,7 @@ textarea {
   width: 100%;
   padding: 9px 10px 6px 10px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 0.8rem;
   color: var(--fg-1);
   text-transform: lowercase;
   letter-spacing: 0.01em;
@@ -195,7 +172,7 @@ textarea {
   width: 12px;
   text-align: center;
   color: var(--fg-3);
-  font-size: 10px;
+  font-size: 0.7rem;
   cursor: pointer;
   user-select: none;
   flex-shrink: 0;
@@ -207,7 +184,7 @@ textarea {
   display: inline-block;
   width: 10px;
   color: var(--fg-3);
-  font-size: 9px;
+  font-size: 0.7rem;
   letter-spacing: -1px;
   cursor: grab;
   opacity: 0;
@@ -295,7 +272,7 @@ textarea {
 
 .sb-hdr.pinned-hdr {
   color: var(--fg-3);
-  font-size: 10.5px;
+  font-size: 0.8rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   padding-top: 10px;
@@ -325,7 +302,7 @@ textarea {
   height: 22px;
   border-radius: 4px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 0.9rem;
   color: var(--fg-1);
   text-align: left;
   position: relative;
@@ -375,7 +352,7 @@ textarea {
 }
 .sbrow .badge {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 0.7rem;
   font-weight: 700;
   padding: 1px 5px;
   border-radius: 9px;
@@ -407,7 +384,7 @@ textarea {
 .sbrow.archives .archcount {
   color: var(--fg-3);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 0.7rem;
 }
 
 .sb-footer {
@@ -422,7 +399,7 @@ textarea {
   padding: 7px 10px;
   border-radius: 4px;
   color: var(--fg-2);
-  font-size: 12px;
+  font-size: 0.9rem;
   font-family: var(--sans);
 }
 .sb-footer button:hover {
@@ -452,7 +429,7 @@ textarea {
   gap: 12px;
   border-bottom: 1px solid var(--hair);
   background: var(--bg-2);
-  font-size: 12px;
+  font-size: 0.9rem;
   position: relative;
 }
 .topicbar::after {
@@ -467,7 +444,7 @@ textarea {
 .topicbar .chan {
   font-family: var(--mono);
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: 1.1rem;
   color: var(--fg-0);
 }
 .topicbar .chan .hash {
@@ -476,7 +453,7 @@ textarea {
 
 .topicbar .topic {
   color: var(--fg-1);
-  font-size: 12px;
+  font-size: 0.9rem;
   font-family: var(--sans);
   white-space: nowrap;
   overflow: hidden;
@@ -518,7 +495,7 @@ textarea {
   align-items: center;
   gap: 4px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 0.8rem;
   padding: 2px 6px;
   border-radius: 3px;
   color: var(--fg-1);
@@ -565,7 +542,7 @@ textarea {
   padding: 10px 18px 4px;
   color: var(--fg-2);
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 0.8rem;
   font-weight: 500;
   letter-spacing: 0.02em;
   user-select: none;
@@ -585,7 +562,7 @@ textarea {
   padding: 4px 18px;
   color: var(--orange);
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 0.8rem;
   letter-spacing: 0.02em;
 }
 .unreadbar::before,
@@ -605,11 +582,11 @@ textarea {
   position: relative;
 }
 .msg:hover {
-  background: #1e1f2b;
+  background: var(--bg-4);
 }
 .msg .ts {
   color: var(--fg-3);
-  font-size: 11px;
+  font-size: 0.8rem;
   padding-top: 1px;
   text-align: right;
   white-space: nowrap;
@@ -622,7 +599,7 @@ textarea {
 .msg .gutter {
   color: var(--fg-3);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 0.8rem;
   text-align: center;
   padding-top: 1px;
 }
@@ -649,7 +626,7 @@ textarea {
 }
 .msg .body code {
   font-family: var(--mono);
-  background: #0e0f18;
+  background: var(--bg-input);
   border: 1px solid var(--hair);
   border-radius: 3px;
   padding: 0 5px;
@@ -709,37 +686,6 @@ textarea {
   font-weight: 500;
 }
 
-.n0 {
-  color: var(--nick-0);
-}
-.n1 {
-  color: var(--nick-1);
-}
-.n2 {
-  color: var(--nick-2);
-}
-.n3 {
-  color: var(--nick-3);
-}
-.n4 {
-  color: var(--nick-4);
-}
-.n5 {
-  color: var(--nick-5);
-}
-.n6 {
-  color: var(--nick-6);
-}
-.n7 {
-  color: var(--nick-7);
-}
-.n8 {
-  color: var(--nick-8);
-}
-.n9 {
-  color: var(--nick-9);
-}
-
 .selfmention {
   background: var(--mention-soft);
   color: var(--mention);
@@ -775,7 +721,7 @@ textarea {
 .inputbar .row .prompt {
   color: var(--accent);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 0.9rem;
   font-weight: 600;
 }
 .inputbar input.msgin {
@@ -784,7 +730,7 @@ textarea {
   outline: none;
   padding: 7px 0;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 0.9rem;
   color: var(--fg-0);
   min-width: 0;
 }
@@ -815,14 +761,14 @@ textarea {
   right: 10px;
   bottom: 100%;
   margin-bottom: 4px;
-  background: #0b0c13;
+  background: var(--bg-input);
   border: 1px solid var(--hair-strong);
   border-radius: 5px;
   box-shadow: 0 10px 30px #00000066;
   max-width: 420px;
   overflow: hidden;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 0.9rem;
   z-index: 10;
 }
 .cmdpop[hidden] {
@@ -871,13 +817,13 @@ textarea {
 }
 .mheader .lbl {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 0.8rem;
   color: var(--fg-1);
   text-transform: lowercase;
 }
 .mheader .count {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 0.8rem;
   color: var(--fg-3);
 }
 
@@ -886,12 +832,12 @@ textarea {
   overflow-y: auto;
   padding: 4px 0 12px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 0.9rem;
 }
 .mgroup {
   padding: 8px 12px 2px;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 0.7rem;
   color: var(--fg-3);
   text-transform: lowercase;
   letter-spacing: 0.06em;
@@ -917,7 +863,7 @@ textarea {
 .member .pfx {
   font-family: var(--mono);
   font-weight: 700;
-  font-size: 11px;
+  font-size: 0.8rem;
   text-align: center;
 }
 .member .pfx.op {
@@ -954,7 +900,7 @@ textarea {
   overflow-y: auto;
   padding: 12px 16px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 0.9rem;
   color: var(--fg-1);
   background: var(--bg-3);
 }
@@ -968,7 +914,7 @@ textarea {
 }
 .statusview .stts {
   color: var(--fg-3);
-  font-size: 11px;
+  font-size: 0.8rem;
   margin-right: 10px;
 }
 .statusview .stcat {
@@ -992,4 +938,19 @@ textarea {
   .memberpane {
     display: none;
   }
+}
+
+.theme-select {
+  background: var(--bg-2);
+  color: var(--fg-1);
+  border: 1px solid var(--hair-strong);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.theme-select:hover {
+  color: var(--fg-0);
+  border-color: var(--accent);
 }

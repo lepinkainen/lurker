@@ -15,6 +15,7 @@ type Config struct {
 	ControlDBPath string
 	Addr          string
 	ConfigPath    string
+	ThemesDir     string
 	Networks      []irc.NetworkConfig
 }
 
@@ -49,6 +50,7 @@ func loadConfig() Config {
 		ControlDBPath: dataDir + "/control.db",
 		Addr:          envOr("ADDR", ":8080"),
 		ConfigPath:    envOr("CONFIG_PATH", "./config.yaml"),
+		ThemesDir:     envOr("THEMES_DIR", "./themes"),
 	}
 	if nets, err := loadNetworksFromYAML(cfg.ConfigPath); err == nil {
 		cfg.Networks = nets

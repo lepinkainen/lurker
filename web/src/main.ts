@@ -10,9 +10,10 @@ import {
   isSelf,
   linkify,
   mentionsMe,
-  nickClass,
+  nickColor,
   sysBodyHTML,
 } from "./format";
+import { applyTheme, loadInitialTheme, persistThemeId, type Theme } from "./theme";
 
 type LayoutSettings = {
   collapsed: Record<number, boolean>;
@@ -167,6 +168,7 @@ function captureDom() {
 export function start() {
   captureDom();
   applyThemeDefaults();
+  void initThemeSelector();
   initCmdPop();
   inputForm.addEventListener("submit", onSubmit);
   messagesEl.addEventListener("scroll", onMessagesScroll);
@@ -724,7 +726,8 @@ function messageRow(m) {
   }
 
   const nick = document.createElement("span");
-  nick.className = `nick ${nickClass(m.sender || "")}`;
+  nick.className = "nick";
+  nick.style.color = nickColor(m.sender || "");
   nick.textContent = kind === "notice" ? `-${m.sender || "*"}-` : m.sender || "*";
   body.innerHTML = renderBodyHTML(m);
   if (kind === "action") {
@@ -805,7 +808,8 @@ function memberRow(m) {
   pfx.className = `pfx ${cls}`;
   pfx.textContent = m.prefix || "\u00a0";
   const mn = document.createElement("span");
-  mn.className = `mn ${nickClass(m.nick)}`;
+  mn.className = "mn";
+  mn.style.color = nickColor(m.nick);
   mn.textContent = m.nick;
   btn.append(pfx, mn);
   return btn;
@@ -982,8 +986,31 @@ export function saveLayout(l: LayoutSettings) {
 }
 
 export function applyThemeDefaults() {
-  document.documentElement.dataset.accent = "green";
   document.documentElement.dataset.density = "dense";
+}
+
+async function initThemeSelector() {
+  const sel = document.getElementById("theme-select") as HTMLSelectElement | null;
+  const { themes, active } = await loadInitialTheme();
+  if (!sel) return;
+  if (themes.length === 0) {
+    sel.hidden = true;
+    return;
+  }
+  sel.innerHTML = "";
+  for (const t of themes) {
+    const opt = document.createElement("option");
+    opt.value = t.id;
+    opt.textContent = t.name;
+    sel.appendChild(opt);
+  }
+  if (active) sel.value = active.id;
+  sel.addEventListener("change", () => {
+    const pick = themes.find((t: Theme) => t.id === sel.value);
+    if (!pick) return;
+    applyTheme(pick);
+    persistThemeId(pick.id);
+  });
 }
 
 export function __resetForTests() {

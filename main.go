@@ -17,10 +17,12 @@ import (
 	"github.com/lepinkainen/lurker/hub"
 	"github.com/lepinkainen/lurker/internal/closeutil"
 	"github.com/lepinkainen/lurker/irc"
+	"github.com/lepinkainen/lurker/theme"
 )
 
 func main() {
 	webDir := flag.String("web-dir", "", "serve built web UI from this directory")
+	themesDir := flag.String("themes-dir", "", "load user themes from this directory (overrides THEMES_DIR)")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
@@ -64,11 +66,19 @@ func main() {
 		slog.Warn("web UI disabled", "hint", "pass --web-dir ./web/dist or run container image")
 	}
 
+	resolvedThemesDir := *themesDir
+	if resolvedThemesDir == "" {
+		resolvedThemesDir = cfg.ThemesDir
+	}
+	themeLoader := &theme.Loader{Dir: resolvedThemesDir}
+	slog.Info("themes", "dir", resolvedThemesDir)
+
 	apiSrv := &api.Server{
 		Stores:    stores,
 		Hub:       evHub,
 		Manager:   mgr,
 		Web:       webSub,
+		Themes:    themeLoader,
 		AppName:   appName,
 		Version:   version,
 		GitHash:   gitHash,

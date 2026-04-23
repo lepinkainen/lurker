@@ -10,7 +10,8 @@ import {
   isSelf,
   linkify,
   mentionsMe,
-  nickClass,
+  nickColor,
+  nickHue,
   sysBodyHTML,
 } from "../src/format";
 
@@ -115,24 +116,31 @@ describe("isSelf", () => {
   });
 });
 
-describe("nickClass", () => {
+describe("nickHue", () => {
   it("is deterministic", () => {
-    expect(nickClass("alice")).toBe(nickClass("alice"));
+    expect(nickHue("alice")).toBe(nickHue("alice"));
   });
 
   it("is case-insensitive", () => {
-    expect(nickClass("ALICE")).toBe(nickClass("alice"));
+    expect(nickHue("ALICE")).toBe(nickHue("alice"));
   });
 
-  it("is in range n0..n9", () => {
-    for (const n of ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "alice", "bob"]) {
-      expect(nickClass(n)).toMatch(/^n[0-9]$/);
+  it("is in range 0..359", () => {
+    for (const n of ["a", "alice", "bob", "", null]) {
+      const h = nickHue(n);
+      expect(h).toBeGreaterThanOrEqual(0);
+      expect(h).toBeLessThan(360);
     }
   });
+});
 
-  it("handles empty/nullish", () => {
-    expect(nickClass("")).toMatch(/^n[0-9]$/);
-    expect(nickClass(null)).toMatch(/^n[0-9]$/);
+describe("nickColor", () => {
+  it("emits hsl with CSS vars", () => {
+    const c = nickColor("alice");
+    expect(c).toMatch(/^hsl\(/);
+    expect(c).toContain("var(--nick-sat");
+    expect(c).toContain("var(--nick-light");
+    expect(c).toContain("var(--nick-hue-offset");
   });
 });
 

@@ -13,6 +13,7 @@ import (
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/hub"
 	"github.com/lepinkainen/lurker/irc"
+	"github.com/lepinkainen/lurker/theme"
 )
 
 // Server bundles the dependencies every API handler needs.
@@ -21,6 +22,7 @@ type Server struct {
 	Hub       *hub.Hub
 	Manager   *irc.Manager
 	Web       fs.FS // embedded web UI; nil disables serving
+	Themes    *theme.Loader
 	AppName   string
 	Version   string
 	GitHash   string
@@ -34,6 +36,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /health", s.healthz)
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /whoami", s.whoami)
+	mux.HandleFunc("GET /api/themes", s.listThemes)
 	mux.HandleFunc("GET /api/state", s.state)
 	mux.HandleFunc("GET /api/buffers/{id}/history", s.history)
 	mux.HandleFunc("GET /api/search", s.search)
@@ -57,6 +60,21 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = w.Write([]byte("ok"))
+}
+
+func (s *Server) listThemes(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if s.Themes == nil {
+		_ = json.NewEncoder(w).Encode(map[string]any{"themes": []any{}})
+		return
+	}
+	themes, err := s.Themes.Load()
+	if err != nil {
+		http.Error(w, "load themes: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"themes": themes})
 }
 
 func (s *Server) whoami(w http.ResponseWriter, _ *http.Request) {
