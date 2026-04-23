@@ -44,7 +44,8 @@ tasks:
       - go run .
 
   dev-web:
-    desc: Run backend with built web UI served from disk
+    desc: Build the frontend then run backend serving it from disk
+    deps: [web-build]
     cmds:
       - go run . --web-dir ./web/dist
 
@@ -54,7 +55,8 @@ tasks:
       - go run ./cmd/seedtest --data-dir ./data-test --reset
 
   dev-test:
-    desc: Run backend against seeded ./data-test (no live IRC connections)
+    desc: Build the frontend then run backend against seeded ./data-test
+    deps: [web-build]
     env:
       DATA_DIR: ./data-test
       CONFIG_PATH: /dev/null
