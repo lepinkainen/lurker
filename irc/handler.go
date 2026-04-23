@@ -85,12 +85,19 @@ type NetworkStateEvent struct {
 	State     string `json:"state"` // "connecting" | "connected" | "disconnected"
 }
 
+// PreviewEnqueuer is the narrow hook the handler uses to kick off URL
+// previews for a newly stored message. It is satisfied by *preview.Service.
+type PreviewEnqueuer interface {
+	Enqueue(networkID, bufferID, messageID int64, content string)
+}
+
 // handler is the glue between a girc.Client and the SQLite store. One
 // instance per network connection.
 type handler struct {
 	stores              *ircdb.MultiStore
 	db                  *sql.DB
 	hub                 *hub.Hub
+	previews            PreviewEnqueuer
 	networkID           int64
 	networkName         string
 	autojoin            []string
@@ -399,6 +406,20 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 		Target:    target,
 		Content:   content,
 	})
+	h.enqueuePreviews(id, globalBufID, kind, content)
+}
+
+// enqueuePreviews schedules URL-preview fetches for user-authored content.
+// We skip synthetic kinds (joins, modes, etc.) so the preview worker never
+// wastes cycles on system noise.
+func (h *handler) enqueuePreviews(messageID, bufferID int64, kind, content string) {
+	if h.previews == nil || content == "" {
+		return
+	}
+	switch kind {
+	case "privmsg", "notice", "action":
+		h.previews.Enqueue(h.networkID, bufferID, messageID, content)
+	}
 }
 
 // logStatus writes a synthetic message (connect/disconnect) to the

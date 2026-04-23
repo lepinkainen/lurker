@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -218,4 +219,71 @@ func SearchLogMessages(ctx context.Context, d *sql.DB, query string, bufferID in
 
 func (s *LogStore) String() string {
 	return fmt.Sprintf("LogStore(network_id=%d)", s.NetworkID)
+}
+
+// MessagePreviewLink is one (message_id, url) association in a per-network log.
+type MessagePreviewLink struct {
+	MessageID int64
+	URL       string
+	Position  int
+}
+
+// InsertMessagePreviewLinks upserts (message_id, url, position) rows. No-op
+// on empty input.
+func InsertMessagePreviewLinks(ctx context.Context, d *sql.DB, links []MessagePreviewLink) error {
+	if len(links) == 0 {
+		return nil
+	}
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT OR IGNORE INTO message_previews(message_id, url, position)
+		 VALUES (?, ?, ?)`)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	for _, l := range links {
+		if _, err := stmt.ExecContext(ctx, l.MessageID, l.URL, l.Position); err != nil {
+			_ = stmt.Close()
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	_ = stmt.Close()
+	return tx.Commit()
+}
+
+// ListMessagePreviewLinks returns (message_id, url, position) rows for the
+// given message IDs ordered by (message_id, position).
+func ListMessagePreviewLinks(ctx context.Context, d *sql.DB, messageIDs []int64) ([]MessagePreviewLink, error) {
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(messageIDs))
+	args := make([]any, len(messageIDs))
+	for i, id := range messageIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	q := fmt.Sprintf(
+		`SELECT message_id, url, position FROM message_previews
+		 WHERE message_id IN (%s) ORDER BY message_id, position`,
+		strings.Join(placeholders, ","))
+	rows, err := d.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []MessagePreviewLink
+	for rows.Next() {
+		var l MessagePreviewLink
+		if err := rows.Scan(&l.MessageID, &l.URL, &l.Position); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
 }

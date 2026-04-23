@@ -2,6 +2,13 @@ nick: globalnick
 user: globaluser
 realname: Global Real Name
 
+previews:
+  enabled: true
+  max_bytes: 524288        # 512 KiB cap per HTTP fetch
+  timeout_ms: 5000
+  cache_ttl_hours: 168     # 1 week
+  workers: 4
+
 networks:
   - network: Ircnet
     nick: mynick

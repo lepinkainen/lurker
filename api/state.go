@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/preview"
 )
 
 // networkDTO is the wire shape for a network row. We don't ship sasl
@@ -36,16 +37,17 @@ type bufferDTO struct {
 }
 
 type messageDTO struct {
-	ID        int64  `json:"id"`
-	NetworkID int64  `json:"network_id"`
-	BufferID  int64  `json:"buffer_id"`
-	MsgID     string `json:"msgid,omitzero"`
-	TS        string `json:"ts"`
-	Sender    string `json:"sender"`
-	Account   string `json:"account,omitzero"`
-	Kind      string `json:"kind"`
-	Target    string `json:"target,omitzero"`
-	Content   string `json:"content"`
+	ID        int64                     `json:"id"`
+	NetworkID int64                     `json:"network_id"`
+	BufferID  int64                     `json:"buffer_id"`
+	MsgID     string                    `json:"msgid,omitzero"`
+	TS        string                    `json:"ts"`
+	Sender    string                    `json:"sender"`
+	Account   string                    `json:"account,omitzero"`
+	Kind      string                    `json:"kind"`
+	Target    string                    `json:"target,omitzero"`
+	Content   string                    `json:"content"`
+	Previews  []preview.ResolvedPreview `json:"previews,omitzero"`
 }
 
 type channelMemberDTO struct {
@@ -104,7 +106,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 			slog.Error("recent messages", "err", err, "buffer_id", b.ID)
 			continue
 		}
-		out.InitialMessages[strconv.FormatInt(b.ID, 10)] = toMessageDTOs(msgs)
+		out.InitialMessages[strconv.FormatInt(b.ID, 10)] = s.toMessageDTOs(ctx, msgs)
 	}
 
 	writeJSON(w, http.StatusOK, out)
@@ -141,10 +143,10 @@ func (s *Server) loadHistory(ctx context.Context, bufferID, before int64, limit 
 	if err != nil {
 		return nil, err
 	}
-	return toMessageDTOs(msgs), nil
+	return s.toMessageDTOs(ctx, msgs), nil
 }
 
-func toMessageDTOs(in []ircdb.StoredMessage) []messageDTO {
+func (s *Server) toMessageDTOs(ctx context.Context, in []ircdb.StoredMessage) []messageDTO {
 	out := make([]messageDTO, 0, len(in))
 	for _, m := range in {
 		out = append(out, messageDTO{
@@ -153,7 +155,75 @@ func toMessageDTOs(in []ircdb.StoredMessage) []messageDTO {
 			Kind: m.Kind, Target: m.Target, Content: m.Content,
 		})
 	}
+	s.attachPreviews(ctx, out)
 	return out
+}
+
+// attachPreviews populates Previews on every DTO by joining per-network
+// message_previews link rows against the shared url_previews cache. Failures
+// are non-fatal: the message still renders without previews.
+func (s *Server) attachPreviews(ctx context.Context, msgs []messageDTO) {
+	if s.Stores == nil || s.Stores.Previews == nil || len(msgs) == 0 {
+		return
+	}
+
+	// Group message IDs by network so we hit each log DB once.
+	byNetwork := map[int64][]int64{}
+	indexByMsg := map[int64]map[int64]int{} // network -> message id -> index in msgs
+	for i, m := range msgs {
+		byNetwork[m.NetworkID] = append(byNetwork[m.NetworkID], m.ID)
+		if indexByMsg[m.NetworkID] == nil {
+			indexByMsg[m.NetworkID] = map[int64]int{}
+		}
+		indexByMsg[m.NetworkID][m.ID] = i
+	}
+
+	urlSet := map[string]struct{}{}
+	type linkRef struct {
+		msgIdx   int
+		url      string
+		position int
+	}
+	var links []linkRef
+	for networkID, ids := range byNetwork {
+		logStore, err := s.Stores.LogStore(networkID)
+		if err != nil {
+			slog.Warn("preview log store", "err", err, "network_id", networkID)
+			continue
+		}
+		rows, err := ircdb.ListMessagePreviewLinks(ctx, logStore.DB, ids)
+		if err != nil {
+			slog.Warn("preview links", "err", err, "network_id", networkID)
+			continue
+		}
+		for _, r := range rows {
+			idx, ok := indexByMsg[networkID][r.MessageID]
+			if !ok {
+				continue
+			}
+			urlSet[r.URL] = struct{}{}
+			links = append(links, linkRef{msgIdx: idx, url: r.URL, position: r.Position})
+		}
+	}
+	if len(links) == 0 {
+		return
+	}
+	urls := make([]string, 0, len(urlSet))
+	for u := range urlSet {
+		urls = append(urls, u)
+	}
+	cache, err := s.Stores.Previews.GetMany(ctx, urls)
+	if err != nil {
+		slog.Warn("preview cache get-many", "err", err)
+		return
+	}
+	for _, l := range links {
+		p, ok := cache[l.url]
+		if !ok || !p.Displayable() {
+			continue
+		}
+		msgs[l.msgIdx].Previews = append(msgs[l.msgIdx].Previews, preview.ToResolvedPreview(p))
+	}
 }
 
 func toChannelMemberDTOs(in []ircdb.ChannelMember) []channelMemberDTO {

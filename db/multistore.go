@@ -31,36 +31,52 @@ type ChannelMember struct {
 }
 
 // MultiStore owns the control DB plus zero or more per-network log DB handles.
+// It also owns the shared URL-preview cache, which is deliberately a single
+// database shared across every network: a link reposted between networks or
+// channels resolves to one cached fetch.
 type MultiStore struct {
-	Control *sql.DB
-	DataDir string
+	Control  *sql.DB
+	Previews *PreviewStore
+	DataDir  string
 
 	mu   sync.RWMutex
 	logs map[int64]*LogStore
 }
 
-// OpenMultiStore opens the control DB and any configured per-network log DBs.
+// OpenMultiStore opens the control DB, the shared previews DB, and any
+// configured per-network log DBs.
 func OpenMultiStore(dataDir string) (*MultiStore, error) {
 	controlPath := filepath.Join(dataDir, "control.db")
 	control, err := OpenControl(controlPath)
 	if err != nil {
 		return nil, err
 	}
-	ms := &MultiStore{Control: control, DataDir: dataDir, logs: map[int64]*LogStore{}}
+	previews, err := OpenPreviewStore(filepath.Join(dataDir, "previews.db"))
+	if err != nil {
+		_ = control.Close()
+		return nil, err
+	}
+	ms := &MultiStore{Control: control, Previews: previews, DataDir: dataDir, logs: map[int64]*LogStore{}}
 	if err := ms.OpenConfiguredNetworks(context.Background()); err != nil {
+		_ = previews.Close()
 		_ = control.Close()
 		return nil, err
 	}
 	return ms, nil
 }
 
-// Close closes every open log DB and the control DB.
+// Close closes every open log DB, the preview DB, and the control DB.
 func (ms *MultiStore) Close() error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	var firstErr error
 	for _, s := range ms.logs {
 		if err := s.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if ms.Previews != nil {
+		if err := ms.Previews.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}

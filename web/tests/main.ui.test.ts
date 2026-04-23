@@ -47,9 +47,7 @@ describe("main UI", () => {
 
     // pick a non-active channel buffer
     const target = await waitFor(() => {
-      const rows = document.querySelectorAll<HTMLButtonElement>(
-        "#sb-scroll .sbrow.chan.channel:not(.active)",
-      );
+      const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan.channel:not(.active)");
       return rows.length ? rows[0] : null;
     });
     const name = target.querySelector(".name")?.textContent || "";

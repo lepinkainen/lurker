@@ -13,6 +13,7 @@ import {
   nickColor,
   sysBodyHTML,
 } from "./format";
+import { type Preview, renderPreviews } from "./preview";
 import { applyTheme, loadInitialTheme, persistThemeId, type Theme } from "./theme";
 
 type LayoutSettings = {
@@ -49,6 +50,7 @@ type Message = {
   content?: string;
   kind?: string;
   ts?: string;
+  previews?: Preview[];
 };
 
 type Member = {
@@ -266,6 +268,9 @@ function handleWSMessage(msg) {
     case "history_result":
       onHistoryResult(msg);
       break;
+    case "preview":
+      onPreview(msg);
+      break;
     case "member_list":
       state.members.set(msg.buffer_id, msg.members || []);
       if (msg.buffer_id === state.activeId) {
@@ -293,6 +298,21 @@ function onMessage(msg) {
     maybeMarkActiveRead();
   }
   renderSidebar();
+}
+
+function onPreview(msg) {
+  const list = state.messages.get(msg.buffer_id);
+  if (!list) return;
+  const m = list.find((x) => x.id === msg.message_id);
+  if (!m) return;
+  m.previews = msg.previews || [];
+  if (msg.buffer_id !== state.activeId) return;
+  const row = messagesEl.querySelector(`[data-id="${msg.message_id}"]`);
+  if (!row) return;
+  const existing = row.querySelector(".previews");
+  if (existing) existing.remove();
+  const previewsEl = renderPreviews(m.previews);
+  if (previewsEl) row.appendChild(previewsEl);
 }
 
 function onBufferUpdate(msg) {
@@ -735,6 +755,8 @@ function messageRow(m) {
   }
 
   row.append(ts, gutter, nick, body);
+  const previewsEl = renderPreviews(m.previews);
+  if (previewsEl) row.appendChild(previewsEl);
   return row;
 }
 

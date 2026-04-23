@@ -17,12 +17,23 @@ type Config struct {
 	ConfigPath    string
 	ThemesDir     string
 	Networks      []irc.NetworkConfig
+	Previews      PreviewConfig
+}
+
+// PreviewConfig mirrors the YAML `previews:` block.
+type PreviewConfig struct {
+	Enabled       bool `yaml:"enabled"`
+	MaxBytes      int  `yaml:"max_bytes"`
+	TimeoutMs     int  `yaml:"timeout_ms"`
+	CacheTTLHours int  `yaml:"cache_ttl_hours"`
+	Workers       int  `yaml:"workers"`
 }
 
 type FileConfig struct {
 	Nick     string              `yaml:"nick"`
 	User     string              `yaml:"user"`
 	Realname string              `yaml:"realname"`
+	Previews *PreviewConfig      `yaml:"previews"`
 	Networks []NetworkFileConfig `yaml:"networks"`
 }
 
@@ -51,25 +62,60 @@ func loadConfig() Config {
 		Addr:          envOr("ADDR", ":8080"),
 		ConfigPath:    envOr("CONFIG_PATH", "./config.yaml"),
 		ThemesDir:     envOr("THEMES_DIR", "./themes"),
+		Previews: PreviewConfig{
+			Enabled:       true,
+			MaxBytes:      512 * 1024,
+			TimeoutMs:     5000,
+			CacheTTLHours: 24 * 7,
+			Workers:       4,
+		},
 	}
-	if nets, err := loadNetworksFromYAML(cfg.ConfigPath); err == nil {
+	if nets, pv, err := parseYAMLConfig(cfg.ConfigPath); err == nil {
 		cfg.Networks = nets
+		if pv != nil {
+			if pv.MaxBytes > 0 {
+				cfg.Previews.MaxBytes = pv.MaxBytes
+			}
+			if pv.TimeoutMs > 0 {
+				cfg.Previews.TimeoutMs = pv.TimeoutMs
+			}
+			if pv.CacheTTLHours > 0 {
+				cfg.Previews.CacheTTLHours = pv.CacheTTLHours
+			}
+			if pv.Workers > 0 {
+				cfg.Previews.Workers = pv.Workers
+			}
+			cfg.Previews.Enabled = pv.Enabled
+		}
 	}
 	return cfg
 }
 
-func loadNetworksFromYAML(path string) ([]irc.NetworkConfig, error) {
+func parseYAMLConfig(path string) ([]irc.NetworkConfig, *PreviewConfig, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	var fc FileConfig
-	if err := yaml.Unmarshal(b, &fc); err != nil {
-		return nil, fmt.Errorf("parse yaml %s: %w", path, err)
+	if yerr := yaml.Unmarshal(b, &fc); yerr != nil {
+		return nil, nil, fmt.Errorf("parse yaml %s: %w", path, yerr)
 	}
+	nets, err := buildNetworks(fc)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nets, fc.Previews, nil
+}
+
+func loadNetworksFromYAML(path string) ([]irc.NetworkConfig, error) {
+	nets, _, err := parseYAMLConfig(path)
+	return nets, err
+}
+
+func buildNetworks(fc FileConfig) ([]irc.NetworkConfig, error) {
 	var out []irc.NetworkConfig
 	for _, n := range fc.Networks {
 		if strings.TrimSpace(n.Network) == "" {

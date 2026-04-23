@@ -27,6 +27,6 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		"query":   q,
 		"network": networkID,
 		"buffer":  bufferID,
-		"results": toMessageDTOs(results),
+		"results": s.toMessageDTOs(r.Context(), results),
 	})
 }

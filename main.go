@@ -17,6 +17,7 @@ import (
 	"github.com/lepinkainen/lurker/hub"
 	"github.com/lepinkainen/lurker/internal/closeutil"
 	"github.com/lepinkainen/lurker/irc"
+	"github.com/lepinkainen/lurker/preview"
 	"github.com/lepinkainen/lurker/theme"
 )
 
@@ -42,7 +43,17 @@ func main() {
 	defer shutdownCancel()
 
 	evHub := hub.New()
+	previewSvc := preview.NewService(preview.Config{
+		Enabled:  cfg.Previews.Enabled,
+		MaxBytes: int64(cfg.Previews.MaxBytes),
+		Timeout:  time.Duration(cfg.Previews.TimeoutMs) * time.Millisecond,
+		CacheTTL: time.Duration(cfg.Previews.CacheTTLHours) * time.Hour,
+		Workers:  cfg.Previews.Workers,
+	}, stores, evHub)
+	previewSvc.Start(ctx)
+	defer closeutil.Ignore(previewSvc, "component", "preview")
 	mgr := irc.NewManager(stores, evHub)
+	mgr.SetPreviewEnqueuer(previewSvc)
 	if nets := cfg.Networks; len(nets) > 0 {
 		startErr := mgr.Start(ctx, nets)
 		if startErr != nil {

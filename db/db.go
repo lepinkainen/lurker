@@ -21,6 +21,9 @@ var controlMigrationsFS embed.FS
 //go:embed log_migrations/*.sql
 var logMigrationsFS embed.FS
 
+//go:embed preview_migrations/*.sql
+var previewMigrationsFS embed.FS
+
 // OpenControl opens the control-plane SQLite database and applies the control
 // migration set independently from the log-store migration set.
 func OpenControl(path string) (*sql.DB, error) {
@@ -30,6 +33,12 @@ func OpenControl(path string) (*sql.DB, error) {
 // OpenLog opens a per-network log database and applies the log migration set.
 func OpenLog(path string) (*sql.DB, error) {
 	return openAndMigrate(path, logMigrationsFS, "log_migrations")
+}
+
+// OpenPreviews opens the shared URL-preview cache database and applies the
+// preview migration set. One file, shared across every network.
+func OpenPreviews(path string) (*sql.DB, error) {
+	return openAndMigrate(path, previewMigrationsFS, "preview_migrations")
 }
 
 func openAndMigrate(path string, migrationFS embed.FS, migrationDir string) (*sql.DB, error) {
