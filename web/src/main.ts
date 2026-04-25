@@ -66,7 +66,7 @@ type StateResponse = {
   current_nick?: string;
   nick?: string;
   user?: { nick: string };
-  networks?: Network[];
+  networks?: (Network & { nick?: string })[];
   buffers?: Omit<Buffer, "unread" | "mentions">[];
   initial_messages?: Record<string, Message[]>;
   members?: Record<string, Member[]>;
@@ -246,9 +246,9 @@ async function hydrate() {
     const res = await fetch("/api/state");
     if (!res.ok) throw new Error(`state ${res.status}`);
     const s: StateResponse = await res.json();
-    state.me.nick = s.current_nick || s.nick || s.user?.nick || "you";
-    inputNickEl.textContent = state.me.nick;
+    state.me.nick = s.current_nick || s.nick || s.user?.nick || s.networks?.[0]?.nick || "you";
     for (const n of s.networks || []) state.networks.set(n.id, n);
+    renderPromptNick();
     for (const b of s.buffers || []) state.buffers.set(b.id, { unread: 0, mentions: 0, ...b });
     for (const [id, msgs] of Object.entries(s.initial_messages || {})) state.messages.set(+id, msgs as Message[]);
     for (const [id, members] of Object.entries(s.members || {})) state.members.set(+id, members as Member[]);
@@ -754,9 +754,23 @@ async function reorderNetwork(fromId, toId) {
    Header / Messages / Status view
    ================================================================= */
 
+function activePromptNick(): string {
+  const b = state.activeId != null ? state.buffers.get(state.activeId) : null;
+  if (b) {
+    const n = state.networks.get(b.network_id) as (Network & { nick?: string }) | undefined;
+    if (n?.nick) return n.nick;
+  }
+  return state.me.nick || "";
+}
+
+function renderPromptNick() {
+  inputNickEl.textContent = activePromptNick();
+}
+
 function renderHeader() {
   const b = state.buffers.get(state.activeId);
   if (!b) return;
+  renderPromptNick();
   const isChannel = b.kind === "channel";
   bufferNameEl.innerHTML = "";
   if (isChannel) {
@@ -794,7 +808,7 @@ function renderHeader() {
   edit.appendChild(iconEl("ic-pencil", 12));
   bufferTopicEl.appendChild(edit);
 
-  inputEl.placeholder = `Message ${b.name}`;
+  inputEl.placeholder = "";
 }
 
 function renderActiveView() {
@@ -1217,6 +1231,7 @@ export function __resetForTests() {
   try {
     state.ws?.close();
   } catch {}
+  if (domReady) renderPromptNick();
   state.networks.clear();
   state.buffers.clear();
   state.messages.clear();
@@ -1228,6 +1243,7 @@ export function __resetForTests() {
   state.historyExhausted.clear();
   state.lastMarkedReadId.clear();
   state.me.nick = "you";
+  if (domReady) renderPromptNick();
   state.showMemberList = true;
   state.layout = loadLayout();
   state.drag = { id: null, over: null };

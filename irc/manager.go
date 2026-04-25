@@ -493,13 +493,26 @@ func (m *Manager) buildClient(ctx context.Context, networkID int64, nc NetworkCo
 		slog.Error("log store", "err", err, "network_id", networkID)
 		return client
 	}
-	h := &handler{stores: m.stores, db: logStore.DB, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectedHook: func() {
+	h := &handler{stores: m.stores, db: logStore.DB, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectedHook: func(currentNick string) {
 		m.mu.Lock()
 		m.state[networkID] = StateConnected.String()
 		if _, ok := m.membersLoaded[networkID]; !ok {
 			m.membersLoaded[networkID] = map[string]bool{}
 		}
+		if currentNick != "" {
+			if rt, ok := m.runtime[networkID]; ok {
+				rt.cfg.Nick = currentNick
+				m.runtime[networkID] = rt
+			}
+		}
 		m.mu.Unlock()
+		if currentNick != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, err := ircdb.UpdateNetwork(ctx, m.stores.Control, networkID, ircdb.Network{Nick: currentNick}); err != nil {
+				slog.Warn("persist current nick", "network_id", networkID, "nick", currentNick, "err", err)
+			}
+		}
 	}, memberListHook: func(channel string) {
 		m.mu.Lock()
 		if _, ok := m.membersLoaded[networkID]; !ok {

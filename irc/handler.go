@@ -101,7 +101,7 @@ type handler struct {
 	networkID           int64
 	networkName         string
 	autojoin            []string
-	connectedHook       func()
+	connectedHook       func(currentNick string)
 	memberListHook      func(channel string)
 	clearMemberListHook func(channel string)
 	setJoinedHook       func(channel string, joined bool)
@@ -144,7 +144,7 @@ func (h *handler) register(c *girc.Client) {
 
 func (h *handler) onConnected(c *girc.Client, e girc.Event) {
 	if h.connectedHook != nil {
-		h.connectedHook()
+		h.connectedHook(c.GetNick())
 	}
 	h.publishNetworkState(StateConnected)
 	h.logStatus(StateConnected.String(), "")
@@ -299,8 +299,11 @@ func (h *handler) onQuit(_ *girc.Client, e girc.Event) {
 	h.storeEvent(e, "", ircdb.BufferStatus, "quit", "", e.Last())
 }
 
-func (h *handler) onNick(_ *girc.Client, e girc.Event) {
+func (h *handler) onNick(c *girc.Client, e girc.Event) {
 	newNick := e.Last()
+	if c != nil && e.Source != nil && strings.EqualFold(e.Source.Name, c.GetNick()) && h.connectedHook != nil {
+		h.connectedHook(newNick)
+	}
 	if h.hub != nil && e.Source != nil {
 		h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, Nick: e.Source.Name, State: "nick", Target: newNick})
 	}
