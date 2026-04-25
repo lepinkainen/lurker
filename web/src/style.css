@@ -202,6 +202,17 @@ textarea {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.icon {
+  display: inline-block;
+  vertical-align: text-bottom;
+  fill: none;
+  stroke: currentColor;
+  flex-shrink: 0;
+}
+.sb-hdr .tls-lock {
+  margin-left: 4px;
+  color: var(--fg-2);
+}
 .sb-hdr .netactions {
   margin-left: auto;
   display: flex;

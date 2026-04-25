@@ -28,6 +28,7 @@ type Network = {
   host?: string;
   status?: string;
   sort_order?: number;
+  tls?: boolean;
 };
 
 type Buffer = {
@@ -475,6 +476,7 @@ function networkSection(n) {
   const name = document.createElement("span");
   name.className = "netname";
   name.textContent = n.name;
+  const tlsIcon = n.tls ? tlsLockIcon() : null;
   const actions = document.createElement("span");
   actions.className = "netactions";
   if (collapsed && mentionTotal > 0) {
@@ -482,7 +484,9 @@ function networkSection(n) {
   } else if (collapsed && unreadTotal > 0) {
     actions.appendChild(badge("unreadbadge", unreadTotal));
   }
-  hdr.append(caret, grip, name, actions);
+  hdr.append(caret, grip, name);
+  if (tlsIcon) hdr.appendChild(tlsIcon);
+  hdr.appendChild(actions);
   hdr.addEventListener("click", () => {
     if (statusB) setActive(statusB.id);
   });
@@ -545,6 +549,33 @@ function bufferRow(b, opts: { pinned?: boolean } = {}) {
   else if (b.unread > 0) btn.appendChild(badge("unreadbadge", b.unread));
   btn.addEventListener("click", () => setActive(b.id));
   return btn;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function iconEl(symbolId: string, size: number, opts: { className?: string; label?: string } = {}): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", opts.className ? `icon ${opts.className}` : "icon");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("focusable", "false");
+  if (opts.label) {
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", opts.label);
+    const title = document.createElementNS(SVG_NS, "title");
+    title.textContent = opts.label;
+    svg.appendChild(title);
+  } else {
+    svg.setAttribute("aria-hidden", "true");
+  }
+  const useEl = document.createElementNS(SVG_NS, "use");
+  useEl.setAttribute("href", `#${symbolId}`);
+  svg.appendChild(useEl);
+  return svg;
+}
+
+function tlsLockIcon() {
+  return iconEl("ic-lock", 12, { className: "tls-lock", label: "TLS enabled" });
 }
 
 function badge(cls, n) {
@@ -630,8 +661,7 @@ function renderHeader() {
   const edit = document.createElement("span");
   edit.className = "edit";
   edit.setAttribute("aria-hidden", "true");
-  edit.innerHTML =
-    '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 14l3.5-1L13 5.5 10.5 3 3 10.5 2 14z" stroke-linejoin="round"/><path d="M9.5 4L12 6.5"/></svg>';
+  edit.appendChild(iconEl("ic-pencil", 12));
   bufferTopicEl.appendChild(edit);
 
   inputEl.placeholder = `Message ${b.name}`;

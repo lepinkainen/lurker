@@ -12,15 +12,45 @@
     />
   </head>
   <body>
+    <svg class="sprite" aria-hidden="true" focusable="false" width="0" height="0" style="position:absolute" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <symbol id="ic-gear" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+          <circle cx="8" cy="8" r="2" />
+          <path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9" stroke-linecap="round" />
+        </symbol>
+        <symbol id="ic-pencil" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+          <path d="M2 14l3.5-1L13 5.5 10.5 3 3 10.5 2 14z" stroke-linejoin="round" />
+          <path d="M9.5 4L12 6.5" />
+        </symbol>
+        <symbol id="ic-people" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+          <circle cx="6" cy="6" r="2.5" />
+          <path d="M1.5 14c.5-2.5 2.3-4 4.5-4s4 1.5 4.5 4" />
+          <circle cx="11" cy="5" r="2" />
+          <path d="M10.5 10c2 0 3.5 1.3 4 3" />
+        </symbol>
+        <symbol id="ic-info" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+          <circle cx="8" cy="8" r="6" />
+          <path d="M8 7.5v4M8 5v.5" stroke-linecap="round" />
+        </symbol>
+        <symbol id="ic-slash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+          <path d="M10 3L6 13" stroke-linecap="round" />
+        </symbol>
+        <symbol id="ic-send" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+          <path d="M2 8l12-5-5 12-2-5-5-2z" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="ic-lock" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="7" width="10" height="7" rx="1.5" />
+          <path d="M5 7V5a3 3 0 0 1 6 0v2" />
+        </symbol>
+      </defs>
+    </svg>
+
     <div id="app" class="app">
       <aside id="sidebar" class="sidebar" aria-label="Networks">
         <div id="sb-scroll" class="sbscroll"></div>
         <div class="sb-footer">
           <button type="button" title="Account settings">
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3">
-              <circle cx="8" cy="8" r="2" />
-              <path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9" stroke-linecap="round" />
-            </svg>
+            <svg class="icon" width="14" height="14" aria-hidden="true" focusable="false"><use href="#ic-gear" /></svg>
             <span>Account settings &amp; info</span>
           </button>
         </div>
@@ -34,36 +64,20 @@
           <div id="buffer-topic" class="topic" title="Click to edit topic">
             <span class="topictext">—</span>
             <span class="edit" aria-hidden="true">
-              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4">
-                <path d="M2 14l3.5-1L13 5.5 10.5 3 3 10.5 2 14z" stroke-linejoin="round" />
-                <path d="M9.5 4L12 6.5" />
-              </svg>
+              <svg class="icon" width="12" height="12" aria-hidden="true" focusable="false"><use href="#ic-pencil" /></svg>
             </span>
           </div>
           <div class="actions">
             <select id="theme-select" class="theme-select" title="Theme" aria-label="Theme"></select>
             <span id="buffer-memcount" class="memcount" title="Members" hidden>
-              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4">
-                <circle cx="6" cy="6" r="2.5" />
-                <path d="M1.5 14c.5-2.5 2.3-4 4.5-4s4 1.5 4.5 4" />
-                <circle cx="11" cy="5" r="2" />
-                <path d="M10.5 10c2 0 3.5 1.3 4 3" />
-              </svg>
+              <svg class="icon" width="12" height="12" aria-hidden="true" focusable="false"><use href="#ic-people" /></svg>
               <span id="member-count-inline">0</span>
             </span>
             <button class="icbtn" type="button" title="Channel info" aria-label="Channel info">
-              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4">
-                <circle cx="8" cy="8" r="6" />
-                <path d="M8 7.5v4M8 5v.5" stroke-linecap="round" />
-              </svg>
+              <svg class="icon" width="13" height="13" aria-hidden="true" focusable="false"><use href="#ic-info" /></svg>
             </button>
             <button id="toggle-members" class="icbtn toggled" type="button" title="Toggle member list" aria-label="Toggle member list">
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4">
-                <circle cx="6" cy="6" r="2.5" />
-                <path d="M1.5 14c.5-2.5 2.3-4 4.5-4s4 1.5 4.5 4" />
-                <circle cx="11" cy="5" r="2" />
-                <path d="M10.5 10c2 0 3.5 1.3 4 3" />
-              </svg>
+              <svg class="icon" width="14" height="14" aria-hidden="true" focusable="false"><use href="#ic-people" /></svg>
             </button>
           </div>
         </header>
@@ -85,14 +99,10 @@
             />
             <div class="actions">
               <button class="icbtn" type="button" title="Slash commands" aria-label="Slash commands">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4">
-                  <path d="M10 3L6 13" stroke-linecap="round" />
-                </svg>
+                <svg class="icon" width="14" height="14" aria-hidden="true" focusable="false"><use href="#ic-slash" /></svg>
               </button>
               <button class="icbtn" type="submit" title="Send" aria-label="Send">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4">
-                  <path d="M2 8l12-5-5 12-2-5-5-2z" stroke-linejoin="round" />
-                </svg>
+                <svg class="icon" width="14" height="14" aria-hidden="true" focusable="false"><use href="#ic-send" /></svg>
               </button>
             </div>
           </div>
