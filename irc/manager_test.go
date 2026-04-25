@@ -163,6 +163,20 @@ func TestPublishMemberListUsesTrackedMembers(t *testing.T) {
 	}
 }
 
+func TestMemberListUsesDisplayNickCaseFromUser(t *testing.T) {
+	client := newTestClient(t, "tester")
+	runClientEvent(client, mustEvent(t, ":Shrike!u@h JOIN #test"))
+	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :shrike"))
+
+	members := buildChannelMembers(client, "#test")
+	if len(members) != 1 {
+		t.Fatalf("len(members) = %d, want 1", len(members))
+	}
+	if members[0].Nick != "Shrike" {
+		t.Fatalf("member nick = %q, want display-case nick %q", members[0].Nick, "Shrike")
+	}
+}
+
 func TestManagerStartAndStopNetworkIndividually(t *testing.T) {
 	stores, err := ircdb.OpenMultiStore(t.TempDir())
 	if err != nil {

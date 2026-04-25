@@ -90,6 +90,11 @@ type AppState = {
   activeId: number | null;
   ws: WebSocket | null;
   wsReady: boolean;
+  backendStatus: "connecting" | "connected" | "offline" | "reconnecting";
+  reconnectAttempts: number;
+  reconnectTimer: number | null;
+  reconnectAt: number | null;
+  reconnectTicker: number | null;
   loadingHistory: Set<number>;
   historyExhausted: Set<number>;
   lastMarkedReadId: Map<number, number>;
@@ -101,6 +106,8 @@ type AppState = {
 
 const LAYOUT_KEY = "lurker.layout";
 const DEFAULT_LAYOUT: LayoutSettings = { collapsed: {}, pinned: [], archivesOpen: {} };
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
 
 const SLASH_COMMANDS: SlashCommand[] = [
   { cmd: "/join", args: "<channel>", desc: "Join a channel" },
@@ -118,6 +125,11 @@ const state: AppState = {
   activeId: null,
   ws: null,
   wsReady: false,
+  backendStatus: "connecting",
+  reconnectAttempts: 0,
+  reconnectTimer: null,
+  reconnectAt: null,
+  reconnectTicker: null,
   loadingHistory: new Set(),
   historyExhausted: new Set(),
   lastMarkedReadId: new Map(),
@@ -134,6 +146,10 @@ function mustEl<T extends HTMLElement>(id: string): T {
 }
 
 let sbScrollEl!: HTMLDivElement;
+let backendStatusEl!: HTMLElement;
+let backendStatusTextEl!: HTMLElement;
+let tailscaleStatusEl!: HTMLElement;
+let tailscaleStatusTextEl!: HTMLElement;
 let messagesEl!: HTMLElement;
 let statusViewEl!: HTMLElement;
 let bufferNameEl!: HTMLElement;
@@ -152,6 +168,10 @@ let domReady = false;
 
 function captureDom() {
   sbScrollEl = mustEl<HTMLDivElement>("sb-scroll");
+  backendStatusEl = mustEl<HTMLElement>("backend-status");
+  backendStatusTextEl = mustEl<HTMLElement>("backend-status-text");
+  tailscaleStatusEl = mustEl<HTMLElement>("tailscale-status");
+  tailscaleStatusTextEl = mustEl<HTMLElement>("tailscale-status-text");
   messagesEl = mustEl<HTMLElement>("messages");
   statusViewEl = mustEl<HTMLElement>("status-view");
   bufferNameEl = mustEl<HTMLElement>("buffer-name");
@@ -171,6 +191,7 @@ function captureDom() {
 
 export function start() {
   captureDom();
+  renderSidebarStatus();
   applyThemeDefaults();
   void initThemeSelector();
   initCmdPop();
@@ -220,6 +241,8 @@ function bufferFromHash(hash: string): Buffer | null {
 
 async function hydrate() {
   try {
+    state.backendStatus = "connecting";
+    renderSidebarStatus();
     const res = await fetch("/api/state");
     if (!res.ok) throw new Error(`state ${res.status}`);
     const s: StateResponse = await res.json();
@@ -237,19 +260,28 @@ async function hydrate() {
       const initial = fromUrl || firstChannel || state.buffers.values().next().value;
       setActive(initial.id, { replaceHash: true });
     }
-    connectWS();
+    state.reconnectAttempts = 0;
+    scheduleReconnect(0);
   } catch (err) {
+    state.backendStatus = "offline";
+    renderSidebarStatus();
     console.error("hydrate failed", err);
-    setTimeout(hydrate, 2000);
+    scheduleReconnect(nextReconnectDelay());
   }
 }
 
 function connectWS() {
+  if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
+  state.backendStatus = "connecting";
+  renderSidebarStatus();
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${proto}//${location.host}/api/stream`);
   state.ws = ws;
   ws.addEventListener("open", () => {
     state.wsReady = true;
+    state.backendStatus = "connected";
+    state.reconnectAttempts = 0;
+    renderSidebarStatus();
     updateInputEnabled();
     maybeMarkActiveRead();
     renderSidebar();
@@ -262,15 +294,76 @@ function connectWS() {
     }
   });
   ws.addEventListener("close", () => {
+    if (state.ws === ws) state.ws = null;
     state.wsReady = false;
+    state.backendStatus = "offline";
     if (!domReady) return;
+    renderSidebarStatus();
     updateInputEnabled();
     renderSidebar();
-    setTimeout(() => {
-      if (domReady) connectWS();
-    }, 1000);
+    scheduleReconnect(nextReconnectDelay());
   });
   ws.addEventListener("error", () => ws.close());
+}
+
+function clearReconnectTimer() {
+  if (state.reconnectTimer != null) {
+    window.clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+  if (state.reconnectTicker != null) {
+    window.clearInterval(state.reconnectTicker);
+    state.reconnectTicker = null;
+  }
+  state.reconnectAt = null;
+}
+
+function nextReconnectDelay(): number {
+  const delay = Math.min(RECONNECT_BASE_MS * 2 ** state.reconnectAttempts, RECONNECT_MAX_MS);
+  state.reconnectAttempts += 1;
+  return delay;
+}
+
+function scheduleReconnect(delayMs: number) {
+  clearReconnectTimer();
+  state.backendStatus = "reconnecting";
+  state.reconnectAt = Date.now() + delayMs;
+  renderSidebarStatus();
+  if (delayMs > 0) {
+    state.reconnectTicker = window.setInterval(() => {
+      if (!domReady || state.backendStatus !== "reconnecting") return;
+      renderSidebarStatus();
+    }, 250);
+  }
+  state.reconnectTimer = window.setTimeout(() => {
+    if (state.reconnectTicker != null) {
+      window.clearInterval(state.reconnectTicker);
+      state.reconnectTicker = null;
+    }
+    state.reconnectTimer = null;
+    state.reconnectAt = null;
+    if (!domReady) return;
+    connectWS();
+  }, delayMs);
+}
+
+function renderSidebarStatus() {
+  let backend: { cls: string; text: string };
+  if (state.backendStatus === "connected") {
+    backend = { cls: "good", text: "Connected" };
+  } else if (state.backendStatus === "connecting") {
+    backend = { cls: "warn", text: "Connecting…" };
+  } else if (state.backendStatus === "reconnecting") {
+    const secs = state.reconnectAt == null ? null : Math.max(1, Math.ceil((state.reconnectAt - Date.now()) / 1000));
+    backend = { cls: "warn", text: secs == null ? "Reconnecting…" : `Reconnecting in ${secs}s` };
+  } else {
+    backend = { cls: "bad", text: "Offline" };
+  }
+
+  backendStatusEl.className = `sb-status-item ${backend.cls}`;
+  backendStatusTextEl.textContent = backend.text;
+  tailscaleStatusEl.className = "sb-status-item good";
+  tailscaleStatusTextEl.textContent = "Connected";
 }
 
 function handleWSMessage(msg) {

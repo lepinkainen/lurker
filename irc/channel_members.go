@@ -26,11 +26,15 @@ func buildChannelMembers(c *girc.Client, channel string) []channelMember {
 	selfNick := c.GetNick()
 	for _, nick := range ch.UserList {
 		user := c.LookupUser(nick)
+		displayNick := nick
+		if user != nil && user.Nick != "" {
+			displayNick = user.Nick
+		}
 		members = append(members, channelMember{
-			Nick:   nick,
+			Nick:   displayNick,
 			Prefix: channelMemberPrefix(user, channel),
 			Away:   user != nil && user.Extras.Away != "",
-			Self:   strings.EqualFold(nick, selfNick),
+			Self:   strings.EqualFold(displayNick, selfNick),
 		})
 	}
 	sort.Slice(members, func(i, j int) bool { return strings.ToLower(members[i].Nick) < strings.ToLower(members[j].Nick) })

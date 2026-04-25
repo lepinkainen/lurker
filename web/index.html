@@ -47,6 +47,18 @@
 
     <div id="app" class="app">
       <aside id="sidebar" class="sidebar" aria-label="Networks">
+        <div id="sidebar-status" class="sb-status" aria-label="Connectivity status">
+          <div id="backend-status" class="sb-status-item" title="Backend connection status">
+            <span class="sb-status-dot" aria-hidden="true"></span>
+            <span class="sb-status-label">Backend</span>
+            <span id="backend-status-text" class="sb-status-value">Connecting…</span>
+          </div>
+          <div id="tailscale-status" class="sb-status-item" title="Tailscale connectivity status">
+            <span class="sb-status-dot" aria-hidden="true"></span>
+            <span class="sb-status-label">Tailscale</span>
+            <span id="tailscale-status-text" class="sb-status-value">Connected</span>
+          </div>
+        </div>
         <div id="sb-scroll" class="sbscroll"></div>
         <div class="sb-footer">
           <button type="button" title="Account settings">

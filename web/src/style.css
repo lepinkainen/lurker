@@ -129,6 +129,52 @@ textarea {
   font-family: var(--sans);
   min-height: 0;
 }
+.sb-status {
+  display: grid;
+  gap: 6px;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid var(--hair);
+  background: color-mix(in srgb, var(--bg-1) 84%, var(--bg-2));
+}
+.sb-status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 0.73rem;
+  color: var(--fg-1);
+}
+.sb-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fg-3);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg-0) 55%, transparent);
+  flex-shrink: 0;
+}
+.sb-status-label {
+  color: var(--fg-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  flex-shrink: 0;
+}
+.sb-status-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-0);
+}
+.sb-status-item.good .sb-status-dot {
+  background: var(--green);
+}
+.sb-status-item.warn .sb-status-dot {
+  background: var(--yellow);
+}
+.sb-status-item.bad .sb-status-dot {
+  background: var(--red);
+}
 .sbscroll {
   flex: 1;
   overflow-y: auto;
@@ -162,7 +208,6 @@ textarea {
   font-family: var(--mono);
   font-size: 0.8rem;
   color: var(--fg-1);
-  text-transform: lowercase;
   letter-spacing: 0.01em;
   text-align: left;
   position: relative;
@@ -201,6 +246,7 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-transform: none;
 }
 .icon {
   display: inline-block;
@@ -864,7 +910,6 @@ textarea {
   font-family: var(--mono);
   font-size: 0.7rem;
   color: var(--fg-3);
-  text-transform: lowercase;
   letter-spacing: 0.06em;
 }
 .member {
