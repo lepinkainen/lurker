@@ -818,8 +818,6 @@ function messageRow(m) {
     gutter.textContent = "!";
   } else if (kind === "action") {
     gutter.textContent = "*";
-  } else {
-    gutter.textContent = "H";
   }
 
   const nick = document.createElement("span");
