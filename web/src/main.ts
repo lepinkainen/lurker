@@ -180,7 +180,42 @@ export function start() {
     state.showMemberList = !state.showMemberList;
     renderMembers();
   });
+  window.addEventListener("hashchange", onHashChange);
+  window.addEventListener("popstate", onHashChange);
   return hydrate();
+}
+
+function onHashChange() {
+  const b = bufferFromHash(location.hash);
+  if (b && b.id !== state.activeId) setActive(b.id, { skipHash: true });
+}
+
+function encSeg(s: string): string {
+  return encodeURIComponent(s).replace(/%23/g, "#");
+}
+
+function bufferHashFor(b: Buffer): string {
+  const n = state.networks.get(b.network_id);
+  if (!n) return "";
+  const net = encSeg(n.name);
+  if (b.kind === "status") return `#net/${net}`;
+  return `#net/${net}/${encSeg(b.name)}`;
+}
+
+function bufferFromHash(hash: string): Buffer | null {
+  if (!hash?.startsWith("#net/")) return null;
+  const parts = hash.slice(5).split("/");
+  if (parts.length < 1 || !parts[0]) return null;
+  const netName = decodeURIComponent(parts[0]);
+  const net = [...state.networks.values()].find((n) => n.name === netName);
+  if (!net) return null;
+  const bufName = parts[1] ? decodeURIComponent(parts.slice(1).join("/")) : null;
+  for (const b of state.buffers.values()) {
+    if (b.network_id !== net.id) continue;
+    if (bufName == null && b.kind === "status") return b;
+    if (bufName != null && b.name === bufName) return b;
+  }
+  return null;
 }
 
 async function hydrate() {
@@ -197,8 +232,10 @@ async function hydrate() {
     inferUnreadCounts();
     renderSidebar();
     if (!state.activeId && state.buffers.size) {
+      const fromUrl = bufferFromHash(location.hash);
       const firstChannel = [...state.buffers.values()].find((b) => b.kind === "channel" && b.joined === true);
-      setActive((firstChannel || state.buffers.values().next().value).id);
+      const initial = fromUrl || firstChannel || state.buffers.values().next().value;
+      setActive(initial.id, { replaceHash: true });
     }
     connectWS();
   } catch (err) {
@@ -907,8 +944,18 @@ function membersForActive() {
    Active buffer
    ================================================================= */
 
-function setActive(id) {
+function setActive(id, opts: { skipHash?: boolean; replaceHash?: boolean } = {}) {
   state.activeId = id;
+  if (!opts.skipHash) {
+    const b = state.buffers.get(id);
+    if (b) {
+      const hash = bufferHashFor(b);
+      if (hash && hash !== location.hash) {
+        if (opts.replaceHash) history.replaceState(null, "", hash);
+        else history.pushState(null, "", hash);
+      }
+    }
+  }
   inferUnreadCounts();
   populateMembersForActive();
   renderSidebar();
