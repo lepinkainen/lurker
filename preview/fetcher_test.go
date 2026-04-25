@@ -93,6 +93,56 @@ func TestFetcherBlocked(t *testing.T) {
 	}
 }
 
+func TestFetcherActivityPubEnrichment(t *testing.T) {
+	var apHits int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/note", func(w http.ResponseWriter, r *http.Request) {
+		apHits++
+		if !strings.Contains(r.Header.Get("Accept"), "activity+json") {
+			t.Errorf("AP fetch missing Accept header: %q", r.Header.Get("Accept"))
+		}
+		w.Header().Set("Content-Type", "application/activity+json")
+		_, _ = w.Write([]byte(`{
+			"type":"Note",
+			"content":"<p>Full first paragraph.</p><p>Second one with <a href=\"https://x.test/tags/foo\">#foo</a> tag.</p>",
+			"attachment":[{"type":"Document","mediaType":"image/png","url":"https://cdn.test/x.png"}]
+		}`))
+	})
+	mux.HandleFunc("/page", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><head>
+			<meta property="og:title" content="Display Name (@user@host)">
+			<meta property="og:description" content="truncated...">
+			<meta property="og:site_name" content="Mastodon">
+			<link rel="alternate" type="application/activity+json" href="http://` + r.Host + `/note">
+		</head><body/></html>`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	f := NewFetcher(permissive())
+	p := f.Fetch(context.Background(), srv.URL+"/page")
+	if p.Kind != ircdb.PreviewKindOpenGraph {
+		t.Fatalf("expected opengraph, got %+v", p)
+	}
+	if apHits != 1 {
+		t.Fatalf("expected 1 AP fetch, got %d", apHits)
+	}
+	if !strings.Contains(p.Description, "Full first paragraph.") ||
+		!strings.Contains(p.Description, "Second one with #foo tag.") {
+		t.Fatalf("description not enriched: %q", p.Description)
+	}
+	if !strings.Contains(p.Description, "\n\n") {
+		t.Fatalf("paragraphs not preserved: %q", p.Description)
+	}
+	if p.ImageURL != "https://cdn.test/x.png" {
+		t.Fatalf("image not taken from AP: %q", p.ImageURL)
+	}
+	if p.Title != "Display Name (@user@host)" {
+		t.Fatalf("og title clobbered: %q", p.Title)
+	}
+}
+
 func TestFetcherOversizedBody(t *testing.T) {
 	big := strings.Repeat("x", 200*1024)
 	body := `<html><head><meta property="og:title" content="Early"></head><body>` + big + `</body></html>`

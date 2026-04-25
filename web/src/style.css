@@ -1043,9 +1043,10 @@ textarea {
 .msg .preview-og-desc {
   color: var(--fg-2);
   font-size: 0.85rem;
+  white-space: pre-wrap;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 12;
   -webkit-box-orient: vertical;
 }

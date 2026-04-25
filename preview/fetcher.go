@@ -131,6 +131,21 @@ func (f *Fetcher) Fetch(ctx context.Context, target string) ircdb.URLPreview {
 		out.Error = err.Error()
 		return out
 	}
+
+	// Fediverse enrichment: if the page advertises an ActivityPub alternate
+	// link, fetch the AP JSON for the full post body. Mastodon's og:description
+	// is heavily truncated; AP `content` carries the whole post.
+	if og.apURL != "" {
+		if ap, ok := f.fetchActivityPub(ctx, og.apURL); ok {
+			if ap.content != "" {
+				og.description = ap.content
+			}
+			if og.image == "" && ap.image != "" {
+				og.image = ap.image
+			}
+		}
+	}
+
 	if og.empty() {
 		out.Kind = ircdb.PreviewKindNone
 		out.Mime = ct
@@ -181,6 +196,7 @@ type openGraph struct {
 	image       string
 	siteName    string
 	htmlTitle   string
+	apURL       string // ActivityPub alternate link href, if present
 }
 
 func (o openGraph) empty() bool {
@@ -210,6 +226,29 @@ func parseOpenGraph(r io.Reader) (openGraph, error) {
 			tag := string(name)
 			if tag == "title" {
 				inTitle = true
+				continue
+			}
+			if tag == "link" && hasAttr {
+				var rel, typ, href string
+				for {
+					k, v, more := z.TagAttr()
+					switch strings.ToLower(string(k)) {
+					case "rel":
+						rel = strings.ToLower(string(v))
+					case "type":
+						typ = strings.ToLower(string(v))
+					case "href":
+						href = string(v)
+					}
+					if !more {
+						break
+					}
+				}
+				if out.apURL == "" && href != "" &&
+					strings.Contains(rel, "alternate") &&
+					typ == "application/activity+json" {
+					out.apURL = href
+				}
 				continue
 			}
 			if tag == "body" {
