@@ -80,6 +80,7 @@ type Manager struct {
 	state         map[int64]string
 	runtime       map[int64]networkRuntime
 	membersLoaded map[int64]map[string]bool
+	joined        map[int64]map[string]bool
 	connector     connectorFunc
 }
 
@@ -92,6 +93,7 @@ func NewManager(stores *ircdb.MultiStore, h *hub.Hub) *Manager {
 		state:         map[int64]string{},
 		runtime:       map[int64]networkRuntime{},
 		membersLoaded: map[int64]map[string]bool{},
+		joined:        map[int64]map[string]bool{},
 		connector:     defaultConnector,
 	}
 }
@@ -324,6 +326,57 @@ func (m *Manager) ChannelMembers(networkID int64, channel string) []ircdb.Channe
 	return out
 }
 
+// IsJoined returns whether a JOIN has been seen for the given channel on
+// this connection. Resets to false at process restart and on disconnect.
+func (m *Manager) IsJoined(networkID int64, channel string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	channels := m.joined[networkID]
+	if channels == nil {
+		return false
+	}
+	return channels[channel]
+}
+
+// setJoined records the joined state for a channel under the given network.
+func (m *Manager) setJoined(networkID int64, channel string, joined bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	channels := m.joined[networkID]
+	if channels == nil {
+		if !joined {
+			return
+		}
+		channels = map[string]bool{}
+		m.joined[networkID] = channels
+	}
+	if joined {
+		channels[channel] = true
+	} else {
+		delete(channels, channel)
+		if len(channels) == 0 {
+			delete(m.joined, networkID)
+		}
+	}
+}
+
+// drainJoined removes and returns all channels currently flagged joined for
+// a network. Used on disconnect to fan out parted events.
+func (m *Manager) drainJoined(networkID int64) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	channels := m.joined[networkID]
+	if len(channels) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(channels))
+	for ch := range channels {
+		out = append(out, ch)
+	}
+	delete(m.joined, networkID)
+	return out
+}
+
 func (m *Manager) clearChannelMembersLoaded(networkID int64, channel string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -456,6 +509,10 @@ func (m *Manager) buildClient(ctx context.Context, networkID int64, nc NetworkCo
 		m.mu.Unlock()
 	}, clearMemberListHook: func(channel string) {
 		m.clearChannelMembersLoaded(networkID, channel)
+	}, setJoinedHook: func(channel string, joined bool) {
+		m.setJoined(networkID, channel, joined)
+	}, drainJoinedHook: func() []string {
+		return m.drainJoined(networkID)
 	}}
 	h.register(client)
 

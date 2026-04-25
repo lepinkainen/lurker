@@ -54,18 +54,14 @@ type LogMessageInput struct {
 func UpsertLogBuffer(ctx context.Context, d *sql.DB, networkID int64, name, kind string) (id int64, created bool, buf LogBufferRow, err error) {
 	name, kind = normalizeBufferIdentity(name, kind)
 	now := Now()
-	joined := 0
-	if kind == BufferChannel {
-		joined = 1
-	}
 	return upsertBufferRegistryOrLogRow(
 		ctx,
 		d,
 		`SELECT id FROM buffers WHERE name = ?`,
 		[]any{name},
-		`INSERT INTO buffers(name, kind, joined, created_at) VALUES (?, ?, ?, ?)`,
-		[]any{name, kind, joined, now},
-		logBufferRow{Name: name, Kind: kind, Joined: joined == 1, CreatedAt: now},
+		`INSERT INTO buffers(name, kind, created_at) VALUES (?, ?, ?)`,
+		[]any{name, kind, now},
+		logBufferRow{Name: name, Kind: kind, CreatedAt: now},
 		func(row *logBufferRow, id int64) { row.ID = id },
 	)
 }
@@ -96,19 +92,13 @@ func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id int
 // ListLogBuffers returns every buffer stored in a per-network log DB.
 func ListLogBuffers(ctx context.Context, d *sql.DB) ([]LogBufferRow, error) {
 	rows, err := d.QueryContext(ctx,
-		`SELECT id, name, kind, COALESCE(topic,''), joined, COALESCE(last_seen_id,0), created_at
+		`SELECT id, name, kind, COALESCE(topic,''), COALESCE(last_seen_id,0), created_at
 		 FROM buffers ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
 	scanned, err := scanLogBufferRows(rows, func(b *logBufferRow) error {
-		var joined int
-		scanErr := rows.Scan(&b.ID, &b.Name, &b.Kind, &b.Topic, &joined, &b.LastSeenID, &b.CreatedAt)
-		if scanErr != nil {
-			return scanErr
-		}
-		b.Joined = joined == 1
-		return nil
+		return rows.Scan(&b.ID, &b.Name, &b.Kind, &b.Topic, &b.LastSeenID, &b.CreatedAt)
 	})
 	if err != nil {
 		return nil, err
@@ -173,16 +163,6 @@ func EnsureStatusBuffer(ctx context.Context, store *MultiStore, networkID int64)
 		return 0, err
 	}
 	return registryID, nil
-}
-
-// UpdateLogBufferJoined updates the joined state for a channel buffer.
-func UpdateLogBufferJoined(ctx context.Context, d *sql.DB, name string, joined bool) error {
-	joinedInt := 0
-	if joined {
-		joinedInt = 1
-	}
-	_, err := d.ExecContext(ctx, `UPDATE buffers SET joined = ? WHERE name = ?`, joinedInt, name)
-	return err
 }
 
 // UpdateLogBufferTopic updates the topic for a buffer.

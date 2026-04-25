@@ -36,10 +36,6 @@ func TestQueryBufferCreationAndBufferFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = UpdateLogBufferJoined(ctx, logStore.DB, "#go", true)
-	if err != nil {
-		t.Fatal(err)
-	}
 	err = UpdateLogBufferTopic(ctx, logStore.DB, "#go", "new topic")
 	if err != nil {
 		t.Fatal(err)
@@ -57,9 +53,6 @@ func TestQueryBufferCreationAndBufferFields(t *testing.T) {
 	for _, b := range bufs {
 		if b.Name == "#go" {
 			found = true
-			if !b.Joined {
-				t.Fatal("expected joined=true")
-			}
 			if b.Topic != "new topic" {
 				t.Fatalf("topic = %q", b.Topic)
 			}

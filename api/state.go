@@ -92,9 +92,13 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		out.Networks = append(out.Networks, toNetworkDTO(n, states[n.ID]))
 	}
 	for _, b := range bufs {
+		joined := false
+		if b.Kind == ircdb.BufferChannel && s.Manager != nil {
+			joined = s.Manager.IsJoined(b.NetworkID, b.Name)
+		}
 		out.Buffers = append(out.Buffers, bufferDTO{
 			ID: b.ID, NetworkID: b.NetworkID, Name: b.Name, Kind: b.Kind,
-			Topic: b.Topic, Joined: b.Joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
+			Topic: b.Topic, Joined: joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
 		})
 		if b.Kind == ircdb.BufferChannel && s.Manager != nil {
 			if members := s.Manager.ChannelMembers(b.NetworkID, b.Name); members != nil {

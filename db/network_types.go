@@ -29,7 +29,6 @@ type Buffer struct {
 	Name       string
 	Kind       string
 	Topic      string
-	Joined     bool
 	LastSeenID int64
 	CreatedAt  string
 }

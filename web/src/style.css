@@ -377,14 +377,28 @@ textarea {
   color: var(--fg-3);
   font-family: var(--sans);
   font-style: italic;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .sbrow.archives:hover {
   color: var(--fg-1);
+}
+.sbrow.archives .caret {
+  color: var(--fg-3);
+  font-size: 0.75rem;
+  width: 0.9em;
+  display: inline-block;
 }
 .sbrow.archives .archcount {
   color: var(--fg-3);
   font-family: var(--mono);
   font-size: 0.7rem;
+  margin-left: auto;
+}
+.sbrow.archives.open + .sbrow.parted,
+.sbrow.archives.open ~ .sbrow.parted {
+  padding-left: 22px;
 }
 
 .sb-footer {

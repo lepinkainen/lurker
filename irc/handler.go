@@ -104,6 +104,8 @@ type handler struct {
 	connectedHook       func()
 	memberListHook      func(channel string)
 	clearMemberListHook func(channel string)
+	setJoinedHook       func(channel string, joined bool)
+	drainJoinedHook     func() []string
 }
 
 func (h *handler) register(c *girc.Client) {
@@ -153,6 +155,7 @@ func (h *handler) onConnected(c *girc.Client, e girc.Event) {
 
 func (h *handler) onDisconnected(_ *girc.Client, e girc.Event) {
 	h.logStatus(StateDisconnected.String(), e.Last())
+	h.markAllChannelsParted()
 }
 
 func (h *handler) onPrivmsg(_ *girc.Client, e girc.Event) {
@@ -190,6 +193,11 @@ func (h *handler) onJoin(_ *girc.Client, e girc.Event) {
 	if !ok {
 		return
 	}
+	nick := ""
+	if e.Source != nil {
+		nick = e.Source.Name
+	}
+	slog.Info("irc join", "network", h.networkName, "channel", channel, "nick", nick)
 	h.updateChannelJoined(channel, true, "join", e.Source)
 	h.storeEvent(e, channel, ircdb.BufferChannel, "join", "", "")
 }
@@ -234,8 +242,8 @@ func (h *handler) onKick(c *girc.Client, e girc.Event) {
 			if h.clearMemberListHook != nil {
 				h.clearMemberListHook(channel)
 			}
-			if err := ircdb.UpdateLogBufferJoined(ctx, h.db, channel, false); err != nil {
-				slog.Error("update channel joined", "err", err, "network", h.networkName, "buffer", channel, "joined", false)
+			if h.setJoinedHook != nil {
+				h.setJoinedHook(channel, false)
 			}
 			h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: false})
 			h.publishMemberList(c, channel)
@@ -490,6 +498,29 @@ func (h *handler) touchChannelBuffer(channel, action string) {
 	}
 }
 
+func (h *handler) markAllChannelsParted() {
+	if h.drainJoinedHook == nil {
+		return
+	}
+	channels := h.drainJoinedHook()
+	if len(channels) == 0 {
+		return
+	}
+	ctx, cancel := h.eventContext()
+	defer cancel()
+	for _, channel := range channels {
+		if h.clearMemberListHook != nil {
+			h.clearMemberListHook(channel)
+		}
+		globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
+		if err != nil {
+			slog.Error("ensure channel buffer", "err", err, "network", h.networkName, "buffer", channel)
+			continue
+		}
+		h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: false})
+	}
+}
+
 func (h *handler) updateChannelJoined(channel string, joined bool, presenceState string, source *girc.Source) {
 	if !joined && h.clearMemberListHook != nil {
 		h.clearMemberListHook(channel)
@@ -501,8 +532,8 @@ func (h *handler) updateChannelJoined(channel string, joined bool, presenceState
 		slog.Error("ensure channel buffer", "err", err, "network", h.networkName, "buffer", channel)
 		return
 	}
-	if err := ircdb.UpdateLogBufferJoined(ctx, h.db, channel, joined); err != nil {
-		slog.Error("update channel joined", "err", err, "network", h.networkName, "buffer", channel, "joined", joined)
+	if h.setJoinedHook != nil {
+		h.setJoinedHook(channel, joined)
 	}
 	h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: joined})
 	if h.hub != nil && source != nil {

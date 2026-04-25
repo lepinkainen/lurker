@@ -253,12 +253,10 @@ func (ms *MultiStore) ListAllBuffers(ctx context.Context) ([]Buffer, error) {
 				return nil, scanErr
 			}
 			b.NetworkID = n.ID
-			var joined int
 			var lastSeenID int64
 			if err := logStore.DB.QueryRowContext(ctx,
-				`SELECT COALESCE(topic,''), joined, COALESCE(last_seen_id,0) FROM buffers WHERE name = ?`, b.Name,
-			).Scan(&b.Topic, &joined, &lastSeenID); err == nil {
-				b.Joined = joined == 1
+				`SELECT COALESCE(topic,''), COALESCE(last_seen_id,0) FROM buffers WHERE name = ?`, b.Name,
+			).Scan(&b.Topic, &lastSeenID); err == nil {
 				b.LastSeenID = lastSeenID
 			}
 			out = append(out, b)

@@ -144,9 +144,6 @@ func seedChannelBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb
 			return err
 		}
 	}
-	if err := ircdb.UpdateLogBufferJoined(ctx, log.DB, c.Name, true); err != nil {
-		return err
-	}
 	return insertLines(ctx, log, localID, c.Lines, base)
 }
 

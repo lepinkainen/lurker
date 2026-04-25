@@ -19,6 +19,7 @@ import { applyTheme, loadInitialTheme, persistThemeId, type Theme } from "./them
 type LayoutSettings = {
   collapsed: Record<number, boolean>;
   pinned: number[];
+  archivesOpen: Record<number, boolean>;
 };
 
 type Network = {
@@ -98,7 +99,7 @@ type AppState = {
 };
 
 const LAYOUT_KEY = "lurker.layout";
-const DEFAULT_LAYOUT = { collapsed: {}, pinned: [] };
+const DEFAULT_LAYOUT: LayoutSettings = { collapsed: {}, pinned: [], archivesOpen: {} };
 
 const SLASH_COMMANDS: SlashCommand[] = [
   { cmd: "/join", args: "<channel>", desc: "Join a channel" },
@@ -195,7 +196,7 @@ async function hydrate() {
     inferUnreadCounts();
     renderSidebar();
     if (!state.activeId && state.buffers.size) {
-      const firstChannel = [...state.buffers.values()].find((b) => b.kind === "channel" && b.joined !== false);
+      const firstChannel = [...state.buffers.values()].find((b) => b.kind === "channel" && b.joined === true);
       setActive((firstChannel || state.buffers.values().next().value).id);
     }
     connectWS();
@@ -245,7 +246,7 @@ function handleWSMessage(msg) {
         network_id: msg.network_id,
         name: msg.name,
         kind: msg.kind,
-        joined: true,
+        joined: false,
         topic: "",
         unread: 0,
         mentions: 0,
@@ -443,9 +444,9 @@ function networkSection(n) {
 
   const netBufs = [...state.buffers.values()].filter((b) => b.network_id === n.id);
   const statusB = netBufs.find((b) => b.kind === "status");
-  const channels = netBufs.filter((b) => b.kind === "channel" && b.joined !== false).sort(byName);
+  const channels = netBufs.filter((b) => b.kind === "channel" && b.joined === true).sort(byName);
   const queries = netBufs.filter((b) => b.kind === "query").sort(byName);
-  const parted = netBufs.filter((b) => b.kind === "channel" && b.joined === false).sort(byName);
+  const parted = netBufs.filter((b) => b.kind === "channel" && b.joined !== true).sort(byName);
   const headerActive = statusB && state.activeId === statusB.id;
   const dot = dotClass(n.status);
   const unreadTotal = netBufs.reduce((s, b) => s + (b.unread || 0), 0);
@@ -491,20 +492,29 @@ function networkSection(n) {
     for (const b of channels) sec.appendChild(bufferRow(b));
     for (const b of queries) sec.appendChild(bufferRow(b));
     if (parted.length) {
+      const archOpen = !!state.layout.archivesOpen[n.id];
       const arch = document.createElement("button");
       arch.type = "button";
-      arch.className = "sbrow archives";
+      arch.className = ["sbrow", "archives", archOpen && "open"].filter(Boolean).join(" ");
+      const archCaret = document.createElement("span");
+      archCaret.className = "caret";
+      archCaret.textContent = archOpen ? "▾" : "▸";
       const nm = document.createElement("span");
       nm.className = "name";
-      nm.textContent = "Archives";
+      nm.textContent = "Archive";
       const cnt = document.createElement("span");
       cnt.className = "archcount";
       cnt.textContent = String(parted.length);
-      arch.append(nm, cnt);
+      arch.append(archCaret, nm, cnt);
       arch.addEventListener("click", () => {
-        if (statusB) setActive(statusB.id);
+        state.layout.archivesOpen[n.id] = !archOpen;
+        saveLayout(state.layout);
+        renderSidebar();
       });
       sec.appendChild(arch);
+      if (archOpen) {
+        for (const b of parted) sec.appendChild(bufferRow(b));
+      }
     }
   }
 
@@ -522,7 +532,7 @@ function bufferRow(b, opts: { pinned?: boolean } = {}) {
     b.id === state.activeId && "active",
     b.unread > 0 && "unread",
     b.mentions > 0 && "mention",
-    b.kind === "channel" && b.joined === false && "parted",
+    b.kind === "channel" && b.joined !== true && "parted",
   ]
     .filter(Boolean)
     .join(" ");
@@ -916,7 +926,7 @@ function maybeMarkActiveRead() {
 
 function updateInputEnabled() {
   const b = state.buffers.get(state.activeId);
-  inputEl.disabled = !(state.wsReady && b && b.kind !== "status" && !(b.kind === "channel" && b.joined === false));
+  inputEl.disabled = !(state.wsReady && b && b.kind !== "status" && !(b.kind === "channel" && b.joined !== true));
 }
 
 function onSubmit(ev: SubmitEvent) {
