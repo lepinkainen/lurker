@@ -507,9 +507,9 @@ func (m *Manager) buildClient(ctx context.Context, networkID int64, nc NetworkCo
 		}
 		m.mu.Unlock()
 		if currentNick != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			tCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if _, err := ircdb.UpdateNetwork(ctx, m.stores.Control, networkID, ircdb.Network{Nick: currentNick}); err != nil {
+			if _, err := ircdb.UpdateNetwork(tCtx, m.stores.Control, networkID, ircdb.Network{Nick: currentNick}); err != nil {
 				slog.Warn("persist current nick", "network_id", networkID, "nick", currentNick, "err", err)
 			}
 		}
