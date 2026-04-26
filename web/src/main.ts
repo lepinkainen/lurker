@@ -112,9 +112,15 @@ const RECONNECT_MAX_MS = 30000;
 const SLASH_COMMANDS: SlashCommand[] = [
   { cmd: "/join", args: "<channel>", desc: "Join a channel" },
   { cmd: "/part", args: "[reason]", desc: "Leave the current channel" },
-  { cmd: "/msg", args: "<nick> <text>", desc: "Open a private message" },
+  { cmd: "/msg", args: "<nick> <text>", desc: "Send a private message" },
   { cmd: "/me", args: "<action>", desc: "Send a /me action" },
   { cmd: "/nick", args: "<newnick>", desc: "Change your nick" },
+  { cmd: "/topic", args: "[new topic]", desc: "View or set channel topic" },
+  { cmd: "/whois", args: "<nick>", desc: "Query user info" },
+  { cmd: "/invite", args: "<nick> [channel]", desc: "Invite nick to channel" },
+  { cmd: "/kick", args: "<nick> [reason]", desc: "Kick nick from channel" },
+  { cmd: "/mode", args: "<modes> [params]", desc: "Set channel modes" },
+  { cmd: "/raw", args: "<line>", desc: "Send raw IRC line" },
 ];
 
 const state: AppState = {
@@ -1179,6 +1185,45 @@ function handleSlashCommand(text: string, buf: Buffer) {
       return true;
     case "part":
       sendCmd({ type: "part", buffer_id: buf.id, content: rest.join(" ").trim() });
+      return true;
+    case "nick":
+      sendCmd({ type: "nick", network_id: buf.network_id, content: rest[0] ?? "" });
+      return true;
+    case "me":
+      sendCmd({ type: "me", buffer_id: buf.id, content: rest.join(" ") });
+      return true;
+    case "msg": {
+      const [target, ...msgRest] = rest;
+      sendCmd({ type: "msg", network_id: buf.network_id, target: target ?? "", content: msgRest.join(" ") });
+      return true;
+    }
+    case "topic":
+      sendCmd({ type: "topic", buffer_id: buf.id, content: rest.join(" ") });
+      return true;
+    case "whois":
+      sendCmd({ type: "whois", network_id: buf.network_id, target: rest[0] ?? "" });
+      return true;
+    case "invite": {
+      const [invTarget, invChannel] = rest;
+      sendCmd({
+        type: "invite",
+        network_id: buf.network_id,
+        target: invTarget ?? "",
+        channel: invChannel ?? (buf.kind === "channel" ? buf.name : ""),
+      });
+      return true;
+    }
+    case "kick": {
+      const [kickTarget, ...kickRest] = rest;
+      sendCmd({ type: "kick", buffer_id: buf.id, target: kickTarget ?? "", content: kickRest.join(" ") });
+      return true;
+    }
+    case "mode":
+      sendCmd({ type: "mode", buffer_id: buf.id, content: rest.join(" ") });
+      return true;
+    case "raw":
+    case "quote":
+      sendCmd({ type: "raw", network_id: buf.network_id, content: rest.join(" ") });
       return true;
     default:
       return false;

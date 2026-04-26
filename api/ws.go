@@ -26,6 +26,7 @@ type clientCmd struct {
 	NetworkID int64  `json:"network_id,omitzero"`
 	Channel   string `json:"channel,omitzero"`
 	Content   string `json:"content,omitzero"`
+	Target    string `json:"target,omitzero"`
 	Before    int64  `json:"before,omitzero"`
 	Limit     int    `json:"limit,omitzero"`
 	MessageID int64  `json:"message_id,omitzero"`
@@ -126,6 +127,24 @@ func (s *Server) handleCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd
 		s.cmdPart(ctx, c, cmd)
 	case "mark_read":
 		s.cmdMarkRead(ctx, c, cmd)
+	case "nick":
+		s.cmdNick(ctx, c, cmd)
+	case "me":
+		s.cmdMe(ctx, c, cmd)
+	case "msg":
+		s.cmdMsg(ctx, c, cmd)
+	case "topic":
+		s.cmdTopic(ctx, c, cmd)
+	case "whois":
+		s.cmdWhois(ctx, c, cmd)
+	case "invite":
+		s.cmdInvite(ctx, c, cmd)
+	case "kick":
+		s.cmdKick(ctx, c, cmd)
+	case "mode":
+		s.cmdMode(ctx, c, cmd)
+	case "raw":
+		s.cmdRaw(ctx, c, cmd)
 	default:
 		writeWSErr(ctx, c, cmd.ReqID, "unknown command: "+cmd.Type)
 	}
@@ -207,6 +226,153 @@ func (s *Server) cmdMarkRead(ctx context.Context, c *websocket.Conn, cmd clientC
 		return
 	}
 	if err := s.Stores.MarkBufferLastSeen(ctx, cmd.BufferID, cmd.MessageID); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdNick(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	nick := strings.TrimSpace(cmd.Content)
+	if cmd.NetworkID == 0 || nick == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "nick requires network_id and content")
+		return
+	}
+	if err := s.Manager.ChangeNick(cmd.NetworkID, nick); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdMe(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	content := strings.TrimSpace(cmd.Content)
+	if cmd.BufferID == 0 || content == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "me requires buffer_id and content")
+		return
+	}
+	networkID, name, kind, err := s.Stores.LookupBuffer(ctx, cmd.BufferID)
+	if err != nil || kind == ircdb.BufferStatus {
+		writeWSErr(ctx, c, cmd.ReqID, "invalid buffer for /me")
+		return
+	}
+	if err := s.Manager.Me(networkID, name, content); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	if err := s.Manager.LogOutbound(ctx, networkID, name, "action", content); err != nil {
+		slog.Error("log outbound me", "err", err)
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdMsg(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	target := strings.TrimSpace(cmd.Target)
+	content := strings.TrimSpace(cmd.Content)
+	if cmd.NetworkID == 0 || target == "" || content == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "msg requires network_id, target, and content")
+		return
+	}
+	if err := s.Manager.Send(cmd.NetworkID, target, content); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	if err := s.Manager.LogOutbound(ctx, cmd.NetworkID, target, "privmsg", content); err != nil {
+		slog.Error("log outbound msg", "err", err)
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdTopic(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	if cmd.BufferID == 0 {
+		writeWSErr(ctx, c, cmd.ReqID, "topic requires buffer_id")
+		return
+	}
+	networkID, name, kind, err := s.Stores.LookupBuffer(ctx, cmd.BufferID)
+	if err != nil || kind != ircdb.BufferChannel {
+		writeWSErr(ctx, c, cmd.ReqID, "topic only works on channel buffers")
+		return
+	}
+	if err := s.Manager.Topic(networkID, name, strings.TrimSpace(cmd.Content)); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdWhois(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	target := strings.TrimSpace(cmd.Target)
+	if cmd.NetworkID == 0 || target == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "whois requires network_id and target")
+		return
+	}
+	if err := s.Manager.Whois(cmd.NetworkID, target); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdInvite(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	target := strings.TrimSpace(cmd.Target)
+	channel := strings.TrimSpace(cmd.Channel)
+	if cmd.NetworkID == 0 || target == "" || channel == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "invite requires network_id, target, and channel")
+		return
+	}
+	if err := s.Manager.Invite(cmd.NetworkID, target, channel); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdKick(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	target := strings.TrimSpace(cmd.Target)
+	if cmd.BufferID == 0 || target == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "kick requires buffer_id and target")
+		return
+	}
+	networkID, name, kind, err := s.Stores.LookupBuffer(ctx, cmd.BufferID)
+	if err != nil || kind != ircdb.BufferChannel {
+		writeWSErr(ctx, c, cmd.ReqID, "kick only works on channel buffers")
+		return
+	}
+	if err := s.Manager.Kick(networkID, name, target, strings.TrimSpace(cmd.Content)); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdMode(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	content := strings.TrimSpace(cmd.Content)
+	if cmd.BufferID == 0 || content == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "mode requires buffer_id and content")
+		return
+	}
+	networkID, name, kind, err := s.Stores.LookupBuffer(ctx, cmd.BufferID)
+	if err != nil || kind != ircdb.BufferChannel {
+		writeWSErr(ctx, c, cmd.ReqID, "mode only works on channel buffers")
+		return
+	}
+	parts := strings.Fields(content)
+	modes := parts[0]
+	params := parts[1:]
+	if err := s.Manager.Mode(networkID, name, modes, params...); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdRaw(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	content := strings.TrimSpace(cmd.Content)
+	if cmd.NetworkID == 0 || content == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "raw requires network_id and content")
+		return
+	}
+	if err := s.Manager.Raw(cmd.NetworkID, content); err != nil {
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return
 	}

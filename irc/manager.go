@@ -269,6 +269,101 @@ func (m *Manager) Part(networkID int64, channel, reason string) error {
 	return nil
 }
 
+// ChangeNick sends a NICK command on a connected network.
+func (m *Manager) ChangeNick(networkID int64, nick string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	c.Cmd.Nick(nick)
+	return nil
+}
+
+// Me sends a CTCP ACTION to a target on a connected network.
+func (m *Manager) Me(networkID int64, target, message string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	c.Cmd.Action(target, message)
+	return nil
+}
+
+// Topic sets the topic for a channel on a connected network.
+func (m *Manager) Topic(networkID int64, channel, topic string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	c.Cmd.Topic(channel, topic)
+	return nil
+}
+
+// Whois sends a WHOIS request on a connected network.
+func (m *Manager) Whois(networkID int64, nick string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	c.Cmd.Whois(nick)
+	return nil
+}
+
+// Invite sends an INVITE command on a connected network.
+func (m *Manager) Invite(networkID int64, nick, channel string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	c.Cmd.Invite(channel, nick)
+	return nil
+}
+
+// Kick sends a KICK command on a connected network.
+func (m *Manager) Kick(networkID int64, channel, nick, reason string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	c.Cmd.Kick(channel, nick, reason)
+	return nil
+}
+
+// Mode sends a MODE command on a connected network.
+func (m *Manager) Mode(networkID int64, target, modes string, params ...string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	c.Cmd.Mode(target, modes, params...)
+	return nil
+}
+
+// Raw sends a raw IRC line on a connected network.
+func (m *Manager) Raw(networkID int64, line string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	return c.Cmd.SendRaw(line)
+}
+
 // Nick returns the current nickname for a network. Falls back to the
 // configured nick when the connection isn't active.
 func (m *Manager) Nick(networkID int64) string {
