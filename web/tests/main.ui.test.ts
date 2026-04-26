@@ -58,12 +58,7 @@ describe("main UI", () => {
     const buf = stateRes.buffers.find((b: { name: string }) => b.name === name);
     expect(buf).toBeTruthy();
 
-    const nick =
-      stateRes.current_nick ||
-      stateRes.nick ||
-      stateRes.user?.nick ||
-      stateRes.networks?.[0]?.nick ||
-      "you";
+    const nick = stateRes.current_nick || stateRes.nick || stateRes.user?.nick || stateRes.networks?.[0]?.nick || "you";
 
     __handleWSMessage({
       type: "message",
