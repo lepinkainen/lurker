@@ -491,6 +491,10 @@ textarea {
   border-right: 1px solid var(--hair);
 }
 
+.mobile-menu-btn {
+  display: none;
+}
+
 .topicbar {
   height: 36px;
   padding: 0 12px;

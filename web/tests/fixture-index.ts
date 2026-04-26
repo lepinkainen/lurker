@@ -19,6 +19,7 @@ export const fixtureIndexHTML = `<!doctype html>
       <main id="main" class="mainpane">
         <header id="buffer-header" class="topicbar">
           <div class="title">
+            <button id="mobile-menu" class="mobile-menu-btn" type="button" aria-label="Open buffers"></button>
             <div id="buffer-name" class="chan">—</div>
           </div>
           <div id="buffer-topic" class="topic" title="Click to edit topic">

@@ -1,0 +1,111 @@
+@media (max-width: 640px) {
+  #app {
+    grid-template-columns: 1fr;
+    height: 100dvh;
+  }
+
+  .mobile-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    color: var(--fg-1);
+    border: 1px solid var(--hair);
+    border-radius: 4px;
+    cursor: pointer;
+    margin-right: 6px;
+    padding: 0;
+  }
+  .mobile-menu-btn:hover {
+    color: var(--fg-0);
+    border-color: var(--accent);
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: min(82vw, 320px);
+    height: 100dvh;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+    border-right: 1px solid var(--hair);
+    background: var(--bg-1);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.35);
+  }
+  body[data-sidebar-open="true"] .sidebar {
+    transform: none;
+  }
+
+  .memberpane {
+    display: flex;
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: min(72vw, 260px);
+    height: 100dvh;
+    z-index: 50;
+    transform: translateX(100%);
+    transition: transform 180ms ease;
+    border-left: 1px solid var(--hair);
+    background: var(--bg-1);
+    box-shadow: -2px 0 12px rgba(0, 0, 0, 0.35);
+  }
+  .memberpane[data-hidden="true"] {
+    display: flex;
+  }
+  body[data-members-open="true"] .memberpane {
+    transform: none;
+  }
+
+  body[data-sidebar-open="true"]::before,
+  body[data-members-open="true"]::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 40;
+  }
+
+  .mainpane {
+    min-width: 0;
+    width: 100vw;
+  }
+
+  .topicbar {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .topicbar .topic {
+    display: none;
+  }
+
+  .inputbar .msgin,
+  #input {
+    font-size: 16px;
+  }
+  .inputbar {
+    padding: 6px 8px;
+  }
+
+  .messages {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .msg .previews {
+    max-width: 100%;
+  }
+  .msg .preview {
+    max-width: 100%;
+  }
+
+  .cmdpop {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+  }
+}

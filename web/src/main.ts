@@ -1,4 +1,5 @@
 import "./style.css";
+import "./mobile.css";
 import {
   classifyKind,
   dayKeyOf,
@@ -157,6 +158,7 @@ let bufferTopicEl!: HTMLElement;
 let bufferMemcountEl!: HTMLElement;
 let memberCountInlineEl!: HTMLElement;
 let toggleMembersEl!: HTMLButtonElement;
+let mobileMenuEl!: HTMLButtonElement;
 let inputEl!: HTMLInputElement;
 let inputForm!: HTMLFormElement;
 let inputNickEl!: HTMLElement;
@@ -179,6 +181,7 @@ function captureDom() {
   bufferMemcountEl = mustEl<HTMLElement>("buffer-memcount");
   memberCountInlineEl = mustEl<HTMLElement>("member-count-inline");
   toggleMembersEl = mustEl<HTMLButtonElement>("toggle-members");
+  mobileMenuEl = mustEl<HTMLButtonElement>("mobile-menu");
   inputEl = mustEl<HTMLInputElement>("input");
   inputForm = mustEl<HTMLFormElement>("input-form");
   inputNickEl = mustEl<HTMLElement>("input-nick");
@@ -198,12 +201,56 @@ export function start() {
   inputForm.addEventListener("submit", onSubmit);
   messagesEl.addEventListener("scroll", onMessagesScroll);
   toggleMembersEl.addEventListener("click", () => {
+    if (isMobileViewport()) {
+      const open = document.body.dataset.membersOpen === "true";
+      setMembersDrawer(!open);
+      return;
+    }
     state.showMemberList = !state.showMemberList;
     renderMembers();
+  });
+  mobileMenuEl.addEventListener("click", () => {
+    setSidebarDrawer(document.body.dataset.sidebarOpen !== "true");
+  });
+  document.addEventListener("click", onBackdropClick);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      setSidebarDrawer(false);
+      setMembersDrawer(false);
+    }
   });
   window.addEventListener("hashchange", onHashChange);
   window.addEventListener("popstate", onHashChange);
   return hydrate();
+}
+
+function isMobileViewport(): boolean {
+  return window.matchMedia("(max-width: 640px)").matches;
+}
+
+function setSidebarDrawer(open: boolean) {
+  if (open) document.body.dataset.sidebarOpen = "true";
+  else delete document.body.dataset.sidebarOpen;
+}
+
+function setMembersDrawer(open: boolean) {
+  if (open) document.body.dataset.membersOpen = "true";
+  else delete document.body.dataset.membersOpen;
+}
+
+function onBackdropClick(e: MouseEvent) {
+  if (!isMobileViewport()) return;
+  const sidebarOpen = document.body.dataset.sidebarOpen === "true";
+  const membersOpen = document.body.dataset.membersOpen === "true";
+  if (!sidebarOpen && !membersOpen) return;
+  const target = e.target as HTMLElement | null;
+  if (!target) return;
+  if (sidebarOpen && !target.closest("#sidebar") && !target.closest("#mobile-menu")) {
+    setSidebarDrawer(false);
+  }
+  if (membersOpen && !target.closest("#member-pane") && !target.closest("#toggle-members")) {
+    setMembersDrawer(false);
+  }
 }
 
 function onHashChange() {
@@ -1051,6 +1098,7 @@ function membersForActive() {
 
 function setActive(id, opts: { skipHash?: boolean; replaceHash?: boolean } = {}) {
   state.activeId = id;
+  setSidebarDrawer(false);
   if (!opts.skipHash) {
     const b = state.buffers.get(id);
     if (b) {
