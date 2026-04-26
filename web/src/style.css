@@ -403,9 +403,6 @@ textarea {
 .sbrow.parted {
   opacity: 0.55;
 }
-.sbrow.parted .name {
-  text-decoration: line-through;
-}
 .sbrow .badge {
   font-family: var(--mono);
   font-size: 0.7rem;
@@ -432,7 +429,6 @@ textarea {
 .sbrow.archives {
   color: var(--fg-3);
   font-family: var(--sans);
-  font-style: italic;
   display: flex;
   align-items: center;
   gap: 6px;
