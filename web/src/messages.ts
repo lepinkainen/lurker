@@ -1,0 +1,309 @@
+import { type Message, state } from "./app-state";
+import {
+  classifyKind,
+  dayKeyOf,
+  escapeHTML,
+  formatTime,
+  highlightMentions,
+  inlineCode,
+  isSelf,
+  linkify,
+  mentionsMe,
+} from "./format";
+import { nickEl, sysBodyDOM } from "./nick";
+import { renderPreviews } from "./preview";
+
+export type MessagesDom = {
+  messagesEl: HTMLElement;
+  statusViewEl: HTMLElement;
+  bufferNameEl: HTMLElement;
+  bufferTopicEl: HTMLElement;
+  inputEl: HTMLInputElement;
+};
+
+type MessageDeps = {
+  renderPromptNick: () => void;
+  iconEl: (symbolId: string, size: number, opts?: { className?: string; label?: string }) => SVGSVGElement;
+};
+
+export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
+  const buffer = state.buffers.get(state.activeId);
+  if (!buffer) return;
+  deps.renderPromptNick();
+  const isChannel = buffer.kind === "channel";
+  dom.bufferNameEl.innerHTML = "";
+  if (isChannel) {
+    const hash = document.createElement("span");
+    hash.className = "hash";
+    hash.textContent = "#";
+    dom.bufferNameEl.append(hash, document.createTextNode(buffer.name.replace(/^#/, "")));
+  } else if (buffer.kind === "status") {
+    const network = state.networks.get(buffer.network_id);
+    dom.bufferNameEl.textContent = network ? `${network.name} (status)` : "(status)";
+  } else {
+    dom.bufferNameEl.textContent = buffer.name;
+  }
+
+  dom.bufferTopicEl.innerHTML = "";
+  const topicText = document.createElement("span");
+  topicText.className = "topictext";
+  if (buffer.kind === "status") {
+    const network = state.networks.get(buffer.network_id);
+    topicText.textContent = network ? `${network.host || ""} · ${network.status || "offline"}` : "";
+  } else {
+    topicText.textContent = buffer.topic || "No topic set";
+    if (!buffer.topic) topicText.style.color = "var(--fg-3)";
+  }
+  dom.bufferTopicEl.appendChild(topicText);
+  if (buffer.topic_set_by) {
+    const setter = document.createElement("span");
+    setter.style.cssText = "color:var(--fg-3);font-family:var(--mono);font-size:11px;margin-left:6px;";
+    setter.textContent = `— ${buffer.topic_set_by}`;
+    dom.bufferTopicEl.appendChild(setter);
+  }
+  const edit = document.createElement("span");
+  edit.className = "edit";
+  edit.setAttribute("aria-hidden", "true");
+  edit.appendChild(deps.iconEl("ic-pencil", 12));
+  dom.bufferTopicEl.appendChild(edit);
+
+  dom.inputEl.placeholder = "";
+}
+
+export function renderActiveView(dom: MessagesDom, _deps: MessageDeps) {
+  const buffer = state.buffers.get(state.activeId);
+  if (!buffer) return;
+  if (buffer.kind === "status") {
+    dom.messagesEl.hidden = true;
+    dom.statusViewEl.hidden = false;
+    renderStatusView(dom.statusViewEl);
+  } else {
+    dom.statusViewEl.hidden = true;
+    dom.messagesEl.hidden = false;
+    renderMessages(dom.messagesEl);
+  }
+}
+
+export function inferUnreadCounts() {
+  for (const buffer of state.buffers.values()) {
+    const list = state.messages.get(buffer.id) || [];
+    const lastSeen = buffer.last_seen_id || 0;
+    const unread = list.filter((message) => message.id > lastSeen).length;
+    const mentions = list.filter((message) => message.id > lastSeen && mentionsMe(message, state.me.nick)).length;
+    buffer.unread = buffer.id === state.activeId ? 0 : unread;
+    buffer.mentions = buffer.id === state.activeId ? 0 : mentions;
+  }
+}
+
+export function onMessage(
+  msg: Message,
+  handlers: { renderActiveView: () => void; maybeMarkActiveRead: () => void; renderSidebar: () => void },
+) {
+  const list = state.messages.get(msg.buffer_id) || [];
+  const idx = list.findIndex((message) => message.id === msg.id);
+  if (idx >= 0) list[idx] = msg;
+  else list.push(msg);
+  list.sort((a, b) => a.id - b.id);
+  state.messages.set(msg.buffer_id, list);
+  const buffer = state.buffers.get(msg.buffer_id);
+  if (buffer && msg.buffer_id !== state.activeId && msg.id > (buffer.last_seen_id || 0)) {
+    buffer.unread = (buffer.unread || 0) + 1;
+    if (mentionsMe(msg, state.me.nick)) buffer.mentions = (buffer.mentions || 0) + 1;
+  }
+  if (msg.buffer_id === state.activeId) {
+    handlers.renderActiveView();
+    handlers.maybeMarkActiveRead();
+  }
+  handlers.renderSidebar();
+}
+
+export function onPreview(
+  msg: { buffer_id: number; message_id: number; previews?: Message["previews"] },
+  messagesEl: HTMLElement,
+) {
+  const list = state.messages.get(msg.buffer_id);
+  if (!list) return;
+  const message = list.find((x) => x.id === msg.message_id);
+  if (!message) return;
+  message.previews = msg.previews || [];
+  if (msg.buffer_id !== state.activeId) return;
+  const row = messagesEl.querySelector(`[data-id="${msg.message_id}"]`);
+  if (!row) return;
+  const existing = row.querySelector(".previews");
+  if (existing) existing.remove();
+  const previewsEl = renderPreviews(message.previews);
+  if (previewsEl) row.appendChild(previewsEl);
+}
+
+export function onBufferUpdate(
+  msg: { id: number; topic?: string; joined?: boolean; last_seen_id?: number },
+  handlers: { inferUnreadCounts: () => void; renderHeader: () => void; renderSidebar: () => void },
+) {
+  const buffer = state.buffers.get(msg.id);
+  if (!buffer) return;
+  if (Object.hasOwn(msg, "topic")) buffer.topic = msg.topic || "";
+  if (Object.hasOwn(msg, "joined")) buffer.joined = !!msg.joined;
+  if (Object.hasOwn(msg, "last_seen_id")) buffer.last_seen_id = msg.last_seen_id || 0;
+  handlers.inferUnreadCounts();
+  handlers.renderHeader();
+  handlers.renderSidebar();
+}
+
+export function onHistoryResult(
+  msg: { buffer_id: number; messages?: Message[] },
+  handlers: { renderActiveView: () => void },
+  messagesEl: HTMLElement,
+) {
+  const existing = state.messages.get(msg.buffer_id) || [];
+  const known = new Set(existing.map((message) => message.id));
+  const prepend = (msg.messages || []).filter((message) => !known.has(message.id));
+  state.messages.set(msg.buffer_id, [...prepend, ...existing]);
+  if (!prepend.length) state.historyExhausted.add(msg.buffer_id);
+  state.loadingHistory.delete(msg.buffer_id);
+  if (msg.buffer_id === state.activeId) {
+    const oldHeight = messagesEl.scrollHeight;
+    handlers.renderActiveView();
+    messagesEl.scrollTop = messagesEl.scrollHeight - oldHeight;
+  }
+}
+
+function renderStatusView(statusViewEl: HTMLElement) {
+  statusViewEl.innerHTML = "";
+  const buffer = state.buffers.get(state.activeId);
+  if (!buffer) return;
+  const wrap = document.createElement("div");
+  wrap.className = "statuslines";
+  const list = state.messages.get(buffer.id) || [];
+  for (const message of list) wrap.appendChild(statusLine(message));
+  if (!list.length) {
+    const network = state.networks.get(buffer.network_id);
+    const empty = document.createElement("div");
+    empty.innerHTML = `<span class="stts">—</span><span class="stcat ok">ok</span><span class="stdim">${escapeHTML(network ? `connected to ${network.host || network.name}` : "no log entries yet")}</span>`;
+    wrap.appendChild(empty);
+  }
+  statusViewEl.appendChild(wrap);
+  statusViewEl.scrollTop = statusViewEl.scrollHeight;
+}
+
+function statusLine(message: Message) {
+  const row = document.createElement("div");
+  const ts = document.createElement("span");
+  ts.className = "stts";
+  ts.textContent = formatTime(message.ts);
+  const cat = document.createElement("span");
+  let catText = "-->",
+    catCls = "";
+  if (message.kind === "connected") {
+    catText = "OK";
+    catCls = "ok";
+  } else if (message.kind === "disconnected" || message.kind === "error") {
+    catText = "ERR";
+    catCls = "bad";
+  } else if (message.kind === "notice") {
+    catText = "<--";
+  }
+  cat.className = `stcat ${catCls}`.trim();
+  cat.textContent = catText;
+  const body = document.createElement("span");
+  body.className = "stdim";
+  body.textContent = (message.sender ? `${message.sender} ` : "") + (message.content || message.kind || "");
+  row.append(ts, cat, body);
+  return row;
+}
+
+function renderMessages(messagesEl: HTMLElement) {
+  messagesEl.innerHTML = "";
+  const list = state.messages.get(state.activeId) || [];
+  const buffer = state.buffers.get(state.activeId);
+  const lastSeen = buffer?.last_seen_id || 0;
+  let unreadInserted = false;
+  let lastDayKey = null;
+
+  for (const message of list) {
+    const dayKey = dayKeyOf(message.ts);
+    if (dayKey && dayKey !== lastDayKey) {
+      messagesEl.appendChild(daySeparator(message.ts));
+      lastDayKey = dayKey;
+    }
+    if (!unreadInserted && message.id > lastSeen && state.activeId !== null && lastSeen > 0) {
+      const bar = document.createElement("div");
+      bar.className = "unreadbar";
+      const label = document.createElement("span");
+      label.textContent = "New messages";
+      bar.appendChild(label);
+      messagesEl.appendChild(bar);
+      unreadInserted = true;
+    }
+    messagesEl.appendChild(messageRow(message));
+  }
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function messageRow(message: Message) {
+  const row = document.createElement("div");
+  row.dataset.id = String(message.id);
+  const kind = classifyKind(message.kind);
+  const isMention = mentionsMe(message, state.me.nick);
+  const self = isSelf(message, state.me.nick);
+  row.className = `msg ${kind === "message" ? "flat" : kind}${isMention ? " mention" : ""}${self ? " self" : ""}`;
+
+  const ts = document.createElement("span");
+  ts.className = "ts";
+  ts.textContent = formatTime(message.ts);
+  const gutter = document.createElement("span");
+  gutter.className = "gutter";
+  const body = document.createElement("span");
+  body.className = "body";
+
+  if (kind === "sys") {
+    const arrowCls =
+      message.kind === "join" ? "in" : message.kind === "part" || message.kind === "quit" ? "out" : "nil";
+    const glyph = message.kind === "join" ? "→" : message.kind === "part" || message.kind === "quit" ? "←" : "·";
+    gutter.innerHTML = `<span class="arrow ${arrowCls}">${glyph}</span>`;
+    body.replaceChildren(...sysBodyDOM(message));
+    row.append(ts, gutter, body);
+    return row;
+  }
+  if (kind === "notice") {
+    gutter.textContent = "!";
+  } else if (kind === "action") {
+    gutter.textContent = "*";
+  }
+
+  const nick = nickEl(message.sender || "", "nick", kind === "notice" ? `-${message.sender || "*"}-` : undefined);
+  body.innerHTML = renderBodyHTML(message);
+  if (kind === "action") {
+    body.innerHTML = `${escapeHTML(message.sender || "")} ${renderBodyHTML(message)}`;
+  }
+
+  row.append(ts, gutter, nick, body);
+  const previewsEl = renderPreviews(message.previews);
+  if (previewsEl) row.appendChild(previewsEl);
+  return row;
+}
+
+function renderBodyHTML(message: Message) {
+  const body = message.content || "";
+  return highlightMentions(linkify(inlineCode(escapeHTML(body))), state.me.nick);
+}
+
+function daySeparator(ts?: string) {
+  const sep = document.createElement("div");
+  sep.className = "daysep";
+  const label = document.createElement("span");
+  const d = new Date(ts || Date.now());
+  const today = new Date();
+  const isToday = d.toDateString() === today.toDateString();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+  const dateLabel = d.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  label.textContent = isToday ? `Today · ${dateLabel}` : isYesterday ? `Yesterday · ${dateLabel}` : dateLabel;
+  sep.appendChild(label);
+  return sep;
+}
