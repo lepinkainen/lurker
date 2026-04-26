@@ -45,9 +45,9 @@ describe("main UI", () => {
   it("increments unread/mention counts for non-active buffer", async () => {
     await __initForTests();
 
-    // pick a non-active channel buffer
+    // pick a non-active buffer (query or channel) — queries are always visible without opening archive fold
     const target = await waitFor(() => {
-      const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan.channel:not(.active)");
+      const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan:not(.active):not(.archives)");
       return rows.length ? rows[0] : null;
     });
     const name = target.querySelector(".name")?.textContent || "";
@@ -58,7 +58,12 @@ describe("main UI", () => {
     const buf = stateRes.buffers.find((b: { name: string }) => b.name === name);
     expect(buf).toBeTruthy();
 
-    const nick = stateRes.current_nick || stateRes.nick || "you";
+    const nick =
+      stateRes.current_nick ||
+      stateRes.nick ||
+      stateRes.user?.nick ||
+      stateRes.networks?.[0]?.nick ||
+      "you";
 
     __handleWSMessage({
       type: "message",

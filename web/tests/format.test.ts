@@ -12,7 +12,6 @@ import {
   mentionsMe,
   nickColor,
   nickHue,
-  sysBodyHTML,
 } from "../src/format";
 
 describe("escapeHTML", () => {
@@ -160,50 +159,6 @@ describe("classifyKind", () => {
     expect(classifyKind("privmsg")).toBe("message");
     expect(classifyKind(undefined)).toBe("message");
     expect(classifyKind("")).toBe("message");
-  });
-});
-
-describe("sysBodyHTML", () => {
-  it("formats join", () => {
-    expect(sysBodyHTML({ kind: "join", sender: "alice" })).toContain("alice");
-    expect(sysBodyHTML({ kind: "join", sender: "alice" })).toContain("joined");
-  });
-
-  it("includes reason on part/quit", () => {
-    expect(sysBodyHTML({ kind: "part", sender: "bob", content: "bye" })).toContain("(bye)");
-    expect(sysBodyHTML({ kind: "quit", sender: "bob", content: "timeout" })).toContain("(timeout)");
-  });
-
-  it("renders nick change with target", () => {
-    const out = sysBodyHTML({ kind: "nick", sender: "alice", target: "alice2" });
-    expect(out).toContain("is now known as");
-    expect(out).toContain("alice2");
-  });
-
-  it("renders kick", () => {
-    const out = sysBodyHTML({ kind: "kick", sender: "op", target: "bob", content: "spam" });
-    expect(out).toContain("was kicked by");
-    expect(out).toContain("(spam)");
-  });
-
-  it("renders mode", () => {
-    expect(sysBodyHTML({ kind: "mode", sender: "op", content: "+o bob" })).toContain("set mode +o bob");
-  });
-
-  it("renders topic", () => {
-    expect(sysBodyHTML({ kind: "topic", sender: "alice", content: "hello world" })).toContain("set topic: hello world");
-  });
-
-  it("renders connected/disconnected", () => {
-    expect(sysBodyHTML({ kind: "connected" })).toBe("connected");
-    expect(sysBodyHTML({ kind: "disconnected", content: "ping timeout" })).toContain("ping timeout");
-  });
-
-  it("escapes HTML in content/target/sender", () => {
-    const out = sysBodyHTML({ kind: "part", sender: "<bad>", content: "<script>" });
-    expect(out).not.toContain("<script>");
-    expect(out).toContain("&lt;script&gt;");
-    expect(out).toContain("&lt;bad&gt;");
   });
 });
 

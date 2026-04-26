@@ -8,6 +8,16 @@ export const fixtureIndexHTML = `<!doctype html>
   <body>
     <div id="app" class="app">
       <aside id="sidebar" class="sidebar" aria-label="Networks">
+        <div id="sidebar-status" class="sb-status" aria-label="Connectivity status">
+          <div id="backend-status" class="sb-status-item">
+            <span class="sb-status-dot"></span>
+            <span id="backend-status-text" class="sb-status-value">Connecting…</span>
+          </div>
+          <div id="tailscale-status" class="sb-status-item">
+            <span class="sb-status-dot"></span>
+            <span id="tailscale-status-text" class="sb-status-value">Connected</span>
+          </div>
+        </div>
         <div id="sb-scroll" class="sbscroll"></div>
         <div class="sb-footer">
           <button type="button" title="Account settings">

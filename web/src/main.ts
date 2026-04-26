@@ -11,9 +11,8 @@ import {
   isSelf,
   linkify,
   mentionsMe,
-  nickColor,
-  sysBodyHTML,
 } from "./format";
+import { nickAvatar, nickEl, sysBodyDOM } from "./nick";
 import { type Preview, renderPreviews } from "./preview";
 import { applyTheme, loadInitialTheme, persistThemeId, type Theme } from "./theme";
 
@@ -811,7 +810,8 @@ function activePromptNick(): string {
 }
 
 function renderPromptNick() {
-  inputNickEl.textContent = activePromptNick();
+  const nick = activePromptNick();
+  inputNickEl.replaceChildren(nickAvatar(nick), nick);
 }
 
 function renderHeader() {
@@ -964,7 +964,7 @@ function messageRow(m) {
     const arrowCls = m.kind === "join" ? "in" : m.kind === "part" || m.kind === "quit" ? "out" : "nil";
     const glyph = m.kind === "join" ? "→" : m.kind === "part" || m.kind === "quit" ? "←" : "·";
     gutter.innerHTML = `<span class="arrow ${arrowCls}">${glyph}</span>`;
-    body.innerHTML = sysBodyHTML(m);
+    body.replaceChildren(...sysBodyDOM(m));
     row.append(ts, gutter, body);
     return row;
   }
@@ -974,10 +974,7 @@ function messageRow(m) {
     gutter.textContent = "*";
   }
 
-  const nick = document.createElement("span");
-  nick.className = "nick";
-  nick.style.color = nickColor(m.sender || "");
-  nick.textContent = kind === "notice" ? `-${m.sender || "*"}-` : m.sender || "*";
+  const nick = nickEl(m.sender || "", "nick", kind === "notice" ? `-${m.sender || "*"}-` : undefined);
   body.innerHTML = renderBodyHTML(m);
   if (kind === "action") {
     body.innerHTML = `${escapeHTML(m.sender || "")} ${renderBodyHTML(m)}`;
@@ -1058,10 +1055,7 @@ function memberRow(m) {
   const pfx = document.createElement("span");
   pfx.className = `pfx ${cls}`;
   pfx.textContent = m.prefix || "\u00a0";
-  const mn = document.createElement("span");
-  mn.className = "mn";
-  mn.style.color = nickColor(m.nick);
-  mn.textContent = m.nick;
+  const mn = nickEl(m.nick, "mn");
   btn.append(pfx, mn);
   return btn;
 }

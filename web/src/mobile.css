@@ -94,6 +94,11 @@
   .messages {
     padding-left: 8px;
     padding-right: 8px;
+    font-size: 0.875rem;
+  }
+
+  .msg .ts {
+    opacity: 0.55;
   }
   .msg .previews {
     max-width: 100%;

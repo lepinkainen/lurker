@@ -57,10 +57,6 @@ export function nickColor(nick: unknown): string {
   return `hsl(calc(${nickHue(nick)}deg + var(--nick-hue-offset, 0deg)) var(--nick-sat, 60%) var(--nick-light, 70%))`;
 }
 
-export function nickStyleAttr(nick: unknown): string {
-  return `style="color:${nickColor(nick)}"`;
-}
-
 export type MessageKind = "sys" | "notice" | "action" | "message";
 
 export function classifyKind(kind: string | undefined): MessageKind {
@@ -69,35 +65,6 @@ export function classifyKind(kind: string | undefined): MessageKind {
   if (kind === "notice") return "notice";
   if (kind === "action") return "action";
   return "message";
-}
-
-export function sysBodyHTML(m: SysMessage): string {
-  const sender = `<span class="nickref" ${nickStyleAttr(m.sender || "")}>${escapeHTML(m.sender || "")}</span>`;
-  const extra = m.content ? ` (${escapeHTML(m.content)})` : "";
-  switch (m.kind) {
-    case "join":
-      return `${sender} joined`;
-    case "part":
-      return `${sender} left${extra}`;
-    case "quit":
-      return `${sender} quit${extra}`;
-    case "nick":
-      return m.target
-        ? `${sender} is now known as <span class="nickref" ${nickStyleAttr(m.target)}>${escapeHTML(m.target)}</span>`
-        : escapeHTML(m.content || "nick change");
-    case "kick":
-      return `<span class="nickref" ${nickStyleAttr(m.target || "")}>${escapeHTML(m.target || "")}</span> was kicked by ${sender}${extra}`;
-    case "mode":
-      return `${sender} set mode ${escapeHTML(m.content || "")}${m.target ? ` on ${escapeHTML(m.target)}` : ""}`;
-    case "topic":
-      return `${sender} set topic: ${escapeHTML(m.content || "")}`;
-    case "connected":
-      return "connected";
-    case "disconnected":
-      return `disconnected${extra}`;
-    default:
-      return escapeHTML(m.content || "");
-  }
 }
 
 export function formatTime(iso: string | undefined | null): string {

@@ -649,9 +649,10 @@ textarea {
 }
 
 .msg {
-  display: grid;
-  grid-template-columns: 46px 14px 96px 1fr;
-  column-gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
   padding: var(--row-pad-y) 10px;
   word-break: break-word;
   position: relative;
@@ -672,23 +673,37 @@ textarea {
   color: var(--fg-1);
 }
 .msg .gutter {
+  flex-shrink: 0;
   color: var(--fg-3);
   font-family: var(--mono);
   font-size: 0.8rem;
   text-align: center;
-  padding-top: 1px;
 }
 .msg .nick {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex-shrink: 0;
   font-weight: 500;
+  white-space: nowrap;
+}
+.nickref {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.nick-avatar {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  image-rendering: pixelated;
+  flex-shrink: 0;
 }
 .msg .body {
+  flex: 1;
+  min-width: 0;
   color: var(--fg-0);
   white-space: pre-wrap;
   word-break: break-word;
-  min-width: 0;
 }
 .msg .body a {
   color: var(--cyan);
@@ -739,7 +754,6 @@ textarea {
 }
 
 .msg.sys {
-  grid-template-columns: 46px 14px 1fr;
   color: var(--fg-3);
 }
 .msg.sys .body {
@@ -1030,7 +1044,7 @@ textarea {
 }
 
 .msg .previews {
-  grid-column: 3 / -1;
+  flex-basis: 100%;
   display: flex;
   flex-direction: column;
   gap: 6px;
