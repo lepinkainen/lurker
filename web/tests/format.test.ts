@@ -134,12 +134,12 @@ describe("nickHue", () => {
 });
 
 describe("nickColor", () => {
-  it("emits hsl with CSS vars", () => {
+  it("emits oklch with CSS vars", () => {
     const c = nickColor("alice");
-    expect(c).toMatch(/^hsl\(/);
-    expect(c).toContain("var(--nick-sat");
-    expect(c).toContain("var(--nick-light");
-    expect(c).toContain("var(--nick-hue-offset");
+    expect(c).toMatch(/^oklch\(/);
+    expect(c).toContain("var(--nick-l");
+    expect(c).toContain("var(--nick-c");
+    expect(c).toContain("deg)");
   });
 });
 
