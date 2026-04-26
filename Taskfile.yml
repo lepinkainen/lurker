@@ -73,8 +73,14 @@ tasks:
     cmds:
       - cd web && pnpm dev
 
+  gen-palette:
+    desc: Generate web/src/nick-palette.ts with perceptually-spaced OKLCH hues
+    cmds:
+      - node scripts/gen-nick-palette.mjs
+
   web-build:
     desc: Build the frontend into web/dist
+    deps: [gen-palette]
     cmds:
       - cd web && pnpm build
 

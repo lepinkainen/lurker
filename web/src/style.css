@@ -29,9 +29,8 @@
   --mention: #e0af68;
   --mention-soft: rgba(224, 175, 104, 0.1);
 
-  --nick-sat: 60%;
-  --nick-light: 70%;
-  --nick-hue-offset: 0deg;
+  --nick-l: 72%;
+  --nick-c: 0.12;
 
   --row-pad-y: 1px;
   --msg-font-size: 0.9rem;

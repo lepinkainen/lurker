@@ -1,4 +1,5 @@
 import { nickColor, nickHue, type SysMessage } from "./format";
+import { NICK_HUES } from "./nick-palette";
 
 export function nickAvatar(nick: string): HTMLCanvasElement {
   const p = 2;
@@ -10,8 +11,12 @@ export function nickAvatar(nick: string): HTMLCanvasElement {
   const ctx = c.getContext("2d");
   if (!ctx) return c;
 
-  const hue = nickHue(nick);
-  ctx.fillStyle = `hsl(${hue}deg, 70%, 50%)`;
+  const idx = nickHue(nick);
+  const hue = NICK_HUES[idx];
+  const style = getComputedStyle(document.documentElement);
+  const l = style.getPropertyValue("--nick-l").trim() || "72%";
+  const cv = style.getPropertyValue("--nick-c").trim() || "0.12";
+  ctx.fillStyle = `oklch(${l} ${cv} ${hue}deg)`;
 
   // xorshift32 seeded from nick chars
   let r = 1;

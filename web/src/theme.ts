@@ -3,7 +3,7 @@ export type Theme = {
   name: string;
   colors: Record<string, string>;
   fonts: { sans?: string; mono?: string };
-  nicks: { saturation?: number; lightness?: number; hue_offset?: number };
+  nicks: { saturation?: number; lightness?: number; hue_offset?: number; oklch_l?: number; oklch_c?: number };
 };
 
 const STORAGE_KEY = "lurker.theme.id";
@@ -22,12 +22,10 @@ export function applyTheme(t: Theme): void {
   }
   if (t.fonts?.sans) root.style.setProperty("--sans", t.fonts.sans);
   if (t.fonts?.mono) root.style.setProperty("--mono", t.fonts.mono);
-  const sat = t.nicks?.saturation;
-  const light = t.nicks?.lightness;
-  const hueOff = t.nicks?.hue_offset;
-  if (typeof sat === "number") root.style.setProperty("--nick-sat", `${sat}%`);
-  if (typeof light === "number") root.style.setProperty("--nick-light", `${light}%`);
-  if (typeof hueOff === "number") root.style.setProperty("--nick-hue-offset", `${hueOff}deg`);
+  const nickL = t.nicks?.oklch_l;
+  const nickC = t.nicks?.oklch_c;
+  if (typeof nickL === "number") root.style.setProperty("--nick-l", `${nickL}%`);
+  if (typeof nickC === "number") root.style.setProperty("--nick-c", `${nickC}`);
   root.dataset.theme = t.id;
 }
 

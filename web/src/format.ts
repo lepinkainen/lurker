@@ -1,3 +1,5 @@
+import { NICK_HUES } from "./nick-palette";
+
 export type SysMessage = {
   sender?: string;
   target?: string;
@@ -50,11 +52,12 @@ export function nickHue(nick: unknown): number {
   let h = 5381;
   const s = String(nick ?? "").toLowerCase();
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return Math.abs(h) % 360;
+  return Math.abs(h) % NICK_HUES.length;
 }
 
 export function nickColor(nick: unknown): string {
-  return `hsl(calc(${nickHue(nick)}deg + var(--nick-hue-offset, 0deg)) var(--nick-sat, 60%) var(--nick-light, 70%))`;
+  const hue = NICK_HUES[nickHue(nick)];
+  return `oklch(var(--nick-l, 72%) var(--nick-c, 0.12) ${hue}deg)`;
 }
 
 export type MessageKind = "sys" | "notice" | "action" | "message";
