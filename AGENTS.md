@@ -122,6 +122,8 @@ When code changes warrant validation, prefer the smallest relevant checks:
 
 Be mindful that `task lint` runs formatting and linting and depends on frontend checks.
 
+Always run `task build` before claiming a task as "done"
+
 ## Ignore and generated content
 
 Do not commit or rely on generated/local-only paths:

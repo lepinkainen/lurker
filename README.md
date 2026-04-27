@@ -65,6 +65,25 @@ Bootstrap network configuration comes from `config.yaml`.
 
 After startup, network definitions are managed through the application itself and stored in `control.db`.
 
+### Update checker
+
+Server can poll GHCR for newer published image metadata and report status over API. It does not pull or restart containers. Update checks target Linux container image metadata (`linux/amd64`).
+
+Environment variables:
+
+- `UPDATE_CHECK_ENABLED` default `true`
+- `UPDATE_CHECK_IMAGE` default `ghcr.io/lepinkainen/lurker`
+- `UPDATE_CHECK_TAG` default `latest`
+- `UPDATE_CHECK_INTERVAL` default `24h`, clamped to minimum `1h`
+- `GHCR_USERNAME` optional
+- `GHCR_TOKEN` optional
+
+API endpoint:
+
+- `GET /api/update-status`
+
+Response includes current build info, remote image metadata, last check time, and `update_available`.
+
 ## Build and CI
 
 Preferred local workflow uses `task`:

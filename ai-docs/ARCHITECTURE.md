@@ -42,7 +42,7 @@ Main components:
 - `irc/`: persistent IRC connection lifecycle and event handling
 - `db/`: control DB, per-network log DBs, migrations, and query helpers
 - `hub/`: in-process pub/sub used to fan live events to WebSocket clients
-- `updates/`: background checker for published container image metadata
+- `updates/`: background checker for published Linux container image metadata
 - `web/`: Vite + TypeScript frontend
 
 Runtime flow:
@@ -63,7 +63,7 @@ Primary config inputs:
 - `ADDR` default `:8080`
 - `CONFIG_PATH` default `./config.yaml`
 - CLI flag `--web-dir` to serve built frontend from disk
-- `UPDATE_CHECK_*` env vars for optional GHCR image update polling
+- `UPDATE_CHECK_*` env vars for optional GHCR image update polling, default daily and clamped to no more than once per hour
 
 ### Important invariant: `config.yaml` is bootstrap-only
 
