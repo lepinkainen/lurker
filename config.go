@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -18,6 +20,7 @@ type Config struct {
 	ThemesDir     string
 	Networks      []irc.NetworkConfig
 	Previews      PreviewConfig
+	Updates       UpdateConfig
 }
 
 // PreviewConfig mirrors the YAML `previews:` block.
@@ -27,6 +30,15 @@ type PreviewConfig struct {
 	TimeoutMs     int  `yaml:"timeout_ms"`
 	CacheTTLHours int  `yaml:"cache_ttl_hours"`
 	Workers       int  `yaml:"workers"`
+}
+
+type UpdateConfig struct {
+	Enabled  bool
+	Image    string
+	Tag      string
+	Interval time.Duration
+	Username string
+	Token    string
 }
 
 type FileConfig struct {
@@ -68,6 +80,14 @@ func loadConfig() Config {
 			TimeoutMs:     5000,
 			CacheTTLHours: 24 * 7,
 			Workers:       4,
+		},
+		Updates: UpdateConfig{
+			Enabled:  envBoolOr("UPDATE_CHECK_ENABLED", true),
+			Image:    envOr("UPDATE_CHECK_IMAGE", "ghcr.io/lepinkainen/lurker"),
+			Tag:      envOr("UPDATE_CHECK_TAG", "latest"),
+			Interval: envDurationOr("UPDATE_CHECK_INTERVAL", 6*time.Hour),
+			Username: os.Getenv("GHCR_USERNAME"),
+			Token:    os.Getenv("GHCR_TOKEN"),
 		},
 	}
 	if nets, pv, err := parseYAMLConfig(cfg.ConfigPath); err == nil {
@@ -186,4 +206,28 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func envBoolOr(key string, def bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	parsed, err := strconv.ParseBool(v)
+	if err != nil {
+		return def
+	}
+	return parsed
+}
+
+func envDurationOr(key string, def time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	parsed, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return parsed
 }

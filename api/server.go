@@ -14,19 +14,21 @@ import (
 	"github.com/lepinkainen/lurker/hub"
 	"github.com/lepinkainen/lurker/irc"
 	"github.com/lepinkainen/lurker/theme"
+	"github.com/lepinkainen/lurker/updates"
 )
 
 // Server bundles the dependencies every API handler needs.
 type Server struct {
-	Stores    *ircdb.MultiStore
-	Hub       *hub.Hub
-	Manager   *irc.Manager
-	Web       fs.FS // embedded web UI; nil disables serving
-	Themes    *theme.Loader
-	AppName   string
-	Version   string
-	GitHash   string
-	BuildTime string
+	Stores        *ircdb.MultiStore
+	Hub           *hub.Hub
+	Manager       *irc.Manager
+	Web           fs.FS // embedded web UI; nil disables serving
+	Themes        *theme.Loader
+	AppName       string
+	Version       string
+	GitHash       string
+	BuildTime     string
+	UpdateChecker *updates.Checker
 }
 
 // Handler returns an http.Handler with all routes wired. Route pattern
@@ -38,6 +40,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /whoami", s.whoami)
 	mux.HandleFunc("GET /api/themes", s.listThemes)
 	mux.HandleFunc("GET /api/state", s.state)
+	mux.HandleFunc("GET /api/update-status", s.updateStatus)
 	mux.HandleFunc("GET /api/buffers/{id}/history", s.history)
 	mux.HandleFunc("GET /api/search", s.search)
 	mux.HandleFunc("GET /api/stream", s.stream)
@@ -85,6 +88,14 @@ func (s *Server) whoami(w http.ResponseWriter, _ *http.Request) {
 		"hash":       s.GitHash,
 		"build_time": s.BuildTime,
 	})
+}
+
+func (s *Server) updateStatus(w http.ResponseWriter, _ *http.Request) {
+	if s.UpdateChecker == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.UpdateChecker.Status())
 }
 
 func (s *Server) web() http.Handler {

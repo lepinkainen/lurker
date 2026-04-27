@@ -10,6 +10,7 @@ This document is for AI agents and other technical readers. It gives the system 
 - [irc-runtime.md](irc-runtime.md) — `irc.Manager`, handler, event persistence, URL preview pipeline, event hub
 - [frontend.md](frontend.md) — web UI layout, source-of-truth rules, hydration model
 - [testing-and-build.md](testing-and-build.md) — testing strategy and Taskfile workflow
+- [operations.md](operations.md) — operational notes including image update checking
 
 ## Purpose and scope
 
@@ -41,6 +42,7 @@ Main components:
 - `irc/`: persistent IRC connection lifecycle and event handling
 - `db/`: control DB, per-network log DBs, migrations, and query helpers
 - `hub/`: in-process pub/sub used to fan live events to WebSocket clients
+- `updates/`: background checker for published container image metadata
 - `web/`: Vite + TypeScript frontend
 
 Runtime flow:
@@ -50,7 +52,8 @@ Runtime flow:
 3. bootstrap networks from `config.yaml` are upserted into control DB and started
 4. HTTP API and web UI are served from the same Go process
 5. IRC events are persisted to SQLite and published to the hub
-6. WebSocket clients receive hub events and issue commands back to the backend
+6. background update checker polls GHCR image metadata and caches latest status in memory
+7. WebSocket clients receive hub events and issue commands back to the backend
 
 ## Configuration model
 
@@ -60,6 +63,7 @@ Primary config inputs:
 - `ADDR` default `:8080`
 - `CONFIG_PATH` default `./config.yaml`
 - CLI flag `--web-dir` to serve built frontend from disk
+- `UPDATE_CHECK_*` env vars for optional GHCR image update polling
 
 ### Important invariant: `config.yaml` is bootstrap-only
 

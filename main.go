@@ -19,6 +19,7 @@ import (
 	"github.com/lepinkainen/lurker/irc"
 	"github.com/lepinkainen/lurker/preview"
 	"github.com/lepinkainen/lurker/theme"
+	"github.com/lepinkainen/lurker/updates"
 )
 
 func main() {
@@ -84,16 +85,32 @@ func main() {
 	themeLoader := &theme.Loader{Dir: resolvedThemesDir}
 	slog.Info("themes", "dir", resolvedThemesDir)
 
+	updateChecker := updates.New(updates.Config{
+		Enabled:  cfg.Updates.Enabled,
+		Image:    cfg.Updates.Image,
+		Tag:      cfg.Updates.Tag,
+		Interval: cfg.Updates.Interval,
+		Username: cfg.Updates.Username,
+		Token:    cfg.Updates.Token,
+		Current: updates.BuildInfo{
+			Version:   version,
+			Commit:    gitHash,
+			BuildTime: buildTime,
+		},
+	})
+	updateChecker.Start(ctx)
+
 	apiSrv := &api.Server{
-		Stores:    stores,
-		Hub:       evHub,
-		Manager:   mgr,
-		Web:       webSub,
-		Themes:    themeLoader,
-		AppName:   appName,
-		Version:   version,
-		GitHash:   gitHash,
-		BuildTime: buildTime,
+		Stores:        stores,
+		Hub:           evHub,
+		Manager:       mgr,
+		Web:           webSub,
+		Themes:        themeLoader,
+		AppName:       appName,
+		Version:       version,
+		GitHash:       gitHash,
+		BuildTime:     buildTime,
+		UpdateChecker: updateChecker,
 	}
 
 	srv := &http.Server{
