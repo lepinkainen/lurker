@@ -18,4 +18,13 @@ export function renderSidebarStatus(dom: DomRefs) {
   dom.backendStatusTextEl.textContent = backend.text;
   dom.tailscaleStatusEl.className = "sb-status-item good";
   dom.tailscaleStatusTextEl.textContent = "Connected";
+
+  const showUpdate = state.updateStatus?.enabled === true && state.updateStatus.update_available === true;
+  dom.updateStatusEl.hidden = !showUpdate;
+  if (showUpdate) {
+    dom.updateStatusEl.className = "sb-status-item warn";
+    dom.updateStatusTextEl.textContent = state.updateStatus?.remote_version
+      ? `Update available (${state.updateStatus.remote_version})`
+      : "Update available";
+  }
 }

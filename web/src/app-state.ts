@@ -66,6 +66,12 @@ export type SlashCommand = {
   desc: string;
 };
 
+export type UpdateStatus = {
+  enabled: boolean;
+  update_available: boolean;
+  remote_version?: string;
+};
+
 export type AppState = {
   networks: Map<number, Network>;
   buffers: Map<number, Buffer>;
@@ -86,6 +92,7 @@ export type AppState = {
   showMemberList: boolean;
   layout: LayoutSettings;
   drag: { id: number | null; over: number | null };
+  updateStatus: UpdateStatus | null;
 };
 
 const LAYOUT_KEY = "lurker.layout";
@@ -142,4 +149,5 @@ export const state: AppState = {
   showMemberList: true,
   layout: loadLayout(),
   drag: { id: null, over: null },
+  updateStatus: null,
 };

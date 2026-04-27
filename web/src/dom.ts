@@ -4,6 +4,8 @@ export type DomRefs = {
   backendStatusTextEl: HTMLElement;
   tailscaleStatusEl: HTMLElement;
   tailscaleStatusTextEl: HTMLElement;
+  updateStatusEl: HTMLElement;
+  updateStatusTextEl: HTMLElement;
   messagesEl: HTMLElement;
   statusViewEl: HTMLElement;
   bufferNameEl: HTMLElement;
@@ -34,6 +36,8 @@ export function captureDom(): DomRefs {
     backendStatusTextEl: mustEl<HTMLElement>("backend-status-text"),
     tailscaleStatusEl: mustEl<HTMLElement>("tailscale-status"),
     tailscaleStatusTextEl: mustEl<HTMLElement>("tailscale-status-text"),
+    updateStatusEl: mustEl<HTMLElement>("update-status"),
+    updateStatusTextEl: mustEl<HTMLElement>("update-status-text"),
     messagesEl: mustEl<HTMLElement>("messages"),
     statusViewEl: mustEl<HTMLElement>("status-view"),
     bufferNameEl: mustEl<HTMLElement>("buffer-name"),

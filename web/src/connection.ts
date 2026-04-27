@@ -1,4 +1,4 @@
-import { type Member, type Message, type StateResponse, state } from "./app-state";
+import { type Member, type Message, type StateResponse, state, type UpdateStatus } from "./app-state";
 
 export const RECONNECT_BASE_MS = 1000;
 export const RECONNECT_MAX_MS = 30000;
@@ -25,15 +25,23 @@ export async function hydrate(deps: ConnectionDeps) {
   try {
     state.backendStatus = "connecting";
     deps.renderSidebarStatus();
-    const res = await fetch("/api/state");
-    if (!res.ok) throw new Error(`state ${res.status}`);
-    const s: StateResponse = await res.json();
+    const [stateRes, updateRes] = await Promise.all([
+      fetch("/api/state"),
+      fetch("/api/update-status", { headers: { Accept: "application/json" } }).catch(() => null),
+    ]);
+    if (!stateRes.ok) throw new Error(`state ${stateRes.status}`);
+    const s: StateResponse = await stateRes.json();
     state.me.nick = s.current_nick || s.nick || s.user?.nick || s.networks?.[0]?.nick || "you";
     for (const network of s.networks || []) state.networks.set(network.id, network);
     deps.renderPromptNick();
     for (const buffer of s.buffers || []) state.buffers.set(buffer.id, { unread: 0, mentions: 0, ...buffer });
     for (const [id, msgs] of Object.entries(s.initial_messages || {})) state.messages.set(+id, msgs as Message[]);
     for (const [id, members] of Object.entries(s.members || {})) state.members.set(+id, members as Member[]);
+    if (updateRes?.ok) {
+      state.updateStatus = (await updateRes.json()) as UpdateStatus;
+    } else {
+      state.updateStatus = null;
+    }
     deps.inferUnreadCounts();
     deps.renderSidebar();
     if (!state.activeId && state.buffers.size) {

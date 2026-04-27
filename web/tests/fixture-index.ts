@@ -17,6 +17,10 @@ export const fixtureIndexHTML = `<!doctype html>
             <span class="sb-status-dot"></span>
             <span id="tailscale-status-text" class="sb-status-value">Connected</span>
           </div>
+          <div id="update-status" class="sb-status-item warn" hidden>
+            <span class="sb-status-dot"></span>
+            <span id="update-status-text" class="sb-status-value">Update available</span>
+          </div>
         </div>
         <div id="sb-scroll" class="sbscroll"></div>
         <div class="sb-footer">
