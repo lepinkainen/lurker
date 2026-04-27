@@ -17,11 +17,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Nicks holds the HSL parameters applied to hash-derived nick colors.
+// Nicks holds the color parameters applied to hash-derived nick colors.
 type Nicks struct {
 	Saturation float64 `yaml:"saturation" json:"saturation"`
 	Lightness  float64 `yaml:"lightness" json:"lightness"`
 	HueOffset  float64 `yaml:"hue_offset" json:"hue_offset"`
+	OklchL     float64 `yaml:"oklch_l" json:"oklch_l"`
+	OklchC     float64 `yaml:"oklch_c" json:"oklch_c"`
 }
 
 // Fonts lists CSS font-family stacks.
@@ -32,11 +34,12 @@ type Fonts struct {
 
 // Theme is one theme document.
 type Theme struct {
-	ID     string            `yaml:"-" json:"id"`
-	Name   string            `yaml:"name" json:"name"`
-	Colors map[string]string `yaml:"colors" json:"colors"`
-	Fonts  Fonts             `yaml:"fonts" json:"fonts"`
-	Nicks  Nicks             `yaml:"nicks" json:"nicks"`
+	ID          string            `yaml:"-" json:"id"`
+	Name        string            `yaml:"name" json:"name"`
+	Colors      map[string]string `yaml:"colors" json:"colors"`
+	Fonts       Fonts             `yaml:"fonts" json:"fonts"`
+	Nicks       Nicks             `yaml:"nicks" json:"nicks"`
+	ColorScheme string            `yaml:"color_scheme" json:"color_scheme,omitempty"`
 }
 
 // Loader reads themes from a directory. Dir may be empty, missing, or

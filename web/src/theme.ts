@@ -4,6 +4,7 @@ export type Theme = {
   colors: Record<string, string>;
   fonts: { sans?: string; mono?: string };
   nicks: { saturation?: number; lightness?: number; hue_offset?: number; oklch_l?: number; oklch_c?: number };
+  color_scheme?: "dark" | "light";
 };
 
 const STORAGE_KEY = "lurker.theme.id";
@@ -15,8 +16,43 @@ export async function fetchThemes(): Promise<Theme[]> {
   return data.themes ?? [];
 }
 
+const THEME_VARS = [
+  "bg-0",
+  "bg-1",
+  "bg-2",
+  "bg-3",
+  "bg-4",
+  "bg-5",
+  "bg-input",
+  "fg-0",
+  "fg-1",
+  "fg-2",
+  "fg-3",
+  "hair",
+  "hair-strong",
+  "accent",
+  "accent-soft",
+  "accent-strong",
+  "green",
+  "yellow",
+  "orange",
+  "red",
+  "magenta",
+  "cyan",
+  "mention",
+  "mention-soft",
+  "mention-soft-hover",
+  "surface-contrast-fg",
+  "topicbar-rule",
+  "sans",
+  "mono",
+  "nick-l",
+  "nick-c",
+];
+
 export function applyTheme(t: Theme): void {
   const root = document.documentElement;
+  for (const v of THEME_VARS) root.style.removeProperty(`--${v}`);
   for (const [k, v] of Object.entries(t.colors ?? {})) {
     root.style.setProperty(`--${k}`, v);
   }
@@ -26,6 +62,7 @@ export function applyTheme(t: Theme): void {
   const nickC = t.nicks?.oklch_c;
   if (typeof nickL === "number") root.style.setProperty("--nick-l", `${nickL}%`);
   if (typeof nickC === "number") root.style.setProperty("--nick-c", `${nickC}`);
+  root.style.setProperty("color-scheme", t.color_scheme ?? "dark");
   root.dataset.theme = t.id;
 }
 

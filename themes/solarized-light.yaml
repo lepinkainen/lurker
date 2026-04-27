@@ -1,4 +1,5 @@
 name: Solarized Light
+color_scheme: light
 colors:
   bg-0: "#fdf6e3"
   bg-1: "#f5efdc"
