@@ -89,7 +89,9 @@ export type AppState = {
 };
 
 const LAYOUT_KEY = "lurker.layout";
-const DEFAULT_LAYOUT: LayoutSettings = { collapsed: {}, pinned: [], archivesOpen: {} };
+function defaultLayout(): LayoutSettings {
+  return { collapsed: {}, pinned: [], archivesOpen: {} };
+}
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   { cmd: "/join", args: "<channel>", desc: "Join a channel" },
@@ -108,9 +110,9 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 export function loadLayout(): LayoutSettings {
   try {
     const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}");
-    return { ...DEFAULT_LAYOUT, ...saved };
+    return { ...defaultLayout(), ...saved };
   } catch {
-    return { ...DEFAULT_LAYOUT };
+    return defaultLayout();
   }
 }
 
