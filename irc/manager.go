@@ -353,6 +353,97 @@ func (m *Manager) Mode(networkID int64, target, modes string, params ...string) 
 	return nil
 }
 
+// Away sets the away status on a connected network.
+func (m *Manager) Away(networkID int64, message string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	c.Cmd.Away(message)
+	return nil
+}
+
+// Back clears the away status on a connected network.
+func (m *Manager) Back(networkID int64) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	c.Cmd.Back()
+	return nil
+}
+
+// Quit sends QUIT with an optional message and stops the network runtime.
+func (m *Manager) Quit(networkID int64, message string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	if message != "" {
+		_ = c.Cmd.SendRaw("QUIT :" + message)
+	}
+	return m.StopNetwork(networkID)
+}
+
+// Rejoin parts then rejoins a channel on a connected network.
+func (m *Manager) Rejoin(networkID int64, channel string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	c.Cmd.PartMessage(channel, "")
+	c.Cmd.Join(channel)
+	return nil
+}
+
+// Notice sends a NOTICE to a target on a connected network.
+func (m *Manager) Notice(networkID int64, target, content string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	c.Cmd.Notice(target, content)
+	return nil
+}
+
+// CTCP sends a CTCP request to a nick on a connected network.
+func (m *Manager) CTCP(networkID int64, nick, command, args string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	c.Cmd.SendCTCP(nick, command, args)
+	return nil
+}
+
+// ListChannels sends a LIST command, optionally filtered by a channel name prefix.
+func (m *Manager) ListChannels(networkID int64, filter string) error {
+	m.mu.Lock()
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if c == nil || !c.IsConnected() {
+		return ErrNotConnected
+	}
+	if filter != "" {
+		c.Cmd.List(filter)
+	} else {
+		c.Cmd.List()
+	}
+	return nil
+}
+
 // Raw sends a raw IRC line on a connected network.
 func (m *Manager) Raw(networkID int64, line string) error {
 	m.mu.Lock()

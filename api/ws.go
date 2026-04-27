@@ -52,6 +52,13 @@ type historyResult struct {
 	Messages []messageDTO `json:"messages"`
 }
 
+type ignoreListResult struct {
+	Type      string   `json:"type"`
+	ReqID     string   `json:"req_id"`
+	NetworkID int64    `json:"network_id"`
+	Masks     []string `json:"masks"`
+}
+
 // stream is the WebSocket endpoint. It subscribes to the event hub and
 // forwards every published event as JSON; it also reads client commands
 // and dispatches them to the IRC manager or the SQLite store.
@@ -145,6 +152,44 @@ func (s *Server) handleCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd
 		s.cmdMode(ctx, c, cmd)
 	case "raw":
 		s.cmdRaw(ctx, c, cmd)
+	case "away":
+		s.cmdAway(ctx, c, cmd)
+	case "back":
+		s.cmdBack(ctx, c, cmd)
+	case "quit":
+		s.cmdQuit(ctx, c, cmd)
+	case "rejoin":
+		s.cmdRejoin(ctx, c, cmd)
+	case "notice":
+		s.cmdNotice(ctx, c, cmd)
+	case "ctcp":
+		s.cmdCTCP(ctx, c, cmd)
+	case "query":
+		s.cmdQuery(ctx, c, cmd)
+	case "list":
+		s.cmdList(ctx, c, cmd)
+	case "op":
+		s.cmdChannelMode(ctx, c, cmd, "+o")
+	case "deop":
+		s.cmdChannelMode(ctx, c, cmd, "-o")
+	case "voice":
+		s.cmdChannelMode(ctx, c, cmd, "+v")
+	case "devoice":
+		s.cmdChannelMode(ctx, c, cmd, "-v")
+	case "ban":
+		s.cmdChannelMode(ctx, c, cmd, "+b")
+	case "unban":
+		s.cmdChannelMode(ctx, c, cmd, "-b")
+	case "banlist":
+		s.cmdBanlist(ctx, c, cmd)
+	case "kickban":
+		s.cmdKickban(ctx, c, cmd)
+	case "ignore":
+		s.cmdIgnore(ctx, c, cmd)
+	case "unignore":
+		s.cmdUnignore(ctx, c, cmd)
+	case "ignorelist":
+		s.cmdIgnorelist(ctx, c, cmd)
 	default:
 		writeWSErr(ctx, c, cmd.ReqID, "unknown command: "+cmd.Type)
 	}
@@ -377,6 +422,225 @@ func (s *Server) cmdRaw(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 		return
 	}
 	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdAway(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	if cmd.NetworkID == 0 {
+		writeWSErr(ctx, c, cmd.ReqID, "away requires network_id")
+		return
+	}
+	if err := s.Manager.Away(cmd.NetworkID, strings.TrimSpace(cmd.Content)); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdBack(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	if cmd.NetworkID == 0 {
+		writeWSErr(ctx, c, cmd.ReqID, "back requires network_id")
+		return
+	}
+	if err := s.Manager.Back(cmd.NetworkID); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdQuit(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	if cmd.NetworkID == 0 {
+		writeWSErr(ctx, c, cmd.ReqID, "quit requires network_id")
+		return
+	}
+	if err := s.Manager.Quit(cmd.NetworkID, strings.TrimSpace(cmd.Content)); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdRejoin(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	if cmd.BufferID == 0 {
+		writeWSErr(ctx, c, cmd.ReqID, "rejoin requires buffer_id")
+		return
+	}
+	networkID, name, kind, err := s.Stores.LookupBuffer(ctx, cmd.BufferID)
+	if err != nil || kind != ircdb.BufferChannel {
+		writeWSErr(ctx, c, cmd.ReqID, "rejoin only works on channel buffers")
+		return
+	}
+	if err := s.Manager.Rejoin(networkID, name); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdNotice(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	target := strings.TrimSpace(cmd.Target)
+	content := strings.TrimSpace(cmd.Content)
+	if cmd.NetworkID == 0 || target == "" || content == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "notice requires network_id, target, and content")
+		return
+	}
+	if err := s.Manager.Notice(cmd.NetworkID, target, content); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	if err := s.Manager.LogOutbound(ctx, cmd.NetworkID, target, "notice", content); err != nil {
+		slog.Error("log outbound notice", "err", err)
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdCTCP(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	target := strings.TrimSpace(cmd.Target)
+	content := strings.TrimSpace(cmd.Content)
+	if cmd.NetworkID == 0 || target == "" || content == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "ctcp requires network_id, target, and content (COMMAND [args])")
+		return
+	}
+	parts := strings.SplitN(content, " ", 2)
+	command := strings.ToUpper(parts[0])
+	args := ""
+	if len(parts) == 2 {
+		args = parts[1]
+	}
+	if err := s.Manager.CTCP(cmd.NetworkID, target, command, args); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdQuery(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	target := strings.TrimSpace(cmd.Target)
+	if cmd.NetworkID == 0 || target == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "query requires network_id and target")
+		return
+	}
+	if _, _, _, err := s.Stores.UpsertBufferRegistry(ctx, cmd.NetworkID, target, ircdb.BufferQuery); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdList(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	if cmd.NetworkID == 0 {
+		writeWSErr(ctx, c, cmd.ReqID, "list requires network_id")
+		return
+	}
+	if err := s.Manager.ListChannels(cmd.NetworkID, strings.TrimSpace(cmd.Content)); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+// cmdChannelMode is the shared implementation for op/deop/voice/devoice/ban/unban.
+func (s *Server) cmdChannelMode(ctx context.Context, c *websocket.Conn, cmd clientCmd, modeStr string) {
+	target := strings.TrimSpace(cmd.Target)
+	if cmd.BufferID == 0 || target == "" {
+		writeWSErr(ctx, c, cmd.ReqID, cmd.Type+" requires buffer_id and target")
+		return
+	}
+	networkID, name, kind, err := s.Stores.LookupBuffer(ctx, cmd.BufferID)
+	if err != nil || kind != ircdb.BufferChannel {
+		writeWSErr(ctx, c, cmd.ReqID, cmd.Type+" only works on channel buffers")
+		return
+	}
+	if err := s.Manager.Mode(networkID, name, modeStr, target); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdBanlist(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	if cmd.BufferID == 0 {
+		writeWSErr(ctx, c, cmd.ReqID, "banlist requires buffer_id")
+		return
+	}
+	networkID, name, kind, err := s.Stores.LookupBuffer(ctx, cmd.BufferID)
+	if err != nil || kind != ircdb.BufferChannel {
+		writeWSErr(ctx, c, cmd.ReqID, "banlist only works on channel buffers")
+		return
+	}
+	if err := s.Manager.Mode(networkID, name, "+b"); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdKickban(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	target := strings.TrimSpace(cmd.Target)
+	if cmd.BufferID == 0 || target == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "kickban requires buffer_id and target")
+		return
+	}
+	networkID, name, kind, err := s.Stores.LookupBuffer(ctx, cmd.BufferID)
+	if err != nil || kind != ircdb.BufferChannel {
+		writeWSErr(ctx, c, cmd.ReqID, "kickban only works on channel buffers")
+		return
+	}
+	reason := strings.TrimSpace(cmd.Content)
+	if err := s.Manager.Mode(networkID, name, "+b", target+"!*@*"); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	if err := s.Manager.Kick(networkID, name, target, reason); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdIgnore(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	mask := strings.TrimSpace(cmd.Target)
+	if cmd.NetworkID == 0 || mask == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "ignore requires network_id and target")
+		return
+	}
+	if err := ircdb.CreateIgnore(ctx, s.Stores.Control, cmd.NetworkID, mask); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdUnignore(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	mask := strings.TrimSpace(cmd.Target)
+	if cmd.NetworkID == 0 || mask == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "unignore requires network_id and target")
+		return
+	}
+	if err := ircdb.DeleteIgnore(ctx, s.Stores.Control, cmd.NetworkID, mask); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+func (s *Server) cmdIgnorelist(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	if cmd.NetworkID == 0 {
+		writeWSErr(ctx, c, cmd.ReqID, "ignorelist requires network_id")
+		return
+	}
+	masks, err := ircdb.ListIgnores(ctx, s.Stores.Control, cmd.NetworkID)
+	if err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	if masks == nil {
+		masks = []string{}
+	}
+	_ = wsjson.Write(ctx, c, ignoreListResult{
+		Type: "ignorelist_result", ReqID: cmd.ReqID,
+		NetworkID: cmd.NetworkID, Masks: masks,
+	})
 }
 
 func writeWSAck(ctx context.Context, c *websocket.Conn, reqID string) {

@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
+	"path"
 	"strings"
 	"time"
 
@@ -85,6 +87,22 @@ type NetworkStateEvent struct {
 	State     string `json:"state"` // "connecting" | "connected" | "disconnected"
 }
 
+// ChannelListEntry is one entry from a server LIST reply.
+type ChannelListEntry struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+	Topic string `json:"topic,omitzero"`
+}
+
+// ChannelListEvent delivers /LIST results. Streaming: one event per batch of
+// entries, final event has Done=true.
+type ChannelListEvent struct {
+	Type      string             `json:"type"`
+	NetworkID int64              `json:"network_id"`
+	Entries   []ChannelListEntry `json:"entries"`
+	Done      bool               `json:"done"`
+}
+
 // PreviewEnqueuer is the narrow hook the handler uses to kick off URL
 // previews for a newly stored message. It is satisfied by *preview.Service.
 type PreviewEnqueuer interface {
@@ -106,6 +124,7 @@ type handler struct {
 	clearMemberListHook func(channel string)
 	setJoinedHook       func(channel string, joined bool)
 	drainJoinedHook     func() []string
+	listEntries         []ChannelListEntry // accumulator for /LIST responses
 }
 
 func (h *handler) register(c *girc.Client) {
@@ -127,6 +146,8 @@ func (h *handler) register(c *girc.Client) {
 	c.Handlers.Add(girc.CAP_ACCOUNT, h.onAccount)
 	c.Handlers.Add(girc.CAP_CHGHOST, h.onChghost)
 	c.Handlers.Add(girc.RPL_ENDOFNAMES, h.onEndOfNames)
+	c.Handlers.Add("322", h.onRPLList)    // RPL_LIST
+	c.Handlers.Add("323", h.onRPLListEnd) // RPL_LIST end
 	// echo-message: girc routes our own PRIVMSG/NOTICE echoes only through
 	// ALL_EVENTS. Catch them here and feed the normal persistence path so
 	// outbound messages land in history with the server-assigned msgid.
@@ -184,6 +205,13 @@ func (h *handler) onPrivmsg(_ *girc.Client, e girc.Event) {
 	if e.IsAction() {
 		kind = "action"
 		content = e.StripAction()
+	} else if ok, ctcp := e.IsCTCP(); ok && ctcp.Command != girc.CTCP_ACTION {
+		kind = "ctcp"
+		if ctcp.Text != "" {
+			content = ctcp.Command + " " + ctcp.Text
+		} else {
+			content = ctcp.Command
+		}
 	}
 	h.storeEvent(e, bufName, bufferKind, kind, "", content)
 }
@@ -360,6 +388,56 @@ func (h *handler) onEndOfNames(c *girc.Client, e girc.Event) {
 	h.publishMemberList(c, channel)
 }
 
+func (h *handler) onRPLList(_ *girc.Client, e girc.Event) {
+	// Params: [me, #channel, usercount, :topic]
+	if len(e.Params) < 3 {
+		return
+	}
+	name := e.Params[1]
+	count := 0
+	_, _ = fmt.Sscanf(e.Params[2], "%d", &count)
+	topic := ""
+	if len(e.Params) >= 4 {
+		topic = e.Last()
+	}
+	h.listEntries = append(h.listEntries, ChannelListEntry{Name: name, Count: count, Topic: topic})
+}
+
+func (h *handler) onRPLListEnd(_ *girc.Client, _ girc.Event) {
+	if h.hub == nil {
+		h.listEntries = nil
+		return
+	}
+	entries := h.listEntries
+	h.listEntries = nil
+	h.hub.Publish(&ChannelListEvent{
+		Type:      "channel_list",
+		NetworkID: h.networkID,
+		Entries:   entries,
+		Done:      true,
+	})
+}
+
+// isIgnored checks whether the given nick matches any configured ignore mask.
+func (h *handler) isIgnored(nick string) bool {
+	if h.stores == nil {
+		return false
+	}
+	ctx, cancel := h.eventContext()
+	defer cancel()
+	masks, err := ircdb.ListIgnores(ctx, h.stores.Control, h.networkID)
+	if err != nil || len(masks) == 0 {
+		return false
+	}
+	nickLower := strings.ToLower(nick)
+	for _, mask := range masks {
+		if matched, _ := path.Match(strings.ToLower(mask), nickLower); matched {
+			return true
+		}
+	}
+	return false
+}
+
 // --- helpers ---
 
 // storeEvent is the single funnel for inbound IRC events. It upserts the
@@ -370,6 +448,9 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 	sender := ""
 	if e.Source != nil {
 		sender = e.Source.Name
+	}
+	if sender != "" && sender != "*" && h.isIgnored(sender) {
+		return
 	}
 	msgID, _ := e.Tags.Get("msgid")
 	account, _ := e.Tags.Get("account")
