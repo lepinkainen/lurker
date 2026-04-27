@@ -28,6 +28,10 @@
 
   --mention: #e0af68;
   --mention-soft: rgba(224, 175, 104, 0.1);
+  --mention-soft-hover: rgba(224, 175, 104, 0.15);
+
+  --surface-contrast-fg: var(--bg-3);
+  --topicbar-rule: color-mix(in srgb, var(--hair-strong) 50%, transparent);
 
   --nick-l: 72%;
   --nick-c: 0.12;
@@ -426,7 +430,7 @@ textarea {
 }
 .sbrow .badge.mentionbadge {
   background: var(--mention);
-  color: #1a1b26;
+  color: var(--surface-contrast-fg);
 }
 
 .sbrow.archives {
@@ -512,7 +516,7 @@ textarea {
   right: 0;
   bottom: 0;
   height: 1px;
-  background: linear-gradient(to right, transparent, #2a2b3a80, transparent);
+  background: linear-gradient(to right, transparent, var(--topicbar-rule), transparent);
 }
 .topicbar .chan {
   font-family: var(--mono);
@@ -773,7 +777,7 @@ textarea {
   box-shadow: inset 2px 0 0 0 var(--mention);
 }
 .msg.mention:hover {
-  background: rgba(224, 175, 104, 0.15);
+  background: var(--mention-soft-hover);
 }
 
 .msg.action .gutter {

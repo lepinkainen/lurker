@@ -24,6 +24,9 @@ colors:
   cyan: "#2aa198"
   mention: "#b58900"
   mention-soft: "rgba(181, 137, 0, 0.12)"
+  mention-soft-hover: "rgba(181, 137, 0, 0.18)"
+  surface-contrast-fg: "#fdf6e3"
+  topicbar-rule: "rgba(200, 194, 171, 0.5)"
 fonts:
   sans: '"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
   mono: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'

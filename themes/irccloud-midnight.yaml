@@ -1,0 +1,35 @@
+name: IRCCloud Midnight
+colors:
+  bg-0: "#000000"
+  bg-1: "#000000"
+  bg-2: "#000000"
+  bg-3: "#000000"
+  bg-4: "#000000"
+  bg-5: "#000000"
+  bg-input: "#000000"
+  fg-0: "#ffffff"
+  fg-1: "#d9d9d9"
+  fg-2: "#bfbfbf"
+  fg-3: "#999999"
+  hair: "#262626"
+  hair-strong: "#404040"
+  accent: "#339cff"
+  accent-strong: "#f2f2f2"
+  accent-soft: "rgba(51, 156, 255, 0.14)"
+  green: "#32cd32"
+  yellow: "#bdb76b"
+  orange: "#ff8c00"
+  red: "#ff9166"
+  magenta: "#d68fff"
+  cyan: "#6495ed"
+  mention: "#f2f2f2"
+  mention-soft: "rgba(255, 255, 255, 0.08)"
+  mention-soft-hover: "rgba(255, 255, 255, 0.12)"
+  surface-contrast-fg: "#000000"
+  topicbar-rule: "rgba(64, 64, 64, 0.5)"
+fonts:
+  sans: '"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+  mono: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+nicks:
+  oklch_l: 70
+  oklch_c: 0.11
