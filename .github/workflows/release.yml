@@ -51,7 +51,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=main
+            VERSION=sha-${{ github.event.workflow_run.head_sha }}
             GIT_HASH=${{ github.event.workflow_run.head_sha }}
             BUILD_TIME=${{ steps.build_time.outputs.value }}
           cache-from: type=gha

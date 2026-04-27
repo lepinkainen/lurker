@@ -28,6 +28,7 @@ RUN apk add --no-cache ca-certificates tzdata wget && \
     mkdir -p /data /app/web/dist && chown nobody:nobody /data /app/web/dist
 
 LABEL org.opencontainers.image.title="lurker" \
+      org.opencontainers.image.source="https://github.com/lepinkainen/lurker" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${GIT_HASH}" \
       org.opencontainers.image.created="${BUILD_TIME}"
