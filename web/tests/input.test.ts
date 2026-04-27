@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Buffer, state } from "../src/app-state";
-import { handleSlashCommand, updateCmdPop, updateInputEnabled } from "../src/input";
+import { handleFormatKey, handleSlashCommand, updateCmdPop, updateInputEnabled } from "../src/input";
 import { resetAppState } from "../src/reset";
 
 function makeBuffer(overrides: Partial<Buffer> = {}): Buffer {
@@ -145,5 +145,73 @@ describe("updateCmdPop", () => {
     updateCmdPop(input, pop);
     expect(pop.hidden).toBe(false);
     expect(pop.querySelectorAll(".ci").length).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe("handleFormatKey", () => {
+  function makeInput(value = "", caret = value.length) {
+    const i = document.createElement("input");
+    i.value = value;
+    i.setSelectionRange(caret, caret);
+    return i;
+  }
+
+  function keyEvent(key: string, mods: { ctrl?: boolean; meta?: boolean; alt?: boolean; shift?: boolean } = {}) {
+    return new KeyboardEvent("keydown", {
+      key,
+      ctrlKey: mods.ctrl ?? false,
+      metaKey: mods.meta ?? false,
+      altKey: mods.alt ?? false,
+      shiftKey: mods.shift ?? false,
+      cancelable: true,
+    });
+  }
+
+  it("inserts bold byte at caret on Ctrl+B", () => {
+    const i = makeInput("hello", 2);
+    const ev = keyEvent("b", { ctrl: true });
+    expect(handleFormatKey(ev, i)).toBe(true);
+    expect(i.value).toBe("he\x02llo");
+    expect(i.selectionStart).toBe(3);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it("inserts reset byte on Ctrl+O", () => {
+    const i = makeInput("");
+    expect(handleFormatKey(keyEvent("o", { ctrl: true }), i)).toBe(true);
+    expect(i.value).toBe("\x0f");
+  });
+
+  it("supports meta key on macOS", () => {
+    const i = makeInput("");
+    expect(handleFormatKey(keyEvent("i", { meta: true }), i)).toBe(true);
+    expect(i.value).toBe("\x1d");
+  });
+
+  it("ignores plain letter without modifier", () => {
+    const i = makeInput("abc", 3);
+    const ev = keyEvent("b");
+    expect(handleFormatKey(ev, i)).toBe(false);
+    expect(i.value).toBe("abc");
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  it("ignores Ctrl+Shift combinations", () => {
+    const i = makeInput("");
+    expect(handleFormatKey(keyEvent("b", { ctrl: true, shift: true }), i)).toBe(false);
+  });
+
+  it("ignores unmapped Ctrl shortcuts", () => {
+    const i = makeInput("");
+    expect(handleFormatKey(keyEvent("a", { ctrl: true }), i)).toBe(false);
+  });
+
+  it("replaces selection with format byte", () => {
+    const i = document.createElement("input");
+    i.value = "abcdef";
+    i.setSelectionRange(2, 5);
+    expect(handleFormatKey(keyEvent("u", { ctrl: true }), i)).toBe(true);
+    expect(i.value).toBe("ab\x1ff");
+    expect(i.selectionStart).toBe(3);
   });
 });

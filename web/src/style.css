@@ -719,6 +719,44 @@ textarea {
   color: var(--yellow);
 }
 
+.msg .body .m-b {
+  font-weight: 700;
+}
+.msg .body .m-i {
+  font-style: italic;
+}
+.msg .body .m-u {
+  text-decoration: underline;
+}
+.msg .body .m-s {
+  text-decoration: line-through;
+}
+.msg .body .m-u.m-s {
+  text-decoration: underline line-through;
+}
+.msg .body .m-mono {
+  font-family: var(--mono);
+}
+
+:root {
+  --mirc-c-0: #ffffff;
+  --mirc-c-1: #000000;
+  --mirc-c-2: #00007f;
+  --mirc-c-3: #009300;
+  --mirc-c-4: #ff0000;
+  --mirc-c-5: #7f0000;
+  --mirc-c-6: #9c009c;
+  --mirc-c-7: #fc7f00;
+  --mirc-c-8: #ffff00;
+  --mirc-c-9: #00fc00;
+  --mirc-c-10: #009393;
+  --mirc-c-11: #00ffff;
+  --mirc-c-12: #0000fc;
+  --mirc-c-13: #ff00ff;
+  --mirc-c-14: #7f7f7f;
+  --mirc-c-15: #d2d2d2;
+}
+
 .msg.flat .gutter {
   color: var(--green);
   font-weight: 600;

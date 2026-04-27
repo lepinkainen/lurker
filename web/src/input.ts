@@ -82,7 +82,35 @@ export function initCmdPop(inputEl: HTMLInputElement, cmdPopEl: HTMLElement) {
   );
 }
 
+const FORMAT_KEYS: Record<string, string> = {
+  b: "\x02",
+  i: "\x1d",
+  u: "\x1f",
+  s: "\x1e",
+  m: "\x11",
+  o: "\x0f",
+};
+
+export function handleFormatKey(ev: KeyboardEvent, inputEl: HTMLInputElement): boolean {
+  if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || ev.shiftKey) return false;
+  const byte = FORMAT_KEYS[ev.key.toLowerCase()];
+  if (!byte) return false;
+  ev.preventDefault();
+  const start = inputEl.selectionStart ?? inputEl.value.length;
+  const end = inputEl.selectionEnd ?? start;
+  const value = inputEl.value;
+  inputEl.value = value.slice(0, start) + byte + value.slice(end);
+  const caret = start + byte.length;
+  inputEl.setSelectionRange(caret, caret);
+  return true;
+}
+
+export function bindFormatShortcuts(inputEl: HTMLInputElement) {
+  inputEl.addEventListener("keydown", (ev) => handleFormatKey(ev, inputEl));
+}
+
 export function bindInputHandlers(deps: InputDeps) {
   initCmdPop(deps.inputEl, deps.cmdPopEl);
+  bindFormatShortcuts(deps.inputEl);
   deps.inputForm.addEventListener("submit", (ev) => onSubmit(ev, deps));
 }

@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type Buffer, type Message, type Network, state } from "../src/app-state";
 import {
   inferUnreadCounts,
+  type MessagesDom,
   onBufferUpdate,
   onMessage,
   renderActiveView,
   renderHeader,
-  type MessagesDom,
 } from "../src/messages";
 import { resetAppState } from "../src/reset";
 
@@ -136,10 +136,7 @@ describe("onMessage", () => {
     state.me.nick = "you";
     state.buffers.set(1, buf({ id: 1 }));
     const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage(
-      { id: 10, buffer_id: 1, sender: "alice", content: "hey you here?", kind: "message" },
-      handlers,
-    );
+    onMessage({ id: 10, buffer_id: 1, sender: "alice", content: "hey you here?", kind: "message" }, handlers);
     const stored = state.messages.get(1);
     expect(stored?.length).toBe(1);
     expect(state.buffers.get(1)?.unread).toBe(1);

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { type Buffer, type Member, state } from "../src/app-state";
-import { membersForActive, populateMembersForActive, renderMembers, type MembersDom } from "../src/members";
+import { type MembersDom, membersForActive, populateMembersForActive, renderMembers } from "../src/members";
 import { resetAppState } from "../src/reset";
 
 function buf(overrides: Partial<Buffer> = {}): Buffer {

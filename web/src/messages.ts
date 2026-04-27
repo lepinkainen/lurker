@@ -10,6 +10,7 @@ import {
   linkify,
   mentionsMe,
 } from "./format";
+import { mircFormat } from "./mirc";
 import { nickEl, sysBodyDOM } from "./nick";
 import { renderPreviews } from "./preview";
 
@@ -284,7 +285,7 @@ function messageRow(message: Message) {
 
 function renderBodyHTML(message: Message) {
   const body = message.content || "";
-  return highlightMentions(linkify(inlineCode(escapeHTML(body))), state.me.nick);
+  return highlightMentions(linkify(inlineCode(mircFormat(escapeHTML(body)))), state.me.nick);
 }
 
 function daySeparator(ts?: string) {
