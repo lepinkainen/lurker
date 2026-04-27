@@ -142,4 +142,4 @@ tasks:
   push:
     desc: Push current branch, then wait for CI and release workflows to succeed
     cmds:
-      - bash ./scripts/push-and-watch.sh
+      - ./scripts/push-and-watch.sh
