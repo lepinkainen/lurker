@@ -89,7 +89,7 @@ export function handleSlashCommand(text: string, buffer: Buffer, sendCmd: InputD
           type: "ctcp",
           network_id: networkId,
           target: nick,
-          content: ctcpCmd + (ctcpArgs.length ? " " + ctcpArgs.join(" ") : ""),
+          content: ctcpCmd + (ctcpArgs.length ? ` ${ctcpArgs.join(" ")}` : ""),
         });
       return true;
     }

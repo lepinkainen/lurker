@@ -1,5 +1,5 @@
-import { defineConfig } from "vitest/config";
 import { playwright } from "@vitest/browser-playwright";
+import { defineConfig } from "vitest/config";
 
 const BACKEND_PORT = process.env.LURKER_TEST_PORT ?? "8099";
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
