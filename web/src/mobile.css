@@ -108,6 +108,7 @@
   }
   .msg .previews {
     max-width: 100%;
+    margin-left: 0;
   }
   .msg .preview {
     max-width: 100%;

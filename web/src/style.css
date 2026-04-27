@@ -665,6 +665,7 @@ textarea {
   white-space: nowrap;
   user-select: none;
   letter-spacing: -0.02em;
+  min-width: var(--ts-col, 38px);
 }
 .msg:hover .ts {
   color: var(--fg-1);
@@ -1084,6 +1085,7 @@ textarea {
   flex-direction: column;
   gap: 6px;
   margin-top: 4px;
+  margin-left: calc(var(--ts-col, 38px) + 12px);
 }
 .msg .preview {
   display: block;
