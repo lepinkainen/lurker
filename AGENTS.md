@@ -109,6 +109,7 @@ task down
 - Keep the web UI scope minimal and aligned with the current v1 direction.
 - Respect existing REST/WebSocket API patterns.
 - Prefer updating docs when behavior, commands, or architecture changes.
+- Do not use `README.md` to document individual features, configuration options, or APIs; keep it concise and human-readable.
 
 ## Validation guidance
 
