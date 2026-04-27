@@ -102,6 +102,10 @@
     order: 99;
     margin-left: auto;
   }
+  .msg .nick {
+    flex-basis: 100%;
+    margin-bottom: 2px;
+  }
   .msg .previews {
     max-width: 100%;
   }
