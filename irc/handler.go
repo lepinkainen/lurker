@@ -366,6 +366,7 @@ func (h *handler) onEndOfNames(c *girc.Client, e girc.Event) {
 // target buffer, writes a messages row, and publishes hub events so
 // WebSocket clients can render in real time.
 func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, content string) {
+	content = ensureUTF8(content)
 	sender := ""
 	if e.Source != nil {
 		sender = e.Source.Name
