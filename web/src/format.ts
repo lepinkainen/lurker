@@ -60,13 +60,14 @@ export function nickColor(nick: unknown): string {
   return `oklch(var(--nick-l, 72%) var(--nick-c, 0.12) ${hue}deg)`;
 }
 
-export type MessageKind = "sys" | "notice" | "action" | "message";
+export type MessageKind = "sys" | "notice" | "action" | "ctcp" | "message";
 
 export function classifyKind(kind: string | undefined): MessageKind {
   if (kind && ["join", "part", "quit", "nick", "kick", "mode", "topic", "connected", "disconnected"].includes(kind))
     return "sys";
   if (kind === "notice") return "notice";
   if (kind === "action") return "action";
+  if (kind === "ctcp") return "ctcp";
   return "message";
 }
 

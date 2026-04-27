@@ -267,6 +267,8 @@ function messageRow(message: Message) {
   }
   if (kind === "notice") {
     gutter.textContent = "!";
+  } else if (kind === "ctcp") {
+    gutter.textContent = "?";
   } else if (kind === "action") {
     gutter.textContent = "*";
   }
@@ -275,6 +277,8 @@ function messageRow(message: Message) {
   body.innerHTML = renderBodyHTML(message);
   if (kind === "action") {
     body.innerHTML = `${escapeHTML(message.sender || "")} ${renderBodyHTML(message)}`;
+  } else if (kind === "ctcp") {
+    body.innerHTML = `[CTCP] ${escapeHTML(message.content || "")}`;
   }
 
   row.append(ts, gutter, nick, body);

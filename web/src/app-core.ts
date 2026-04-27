@@ -1,6 +1,6 @@
 import "./style.css";
 import "./mobile.css";
-import { type Member, type Message, type Network, state } from "./app-state";
+import { type ChannelListEntry, type Member, type Message, type Network, state } from "./app-state";
 import { connectWS, hydrate, nextReconnectDelay, scheduleReconnect } from "./connection";
 import { captureDom, type DomRefs } from "./dom";
 import { bindInputHandlers, updateInputEnabled } from "./input";
@@ -111,7 +111,9 @@ type WSMessage =
   | { type: "network_state"; network_id: number; state: string }
   | { type: "history_result"; buffer_id: number; messages?: Message[] }
   | { type: "preview"; buffer_id: number; message_id: number; previews?: Message["previews"] }
-  | { type: "member_list"; buffer_id: number; members?: Member[] };
+  | { type: "member_list"; buffer_id: number; members?: Member[] }
+  | { type: "channel_list"; network_id: number; entries: ChannelListEntry[]; done: boolean }
+  | { type: "ignorelist_result"; req_id: string; network_id: number; masks: string[] };
 
 function handleWSMessage(msg: WSMessage) {
   switch (msg.type) {
@@ -161,7 +163,70 @@ function handleWSMessage(msg: WSMessage) {
         renderMembersLocal();
       }
       break;
+    case "channel_list":
+      if (!state.channelList || state.channelList.network_id !== msg.network_id) {
+        state.channelList = { network_id: msg.network_id, entries: [], done: false };
+      }
+      state.channelList.entries.push(...msg.entries);
+      state.channelList.done = msg.done;
+      if (msg.done && msg.network_id === state.networks.get(state.buffers.get(state.activeId)?.network_id ?? -1)?.id) {
+        renderChannelListPanel(mustDom().messagesEl);
+      }
+      break;
+    case "ignorelist_result":
+      console.log("ignore list:", msg.masks);
+      break;
   }
+}
+
+function renderChannelListPanel(messagesEl: HTMLElement) {
+  if (!state.channelList) return;
+  const { network_id, entries } = state.channelList;
+  messagesEl.innerHTML = "";
+  const panel = document.createElement("div");
+  panel.className = "cl-panel";
+
+  const header = document.createElement("div");
+  header.className = "cl-header";
+  const title = document.createElement("span");
+  title.textContent = `${entries.length} channels`;
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "cl-close";
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", () => {
+    state.channelList = null;
+    renderActiveViewLocal();
+  });
+  header.append(title, closeBtn);
+  panel.appendChild(header);
+
+  const list = document.createElement("div");
+  list.className = "cl-list";
+  for (const entry of entries) {
+    const row = document.createElement("div");
+    row.className = "cl-row";
+    const name = document.createElement("span");
+    name.className = "cl-name";
+    name.textContent = entry.name;
+    const count = document.createElement("span");
+    count.className = "cl-count";
+    count.textContent = String(entry.count);
+    const topic = document.createElement("span");
+    topic.className = "cl-topic";
+    topic.textContent = entry.topic || "";
+    const joinBtn = document.createElement("button");
+    joinBtn.className = "cl-join";
+    joinBtn.textContent = "Join";
+    joinBtn.addEventListener("click", () => {
+      sendCmd({ type: "join", network_id, channel: entry.name });
+      state.channelList = null;
+      renderActiveViewLocal();
+    });
+    row.append(name, count, topic, joinBtn);
+    list.appendChild(row);
+  }
+  panel.appendChild(list);
+  messagesEl.appendChild(panel);
 }
 
 function renderHeaderLocal() {
@@ -180,6 +245,12 @@ function renderHeaderLocal() {
 
 function renderActiveViewLocal() {
   const d = mustDom();
+  if (state.channelList?.done) {
+    d.statusViewEl.hidden = true;
+    d.messagesEl.hidden = false;
+    renderChannelListPanel(d.messagesEl);
+    return;
+  }
   renderActiveView(
     {
       messagesEl: d.messagesEl,
@@ -252,6 +323,7 @@ function renderPromptNick() {
 
 function setActive(id: number, opts: { skipHash?: boolean; replaceHash?: boolean } = {}) {
   state.activeId = id;
+  state.channelList = null;
   setSidebarDrawer(false);
   if (!opts.skipHash) {
     const b = state.buffers.get(id);
