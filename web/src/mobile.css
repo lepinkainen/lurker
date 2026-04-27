@@ -99,6 +99,8 @@
 
   .msg .ts {
     opacity: 0.55;
+    order: 99;
+    margin-left: auto;
   }
   .msg .previews {
     max-width: 100%;

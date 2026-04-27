@@ -659,7 +659,6 @@ textarea {
   color: var(--fg-3);
   font-size: 0.8rem;
   padding-top: 1px;
-  text-align: right;
   white-space: nowrap;
   user-select: none;
   letter-spacing: -0.02em;
