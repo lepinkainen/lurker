@@ -5,14 +5,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lepinkainen/lurker/internal/closeutil"
 )
 
+// Config controls periodic remote image metadata checks.
 type Config struct {
 	Enabled  bool
 	Image    string
@@ -26,18 +29,21 @@ type Config struct {
 	Logger   *slog.Logger
 }
 
+// Platform selects image manifest variant for multi-arch images.
 type Platform struct {
 	OS           string
 	Architecture string
 	Variant      string
 }
 
+// BuildInfo describes currently running server build.
 type BuildInfo struct {
 	Version   string
 	Commit    string
 	BuildTime string
 }
 
+// Status is cached update-check result exposed by API.
 type Status struct {
 	Enabled          bool      `json:"enabled"`
 	Image            string    `json:"image"`
@@ -54,15 +60,20 @@ type Status struct {
 	Error            string    `json:"error,omitempty"`
 }
 
+// Checker polls registry metadata and keeps last status in memory.
 type Checker struct {
 	cfg    Config
 	client *http.Client
 	logger *slog.Logger
 
-	mu     sync.RWMutex
-	status Status
+	mu                sync.RWMutex
+	status            Status
+	lastLoggedUpdate  bool
+	lastErrorLoggedAt time.Time
+	lastErrorMessage  string
 }
 
+// New creates update checker with defaults applied.
 func New(cfg Config) *Checker {
 	if cfg.Image == "" {
 		cfg.Image = "ghcr.io/lepinkainen/lurker"
@@ -71,13 +82,16 @@ func New(cfg Config) *Checker {
 		cfg.Tag = "latest"
 	}
 	if cfg.Interval <= 0 {
-		cfg.Interval = 6 * time.Hour
+		cfg.Interval = 24 * time.Hour
+	}
+	if cfg.Interval < time.Hour {
+		cfg.Interval = time.Hour
 	}
 	if cfg.Platform.OS == "" {
-		cfg.Platform.OS = runtime.GOOS
+		cfg.Platform.OS = "linux"
 	}
 	if cfg.Platform.Architecture == "" {
-		cfg.Platform.Architecture = runtime.GOARCH
+		cfg.Platform.Architecture = "amd64"
 	}
 	if cfg.Client == nil {
 		cfg.Client = &http.Client{Timeout: 15 * time.Second}
@@ -98,6 +112,7 @@ func New(cfg Config) *Checker {
 	return c
 }
 
+// Start runs periodic checks until context ends.
 func (c *Checker) Start(ctx context.Context) {
 	if !c.cfg.Enabled {
 		return
@@ -105,6 +120,15 @@ func (c *Checker) Start(ctx context.Context) {
 	go c.run(ctx)
 }
 
+// CheckNow runs one immediate check.
+func (c *Checker) CheckNow(ctx context.Context) {
+	if !c.cfg.Enabled {
+		return
+	}
+	c.check(ctx)
+}
+
+// Status returns latest cached check result.
 func (c *Checker) Status() Status {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -132,7 +156,7 @@ func (c *Checker) check(ctx context.Context) {
 	if err != nil {
 		st.Error = err.Error()
 		c.setStatus(st)
-		c.logger.Warn("update check failed", "image", c.cfg.Image, "tag", c.cfg.Tag, "err", err)
+		c.logError(err)
 		return
 	}
 	st.RemoteVersion = remote.Version
@@ -142,6 +166,7 @@ func (c *Checker) check(ctx context.Context) {
 	st.UpdateAvailable = compareRemote(c.cfg.Current, remote)
 	st.Error = ""
 	c.setStatus(st)
+	c.logTransition(st)
 }
 
 func (c *Checker) setStatus(st Status) {
@@ -222,8 +247,9 @@ func fetchRemoteStatus(ctx context.Context, client *http.Client, cfg Config) (re
 	manifestMediaType := mediaType
 	if manifestMediaType == mediaTypeOCIImageIndex || manifestMediaType == mediaTypeDockerManifestList {
 		var idx manifestList
-		if err := json.Unmarshal(body, &idx); err != nil {
-			return remoteStatus{}, fmt.Errorf("decode manifest list: %w", err)
+		unmarshalErr := json.Unmarshal(body, &idx)
+		if unmarshalErr != nil {
+			return remoteStatus{}, fmt.Errorf("decode manifest list: %w", unmarshalErr)
 		}
 		entry, ok := chooseManifest(idx.Manifests, cfg.Platform)
 		if !ok {
@@ -239,8 +265,9 @@ func fetchRemoteStatus(ctx context.Context, client *http.Client, cfg Config) (re
 		return remoteStatus{}, fmt.Errorf("unsupported manifest media type %q", manifestMediaType)
 	}
 	var manifest imageManifest
-	if err := json.Unmarshal(manifestBody, &manifest); err != nil {
-		return remoteStatus{}, fmt.Errorf("decode manifest: %w", err)
+	unmarshalErr := json.Unmarshal(manifestBody, &manifest)
+	if unmarshalErr != nil {
+		return remoteStatus{}, fmt.Errorf("decode manifest: %w", unmarshalErr)
 	}
 	configURL := fmt.Sprintf("https://ghcr.io/v2/%s/blobs/%s", repo, manifest.Config.Digest)
 	configBody, _, _, err := getRegistryJSON(ctx, client, configURL, token)
@@ -248,8 +275,9 @@ func fetchRemoteStatus(ctx context.Context, client *http.Client, cfg Config) (re
 		return remoteStatus{}, err
 	}
 	var cfgBlob imageConfigBlob
-	if err := json.Unmarshal(configBody, &cfgBlob); err != nil {
-		return remoteStatus{}, fmt.Errorf("decode config blob: %w", err)
+	unmarshalErr = json.Unmarshal(configBody, &cfgBlob)
+	if unmarshalErr != nil {
+		return remoteStatus{}, fmt.Errorf("decode config blob: %w", unmarshalErr)
 	}
 	labels := cfgBlob.Config.Labels
 	return remoteStatus{
@@ -261,7 +289,7 @@ func fetchRemoteStatus(ctx context.Context, client *http.Client, cfg Config) (re
 }
 
 func registryToken(ctx context.Context, client *http.Client, cfg Config, repo string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("https://ghcr.io/v2/%s/manifests/%s", repo, cfg.Tag), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("https://ghcr.io/v2/%s/manifests/%s", repo, cfg.Tag), http.NoBody)
 	if err != nil {
 		return "", err
 	}
@@ -273,7 +301,7 @@ func registryToken(ctx context.Context, client *http.Client, cfg Config, repo st
 	if err != nil {
 		return "", fmt.Errorf("registry probe: %w", err)
 	}
-	defer resp.Body.Close()
+	defer closeutil.Ignore(resp.Body)
 	if resp.StatusCode == http.StatusOK {
 		return "", nil
 	}
@@ -288,7 +316,7 @@ func registryToken(ctx context.Context, client *http.Client, cfg Config, repo st
 		challenge.Scope = "repository:" + repo + ":pull"
 	}
 	tokenURL := fmt.Sprintf("%s?service=%s&scope=%s", challenge.Realm, challenge.Service, challenge.Scope)
-	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL, nil)
+	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL, http.NoBody)
 	if err != nil {
 		return "", err
 	}
@@ -299,7 +327,7 @@ func registryToken(ctx context.Context, client *http.Client, cfg Config, repo st
 	if err != nil {
 		return "", fmt.Errorf("registry token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer closeutil.Ignore(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("registry token request: unexpected status %s", resp.Status)
 	}
@@ -312,8 +340,34 @@ func registryToken(ctx context.Context, client *http.Client, cfg Config, repo st
 	return payload.Token, nil
 }
 
-func getRegistryJSON(ctx context.Context, client *http.Client, url, token string) ([]byte, string, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (c *Checker) logTransition(st Status) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if st.UpdateAvailable == c.lastLoggedUpdate {
+		return
+	}
+	c.lastLoggedUpdate = st.UpdateAvailable
+	if st.UpdateAvailable {
+		c.logger.Info("update available", "image", st.Image, "tag", st.Tag, "current_commit", st.CurrentCommit, "remote_commit", st.RemoteCommit, "remote_digest", st.RemoteDigest)
+		return
+	}
+	c.logger.Info("update status current", "image", st.Image, "tag", st.Tag, "current_commit", st.CurrentCommit, "remote_commit", st.RemoteCommit, "remote_digest", st.RemoteDigest)
+}
+
+func (c *Checker) logError(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	if c.lastErrorMessage == err.Error() && now.Sub(c.lastErrorLoggedAt) < time.Hour {
+		return
+	}
+	c.lastErrorMessage = err.Error()
+	c.lastErrorLoggedAt = now
+	c.logger.Warn("update check failed", "image", c.cfg.Image, "tag", c.cfg.Tag, "err", err)
+}
+
+func getRegistryJSON(ctx context.Context, client *http.Client, url, token string) (body []byte, digest string, mediaType string, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -325,20 +379,16 @@ func getRegistryJSON(ctx context.Context, client *http.Client, url, token string
 	if err != nil {
 		return nil, "", "", err
 	}
-	defer resp.Body.Close()
+	defer closeutil.Ignore(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", "", fmt.Errorf("registry request %s: unexpected status %s", url, resp.Status)
 	}
-	var body any
-	decoder := json.NewDecoder(resp.Body)
-	if err := decoder.Decode(&body); err != nil {
-		return nil, "", "", fmt.Errorf("decode registry response: %w", err)
-	}
-	encoded, err := json.Marshal(body)
+	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", "", fmt.Errorf("read registry response: %w", err)
 	}
-	return encoded, resp.Header.Get("Docker-Content-Digest"), resp.Header.Get("Content-Type"), nil
+	mediaType = strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
+	return body, resp.Header.Get("Docker-Content-Digest"), mediaType, nil
 }
 
 func addAccept(req *http.Request) {

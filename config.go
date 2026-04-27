@@ -85,7 +85,7 @@ func loadConfig() Config {
 			Enabled:  envBoolOr("UPDATE_CHECK_ENABLED", true),
 			Image:    envOr("UPDATE_CHECK_IMAGE", "ghcr.io/lepinkainen/lurker"),
 			Tag:      envOr("UPDATE_CHECK_TAG", "latest"),
-			Interval: envDurationOr("UPDATE_CHECK_INTERVAL", 6*time.Hour),
+			Interval: clampUpdateInterval(envDurationOr("UPDATE_CHECK_INTERVAL", 24*time.Hour)),
 			Username: os.Getenv("GHCR_USERNAME"),
 			Token:    os.Getenv("GHCR_TOKEN"),
 		},
@@ -230,4 +230,14 @@ func envDurationOr(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return parsed
+}
+
+func clampUpdateInterval(v time.Duration) time.Duration {
+	if v <= 0 {
+		return 24 * time.Hour
+	}
+	if v < time.Hour {
+		return time.Hour
+	}
+	return v
 }
