@@ -73,11 +73,11 @@ func TestUpsertNetworkRejectsInvalidName(t *testing.T) {
 }
 
 func TestUpsertNetworkCaseInsensitiveDuplicateReturnsSameRow(t *testing.T) {
-	d, err := OpenControl(filepath.Join(t.TempDir(), "control.db"))
+	path := filepath.Join(t.TempDir(), "control.db")
+	d, err := OpenControl(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = d.Close() }()
 
 	first, err := UpsertNetwork(t.Context(), d, Network{
 		Name: "Libera",
@@ -87,8 +87,18 @@ func TestUpsertNetworkCaseInsensitiveDuplicateReturnsSameRow(t *testing.T) {
 		Nick: "tester",
 	})
 	if err != nil {
+		_ = d.Close()
 		t.Fatal(err)
 	}
+	if closeErr := d.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+
+	d, err = OpenControl(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = d.Close() }()
 
 	second, err := UpsertNetwork(t.Context(), d, Network{
 		Name: "LIBERA",
@@ -103,5 +113,55 @@ func TestUpsertNetworkCaseInsensitiveDuplicateReturnsSameRow(t *testing.T) {
 
 	if first.ID != second.ID {
 		t.Fatalf("ids differ: first=%d second=%d", first.ID, second.ID)
+	}
+	if second.ID == 0 {
+		t.Fatal("expected non-zero id on conflict upsert")
+	}
+}
+
+func TestUpsertNetworkNoOpConflictOnFreshConnectionReturnsExistingRowID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control.db")
+	d, err := OpenControl(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want, err := UpsertNetwork(t.Context(), d, Network{
+		Name: "Ircnet",
+		Host: "irc.example.net",
+		Port: 6697,
+		TLS:  true,
+		Nick: "tester",
+	})
+	if err != nil {
+		_ = d.Close()
+		t.Fatal(err)
+	}
+	if closeErr := d.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+
+	d, err = OpenControl(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = d.Close() }()
+
+	got, err := UpsertNetwork(t.Context(), d, Network{
+		Name: "Ircnet",
+		Host: "irc.example.net",
+		Port: 6697,
+		TLS:  true,
+		Nick: "tester",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.ID != want.ID {
+		t.Fatalf("id = %d, want %d", got.ID, want.ID)
+	}
+	if got.ID == 0 {
+		t.Fatal("expected non-zero id on no-op conflict upsert")
 	}
 }

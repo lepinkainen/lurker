@@ -2,6 +2,16 @@ import { type Buffer, type Network, type ReorderResponse, saveLayout, state } fr
 import { dotClass } from "./format";
 import { openNetworkForm } from "./network-form";
 
+async function setNetworkDisabled(id: number, disabled: boolean): Promise<Network> {
+  const res = await fetch(`/api/networks/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ disabled }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || res.statusText);
+  return (await res.json()) as Network;
+}
+
 export type SidebarDeps = {
   sbScrollEl: HTMLDivElement;
   setActive: (id: number) => void;
@@ -37,7 +47,22 @@ export function renderSidebar(deps: SidebarDeps) {
     sbScrollEl.appendChild(sec);
   }
 
-  for (const network of orderedNetworks()) sbScrollEl.appendChild(networkSection(network, deps));
+  const all = orderedNetworks();
+  const active = all.filter((n) => !n.disabled);
+  const disabled = all.filter((n) => n.disabled);
+
+  for (const network of active) sbScrollEl.appendChild(networkSection(network, deps));
+
+  if (disabled.length > 0) {
+    const disabledSec = document.createElement("div");
+    disabledSec.className = "sb-disabled-group";
+    const disabledHdr = document.createElement("div");
+    disabledHdr.className = "sb-disabled-hdr";
+    disabledHdr.textContent = "Disabled";
+    disabledSec.appendChild(disabledHdr);
+    for (const network of disabled) disabledSec.appendChild(disabledNetworkRow(network, deps));
+    sbScrollEl.appendChild(disabledSec);
+  }
 
   const add = document.createElement("button");
   add.type = "button";
@@ -145,7 +170,7 @@ function networkSection(network: Network, deps: SidebarDeps) {
     e.stopPropagation();
     openNetworkForm(network, () => renderSidebar(deps));
   });
-  actions.appendChild(editBtn);
+  actions.append(editBtn);
   hdr.append(caret, grip, name);
   if (tlsIcon) hdr.appendChild(tlsIcon);
   hdr.appendChild(actions);
@@ -185,6 +210,50 @@ function networkSection(network: Network, deps: SidebarDeps) {
   }
 
   return sec;
+}
+
+function disabledNetworkRow(network: Network, deps: SidebarDeps) {
+  const row = document.createElement("div");
+  row.className = "sb-disabled-row";
+
+  const name = document.createElement("span");
+  name.className = "sb-disabled-name";
+  name.textContent = network.name;
+
+  const actions = document.createElement("span");
+  actions.className = "sb-disabled-actions";
+
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "icbtn small net-edit";
+  editBtn.title = "Edit network";
+  editBtn.setAttribute("aria-label", "Edit network");
+  editBtn.appendChild(deps.iconEl("ic-gear", 11));
+  editBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openNetworkForm(network, () => renderSidebar(deps));
+  });
+
+  const enableBtn = document.createElement("button");
+  enableBtn.type = "button";
+  enableBtn.className = "icbtn small net-enable";
+  enableBtn.title = "Enable network";
+  enableBtn.setAttribute("aria-label", "Enable network");
+  enableBtn.textContent = "Enable";
+  enableBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try {
+      const updated = await setNetworkDisabled(network.id, false);
+      state.networks.set(updated.id, updated);
+      renderSidebar(deps);
+    } catch (err) {
+      console.error("enable network", err);
+    }
+  });
+
+  actions.append(editBtn, enableBtn);
+  row.append(name, actions);
+  return row;
 }
 
 function bufferRow(buffer: Buffer, deps: SidebarDeps, opts: { pinned?: boolean } = {}) {

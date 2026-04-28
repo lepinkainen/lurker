@@ -62,6 +62,7 @@ func toNetworkDTO(n ircdb.Network, status string) networkDTO {
 	return networkDTO{
 		ID: n.ID, Name: n.Name, Host: n.Host, Port: n.Port,
 		TLS: n.TLS, Nick: n.Nick, Realname: n.Realname, Status: status, SortOrder: n.SortOrder,
+		Disabled: n.Disabled,
 	}
 }
 

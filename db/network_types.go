@@ -12,6 +12,7 @@ type Network struct {
 	SASLUser  string
 	SASLPass  string
 	SortOrder int
+	Disabled  bool
 }
 
 // BufferKind enumerates the rows allowed in buffers.kind.

@@ -18,6 +18,7 @@ import { onHashChange } from "./navigation";
 import { nickAvatar } from "./nick";
 import { resetAppState } from "./reset";
 import { bufferFromHash, bufferHashFor } from "./router";
+import { openSettingsDialog } from "./settings-dialog";
 import { renderSidebar } from "./sidebar";
 import { renderSidebarStatus } from "./status";
 import { applyThemeDefaults, initThemeSelector } from "./theme-ui";
@@ -58,6 +59,7 @@ export function start() {
   d.mobileMenuEl.addEventListener("click", () => {
     setSidebarDrawer(document.body.dataset.sidebarOpen !== "true");
   });
+  document.getElementById("settings-btn")?.addEventListener("click", () => openSettingsDialog());
   document.addEventListener("click", onBackdropClick);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {

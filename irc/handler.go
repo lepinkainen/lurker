@@ -216,7 +216,7 @@ func (h *handler) onPrivmsg(_ *girc.Client, e girc.Event) {
 	h.storeEvent(e, bufName, bufferKind, kind, "", content)
 }
 
-func (h *handler) onJoin(_ *girc.Client, e girc.Event) {
+func (h *handler) onJoin(c *girc.Client, e girc.Event) {
 	channel, ok := channelParam(e)
 	if !ok {
 		return
@@ -227,6 +227,9 @@ func (h *handler) onJoin(_ *girc.Client, e girc.Event) {
 	}
 	slog.Info("irc join", "network", h.networkName, "channel", channel, "nick", nick)
 	h.updateChannelJoined(channel, true, "join", e.Source)
+	if c != nil && e.Source != nil && strings.EqualFold(e.Source.Name, c.GetNick()) {
+		return
+	}
 	h.storeEvent(e, channel, ircdb.BufferChannel, "join", "", "")
 }
 

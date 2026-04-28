@@ -23,6 +23,7 @@ type networkDTO struct {
 	Realname  string `json:"realname,omitzero"`
 	Status    string `json:"status,omitzero"`
 	SortOrder int    `json:"sort_order"`
+	Disabled  bool   `json:"disabled,omitzero"`
 }
 
 type bufferDTO struct {

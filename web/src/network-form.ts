@@ -81,6 +81,19 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
 
   const realnameEl = textInput("nf-realname", existing?.realname ?? "");
 
+  const disabledEl = document.createElement("input");
+  disabledEl.type = "checkbox";
+  disabledEl.id = "nf-disabled";
+  disabledEl.className = "nf-checkbox";
+  disabledEl.checked = existing?.disabled ?? false;
+  const disabledLabel = document.createElement("label");
+  disabledLabel.className = "nf-checkbox-label";
+  disabledLabel.htmlFor = "nf-disabled";
+  disabledLabel.textContent = "Disabled";
+  const disabledWrap = document.createElement("div");
+  disabledWrap.className = "nf-checkbox-wrap nf-disabled-wrap";
+  disabledWrap.append(disabledEl, disabledLabel);
+
   const saslUserEl = textInput("nf-sasl-user", "");
   saslUserEl.autocomplete = "username";
 
@@ -132,6 +145,7 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
     portRow,
     field("Nick", nickEl),
     field("Real name", realnameEl),
+    ...(isEdit ? [disabledWrap] : []),
     saslSection,
     errEl,
     actions,
@@ -176,6 +190,7 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
       sasl_user: saslUser,
       sasl_pass: saslPass,
     };
+    if (isEdit) body.disabled = disabledEl.checked;
 
     submitBtn.disabled = true;
     submitBtn.textContent = isEdit ? "Saving…" : "Adding…";

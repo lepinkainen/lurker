@@ -18,6 +18,7 @@ type networkRequest struct {
 	Realname string `json:"realname,omitzero"`
 	SASLUser string `json:"sasl_user,omitzero"`
 	SASLPass string `json:"sasl_pass,omitzero"`
+	Disabled *bool  `json:"disabled,omitzero"`
 }
 
 type reorderNetworksRequest struct {
@@ -110,23 +111,47 @@ func (s *Server) patchNetwork(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	updated, err := ircdb.UpdateNetwork(r.Context(), s.Stores.Control, id, req.toDBNetwork())
-	if err != nil {
-		writeNetworkDBError(w, err, http.StatusBadRequest)
-		return
-	}
-	if before.Name != updated.Name {
-		_ = s.Manager.StopNetwork(id)
-		_ = s.Stores.CloseNetwork(id)
-		if err := s.Stores.RenameNetworkLogDB(before.Name, updated.Name); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
+
+	// Handle disabled toggle separately before the config update.
+	if req.Disabled != nil && *req.Disabled != before.Disabled {
+		if *req.Disabled && s.Manager != nil {
+			_ = s.Manager.StopNetwork(id)
 		}
-		if _, err := s.Stores.OpenNetwork(r.Context(), updated); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if setErr := ircdb.SetNetworkDisabled(r.Context(), s.Stores.Control, id, *req.Disabled); setErr != nil {
+			writeNetworkDBError(w, setErr, http.StatusInternalServerError)
 			return
 		}
 	}
+
+	// Only update other fields if any non-disabled fields were sent.
+	dbNet := req.toDBNetwork()
+	var updated ircdb.Network
+	if dbNet.Name != "" || dbNet.Host != "" || dbNet.Port != 0 || dbNet.Nick != "" {
+		updated, err = ircdb.UpdateNetwork(r.Context(), s.Stores.Control, id, dbNet)
+		if err != nil {
+			writeNetworkDBError(w, err, http.StatusBadRequest)
+			return
+		}
+		if before.Name != updated.Name {
+			_ = s.Manager.StopNetwork(id)
+			_ = s.Stores.CloseNetwork(id)
+			if renameErr := s.Stores.RenameNetworkLogDB(before.Name, updated.Name); renameErr != nil {
+				http.Error(w, renameErr.Error(), http.StatusConflict)
+				return
+			}
+			if _, openErr := s.Stores.OpenNetwork(r.Context(), updated); openErr != nil {
+				http.Error(w, openErr.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+	} else {
+		updated, err = ircdb.GetNetwork(r.Context(), s.Stores.Control, id)
+		if err != nil {
+			writeNetworkDBError(w, err, http.StatusInternalServerError)
+			return
+		}
+	}
+
 	status := ""
 	if s.Manager != nil {
 		status = s.Manager.StateSnapshot()[id]

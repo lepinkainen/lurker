@@ -61,6 +61,53 @@ func TestManagerPersistsMessages(t *testing.T) {
 	}
 }
 
+func TestSelfJoinDoesNotPersistJoinMessage(t *testing.T) {
+	dir := t.TempDir()
+	stores, err := ircdb.OpenMultiStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
+		}
+	}()
+
+	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logStore, err := stores.LogStore(netrow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := newTestClient(t, "tester")
+	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+
+	h.onJoin(client, mustEvent(t, ":tester!~u@h JOIN #test"))
+	h.onJoin(client, mustEvent(t, ":alice!~u@h JOIN #test"))
+
+	var n int
+	if qerr := logStore.DB.QueryRow(`SELECT COUNT(*) FROM buffers WHERE name='#test'`).Scan(&n); qerr != nil {
+		t.Fatal(qerr)
+	}
+	if n != 1 {
+		t.Fatalf("channel buffer count = %d, want 1", n)
+	}
+	if qerr := logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE kind='join' AND sender='tester'`).Scan(&n); qerr != nil {
+		t.Fatal(qerr)
+	}
+	if n != 0 {
+		t.Fatalf("self join count = %d, want 0", n)
+	}
+	if qerr := logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE kind='join' AND sender='alice'`).Scan(&n); qerr != nil {
+		t.Fatal(qerr)
+	}
+	if n != 1 {
+		t.Fatalf("remote join count = %d, want 1", n)
+	}
+}
+
 func TestMsgIDDedupAndServerTime(t *testing.T) {
 	dir := t.TempDir()
 	stores, err := ircdb.OpenMultiStore(dir)

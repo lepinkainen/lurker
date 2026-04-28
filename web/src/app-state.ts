@@ -16,6 +16,7 @@ export type Network = {
   realname?: string;
   status?: string;
   sort_order?: number;
+  disabled?: boolean;
 };
 
 export type Buffer = {

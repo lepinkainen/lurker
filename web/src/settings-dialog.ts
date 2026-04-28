@@ -70,7 +70,7 @@ export function openSettingsDialog(): void {
     for (const line of currentLines) {
       const span = document.createElement("span");
       span.className = proposedSet.has(line) ? "sd-line" : "sd-line sd-line-remove";
-      span.textContent = line + "\n";
+      span.textContent = `${line}\n`;
       currentPre.appendChild(span);
     }
 
@@ -78,7 +78,7 @@ export function openSettingsDialog(): void {
     for (const line of proposedLines) {
       const span = document.createElement("span");
       span.className = currentSet.has(line) ? "sd-line" : "sd-line sd-line-add";
-      span.textContent = line + "\n";
+      span.textContent = `${line}\n`;
       proposedPre.appendChild(span);
     }
   }

@@ -16,12 +16,12 @@ var ErrInvalidNetworkReorder = errors.New("db: invalid network reorder")
 // GetNetwork returns a network by ID.
 func GetNetwork(ctx context.Context, d *sql.DB, id int64) (Network, error) {
 	var n Network
-	var tls int
+	var tls, disabled int
 	var saslUser, saslPass sql.NullString
 	err := d.QueryRowContext(ctx,
-		`SELECT id, name, host, port, tls, nick, COALESCE(realname,''), sasl_user, sasl_pass, sort_order
+		`SELECT id, name, host, port, tls, nick, COALESCE(realname,''), sasl_user, sasl_pass, sort_order, disabled
 		 FROM networks WHERE id = ?`, id,
-	).Scan(&n.ID, &n.Name, &n.Host, &n.Port, &tls, &n.Nick, &n.Realname, &saslUser, &saslPass, &n.SortOrder)
+	).Scan(&n.ID, &n.Name, &n.Host, &n.Port, &tls, &n.Nick, &n.Realname, &saslUser, &saslPass, &n.SortOrder, &disabled)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Network{}, ErrNetworkNotFound
@@ -31,6 +31,7 @@ func GetNetwork(ctx context.Context, d *sql.DB, id int64) (Network, error) {
 	n.TLS = tls == 1
 	n.SASLUser = saslUser.String
 	n.SASLPass = saslPass.String
+	n.Disabled = disabled == 1
 	return n, nil
 }
 

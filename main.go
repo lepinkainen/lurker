@@ -62,6 +62,15 @@ func main() {
 			os.Exit(1)
 		}
 		slog.Info("irc bootstrap networks started", "count", len(nets))
+		// Mark DB networks absent from config.yaml as disabled so they don't
+		// auto-connect and are visually distinguished in the UI.
+		yamlNames := make([]string, len(nets))
+		for i, n := range nets {
+			yamlNames[i] = n.Name
+		}
+		if err := db.MarkNonYAMLNetworksDisabled(ctx, stores.Control, yamlNames); err != nil {
+			slog.Error("mark non-yaml networks disabled", "err", err)
+		}
 	} else {
 		slog.Info("no bootstrap networks configured; add networks to config.yaml to seed control.db on startup")
 	}
@@ -111,6 +120,16 @@ func main() {
 		GitHash:       gitHash,
 		BuildTime:     buildTime,
 		UpdateChecker: updateChecker,
+		ConfigPreview: func(ctx context.Context) (string, string, error) {
+			nets, err := db.ListNetworksWithSASL(ctx, stores.Control)
+			if err != nil {
+				return "", "", err
+			}
+			return previewConfigYAML(cfg.ConfigPath, nets)
+		},
+		ConfigSave: func(_ context.Context, content string) error {
+			return saveConfigYAML(cfg.ConfigPath, content)
+		},
 	}
 
 	srv := &http.Server{
