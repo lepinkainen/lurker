@@ -32,6 +32,7 @@ export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
   if (!buffer) return;
   deps.renderPromptNick();
   const isChannel = buffer.kind === "channel";
+  const network = state.networks.get(buffer.network_id);
   dom.bufferNameEl.innerHTML = "";
   if (isChannel) {
     const hash = document.createElement("span");
@@ -39,17 +40,20 @@ export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
     hash.textContent = "#";
     dom.bufferNameEl.append(hash, document.createTextNode(buffer.name.replace(/^#/, "")));
   } else if (buffer.kind === "status") {
-    const network = state.networks.get(buffer.network_id);
     dom.bufferNameEl.textContent = network ? `${network.name} (status)` : "(status)";
   } else {
     dom.bufferNameEl.textContent = buffer.name;
   }
 
+  const networkName = network?.name ?? "";
+  const channelDisplay =
+    buffer.kind === "channel" ? buffer.name : buffer.kind === "status" ? `${networkName} status` : buffer.name;
+  document.title = networkName ? `${channelDisplay} | ${networkName}` : channelDisplay;
+
   dom.bufferTopicEl.innerHTML = "";
   const topicText = document.createElement("span");
   topicText.className = "topictext";
   if (buffer.kind === "status") {
-    const network = state.networks.get(buffer.network_id);
     topicText.textContent = network ? `${network.host || ""} · ${network.status || "offline"}` : "";
   } else {
     topicText.textContent = buffer.topic || "No topic set";
