@@ -5,25 +5,14 @@ import (
 	"database/sql"
 )
 
-// UpsertNetwork inserts the network if missing (keyed by case-insensitive
-// name) and returns the stored row. Existing rows are not modified — mutation
-// goes through the API.
+// UpsertNetwork inserts the network if missing, or updates its config fields
+// from the provided values if it already exists (keyed by case-insensitive
+// name). sort_order, autoconnect, and created_at are never modified.
 func UpsertNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 	if err := ValidateNetworkName(n.Name); err != nil {
 		return Network{}, err
 	}
 	nameCI := NormalizeNetworkName(n.Name)
-
-	var id int64
-	err := d.QueryRowContext(ctx, `SELECT id FROM networks WHERE name_ci = ?`, nameCI).Scan(&id)
-	if err == nil {
-		n.ID = id
-		return n, nil
-	}
-	if err != sql.ErrNoRows {
-		return Network{}, err
-	}
-
 	tls := 0
 	if n.TLS {
 		tls = 1
@@ -35,16 +24,16 @@ func UpsertNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 	}
 	res, err := d.ExecContext(ctx,
 		`INSERT INTO networks(name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks), ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order)+1,0) FROM networks), ?)
+		 ON CONFLICT(name_ci) DO UPDATE SET
+		   name=excluded.name, host=excluded.host, port=excluded.port,
+		   tls=excluded.tls, nick=excluded.nick, realname=excluded.realname,
+		   sasl_user=excluded.sasl_user, sasl_pass=excluded.sasl_pass`,
 		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
 	if err != nil {
-		if err2 := d.QueryRowContext(ctx, `SELECT id FROM networks WHERE name_ci = ?`, nameCI).Scan(&id); err2 == nil {
-			n.ID = id
-			return n, nil
-		}
 		return Network{}, err
 	}
-	id, err = res.LastInsertId()
+	id, err := res.LastInsertId()
 	if err != nil {
 		return Network{}, err
 	}
