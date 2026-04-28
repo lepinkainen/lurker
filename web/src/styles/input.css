@@ -15,7 +15,8 @@
     border-radius: 4px;
     padding: 0 10px;
   }
-  .inputbar .row:focus-within {
+  .inputbar .row:focus-within,
+  .inputbar.upload-dragover .row {
     border-color: var(--accent);
   }
   .inputbar .row .prompt {
@@ -53,6 +54,10 @@
   .inputbar .row .actions .icbtn:hover {
     color: var(--fg-0);
     background: var(--bg-4);
+  }
+  .inputbar .row .actions .icbtn:disabled {
+    opacity: 0.6;
+    cursor: progress;
   }
 
   .cmdpop {

@@ -22,6 +22,7 @@ type Config struct {
 	Networks      []irc.NetworkConfig
 	Previews      PreviewConfig
 	Updates       UpdateConfig
+	Uploads       UploadConfig
 }
 
 // PreviewConfig mirrors the YAML `previews:` block.
@@ -40,6 +41,12 @@ type UpdateConfig struct {
 	Interval time.Duration
 	Username string
 	Token    string
+}
+
+type UploadConfig struct {
+	Dir      string
+	MaxBytes int64
+	BaseURL  string
 }
 
 type FileConfig struct {
@@ -89,6 +96,11 @@ func loadConfig() Config {
 			Interval: clampUpdateInterval(envDurationOr("UPDATE_CHECK_INTERVAL", 24*time.Hour)),
 			Username: os.Getenv("GHCR_USERNAME"),
 			Token:    os.Getenv("GHCR_TOKEN"),
+		},
+		Uploads: UploadConfig{
+			Dir:      envOr("UPLOAD_DIR", dataDir+"/uploads"),
+			MaxBytes: envInt64Or("UPLOAD_MAX_BYTES", 20*1024*1024),
+			BaseURL:  strings.TrimSpace(os.Getenv("UPLOAD_BASE_URL")),
 		},
 	}
 	if nets, pv, err := parseYAMLConfig(cfg.ConfigPath); err == nil {
@@ -319,6 +331,18 @@ func envDurationOr(key string, def time.Duration) time.Duration {
 	}
 	parsed, err := time.ParseDuration(v)
 	if err != nil {
+		return def
+	}
+	return parsed
+}
+
+func envInt64Or(key string, def int64) int64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	parsed, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || parsed <= 0 {
 		return def
 	}
 	return parsed

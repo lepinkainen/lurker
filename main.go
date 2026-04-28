@@ -109,6 +109,10 @@ func main() {
 	})
 	updateChecker.Start(ctx)
 
+	if err := os.MkdirAll(cfg.Uploads.Dir, 0o755); err != nil {
+		slog.Error("create upload dir", "dir", cfg.Uploads.Dir, "err", err)
+		os.Exit(1)
+	}
 	apiSrv := &api.Server{
 		Stores:        stores,
 		Hub:           evHub,
@@ -120,6 +124,11 @@ func main() {
 		GitHash:       gitHash,
 		BuildTime:     buildTime,
 		UpdateChecker: updateChecker,
+		Uploads: api.UploadConfig{
+			Dir:      cfg.Uploads.Dir,
+			MaxBytes: cfg.Uploads.MaxBytes,
+			BaseURL:  cfg.Uploads.BaseURL,
+		},
 		ConfigPreview: func(ctx context.Context) (string, string, error) {
 			nets, err := db.ListNetworksWithSASL(ctx, stores.Control)
 			if err != nil {

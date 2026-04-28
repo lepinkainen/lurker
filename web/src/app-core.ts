@@ -42,6 +42,8 @@ export function start() {
   bindInputHandlers({
     inputEl: d.inputEl,
     inputForm: d.inputForm,
+    uploadInputEl: d.uploadInputEl,
+    uploadButtonEl: d.uploadButtonEl,
     cmdPopEl: d.cmdPopEl,
     getActiveBuffer: () => state.buffers.get(state.activeId),
     sendCmd,

@@ -8,6 +8,7 @@ Base routes currently exposed:
 - `GET /api/state`
 - `GET /api/buffers/{id}/history`
 - `GET /api/search?q=...`
+- `POST /api/upload`
 - `POST /api/networks`
 - `POST /api/networks/reorder`
 - `PATCH /api/networks/{id}`
@@ -67,6 +68,29 @@ Query parameters:
 - `buffer` optional
 
 Search runs against stored messages, not live IRC state.
+
+## `POST /api/upload`
+
+Purpose:
+
+- store a locally uploaded file and return its public URL
+
+Request:
+
+- `multipart/form-data`
+- file field name: `file`
+
+Response:
+
+```json
+{ "url": "/uploads/0123456789abcdef.png" }
+```
+
+Notes:
+
+- max size is controlled by server upload config
+- when `UPLOAD_BASE_URL` is set, the returned URL uses that base instead of `/uploads/...`
+- files are still stored locally under the configured upload directory
 
 ## `POST /api/networks`
 

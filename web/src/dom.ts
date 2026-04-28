@@ -16,6 +16,8 @@ export type DomRefs = {
   mobileMenuEl: HTMLButtonElement;
   inputEl: HTMLInputElement;
   inputForm: HTMLFormElement;
+  uploadInputEl: HTMLInputElement;
+  uploadButtonEl: HTMLButtonElement;
   inputNickEl: HTMLElement;
   cmdPopEl: HTMLElement;
   memberListEl: HTMLElement;
@@ -48,6 +50,8 @@ export function captureDom(): DomRefs {
     mobileMenuEl: mustEl<HTMLButtonElement>("mobile-menu"),
     inputEl: mustEl<HTMLInputElement>("input"),
     inputForm: mustEl<HTMLFormElement>("input-form"),
+    uploadInputEl: mustEl<HTMLInputElement>("upload-input"),
+    uploadButtonEl: mustEl<HTMLButtonElement>("upload-button"),
     inputNickEl: mustEl<HTMLElement>("input-nick"),
     cmdPopEl: mustEl<HTMLElement>("cmd-pop"),
     memberListEl: mustEl<HTMLElement>("member-list"),

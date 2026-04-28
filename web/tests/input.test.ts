@@ -1,7 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Buffer, state } from "../src/app-state";
-import { handleFormatKey, handleSlashCommand, updateCmdPop, updateInputEnabled } from "../src/input";
+import {
+  handleFormatKey,
+  handleSlashCommand,
+  insertTextAtCursor,
+  updateCmdPop,
+  updateInputEnabled,
+  uploadFile,
+} from "../src/input";
 import { resetAppState } from "../src/reset";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function makeBuffer(overrides: Partial<Buffer> = {}): Buffer {
   return {
@@ -145,6 +156,51 @@ describe("updateCmdPop", () => {
     updateCmdPop(input, pop);
     expect(pop.hidden).toBe(false);
     expect(pop.querySelectorAll(".ci").length).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe("insertTextAtCursor", () => {
+  it("inserts spaces around uploaded URL when needed", () => {
+    const i = document.createElement("input");
+    i.value = "hello world";
+    i.setSelectionRange(5, 5);
+    insertTextAtCursor(i, "https://files.test/x.png");
+    expect(i.value).toBe("hello https://files.test/x.png world");
+  });
+
+  it("replaces selection without adding duplicate spaces", () => {
+    const i = document.createElement("input");
+    i.value = "hello there";
+    i.setSelectionRange(6, 11);
+    insertTextAtCursor(i, "https://files.test/x.png");
+    expect(i.value).toBe("hello https://files.test/x.png");
+  });
+});
+
+describe("uploadFile", () => {
+  it("posts multipart data and returns the uploaded URL", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe("POST");
+      expect(init?.body).toBeInstanceOf(FormData);
+      return new Response(JSON.stringify({ url: "/uploads/test.txt" }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(uploadFile(new File(["hello"], "test.txt", { type: "text/plain" }))).resolves.toBe(
+      "/uploads/test.txt",
+    );
+  });
+
+  it("throws backend error text on failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("upload too large", { status: 413, headers: { "Content-Type": "text/plain" } })),
+    );
+
+    await expect(uploadFile(new File(["oops"], "big.bin"))).rejects.toThrow("upload too large");
   });
 });
 
