@@ -10,9 +10,12 @@ export type Network = {
   id: number;
   name: string;
   host?: string;
+  port?: number;
+  tls?: boolean;
+  nick?: string;
+  realname?: string;
   status?: string;
   sort_order?: number;
-  tls?: boolean;
 };
 
 export type Buffer = {

@@ -1,5 +1,6 @@
 import { type Buffer, type Network, type ReorderResponse, saveLayout, state } from "./app-state";
 import { dotClass } from "./format";
+import { openNetworkForm } from "./network-form";
 
 export type SidebarDeps = {
   sbScrollEl: HTMLDivElement;
@@ -44,6 +45,7 @@ export function renderSidebar(deps: SidebarDeps) {
   add.innerHTML = "<span>+</span><span>Add a network</span>";
   add.style.cssText =
     "margin:10px 10px 6px;padding:6px 10px;width:calc(100% - 20px);display:flex;align-items:center;gap:8px;color:var(--fg-2);font-family:var(--sans);font-size:12px;border:1px dashed var(--hair-strong);border-radius:5px;";
+  add.addEventListener("click", () => openNetworkForm(undefined, () => renderSidebar(deps)));
   sbScrollEl.appendChild(add);
 }
 
@@ -133,6 +135,17 @@ function networkSection(network: Network, deps: SidebarDeps) {
   } else if (collapsed && unreadTotal > 0) {
     actions.appendChild(badge("unreadbadge", unreadTotal));
   }
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "icbtn small net-edit";
+  editBtn.title = "Edit network";
+  editBtn.setAttribute("aria-label", "Edit network");
+  editBtn.appendChild(deps.iconEl("ic-gear", 11));
+  editBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openNetworkForm(network, () => renderSidebar(deps));
+  });
+  actions.appendChild(editBtn);
   hdr.append(caret, grip, name);
   if (tlsIcon) hdr.appendChild(tlsIcon);
   hdr.appendChild(actions);
