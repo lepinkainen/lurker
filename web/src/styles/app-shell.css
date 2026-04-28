@@ -1,0 +1,9 @@
+@layer components {
+  #app,
+  .app {
+    display: grid;
+    grid-template-columns: 230px minmax(0, 1fr) auto;
+    height: 100vh;
+    background: var(--bg-3);
+  }
+}

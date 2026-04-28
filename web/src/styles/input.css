@@ -1,0 +1,95 @@
+@layer components {
+  .inputbar {
+    border-top: 1px solid var(--hair);
+    background: var(--bg-2);
+    padding: 6px 10px;
+    position: relative;
+  }
+  .inputbar .row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+    align-items: center;
+    background: var(--bg-input);
+    border: 1px solid var(--hair-strong);
+    border-radius: 4px;
+    padding: 0 10px;
+  }
+  .inputbar .row:focus-within {
+    border-color: var(--accent);
+  }
+  .inputbar .row .prompt {
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .inputbar input.msgin {
+    background: transparent;
+    border: 0;
+    outline: none;
+    padding: 7px 0;
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    color: var(--fg-0);
+    min-width: 0;
+  }
+  .inputbar input.msgin:disabled {
+    color: var(--fg-3);
+    cursor: not-allowed;
+  }
+  .inputbar .row .actions {
+    display: flex;
+    gap: 2px;
+    color: var(--fg-3);
+  }
+  .inputbar .row .actions .icbtn {
+    width: 22px;
+    height: 22px;
+    border-radius: 3px;
+    display: grid;
+    place-items: center;
+  }
+  .inputbar .row .actions .icbtn:hover {
+    color: var(--fg-0);
+    background: var(--bg-4);
+  }
+
+  .cmdpop {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 100%;
+    margin-bottom: 4px;
+    background: var(--bg-input);
+    border: 1px solid var(--hair-strong);
+    border-radius: 5px;
+    box-shadow: 0 10px 30px #00000066;
+    max-width: 420px;
+    overflow: hidden;
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    z-index: 10;
+  }
+  .cmdpop[hidden] {
+    display: none;
+  }
+  .cmdpop .ci {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    padding: 5px 10px;
+    color: var(--fg-1);
+  }
+  .cmdpop .ci.hl {
+    background: var(--bg-5);
+    color: var(--fg-0);
+  }
+  .cmdpop .ci .c {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .cmdpop .ci .d {
+    color: var(--fg-3);
+  }
+}

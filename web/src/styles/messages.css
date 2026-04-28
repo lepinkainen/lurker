@@ -1,0 +1,209 @@
+@layer components {
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0 2px;
+    font-family: var(--mono);
+    font-size: var(--msg-font-size);
+    line-height: var(--msg-line-height);
+  }
+  .messages[hidden] {
+    display: none;
+  }
+
+  .daysep {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 18px 4px;
+    color: var(--fg-2);
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    user-select: none;
+  }
+  .daysep::before,
+  .daysep::after {
+    content: "";
+    height: 1px;
+    background: var(--hair);
+  }
+
+  .unreadbar {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 10px;
+    align-items: center;
+    padding: 4px 18px;
+    color: var(--orange);
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+  }
+  .unreadbar::before,
+  .unreadbar::after {
+    content: "";
+    height: 1px;
+    background: currentColor;
+    opacity: 0.3;
+  }
+
+  .msg {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 6px;
+    padding: var(--row-pad-y) 10px;
+    word-break: break-word;
+    position: relative;
+  }
+  .msg:hover {
+    background: var(--bg-4);
+  }
+  .msg .ts {
+    color: var(--fg-3);
+    font-size: 0.8rem;
+    padding-top: 1px;
+    white-space: nowrap;
+    user-select: none;
+    letter-spacing: -0.02em;
+    min-width: var(--ts-col, 38px);
+  }
+  .msg:hover .ts {
+    color: var(--fg-1);
+  }
+  .msg .gutter {
+    flex-shrink: 0;
+    color: var(--fg-3);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    text-align: center;
+  }
+  .msg .nick {
+    flex-shrink: 0;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .nickref {
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .nick-avatar {
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 4px;
+    width: 14px;
+    height: 14px;
+    border-radius: 2px;
+    image-rendering: pixelated;
+    flex-shrink: 0;
+  }
+  .msg .body {
+    flex: 1;
+    min-width: 0;
+    color: var(--fg-0);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg .body a {
+    color: var(--cyan);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--cyan) 30%, transparent);
+    text-underline-offset: 2px;
+  }
+  .msg .body a:hover {
+    text-decoration-color: var(--cyan);
+  }
+  .msg .body code {
+    font-family: var(--mono);
+    background: var(--bg-input);
+    border: 1px solid var(--hair);
+    border-radius: 3px;
+    padding: 0 5px;
+    font-size: 0.95em;
+    color: var(--yellow);
+  }
+
+  .msg .body .m-b {
+    font-weight: 700;
+  }
+  .msg .body .m-i {
+    font-style: italic;
+  }
+  .msg .body .m-u {
+    text-decoration: underline;
+  }
+  .msg .body .m-s {
+    text-decoration: line-through;
+  }
+  .msg .body .m-u.m-s {
+    text-decoration: underline line-through;
+  }
+  .msg .body .m-mono {
+    font-family: var(--mono);
+  }
+
+  .msg.flat .gutter {
+    color: var(--green);
+    font-weight: 600;
+  }
+  .msg.self .gutter {
+    color: var(--accent);
+  }
+
+  .msg.mention {
+    background: var(--mention-soft);
+    box-shadow: inset 2px 0 0 0 var(--mention);
+  }
+  .msg.mention:hover {
+    background: var(--mention-soft-hover);
+  }
+
+  .msg.action .gutter {
+    color: var(--magenta);
+  }
+  .msg.action .body {
+    color: var(--magenta);
+  }
+  .msg.notice .gutter {
+    color: var(--orange);
+  }
+  .msg.notice .body {
+    color: var(--orange);
+  }
+
+  .msg.sys {
+    color: var(--fg-3);
+  }
+  .msg.sys .body {
+    color: var(--fg-2);
+  }
+  .msg.sys .gutter .arrow {
+    display: inline-block;
+  }
+  .msg.sys .gutter .arrow.in {
+    color: var(--green);
+  }
+  .msg.sys .gutter .arrow.out {
+    color: var(--red);
+  }
+  .msg.sys .gutter .arrow.nil {
+    color: var(--fg-3);
+  }
+  .msg.sys .body .nickref {
+    font-weight: 500;
+  }
+
+  .selfmention {
+    background: var(--mention-soft);
+    color: var(--mention);
+    font-weight: 600;
+    padding: 0 3px;
+    border-radius: 3px;
+  }
+  .flash {
+    background: var(--accent-soft);
+  }
+}

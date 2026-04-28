@@ -1,0 +1,119 @@
+@layer components {
+  .mainpane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--bg-3);
+    overflow: hidden;
+    border-right: 1px solid var(--hair);
+  }
+
+  .mobile-menu-btn {
+    display: none;
+  }
+
+  .topicbar {
+    height: 36px;
+    padding: 0 12px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--hair);
+    background: var(--bg-2);
+    font-size: 0.9rem;
+    position: relative;
+  }
+  .topicbar::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--topicbar-rule), transparent);
+  }
+  .topicbar .chan {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: var(--fg-0);
+  }
+  .topicbar .chan .hash {
+    color: var(--accent);
+  }
+  .topicbar .title {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .topicbar .topic {
+    color: var(--fg-1);
+    font-size: 0.9rem;
+    font-family: var(--sans);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    padding: 4px 6px;
+    border-radius: 3px;
+    cursor: text;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .topicbar .topic:hover {
+    background: var(--bg-4);
+  }
+  .topicbar .topic .topictext {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+  .topicbar .topic .edit {
+    opacity: 0;
+    color: var(--fg-3);
+  }
+  .topicbar .topic:hover .edit {
+    opacity: 1;
+  }
+
+  .topicbar .actions {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    color: var(--fg-2);
+  }
+  .topicbar .actions .memcount {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--fg-1);
+  }
+  .topicbar .actions .memcount[hidden] {
+    display: none;
+  }
+  .topicbar .actions .icbtn {
+    width: 24px;
+    height: 24px;
+    border-radius: 3px;
+    display: grid;
+    place-items: center;
+    color: var(--fg-2);
+  }
+  .topicbar .actions .icbtn:hover {
+    background: var(--bg-4);
+    color: var(--fg-0);
+  }
+  .topicbar .actions .icbtn.toggled {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+}
