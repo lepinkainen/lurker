@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Eye shape background -->
+  <path d="M16 7C7 7 1 16 1 16s6 9 15 9 15-9 15-9-6-9-15-9z" fill="#0f1923"/>
+  <!-- Iris -->
+  <circle cx="16" cy="16" r="6" fill="#2d6be4"/>
+  <!-- Pupil -->
+  <circle cx="16" cy="16" r="3" fill="#0a1020"/>
+  <!-- Specular highlight -->
+  <circle cx="13.5" cy="13.5" r="1.2" fill="white" opacity="0.6"/>
+  <!-- Eye outline -->
+  <path d="M16 7C7 7 1 16 1 16s6 9 15 9 15-9 15-9-6-9-15-9z" fill="none" stroke="#2d6be4" stroke-width="1.5"/>
+</svg>
