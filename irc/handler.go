@@ -152,12 +152,13 @@ func (h *handler) register(c *girc.Client) {
 	// ALL_EVENTS. Catch them here and feed the normal persistence path so
 	// outbound messages land in history with the server-assigned msgid.
 	c.Handlers.Add(girc.ALL_EVENTS, func(c *girc.Client, e girc.Event) {
-		if !e.Echo {
+		if e.Echo {
+			if e.Command == girc.PRIVMSG || e.Command == girc.NOTICE {
+				h.onPrivmsg(c, e)
+			}
 			return
 		}
-		if e.Command == girc.PRIVMSG || e.Command == girc.NOTICE {
-			h.onPrivmsg(c, e)
-		}
+		h.onUnhandledEvent(e)
 	})
 }
 
@@ -317,11 +318,12 @@ func (h *handler) onMode(_ *girc.Client, e girc.Event) {
 }
 
 func (h *handler) onChannelModeIs(_ *girc.Client, e girc.Event) {
-	target, _, ok := modeTargetAndArgs(e)
+	target, modeArgs, ok := modeTargetAndArgs(e)
 	if !ok || !girc.IsValidChannel(target) {
 		return
 	}
 	h.touchChannelBuffer(target, "ensure channel mode buffer")
+	h.storeEvent(e, "", ircdb.BufferStatus, "notice", "", strings.TrimSpace(target+" "+modeArgs))
 }
 
 func (h *handler) onQuit(_ *girc.Client, e girc.Event) {
@@ -419,6 +421,20 @@ func (h *handler) onRPLListEnd(_ *girc.Client, _ girc.Event) {
 		Entries:   entries,
 		Done:      true,
 	})
+}
+
+func (h *handler) onUnhandledEvent(e girc.Event) {
+	if isSyntheticClientEvent(e.Command) {
+		return
+	}
+	kind := unhandledEventKind(e.Command)
+	bufName, bufKind := "", ircdb.BufferStatus
+	if kind == "error" {
+		if channel, ok := unhandledEventChannel(e); ok {
+			bufName, bufKind = channel, ircdb.BufferChannel
+		}
+	}
+	h.storeEvent(e, bufName, bufKind, kind, "", formatUnhandledEventContent(e, bufKind == ircdb.BufferChannel))
 }
 
 // isIgnored checks whether the given nick matches any configured ignore mask.
@@ -576,6 +592,43 @@ func modeTargetAndArgs(e girc.Event) (target, args string, ok bool) {
 		return "", "", false
 	}
 	return e.Params[0], strings.Join(e.Params[1:], " "), true
+}
+
+func isSyntheticClientEvent(command string) bool {
+	return strings.HasPrefix(command, "CLIENT_") || strings.HasPrefix(command, "STS_")
+}
+
+func unhandledEventKind(command string) string {
+	if len(command) == 3 && command[0] >= '4' && command[0] <= '5' {
+		return "error"
+	}
+	return "notice"
+}
+
+func unhandledEventChannel(e girc.Event) (string, bool) {
+	if len(e.Params) < 2 {
+		return "", false
+	}
+	channel := e.Params[1]
+	if !girc.IsValidChannel(channel) {
+		return "", false
+	}
+	return channel, true
+}
+
+func formatUnhandledEventContent(e girc.Event, dropChannel bool) string {
+	params := e.Params
+	if len(params) > 0 {
+		params = params[1:]
+	}
+	if dropChannel && len(params) > 0 && girc.IsValidChannel(params[0]) {
+		params = params[1:]
+	}
+	text := strings.TrimSpace(strings.Join(params, " "))
+	if text == "" {
+		return e.Command
+	}
+	return text
 }
 
 func (h *handler) touchChannelBuffer(channel, action string) {

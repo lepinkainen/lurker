@@ -160,6 +160,184 @@ func TestMsgIDDedupAndServerTime(t *testing.T) {
 	}
 }
 
+func TestSyntheticClientEventsDoNotPersistToStatusBuffer(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
+		}
+	}()
+
+	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logStore, err := stores.LogStore(netrow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+
+	h.onUnhandledEvent(girc.Event{Command: girc.UPDATE_GENERAL})
+	h.onUnhandledEvent(girc.Event{Command: girc.UPDATE_STATE})
+
+	var count int
+	if err := logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("message count = %d, want 0", count)
+	}
+}
+
+func TestUnhandledServerReplyPersistsToStatusBuffer(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
+		}
+	}()
+
+	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logStore, err := stores.LogStore(netrow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+
+	h.onUnhandledEvent(mustEvent(t, ":irc.example 251 tester :There are 42 users and 10 servers"))
+
+	var kind, sender, content string
+	if err := logStore.DB.QueryRow(`SELECT kind, sender, content FROM messages ORDER BY id DESC LIMIT 1`).Scan(&kind, &sender, &content); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "notice" {
+		t.Fatalf("kind = %q, want notice", kind)
+	}
+	if sender != "irc.example" {
+		t.Fatalf("sender = %q, want irc.example", sender)
+	}
+	if content != "There are 42 users and 10 servers" {
+		t.Fatalf("content = %q", content)
+	}
+}
+
+func TestUnhandledChannelErrorPersistsToChannelBuffer(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
+		}
+	}()
+
+	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logStore, err := stores.LogStore(netrow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+
+	h.onUnhandledEvent(mustEvent(t, ":irc.example 482 tester #test :You're not channel operator"))
+
+	var bufName, bufKind, kind, sender, content string
+	if err := logStore.DB.QueryRow(`
+		SELECT b.name, b.kind, m.kind, m.sender, m.content
+		FROM messages m
+		JOIN buffers b ON b.id = m.buffer_id
+		ORDER BY m.id DESC
+		LIMIT 1`).Scan(&bufName, &bufKind, &kind, &sender, &content); err != nil {
+		t.Fatal(err)
+	}
+	if bufName != "#test" {
+		t.Fatalf("buffer name = %q, want #test", bufName)
+	}
+	if bufKind != ircdb.BufferChannel {
+		t.Fatalf("buffer kind = %q, want %q", bufKind, ircdb.BufferChannel)
+	}
+	if kind != "error" {
+		t.Fatalf("kind = %q, want error", kind)
+	}
+	if sender != "irc.example" {
+		t.Fatalf("sender = %q, want irc.example", sender)
+	}
+	if content != "You're not channel operator" {
+		t.Fatalf("content = %q", content)
+	}
+}
+
+func TestBanlistRepliesPersistToStatusBuffer(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
+		}
+	}()
+
+	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logStore, err := stores.LogStore(netrow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+
+	h.onUnhandledEvent(mustEvent(t, ":irc.example 367 tester #test bad!*@* oper 1714410000"))
+	h.onUnhandledEvent(mustEvent(t, ":irc.example 368 tester #test :End of Channel Ban List"))
+
+	rows, err := logStore.DB.Query(`SELECT kind, content FROM messages ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			t.Fatalf("close rows: %v", cerr)
+		}
+	}()
+	var got []string
+	for rows.Next() {
+		var kind, content string
+		if err := rows.Scan(&kind, &content); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, kind+":"+content)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"notice:#test bad!*@* oper 1714410000",
+		"notice:#test End of Channel Ban List",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
 func TestPublishMemberListUsesTrackedMembers(t *testing.T) {
 	stores, err := ircdb.OpenMultiStore(t.TempDir())
 	if err != nil {
