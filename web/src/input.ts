@@ -1,5 +1,8 @@
-import { type Buffer, SLASH_COMMANDS, state } from "./app-state";
+import { type Buffer, state } from "./app-state";
 import { escapeHTML } from "./format";
+import { handleSlashCommand, matchSlashCommands } from "./slash-commands";
+
+export { handleSlashCommand } from "./slash-commands";
 
 export type InputDeps = {
   inputEl: HTMLInputElement;
@@ -21,126 +24,6 @@ export function updateInputEnabled(inputEl: HTMLInputElement) {
   );
 }
 
-export function handleSlashCommand(text: string, buffer: Buffer, sendCmd: InputDeps["sendCmd"]): boolean {
-  const [cmd, ...rest] = text.slice(1).split(/\s+/);
-  const args = rest.join(" ").trim();
-  const networkId = buffer.network_id;
-
-  switch ((cmd || "").toLowerCase()) {
-    case "join":
-      sendCmd({ type: "join", network_id: networkId, channel: args });
-      return true;
-    case "part":
-      sendCmd({ type: "part", buffer_id: buffer.id, content: args });
-      return true;
-    case "msg": {
-      const [target, ...msgRest] = rest;
-      if (target) sendCmd({ type: "msg", network_id: networkId, target, content: msgRest.join(" ") });
-      return true;
-    }
-    case "me":
-      sendCmd({ type: "me", buffer_id: buffer.id, content: args });
-      return true;
-    case "nick":
-      sendCmd({ type: "nick", network_id: networkId, content: args });
-      return true;
-    case "topic":
-      sendCmd({ type: "topic", buffer_id: buffer.id, content: args });
-      return true;
-    case "whois":
-      sendCmd({ type: "whois", network_id: networkId, target: args });
-      return true;
-    case "invite": {
-      const [nick, chan] = rest;
-      sendCmd({ type: "invite", network_id: networkId, target: nick, channel: chan || buffer.name });
-      return true;
-    }
-    case "kick": {
-      const [nick, ...reason] = rest;
-      sendCmd({ type: "kick", buffer_id: buffer.id, target: nick, content: reason.join(" ") });
-      return true;
-    }
-    case "mode":
-      sendCmd({ type: "mode", buffer_id: buffer.id, content: args });
-      return true;
-    case "raw":
-      sendCmd({ type: "raw", network_id: networkId, content: args });
-      return true;
-    case "away":
-      sendCmd({ type: "away", network_id: networkId, content: args });
-      return true;
-    case "back":
-      sendCmd({ type: "back", network_id: networkId });
-      return true;
-    case "quit":
-      sendCmd({ type: "quit", network_id: networkId, content: args });
-      return true;
-    case "rejoin":
-    case "cycle":
-      sendCmd({ type: "rejoin", buffer_id: buffer.id });
-      return true;
-    case "notice": {
-      const [target, ...msgRest] = rest;
-      if (target) sendCmd({ type: "notice", network_id: networkId, target, content: msgRest.join(" ") });
-      return true;
-    }
-    case "ctcp": {
-      const [nick, ctcpCmd, ...ctcpArgs] = rest;
-      if (nick && ctcpCmd)
-        sendCmd({
-          type: "ctcp",
-          network_id: networkId,
-          target: nick,
-          content: ctcpCmd + (ctcpArgs.length ? ` ${ctcpArgs.join(" ")}` : ""),
-        });
-      return true;
-    }
-    case "query":
-      sendCmd({ type: "query", network_id: networkId, target: args });
-      return true;
-    case "list":
-      sendCmd({ type: "list", network_id: networkId, content: args });
-      return true;
-    case "op":
-      sendCmd({ type: "op", buffer_id: buffer.id, target: args });
-      return true;
-    case "deop":
-      sendCmd({ type: "deop", buffer_id: buffer.id, target: args });
-      return true;
-    case "voice":
-      sendCmd({ type: "voice", buffer_id: buffer.id, target: args });
-      return true;
-    case "devoice":
-      sendCmd({ type: "devoice", buffer_id: buffer.id, target: args });
-      return true;
-    case "ban":
-      sendCmd({ type: "ban", buffer_id: buffer.id, target: args });
-      return true;
-    case "unban":
-      sendCmd({ type: "unban", buffer_id: buffer.id, target: args });
-      return true;
-    case "banlist":
-      sendCmd({ type: "banlist", buffer_id: buffer.id });
-      return true;
-    case "kickban": {
-      const [nick, ...reason] = rest;
-      if (nick) sendCmd({ type: "kickban", buffer_id: buffer.id, target: nick, content: reason.join(" ") });
-      return true;
-    }
-    case "ignore":
-      sendCmd({ type: "ignore", network_id: networkId, target: args });
-      return true;
-    case "unignore":
-      sendCmd({ type: "unignore", network_id: networkId, target: args });
-      return true;
-    case "ignorelist":
-      sendCmd({ type: "ignorelist", network_id: networkId });
-      return true;
-    default:
-      return false;
-  }
-}
-
 export function updateCmdPop(inputEl: HTMLInputElement, cmdPopEl: HTMLElement) {
   const value = inputEl.value;
   if (!value.startsWith("/")) {
@@ -148,7 +31,7 @@ export function updateCmdPop(inputEl: HTMLInputElement, cmdPopEl: HTMLElement) {
     return;
   }
   const query = value.slice(1).split(/\s+/)[0].toLowerCase();
-  const matches = SLASH_COMMANDS.filter((command) => command.cmd.slice(1).startsWith(query));
+  const matches = matchSlashCommands(query);
   if (!matches.length) {
     cmdPopEl.hidden = true;
     return;

@@ -61,6 +61,12 @@ describe("handleSlashCommand", () => {
     expect(handleSlashCommand("/JOIN #x", makeBuffer(), send)).toBe(true);
     expect(send).toHaveBeenCalledWith({ type: "join", network_id: 10, channel: "#x" });
   });
+
+  it("supports alias commands from the same registry", () => {
+    const send = vi.fn();
+    expect(handleSlashCommand("/cycle", makeBuffer({ id: 7 }), send)).toBe(true);
+    expect(send).toHaveBeenCalledWith({ type: "rejoin", buffer_id: 7 });
+  });
 });
 
 describe("updateInputEnabled", () => {
@@ -149,6 +155,13 @@ describe("updateCmdPop", () => {
     expect(rows.length).toBeGreaterThan(0);
     expect(rows[0].classList.contains("hl")).toBe(true);
     expect(rows[0].querySelector(".c")?.textContent).toContain("/join");
+  });
+
+  it("shows alias commands in autocomplete", () => {
+    const { input, pop } = setup("/cy");
+    updateCmdPop(input, pop);
+    expect(pop.hidden).toBe(false);
+    expect(pop.querySelector(".c")?.textContent).toContain("/cycle");
   });
 
   it("shows all commands for bare slash", () => {

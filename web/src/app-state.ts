@@ -64,12 +64,6 @@ export type ReorderResponse = {
   networks?: Network[];
 };
 
-export type SlashCommand = {
-  cmd: string;
-  args: string;
-  desc: string;
-};
-
 export type UpdateStatus = {
   enabled: boolean;
   update_available: boolean;
@@ -106,40 +100,6 @@ const LAYOUT_KEY = "lurker.layout";
 function defaultLayout(): LayoutSettings {
   return { collapsed: {}, pinned: [], archivesOpen: {} };
 }
-
-export const SLASH_COMMANDS: SlashCommand[] = [
-  { cmd: "/join", args: "<channel>", desc: "Join a channel" },
-  { cmd: "/part", args: "[reason]", desc: "Leave current channel" },
-  { cmd: "/msg", args: "<nick> <text>", desc: "Send private message" },
-  { cmd: "/me", args: "<action>", desc: "Send /me action" },
-  { cmd: "/nick", args: "<newnick>", desc: "Change your nick" },
-  { cmd: "/topic", args: "[new topic]", desc: "View or set channel topic" },
-  { cmd: "/whois", args: "<nick>", desc: "Query user info" },
-  { cmd: "/invite", args: "<nick> [channel]", desc: "Invite nick to channel" },
-  { cmd: "/kick", args: "<nick> [reason]", desc: "Kick nick from channel" },
-  { cmd: "/mode", args: "<modes> [params]", desc: "Set channel modes" },
-  { cmd: "/raw", args: "<line>", desc: "Send raw IRC line" },
-  { cmd: "/away", args: "[message]", desc: "Set away status" },
-  { cmd: "/back", args: "", desc: "Clear away status" },
-  { cmd: "/quit", args: "[message]", desc: "Disconnect from network" },
-  { cmd: "/rejoin", args: "", desc: "Rejoin current channel" },
-  { cmd: "/cycle", args: "", desc: "Rejoin current channel (alias)" },
-  { cmd: "/notice", args: "<target> <text>", desc: "Send a NOTICE" },
-  { cmd: "/ctcp", args: "<nick> <cmd> [args]", desc: "Send CTCP request" },
-  { cmd: "/query", args: "<nick>", desc: "Open PM buffer without messaging" },
-  { cmd: "/list", args: "[filter]", desc: "List channels on server" },
-  { cmd: "/op", args: "<nick>", desc: "Give channel op (+o)" },
-  { cmd: "/deop", args: "<nick>", desc: "Remove channel op (-o)" },
-  { cmd: "/voice", args: "<nick>", desc: "Give voice (+v)" },
-  { cmd: "/devoice", args: "<nick>", desc: "Remove voice (-v)" },
-  { cmd: "/ban", args: "<mask>", desc: "Ban mask (+b)" },
-  { cmd: "/unban", args: "<mask>", desc: "Unban mask (-b)" },
-  { cmd: "/banlist", args: "", desc: "Show channel ban list" },
-  { cmd: "/kickban", args: "<nick> [reason]", desc: "Kick and ban nick" },
-  { cmd: "/ignore", args: "<nick>", desc: "Ignore nick or mask" },
-  { cmd: "/unignore", args: "<nick>", desc: "Remove ignore" },
-  { cmd: "/ignorelist", args: "", desc: "List ignored masks" },
-];
 
 export function loadLayout(): LayoutSettings {
   try {
