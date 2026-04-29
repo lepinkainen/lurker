@@ -197,4 +197,41 @@ describe("main UI", () => {
     });
     expect(after).toBeTruthy();
   });
+
+  it("jumps to the first unread buffer with alt+a", async () => {
+    await __initForTests();
+
+    const stateRes = await (await fetch("/api/state")).json();
+    const activeName = document.getElementById("buffer-name")?.textContent || "";
+    const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan:not(.archives)");
+    const target = [...rows].find((row) => {
+      const name = row.querySelector(".name")?.textContent || "";
+      return name && name !== activeName;
+    });
+    expect(target).toBeTruthy();
+    if (!target) throw new Error("missing unread target row");
+
+    const targetName = target.querySelector(".name")?.textContent || "";
+    const buf = stateRes.buffers.find((b: { name: string }) => b.name === targetName);
+    expect(buf).toBeTruthy();
+    if (!buf) throw new Error("missing unread target buffer");
+
+    __handleWSMessage({
+      type: "message",
+      id: 10_000_002,
+      buffer_id: buf.id,
+      sender: "someone",
+      content: "plain unread message",
+      kind: "message",
+      ts: new Date().toISOString(),
+    });
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "a", altKey: true, bubbles: true }));
+
+    const active = await waitFor(() => {
+      const row = document.querySelector<HTMLButtonElement>("#sb-scroll .sbrow.chan.active");
+      return row?.querySelector(".name")?.textContent === targetName ? row : null;
+    });
+    expect(active).toBeTruthy();
+  });
 });

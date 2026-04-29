@@ -312,6 +312,7 @@ export function openHelpOverlay() {
       ["Alt+↓", "Next buffer"],
       ["Alt+Shift+↑", "Previous unread buffer"],
       ["Alt+Shift+↓", "Next unread buffer"],
+      ["Alt+A", "Jump to first unread buffer"],
       ["Alt+M", "Next mention buffer"],
       ["Alt+S", "Jump to status buffer"],
     ]),
@@ -356,6 +357,11 @@ function navigateMention(setActive: (id: number) => void) {
   const ids = getVisibleSidebarBufferIds();
   const next = nextMatchingBufferId(state.activeId, ids, (id) => (state.buffers.get(id)?.mentions || 0) > 0);
   if (next != null) setActive(next);
+}
+
+function navigateFirstUnread(setActive: (id: number) => void) {
+  const firstUnread = getVisibleSidebarBufferIds().find((id) => (state.buffers.get(id)?.unread || 0) > 0);
+  if (firstUnread != null && firstUnread !== state.activeId) setActive(firstUnread);
 }
 
 function focusInput(inputEl: HTMLInputElement) {
@@ -420,6 +426,11 @@ export function initKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     if (e.altKey && !e.ctrlKey && !e.metaKey && e.shiftKey && e.key === "ArrowDown") {
       e.preventDefault();
       navigateUnread(deps.setActive);
+      return;
+    }
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      navigateFirstUnread(deps.setActive);
       return;
     }
     if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === "m") {
