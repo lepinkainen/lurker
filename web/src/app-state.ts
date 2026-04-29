@@ -72,11 +72,18 @@ export type UpdateStatus = {
 
 export type ChannelListEntry = { name: string; count: number; topic?: string };
 
+export type BufferInputState = {
+  entries: string[];
+  draft: string;
+  index: number | null;
+};
+
 export type AppState = {
   networks: Map<number, Network>;
   buffers: Map<number, Buffer>;
   messages: Map<number, Message[]>;
   members: Map<number, Member[]>;
+  inputHistory: Map<number, BufferInputState>;
   activeId: number | null;
   ws: WebSocket | null;
   wsReady: boolean;
@@ -121,6 +128,7 @@ export const state: AppState = {
   buffers: new Map(),
   messages: new Map(),
   members: new Map(),
+  inputHistory: new Map(),
   activeId: null,
   ws: null,
   wsReady: false,

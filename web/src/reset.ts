@@ -8,6 +8,7 @@ export function resetAppState() {
   state.buffers.clear();
   state.messages.clear();
   state.members.clear();
+  state.inputHistory.clear();
   state.activeId = null;
   state.ws = null;
   state.wsReady = false;

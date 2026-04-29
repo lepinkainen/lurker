@@ -12,6 +12,7 @@ describe("resetAppState", () => {
     state.buffers.set(2, { id: 2, network_id: 1, name: "#lurker", kind: "channel", unread: 3, mentions: 1 });
     state.messages.set(2, [{ id: 10, buffer_id: 2, content: "hi" }]);
     state.members.set(2, [{ nick: "shrike", prefix: "@", away: false, self: true }]);
+    state.inputHistory.set(2, { entries: ["hello"], draft: "draft", index: 0 });
     state.loadingHistory.add(2);
     state.historyExhausted.add(2);
     state.lastMarkedReadId.set(2, 10);
@@ -30,6 +31,7 @@ describe("resetAppState", () => {
     expect(state.buffers.size).toBe(0);
     expect(state.messages.size).toBe(0);
     expect(state.members.size).toBe(0);
+    expect(state.inputHistory.size).toBe(0);
     expect(state.activeId).toBeNull();
     expect(state.ws).toBeNull();
     expect(state.wsReady).toBe(false);

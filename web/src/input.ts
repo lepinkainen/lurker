@@ -1,4 +1,4 @@
-import { type Buffer, state } from "./app-state";
+import { type Buffer, type BufferInputState, state } from "./app-state";
 import { escapeHTML } from "./format";
 import { handleSlashCommand, matchSlashCommands } from "./slash-commands";
 
@@ -55,11 +55,13 @@ export function onSubmit(ev: SubmitEvent, deps: InputDeps) {
   if (text.startsWith("/")) {
     if (handleSlashCommand(text, buffer, deps.sendCmd)) {
       deps.inputEl.value = "";
+      saveInputDraft(buffer.id, "");
       updateCmdPop(deps.inputEl, deps.cmdPopEl);
     }
     return;
   }
   deps.sendCmd({ type: "send", buffer_id: buffer.id, content: text });
+  recordSentInput(buffer.id, text);
   deps.inputEl.value = "";
   updateCmdPop(deps.inputEl, deps.cmdPopEl);
 }
@@ -71,6 +73,75 @@ export function initCmdPop(inputEl: HTMLInputElement, cmdPopEl: HTMLElement) {
       cmdPopEl.hidden = true;
     }, 100),
   );
+}
+
+const MAX_INPUT_HISTORY = 100;
+
+function bufferInputState(bufferId: number): BufferInputState {
+  let entry = state.inputHistory.get(bufferId);
+  if (!entry) {
+    entry = { entries: [], draft: "", index: null };
+    state.inputHistory.set(bufferId, entry);
+  }
+  return entry;
+}
+
+export function saveInputDraft(bufferId: number | null, draft: string, resetBrowse = false) {
+  if (bufferId == null) return;
+  const entry = bufferInputState(bufferId);
+  if (resetBrowse) entry.index = null;
+  if (entry.index === null) entry.draft = draft;
+}
+
+export function restoreInputDraft(inputEl: HTMLInputElement, bufferId: number | null) {
+  inputEl.value = bufferId == null ? "" : bufferInputState(bufferId).draft;
+}
+
+export function recordSentInput(bufferId: number, text: string) {
+  const entry = bufferInputState(bufferId);
+  entry.entries.push(text);
+  if (entry.entries.length > MAX_INPUT_HISTORY) entry.entries.splice(0, entry.entries.length - MAX_INPUT_HISTORY);
+  entry.draft = "";
+  entry.index = null;
+}
+
+export function handleHistoryKey(
+  ev: KeyboardEvent,
+  inputEl: HTMLInputElement,
+  cmdPopEl: HTMLElement,
+  bufferId: number | null,
+): boolean {
+  if ((ev.key !== "ArrowUp" && ev.key !== "ArrowDown") || ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) {
+    return false;
+  }
+  if (bufferId == null) return false;
+  const entry = bufferInputState(bufferId);
+  if (ev.key === "ArrowUp") {
+    if (!entry.entries.length) return false;
+    ev.preventDefault();
+    if (entry.index === null) {
+      entry.draft = inputEl.value;
+      entry.index = entry.entries.length - 1;
+    } else if (entry.index > 0) {
+      entry.index -= 1;
+    }
+    inputEl.value = entry.entries[entry.index] || "";
+    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+    updateCmdPop(inputEl, cmdPopEl);
+    return true;
+  }
+  if (entry.index === null) return false;
+  ev.preventDefault();
+  if (entry.index < entry.entries.length - 1) {
+    entry.index += 1;
+    inputEl.value = entry.entries[entry.index] || "";
+  } else {
+    entry.index = null;
+    inputEl.value = entry.draft;
+  }
+  inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+  updateCmdPop(inputEl, cmdPopEl);
+  return true;
 }
 
 const FORMAT_KEYS: Record<string, string> = {
@@ -166,6 +237,13 @@ function bindUploadHandlers(deps: InputDeps) {
 
 export function bindInputHandlers(deps: InputDeps) {
   initCmdPop(deps.inputEl, deps.cmdPopEl);
+  deps.inputEl.addEventListener("input", () => {
+    const bufferId = deps.getActiveBuffer()?.id ?? null;
+    saveInputDraft(bufferId, deps.inputEl.value);
+  });
+  deps.inputEl.addEventListener("keydown", (ev) => {
+    handleHistoryKey(ev, deps.inputEl, deps.cmdPopEl, deps.getActiveBuffer()?.id ?? null);
+  });
   bindFormatShortcuts(deps.inputEl);
   bindUploadHandlers(deps);
   deps.inputForm.addEventListener("submit", (ev) => onSubmit(ev, deps));

@@ -3,7 +3,7 @@ import "./mobile.css";
 import { type ChannelListEntry, type Member, type Message, type Network, state } from "./app-state";
 import { connectWS, hydrate, nextReconnectDelay, scheduleReconnect } from "./connection";
 import { captureDom, type DomRefs } from "./dom";
-import { bindInputHandlers, updateInputEnabled } from "./input";
+import { bindInputHandlers, restoreInputDraft, saveInputDraft, updateCmdPop, updateInputEnabled } from "./input";
 import { populateMembersForActive, renderMembers } from "./members";
 import {
   inferUnreadCounts,
@@ -326,6 +326,7 @@ function renderPromptNick() {
 }
 
 function setActive(id: number, opts: { skipHash?: boolean; replaceHash?: boolean } = {}) {
+  if (dom && state.activeId != null) saveInputDraft(state.activeId, dom.inputEl.value, true);
   state.activeId = id;
   state.channelList = null;
   setSidebarDrawer(false);
@@ -346,6 +347,8 @@ function setActive(id: number, opts: { skipHash?: boolean; replaceHash?: boolean
   renderActiveViewLocal();
   renderMembersLocal();
   updateInputEnabledLocal();
+  restoreInputDraft(mustDom().inputEl, id);
+  updateCmdPop(mustDom().inputEl, mustDom().cmdPopEl);
   maybeMarkActiveRead();
   mustDom().inputEl.focus();
 }

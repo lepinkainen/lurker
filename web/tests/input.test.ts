@@ -2,8 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Buffer, state } from "../src/app-state";
 import {
   handleFormatKey,
+  handleHistoryKey,
   handleSlashCommand,
   insertTextAtCursor,
+  recordSentInput,
+  restoreInputDraft,
+  saveInputDraft,
   updateCmdPop,
   updateInputEnabled,
   uploadFile,
@@ -187,6 +191,65 @@ describe("insertTextAtCursor", () => {
     i.setSelectionRange(6, 11);
     insertTextAtCursor(i, "https://files.test/x.png");
     expect(i.value).toBe("hello https://files.test/x.png");
+  });
+});
+
+describe("input history", () => {
+  beforeEach(() => resetAppState());
+  afterEach(() => resetAppState());
+
+  function keyEvent(key: string) {
+    return new KeyboardEvent("keydown", { key, cancelable: true });
+  }
+
+  it("cycles sent messages per buffer and restores current draft", () => {
+    recordSentInput(1, "first");
+    recordSentInput(1, "second");
+    const input = document.createElement("input");
+    const pop = document.createElement("div");
+    input.value = "draft";
+
+    const up1 = keyEvent("ArrowUp");
+    expect(handleHistoryKey(up1, input, pop, 1)).toBe(true);
+    expect(input.value).toBe("second");
+    expect(up1.defaultPrevented).toBe(true);
+
+    const up2 = keyEvent("ArrowUp");
+    expect(handleHistoryKey(up2, input, pop, 1)).toBe(true);
+    expect(input.value).toBe("first");
+
+    const down1 = keyEvent("ArrowDown");
+    expect(handleHistoryKey(down1, input, pop, 1)).toBe(true);
+    expect(input.value).toBe("second");
+
+    const down2 = keyEvent("ArrowDown");
+    expect(handleHistoryKey(down2, input, pop, 1)).toBe(true);
+    expect(input.value).toBe("draft");
+  });
+
+  it("keeps history isolated per buffer", () => {
+    recordSentInput(1, "alpha");
+    recordSentInput(2, "beta");
+    const input = document.createElement("input");
+    const pop = document.createElement("div");
+
+    expect(handleHistoryKey(keyEvent("ArrowUp"), input, pop, 2)).toBe(true);
+    expect(input.value).toBe("beta");
+    expect(handleHistoryKey(keyEvent("ArrowDown"), input, pop, 2)).toBe(true);
+
+    expect(handleHistoryKey(keyEvent("ArrowUp"), input, pop, 1)).toBe(true);
+    expect(input.value).toBe("alpha");
+  });
+
+  it("saves and restores drafts per buffer", () => {
+    saveInputDraft(1, "hello");
+    saveInputDraft(2, "world");
+    const input = document.createElement("input");
+
+    restoreInputDraft(input, 1);
+    expect(input.value).toBe("hello");
+    restoreInputDraft(input, 2);
+    expect(input.value).toBe("world");
   });
 });
 
