@@ -122,7 +122,7 @@ When code changes warrant validation, prefer the smallest relevant checks:
 
 Be mindful that `task lint` runs formatting and linting and depends on frontend checks.
 
-Always run `task build` before claiming a task as "done"
+Always run `task build` before claiming a task as "done". Task build will run linters on front-end and backend and all unit tests as well as building the application.
 
 ## Ignore and generated content
 
