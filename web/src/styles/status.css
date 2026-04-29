@@ -13,8 +13,9 @@
   }
   .statusview .statuslines > div {
     padding: 1px 0;
-    white-space: nowrap;
-    overflow-x: auto;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .statusview .stts {
     color: var(--fg-3);
