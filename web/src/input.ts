@@ -40,7 +40,7 @@ export function updateCmdPop(inputEl: HTMLInputElement, cmdPopEl: HTMLElement) {
   matches.forEach((command, i) => {
     const row = document.createElement("div");
     row.className = `ci ${i === 0 ? "hl" : ""}`;
-    row.innerHTML = `<span class="c">${command.cmd} <span style="color:var(--fg-2);font-weight:400">${escapeHTML(command.args)}</span></span><span class="d">${escapeHTML(command.desc)}</span>`;
+    row.innerHTML = `<span class="c">${command.cmd} <span class="args">${escapeHTML(command.args)}</span></span><span class="d">${escapeHTML(command.desc)}</span>`;
     cmdPopEl.appendChild(row);
   });
   cmdPopEl.hidden = false;

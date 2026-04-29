@@ -94,6 +94,10 @@
     color: var(--accent);
     font-weight: 600;
   }
+  .cmdpop .ci .c .args {
+    color: var(--fg-2);
+    font-weight: 400;
+  }
   .cmdpop .ci .d {
     color: var(--fg-3);
   }

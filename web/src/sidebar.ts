@@ -59,8 +59,6 @@ export function renderSidebar(deps: SidebarDeps) {
   add.type = "button";
   add.className = "sb-add";
   add.innerHTML = "<span>+</span><span>Add a network</span>";
-  add.style.cssText =
-    "margin:10px 10px 6px;padding:6px 10px;width:calc(100% - 20px);display:flex;align-items:center;gap:8px;color:var(--fg-2);font-family:var(--sans);font-size:12px;border:1px dashed var(--hair-strong);border-radius:5px;";
   add.addEventListener("click", () => openNetworkForm(undefined, () => renderSidebar(deps)));
   sbScrollEl.appendChild(add);
 }

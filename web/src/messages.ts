@@ -57,12 +57,12 @@ export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
     topicText.textContent = network ? `${network.host || ""} · ${network.status || "offline"}` : "";
   } else {
     topicText.textContent = buffer.topic || "No topic set";
-    if (!buffer.topic) topicText.style.color = "var(--fg-3)";
+    topicText.classList.toggle("is-empty", !buffer.topic);
   }
   dom.bufferTopicEl.appendChild(topicText);
   if (buffer.topic_set_by) {
     const setter = document.createElement("span");
-    setter.style.cssText = "color:var(--fg-3);font-family:var(--mono);font-size:11px;margin-left:6px;";
+    setter.className = "topicsetter";
     setter.textContent = `— ${buffer.topic_set_by}`;
     dom.bufferTopicEl.appendChild(setter);
   }
