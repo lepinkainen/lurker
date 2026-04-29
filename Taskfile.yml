@@ -44,10 +44,10 @@ tasks:
       - go run .
 
   dev-web:
-    desc: Build the frontend then run backend serving it from disk
+    desc: Build the frontend then run backend via air (restarts 5s after Go edits settle)
     deps: [web-build]
     cmds:
-      - go run . --web-dir ./web/dist
+      - air
 
   seed-test:
     desc: Seed ./data-test with fake networks, buffers, and messages

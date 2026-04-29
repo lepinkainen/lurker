@@ -10,6 +10,7 @@
 config.yaml
 coverage.out
 .rodney/
+tmp/
 web/node_modules/
 web/dist/
 web/.vitest-attachments/
