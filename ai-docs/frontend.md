@@ -40,3 +40,7 @@ On load:
 5. apply incoming events incrementally
 
 See [rest-api.md](rest-api.md) for `/api/state` and [websocket-protocol.md](websocket-protocol.md) for incremental events.
+
+## Interaction specs
+
+- [keyboard-shortcuts.md](keyboard-shortcuts.md) defines the v1 keyboard shortcut set and channel switcher behavior.

@@ -121,4 +121,80 @@ describe("main UI", () => {
     await waitFor(() => (pop.hidden ? pop : null));
     expect(pop.hidden).toBe(true);
   });
+
+  it("opens shortcuts help with ?", async () => {
+    await __initForTests();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }));
+
+    const dialog = await waitFor(() =>
+      document.querySelector<HTMLDialogElement>("dialog[data-overlay='keyboard-help'][open]"),
+    );
+    expect(dialog.textContent).toContain("Keyboard shortcuts");
+    expect(dialog.textContent).toContain("Open channel switcher");
+  });
+
+  it("opens shortcuts help from header button", async () => {
+    await __initForTests();
+
+    const btn = document.getElementById("shortcuts-help-btn") as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    if (!btn) throw new Error("missing shortcuts help button");
+    btn.click();
+
+    const dialog = await waitFor(() =>
+      document.querySelector<HTMLDialogElement>("dialog[data-overlay='keyboard-help'][open]"),
+    );
+    expect(dialog.textContent).toContain("Keyboard shortcuts");
+  });
+
+  it("opens channel switcher and jumps to selected buffer", async () => {
+    await __initForTests();
+
+    const target = await waitFor(() => {
+      const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan:not(.active):not(.archives)");
+      return rows.length ? rows[0] : null;
+    });
+    const targetName = target.querySelector(".name")?.textContent || "";
+    expect(targetName).toBeTruthy();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true }));
+    const dialog = await waitFor(() =>
+      document.querySelector<HTMLDialogElement>("dialog[data-overlay='channel-switcher'][open]"),
+    );
+    const switcherInput = dialog.querySelector<HTMLInputElement>(".ks-input");
+    expect(switcherInput).not.toBeNull();
+    if (!switcherInput) throw new Error("missing switcher input");
+
+    switcherInput.value = targetName;
+    switcherInput.dispatchEvent(new Event("input", { bubbles: true }));
+    switcherInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    const active = await waitFor(() => {
+      const row = document.querySelector<HTMLButtonElement>("#sb-scroll .sbrow.chan.active");
+      return row?.querySelector(".name")?.textContent === targetName ? row : null;
+    });
+    expect(active).toBeTruthy();
+    expect(document.querySelector("dialog[data-overlay='channel-switcher'][open]")).toBeNull();
+  });
+
+  it("navigates visible buffers with alt+arrowdown", async () => {
+    await __initForTests();
+
+    const before = await waitFor(() =>
+      document.querySelector<HTMLButtonElement>("#sb-scroll .sbrow.chan.active, #sb-scroll .net-hdr.active"),
+    );
+    const beforeLabel = before.querySelector(".name, .netname")?.textContent || "";
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, bubbles: true }));
+
+    const after = await waitFor(() => {
+      const node = document.querySelector<HTMLButtonElement>(
+        "#sb-scroll .sbrow.chan.active, #sb-scroll .net-hdr.active",
+      );
+      const label = node?.querySelector(".name, .netname")?.textContent || "";
+      return label && label !== beforeLabel ? node : null;
+    });
+    expect(after).toBeTruthy();
+  });
 });

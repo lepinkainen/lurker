@@ -4,6 +4,7 @@ export type LayoutSettings = {
   collapsed: Record<number, boolean>;
   pinned: number[];
   archivesOpen: Record<number, boolean>;
+  sidebarHidden: boolean;
 };
 
 export type Network = {
@@ -105,7 +106,7 @@ export type AppState = {
 
 const LAYOUT_KEY = "lurker.layout";
 function defaultLayout(): LayoutSettings {
-  return { collapsed: {}, pinned: [], archivesOpen: {} };
+  return { collapsed: {}, pinned: [], archivesOpen: {}, sidebarHidden: false };
 }
 
 export function loadLayout(): LayoutSettings {

@@ -7,6 +7,11 @@ export function setSidebarDrawer(open: boolean) {
   else delete document.body.dataset.sidebarOpen;
 }
 
+export function setDesktopSidebarHidden(hidden: boolean) {
+  if (hidden) document.body.dataset.sidebarHidden = "true";
+  else delete document.body.dataset.sidebarHidden;
+}
+
 export function setMembersDrawer(open: boolean) {
   if (open) document.body.dataset.membersOpen = "true";
   else delete document.body.dataset.membersOpen;
@@ -15,6 +20,16 @@ export function setMembersDrawer(open: boolean) {
 export function closeAllDrawers() {
   setSidebarDrawer(false);
   setMembersDrawer(false);
+}
+
+export function toggleSidebarVisibility(sidebarHidden: boolean) {
+  if (isMobileViewport()) {
+    setSidebarDrawer(document.body.dataset.sidebarOpen !== "true");
+    return sidebarHidden;
+  }
+  const next = !sidebarHidden;
+  setDesktopSidebarHidden(next);
+  return next;
 }
 
 export function onBackdropClick(e: MouseEvent) {

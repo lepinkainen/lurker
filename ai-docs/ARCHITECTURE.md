@@ -9,6 +9,7 @@ This document is for AI agents and other technical readers. It gives the system 
 - [websocket-protocol.md](websocket-protocol.md) — `/api/stream` commands, acks, event shapes
 - [irc-runtime.md](irc-runtime.md) — `irc.Manager`, handler, event persistence, URL preview pipeline, event hub
 - [frontend.md](frontend.md) — web UI layout, source-of-truth rules, hydration model
+- [keyboard-shortcuts.md](keyboard-shortcuts.md) — channel switcher and keyboard shortcut UX spec
 - [testing-and-build.md](testing-and-build.md) — testing strategy and Taskfile workflow
 - [operations.md](operations.md) — operational notes including image update checking
 

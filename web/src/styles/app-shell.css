@@ -6,4 +6,17 @@
     height: 100vh;
     background: var(--bg-3);
   }
+
+  body[data-sidebar-hidden="true"] #app,
+  body[data-sidebar-hidden="true"] .app {
+    grid-template-columns: 0 minmax(0, 1fr) auto;
+  }
+
+  body[data-sidebar-hidden="true"] .sidebar {
+    border-right: 0;
+    width: 0;
+    min-width: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
 }

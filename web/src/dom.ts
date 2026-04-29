@@ -13,6 +13,7 @@ export type DomRefs = {
   bufferMemcountEl: HTMLElement;
   memberCountInlineEl: HTMLElement;
   toggleMembersEl: HTMLButtonElement;
+  shortcutsHelpBtnEl: HTMLButtonElement;
   mobileMenuEl: HTMLButtonElement;
   inputEl: HTMLInputElement;
   inputForm: HTMLFormElement;
@@ -47,6 +48,7 @@ export function captureDom(): DomRefs {
     bufferMemcountEl: mustEl<HTMLElement>("buffer-memcount"),
     memberCountInlineEl: mustEl<HTMLElement>("member-count-inline"),
     toggleMembersEl: mustEl<HTMLButtonElement>("toggle-members"),
+    shortcutsHelpBtnEl: mustEl<HTMLButtonElement>("shortcuts-help-btn"),
     mobileMenuEl: mustEl<HTMLButtonElement>("mobile-menu"),
     inputEl: mustEl<HTMLInputElement>("input"),
     inputForm: mustEl<HTMLFormElement>("input-form"),

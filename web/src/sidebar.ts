@@ -1,4 +1,5 @@
 import { type Buffer, type Network, type ReorderResponse, saveLayout, state } from "./app-state";
+import { groupedBuffers, orderedNetworks } from "./buffers";
 import { dotClass } from "./format";
 import { openNetworkForm } from "./network-form";
 
@@ -18,17 +19,7 @@ export type SidebarDeps = {
   iconEl: (symbolId: string, size: number, opts?: { className?: string; label?: string }) => SVGSVGElement;
 };
 
-function byName(a: Buffer, b: Buffer) {
-  return a.name.localeCompare(b.name);
-}
-
-export function orderedNetworks(): Network[] {
-  return [...state.networks.values()].sort((a, b) => {
-    const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER;
-    const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER;
-    return ao - bo || a.id - b.id;
-  });
-}
+export { orderedNetworks } from "./buffers";
 
 export function renderSidebar(deps: SidebarDeps) {
   const { sbScrollEl } = deps;
@@ -119,11 +110,8 @@ function networkSection(network: Network, deps: SidebarDeps) {
     renderSidebar(deps);
   });
 
-  const netBufs = [...state.buffers.values()].filter((buffer) => buffer.network_id === network.id);
-  const statusB = netBufs.find((buffer) => buffer.kind === "status");
-  const channels = netBufs.filter((buffer) => buffer.kind === "channel" && buffer.joined === true).sort(byName);
-  const queries = netBufs.filter((buffer) => buffer.kind === "query").sort(byName);
-  const parted = netBufs.filter((buffer) => buffer.kind === "channel" && buffer.joined !== true).sort(byName);
+  const { status: statusB, channels, queries, parted } = groupedBuffers(network.id);
+  const netBufs = [statusB, ...channels, ...queries, ...parted].filter(Boolean) as Buffer[];
   const headerActive = statusB && state.activeId === statusB.id;
   const dot = dotClass(network.status);
   const unreadTotal = netBufs.reduce((sum, buffer) => sum + (buffer.unread || 0), 0);

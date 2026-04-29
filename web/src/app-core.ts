@@ -4,6 +4,7 @@ import { type ChannelListEntry, type Member, type Message, type Network, state }
 import { connectWS, hydrate, nextReconnectDelay, scheduleReconnect } from "./connection";
 import { captureDom, type DomRefs } from "./dom";
 import { bindInputHandlers, restoreInputDraft, saveInputDraft, updateCmdPop, updateInputEnabled } from "./input";
+import { cleanupKeyboardShortcuts, initKeyboardShortcuts, openHelpOverlay } from "./keyboard-shortcuts";
 import { populateMembersForActive, renderMembers } from "./members";
 import {
   inferUnreadCounts,
@@ -61,14 +62,10 @@ export function start() {
   d.mobileMenuEl.addEventListener("click", () => {
     setSidebarDrawer(document.body.dataset.sidebarOpen !== "true");
   });
+  d.shortcutsHelpBtnEl.addEventListener("click", () => openHelpOverlay());
   document.getElementById("settings-btn")?.addEventListener("click", () => openSettingsDialog());
   document.addEventListener("click", onBackdropClick);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      setSidebarDrawer(false);
-      setMembersDrawer(false);
-    }
-  });
+  initKeyboardShortcuts({ inputEl: d.inputEl, setActive: (id: number) => setActive(id) });
   const onHash = () => onHashChange(setActive);
   window.addEventListener("hashchange", onHash);
   window.addEventListener("popstate", onHash);
@@ -392,6 +389,7 @@ function sendCmd(cmd: Record<string, unknown>) {
 }
 
 export function resetForTests() {
+  cleanupKeyboardShortcuts();
   resetAppState();
   if (domReady) renderPromptNick();
   dom = null;

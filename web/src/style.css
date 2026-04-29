@@ -9,6 +9,7 @@
 @import "./styles/status.css";
 @import "./styles/previews.css";
 @import "./styles/dialogs.css";
+@import "./styles/overlays.css";
 
 @layer base {
   :root {

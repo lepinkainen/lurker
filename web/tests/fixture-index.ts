@@ -24,7 +24,7 @@ export const fixtureIndexHTML = `<!doctype html>
         </div>
         <div id="sb-scroll" class="sbscroll"></div>
         <div class="sb-footer">
-          <button type="button" title="Account settings">
+          <button id="settings-btn" type="button" title="Account settings">
             <span>Account settings &amp; info</span>
           </button>
         </div>
@@ -41,6 +41,8 @@ export const fixtureIndexHTML = `<!doctype html>
             <span class="edit" aria-hidden="true"></span>
           </div>
           <div class="actions">
+            <select id="theme-select" class="theme-select" title="Theme" aria-label="Theme"></select>
+            <button id="shortcuts-help-btn" class="icbtn" type="button" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
             <span id="buffer-memcount" class="memcount" title="Members" hidden>
               <span id="member-count-inline">0</span>
             </span>
@@ -54,10 +56,12 @@ export const fixtureIndexHTML = `<!doctype html>
 
         <form id="input-form" class="inputbar">
           <div id="cmd-pop" class="cmdpop" hidden></div>
+          <input id="upload-input" class="upload-input" type="file" hidden />
           <div class="row">
             <span class="prompt"><span id="input-nick" class="you">—</span></span>
             <input id="input" class="msgin" type="text" autocomplete="off" placeholder="Message channel" disabled />
             <div class="actions">
+              <button id="upload-button" class="icbtn" type="button" title="Upload file" aria-label="Upload file"></button>
               <button class="icbtn" type="button" title="Slash commands" aria-label="Slash commands"></button>
               <button class="icbtn" type="submit" title="Send" aria-label="Send"></button>
             </div>
