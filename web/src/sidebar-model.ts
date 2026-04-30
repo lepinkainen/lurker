@@ -21,7 +21,13 @@ export type SidebarModel = {
 };
 
 export function pinnedBuffers(): Buffer[] {
-  return (state.layout.pinned || []).map((id) => state.buffers.get(id)).filter(Boolean) as Buffer[];
+  return [...state.buffers.values()]
+    .filter((buffer) => buffer.kind === "channel" && buffer.pinned)
+    .sort((a, b) => {
+      const an = state.networks.get(a.network_id)?.sort_order ?? Number.MAX_SAFE_INTEGER;
+      const bn = state.networks.get(b.network_id)?.sort_order ?? Number.MAX_SAFE_INTEGER;
+      return an - bn || a.name.localeCompare(b.name);
+    });
 }
 
 export function networkBuffers(networkId: number): NetworkBuffers {
@@ -52,9 +58,4 @@ export function prepareSidebarModel(): SidebarModel {
       }),
     disabledNetworks: networks.filter((network) => network.disabled),
   };
-}
-
-export function togglePinnedBuffer(id: number): void {
-  const pinned = state.layout.pinned || [];
-  state.layout.pinned = pinned.includes(id) ? pinned.filter((pinnedId) => pinnedId !== id) : [...pinned, id];
 }

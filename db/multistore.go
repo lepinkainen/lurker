@@ -234,6 +234,10 @@ func (ms *MultiStore) ListAllBuffers(ctx context.Context) ([]Buffer, error) {
 	if err != nil {
 		return nil, err
 	}
+	settings, err := ListBufferSettings(ctx, ms.Control)
+	if err != nil {
+		return nil, err
+	}
 	var out []Buffer
 	for _, n := range nets {
 		logStore, err := ms.LogStore(n.ID)
@@ -253,6 +257,15 @@ func (ms *MultiStore) ListAllBuffers(ctx context.Context) ([]Buffer, error) {
 				return nil, scanErr
 			}
 			b.NetworkID = n.ID
+			if s, ok := settings[b.ID]; ok {
+				b.ShowEmbeds = s.ShowEmbeds
+				b.ShowPresenceEvents = s.ShowPresenceEvents
+				b.CollapsePresenceEvents = s.CollapsePresenceEvents
+				b.Pinned = s.Pinned
+			} else {
+				b.ShowEmbeds = true
+				b.ShowPresenceEvents = true
+			}
 			var lastSeenID int64
 			if err := logStore.DB.QueryRowContext(ctx,
 				`SELECT COALESCE(topic,''), COALESCE(last_seen_id,0) FROM buffers WHERE name = ?`, b.Name,

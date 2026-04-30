@@ -27,14 +27,18 @@ type networkDTO struct {
 }
 
 type bufferDTO struct {
-	ID         int64  `json:"id"`
-	NetworkID  int64  `json:"network_id"`
-	Name       string `json:"name"`
-	Kind       string `json:"kind"`
-	Topic      string `json:"topic,omitzero"`
-	Joined     bool   `json:"joined"`
-	LastSeenID int64  `json:"last_seen_id,omitzero"`
-	CreatedAt  string `json:"created_at"`
+	ID                     int64  `json:"id"`
+	NetworkID              int64  `json:"network_id"`
+	Name                   string `json:"name"`
+	Kind                   string `json:"kind"`
+	Topic                  string `json:"topic,omitzero"`
+	Joined                 bool   `json:"joined"`
+	LastSeenID             int64  `json:"last_seen_id,omitzero"`
+	CreatedAt              string `json:"created_at"`
+	ShowEmbeds             bool   `json:"show_embeds"`
+	ShowPresenceEvents     bool   `json:"show_presence_events"`
+	CollapsePresenceEvents bool   `json:"collapse_presence_events"`
+	Pinned                 bool   `json:"pinned"`
 }
 
 type messageDTO struct {
@@ -100,6 +104,8 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		out.Buffers = append(out.Buffers, bufferDTO{
 			ID: b.ID, NetworkID: b.NetworkID, Name: b.Name, Kind: b.Kind,
 			Topic: b.Topic, Joined: joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
+			ShowEmbeds: b.ShowEmbeds, ShowPresenceEvents: b.ShowPresenceEvents,
+			CollapsePresenceEvents: b.CollapsePresenceEvents, Pinned: b.Pinned,
 		})
 		if b.Kind == ircdb.BufferChannel && s.Manager != nil {
 			if members := s.Manager.ChannelMembers(b.NetworkID, b.Name); members != nil {

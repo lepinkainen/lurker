@@ -300,6 +300,8 @@ export function openHelpOverlay() {
   header.className = "kh-header";
   header.append(title, close);
 
+  const altShift = (key: string) => ["Alt", "Shift", key].join("+");
+
   card.append(
     header,
     helpSection("General", [
@@ -310,8 +312,8 @@ export function openHelpOverlay() {
     helpSection("Buffer navigation", [
       ["Alt+↑", "Previous buffer"],
       ["Alt+↓", "Next buffer"],
-      ["Alt+Shift+↑", "Previous unread buffer"],
-      ["Alt+Shift+↓", "Next unread buffer"],
+      [altShift("↑"), "Previous unread buffer"],
+      [altShift("↓"), "Next unread buffer"],
       ["Alt+A", "Jump to first unread buffer"],
       ["Alt+M", "Next mention buffer"],
       ["Alt+S", "Jump to status buffer"],
@@ -343,11 +345,15 @@ function navigateBuffer(setActive: (id: number) => void, previous = false) {
 
 function isUnreadMessageBuffer(id: number): boolean {
   const buffer = state.buffers.get(id);
-  return !!buffer && buffer.kind !== "status" && buffer.unread > 0;
+  return !!buffer && buffer.kind === "channel" && buffer.unread > 0;
+}
+
+function activeChannelIds(): number[] {
+  return getVisibleSidebarBufferIds().filter((id) => state.buffers.get(id)?.kind === "channel");
 }
 
 function navigateUnread(setActive: (id: number) => void, previous = false) {
-  const ids = getVisibleSidebarBufferIds();
+  const ids = activeChannelIds();
   const next = previous
     ? previousMatchingBufferId(state.activeId, ids, isUnreadMessageBuffer)
     : nextMatchingBufferId(state.activeId, ids, isUnreadMessageBuffer);
@@ -355,13 +361,13 @@ function navigateUnread(setActive: (id: number) => void, previous = false) {
 }
 
 function navigateMention(setActive: (id: number) => void) {
-  const ids = getVisibleSidebarBufferIds();
+  const ids = activeChannelIds();
   const next = nextMatchingBufferId(state.activeId, ids, (id) => (state.buffers.get(id)?.mentions || 0) > 0);
   if (next != null) setActive(next);
 }
 
 function navigateFirstUnread(setActive: (id: number) => void) {
-  const firstUnread = getVisibleSidebarBufferIds().find(isUnreadMessageBuffer);
+  const firstUnread = activeChannelIds().find(isUnreadMessageBuffer);
   if (firstUnread != null && firstUnread !== state.activeId) setActive(firstUnread);
 }
 

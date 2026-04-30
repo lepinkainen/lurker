@@ -34,7 +34,17 @@ export async function hydrate(deps: ConnectionDeps) {
     state.me.nick = s.current_nick || s.nick || s.user?.nick || s.networks?.[0]?.nick || "you";
     for (const network of s.networks || []) state.networks.set(network.id, network);
     deps.renderPromptNick();
-    for (const buffer of s.buffers || []) state.buffers.set(buffer.id, { unread: 0, mentions: 0, ...buffer });
+    for (const buffer of s.buffers || []) {
+      state.buffers.set(buffer.id, {
+        unread: 0,
+        mentions: 0,
+        show_embeds: true,
+        show_presence_events: true,
+        collapse_presence_events: false,
+        pinned: false,
+        ...buffer,
+      });
+    }
     for (const [id, msgs] of Object.entries(s.initial_messages || {})) state.messages.set(+id, msgs as Message[]);
     for (const [id, members] of Object.entries(s.members || {})) state.members.set(+id, members as Member[]);
     if (updateRes?.ok) {

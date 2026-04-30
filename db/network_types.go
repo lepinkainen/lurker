@@ -25,13 +25,17 @@ const (
 // Buffer is global/API-facing buffer view built from control DB rows plus
 // derived or enriched state from per-network log DBs.
 type Buffer struct {
-	ID         int64
-	NetworkID  int64
-	Name       string
-	Kind       string
-	Topic      string
-	LastSeenID int64
-	CreatedAt  string
+	ID                     int64
+	NetworkID              int64
+	Name                   string
+	Kind                   string
+	Topic                  string
+	LastSeenID             int64
+	CreatedAt              string
+	ShowEmbeds             bool
+	ShowPresenceEvents     bool
+	CollapsePresenceEvents bool
+	Pinned                 bool
 }
 
 // StoredMessage is global/API-facing message view built from per-network log

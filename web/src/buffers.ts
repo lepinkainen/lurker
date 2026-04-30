@@ -31,8 +31,14 @@ export function getVisibleSidebarBufferIds(): number[] {
   const ids: number[] = [];
   const seen = new Set<number>();
 
-  for (const id of state.layout.pinned || []) {
-    pushDedup(ids, seen, state.buffers.get(id));
+  for (const buffer of [...state.buffers.values()]
+    .filter((buffer) => buffer.kind === "channel" && buffer.pinned)
+    .sort((a, b) => {
+      const an = state.networks.get(a.network_id)?.sort_order ?? Number.MAX_SAFE_INTEGER;
+      const bn = state.networks.get(b.network_id)?.sort_order ?? Number.MAX_SAFE_INTEGER;
+      return an - bn || a.name.localeCompare(b.name);
+    })) {
+    pushDedup(ids, seen, buffer);
   }
 
   for (const network of orderedNetworks()) {

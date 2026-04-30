@@ -109,6 +109,14 @@ type WSMessage =
   | ({ type: "message" } & Message)
   | { type: "buffer_created"; id: number; network_id: number; name: string; kind: string }
   | { type: "buffer_update"; id: number; topic?: string; joined?: boolean; last_seen_id?: number }
+  | {
+      type: "buffer_settings";
+      id: number;
+      show_embeds: boolean;
+      show_presence_events: boolean;
+      collapse_presence_events: boolean;
+      pinned: boolean;
+    }
   | { type: "network_state"; network_id: number; state: string }
   | { type: "history_result"; buffer_id: number; messages?: Message[] }
   | { type: "preview"; buffer_id: number; message_id: number; previews?: Message["previews"] }
@@ -136,11 +144,19 @@ function handleWSMessage(msg: WSMessage) {
         unread: 0,
         mentions: 0,
         last_seen_id: 0,
+        show_embeds: true,
+        show_presence_events: true,
+        collapse_presence_events: false,
+        pinned: false,
       });
       renderSidebarLocal();
       break;
     case "buffer_update":
       onBufferUpdate(msg, { inferUnreadCounts, renderHeader: renderHeaderLocal, renderSidebar: renderSidebarLocal });
+      break;
+    case "buffer_settings":
+      onBufferUpdate(msg, { inferUnreadCounts, renderHeader: renderHeaderLocal, renderSidebar: renderSidebarLocal });
+      renderActiveViewLocal();
       break;
     case "network_state": {
       const n = state.networks.get(msg.network_id);

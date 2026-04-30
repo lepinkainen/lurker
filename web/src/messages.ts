@@ -93,8 +93,9 @@ export function inferUnreadCounts() {
   for (const buffer of state.buffers.values()) {
     const list = state.messages.get(buffer.id) || [];
     const lastSeen = buffer.last_seen_id || 0;
-    const unread = list.filter((message) => message.id > lastSeen).length;
-    const mentions = list.filter((message) => message.id > lastSeen && mentionsMe(message, state.me.nick)).length;
+    const visible = list.filter((message) => !isHiddenPresence(message, buffer));
+    const unread = visible.filter((message) => message.id > lastSeen).length;
+    const mentions = visible.filter((message) => message.id > lastSeen && mentionsMe(message, state.me.nick)).length;
     buffer.unread = buffer.id === state.activeId ? 0 : unread;
     buffer.mentions = buffer.id === state.activeId ? 0 : mentions;
   }
@@ -111,7 +112,12 @@ export function onMessage(
   list.sort((a, b) => a.id - b.id);
   state.messages.set(msg.buffer_id, list);
   const buffer = state.buffers.get(msg.buffer_id);
-  if (buffer && msg.buffer_id !== state.activeId && msg.id > (buffer.last_seen_id || 0)) {
+  if (
+    buffer &&
+    msg.buffer_id !== state.activeId &&
+    msg.id > (buffer.last_seen_id || 0) &&
+    !isHiddenPresence(msg, buffer)
+  ) {
     buffer.unread = (buffer.unread || 0) + 1;
     if (mentionsMe(msg, state.me.nick)) buffer.mentions = (buffer.mentions || 0) + 1;
   }
@@ -132,6 +138,7 @@ export function onPreview(
   if (!message) return;
   message.previews = msg.previews || [];
   if (msg.buffer_id !== state.activeId) return;
+  if (state.buffers.get(msg.buffer_id)?.show_embeds === false) return;
   const row = messagesEl.querySelector(`[data-id="${msg.message_id}"]`);
   if (!row) return;
   const existing = row.querySelector(".previews");
@@ -141,7 +148,16 @@ export function onPreview(
 }
 
 export function onBufferUpdate(
-  msg: { id: number; topic?: string; joined?: boolean; last_seen_id?: number },
+  msg: {
+    id: number;
+    topic?: string;
+    joined?: boolean;
+    last_seen_id?: number;
+    show_embeds?: boolean;
+    show_presence_events?: boolean;
+    collapse_presence_events?: boolean;
+    pinned?: boolean;
+  },
   handlers: { inferUnreadCounts: () => void; renderHeader: () => void; renderSidebar: () => void },
 ) {
   const buffer = state.buffers.get(msg.id);
@@ -149,6 +165,10 @@ export function onBufferUpdate(
   if (Object.hasOwn(msg, "topic")) buffer.topic = msg.topic || "";
   if (Object.hasOwn(msg, "joined")) buffer.joined = !!msg.joined;
   if (Object.hasOwn(msg, "last_seen_id")) buffer.last_seen_id = msg.last_seen_id || 0;
+  if (Object.hasOwn(msg, "show_embeds")) buffer.show_embeds = !!msg.show_embeds;
+  if (Object.hasOwn(msg, "show_presence_events")) buffer.show_presence_events = !!msg.show_presence_events;
+  if (Object.hasOwn(msg, "collapse_presence_events")) buffer.collapse_presence_events = !!msg.collapse_presence_events;
+  if (Object.hasOwn(msg, "pinned")) buffer.pinned = !!msg.pinned;
   handlers.inferUnreadCounts();
   handlers.renderHeader();
   handlers.renderSidebar();
@@ -225,6 +245,7 @@ function renderMessages(messagesEl: HTMLElement) {
   let lastDayKey = null;
 
   for (const message of list) {
+    if (isHiddenPresence(message, buffer)) continue;
     const dayKey = dayKeyOf(message.ts);
     if (dayKey && dayKey !== lastDayKey) {
       messagesEl.appendChild(daySeparator(message.ts));
@@ -286,9 +307,14 @@ function messageRow(message: Message) {
   }
 
   row.append(ts, gutter, nick, body);
-  const previewsEl = renderPreviews(message.previews);
+  const buffer = state.buffers.get(message.buffer_id);
+  const previewsEl = buffer?.show_embeds === false ? null : renderPreviews(message.previews);
   if (previewsEl) row.appendChild(previewsEl);
   return row;
+}
+
+function isHiddenPresence(message: Message, buffer: import("./app-state").Buffer | undefined) {
+  return buffer?.show_presence_events === false && ["join", "part", "quit", "nick"].includes(message.kind || "");
 }
 
 function renderBodyHTML(message: Message) {

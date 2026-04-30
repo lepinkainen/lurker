@@ -31,6 +31,10 @@ export type Buffer = {
   last_seen_id?: number;
   unread: number;
   mentions: number;
+  show_embeds: boolean;
+  show_presence_events: boolean;
+  collapse_presence_events: boolean;
+  pinned: boolean;
 };
 
 export type Message = {

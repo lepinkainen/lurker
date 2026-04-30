@@ -1,10 +1,11 @@
 import { type Buffer, type Network, saveLayout, state } from "./app-state";
+import { patchBufferSettings } from "./buffer-settings-api";
 import { orderedNetworks } from "./buffers";
 import { dotClass } from "./format";
 import { reorderNetworks, setNetworkDisabled } from "./network-api";
 import { openNetworkForm } from "./network-form";
 import { attachNetworkDragHandlers } from "./sidebar-dnd";
-import { prepareSidebarModel, type SidebarNetworkModel, togglePinnedBuffer } from "./sidebar-model";
+import { prepareSidebarModel, type SidebarNetworkModel } from "./sidebar-model";
 
 export type SidebarDeps = {
   sbScrollEl: HTMLDivElement;
@@ -36,7 +37,13 @@ function appendPinnedSection(root: HTMLElement, pinned: Buffer[], deps: SidebarD
   sec.className = "sb-section";
   const hdr = document.createElement("div");
   hdr.className = "sb-hdr pinned-hdr";
-  hdr.innerHTML = '<span class="pinico">⚑</span><span class="title">Pinned</span>';
+  const icon = document.createElement("span");
+  icon.className = "pinico";
+  icon.textContent = "⚑";
+  const title = document.createElement("span");
+  title.className = "title";
+  title.textContent = "Pinned";
+  hdr.append(icon, title);
   sec.appendChild(hdr);
   for (const buffer of pinned) sec.appendChild(bufferRow(buffer, deps, { pinned: true }));
   root.appendChild(sec);
@@ -224,7 +231,10 @@ function bufferRow(buffer: Buffer, deps: SidebarDeps, opts: { pinned?: boolean }
   btn.appendChild(span("name", buffer.kind === "status" ? "(status)" : buffer.name));
   if (buffer.mentions > 0) btn.appendChild(badge("mentionbadge", buffer.mentions));
   else if (buffer.unread > 0) btn.appendChild(badge("unreadbadge", buffer.unread));
-  btn.appendChild(pinToggle(buffer, deps, !!opts.pinned));
+  if (buffer.kind === "channel") {
+    btn.appendChild(channelOptionsToggle(buffer, deps));
+    btn.appendChild(pinToggle(buffer, deps));
+  }
   btn.addEventListener("click", () => deps.setActive(buffer.id));
   return btn;
 }
@@ -244,19 +254,17 @@ function bufferRowClass(buffer: Buffer, pinned = false) {
     .join(" ");
 }
 
-function pinToggle(buffer: Buffer, deps: SidebarDeps, pinned: boolean) {
+function pinToggle(buffer: Buffer, deps: SidebarDeps) {
   const pin = document.createElement("span");
-  pin.className = ["pin-toggle", pinned && "active"].filter(Boolean).join(" ");
+  pin.className = ["pin-toggle", buffer.pinned && "active"].filter(Boolean).join(" ");
   pin.role = "button";
   pin.tabIndex = 0;
-  pin.title = pinned ? "Unpin buffer" : "Pin buffer";
+  pin.title = buffer.pinned ? "Unpin channel" : "Pin channel";
   pin.setAttribute("aria-label", pin.title);
-  pin.textContent = pinned ? "⚑" : "⚐";
+  pin.textContent = buffer.pinned ? "⚑" : "⚐";
   const toggle = (e: Event) => {
     e.stopPropagation();
-    togglePinnedBuffer(buffer.id);
-    saveLayout(state.layout);
-    rerender(deps);
+    void updateBufferSettings(buffer, { pinned: !buffer.pinned }, deps);
   };
   pin.addEventListener("click", toggle);
   pin.addEventListener("keydown", (e) => {
@@ -265,6 +273,90 @@ function pinToggle(buffer: Buffer, deps: SidebarDeps, pinned: boolean) {
     toggle(e);
   });
   return pin;
+}
+
+function channelOptionsToggle(buffer: Buffer, deps: SidebarDeps) {
+  const opt = document.createElement("span");
+  opt.className = "chan-options";
+  opt.role = "button";
+  opt.tabIndex = 0;
+  opt.title = "Channel display options";
+  opt.setAttribute("aria-label", opt.title);
+  opt.textContent = "⋯";
+  const open = (e: Event) => {
+    e.stopPropagation();
+    openChannelOptions(buffer, deps);
+  };
+  opt.addEventListener("click", open);
+  opt.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    open(e);
+  });
+  return opt;
+}
+
+function openChannelOptions(buffer: Buffer, deps: SidebarDeps) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "settings-dialog channel-options-dialog";
+  const title = document.createElement("h2");
+  title.textContent = `${buffer.name} display`;
+  const form = document.createElement("div");
+  form.className = "settings-form";
+  form.append(
+    settingCheckbox("Pin", buffer.pinned, (checked) => updateBufferSettings(buffer, { pinned: checked }, deps)),
+    settingCheckbox("Show embeds", buffer.show_embeds, (checked) =>
+      updateBufferSettings(buffer, { show_embeds: checked }, deps),
+    ),
+    settingCheckbox("Show nick changes, joins and parts", buffer.show_presence_events, (checked) =>
+      updateBufferSettings(buffer, { show_presence_events: checked }, deps),
+    ),
+  );
+  if (buffer.show_presence_events) {
+    form.append(
+      settingCheckbox("Collapse presence events", buffer.collapse_presence_events, (checked) =>
+        updateBufferSettings(buffer, { collapse_presence_events: checked }, deps),
+      ),
+    );
+  }
+  const close = document.createElement("button");
+  close.type = "button";
+  close.textContent = "Close";
+  close.addEventListener("click", () => dialog.close());
+  dialog.append(title, form, close);
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.appendChild(dialog);
+  dialog.showModal();
+}
+
+function settingCheckbox(labelText: string, checked: boolean, onChange: (checked: boolean) => Promise<void>) {
+  const label = document.createElement("label");
+  label.className = "setting-row";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = checked;
+  input.addEventListener("change", () => void onChange(input.checked));
+  label.append(input, document.createTextNode(labelText));
+  return label;
+}
+
+async function updateBufferSettings(
+  buffer: Buffer,
+  patch: Partial<Pick<Buffer, "show_embeds" | "show_presence_events" | "collapse_presence_events" | "pinned">>,
+  deps: SidebarDeps,
+) {
+  const previous = { ...buffer };
+  Object.assign(buffer, patch);
+  rerender(deps);
+  try {
+    const updated = await patchBufferSettings(buffer.id, patch);
+    Object.assign(buffer, updated);
+    rerender(deps);
+  } catch (err) {
+    console.error("buffer settings", err);
+    Object.assign(buffer, previous);
+    rerender(deps);
+  }
 }
 
 function tlsLockIcon(deps: SidebarDeps) {
