@@ -1,15 +1,15 @@
 @layer base, components, utilities;
 
-@import "./styles/app-shell.css";
-@import "./styles/sidebar.css";
-@import "./styles/topicbar.css";
-@import "./styles/messages.css";
-@import "./styles/input.css";
-@import "./styles/members.css";
-@import "./styles/status.css";
-@import "./styles/previews.css";
-@import "./styles/dialogs.css";
-@import "./styles/overlays.css";
+@import url("./styles/app-shell.css");
+@import url("./styles/sidebar.css");
+@import url("./styles/topicbar.css");
+@import url("./styles/messages.css");
+@import url("./styles/input.css");
+@import url("./styles/members.css");
+@import url("./styles/status.css");
+@import url("./styles/previews.css");
+@import url("./styles/dialogs.css");
+@import url("./styles/overlays.css");
 
 @layer base {
   :root {
@@ -20,57 +20,47 @@
     --bg-4: #1f2030;
     --bg-5: #24253a;
     --bg-input: #0b0c13;
-
     --fg-0: #c0caf5;
     --fg-1: #a9b1d6;
     --fg-2: #787c99;
     --fg-3: #565a7a;
-
     --hair: #20212d;
     --hair-strong: #2a2b3a;
-
     --accent: #9ece6a;
-    --accent-soft: rgba(158, 206, 106, 0.14);
+    --accent-soft: rgb(158 206 106 / 14%);
     --accent-strong: #b4d88a;
-
     --green: #9ece6a;
     --yellow: #e0af68;
     --orange: #ff9e64;
     --red: #f7768e;
     --magenta: #bb9af7;
     --cyan: #7dcfff;
-
     --mention: #e0af68;
-    --mention-soft: rgba(224, 175, 104, 0.1);
-    --mention-soft-hover: rgba(224, 175, 104, 0.15);
-
+    --mention-soft: rgb(224 175 104 / 10%);
+    --mention-soft-hover: rgb(224 175 104 / 15%);
     --surface-contrast-fg: var(--bg-3);
     --topicbar-rule: color-mix(in srgb, var(--hair-strong) 50%, transparent);
-
     --nick-l: 72%;
     --nick-c: 0.12;
-
     --row-pad-y: 1px;
     --msg-font-size: 0.9rem;
     --msg-line-height: 1.45;
-
-    --sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-
-    --mirc-c-0: #ffffff;
-    --mirc-c-1: #000000;
+    --sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", roboto, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, sfmono-regular, menlo, consolas, monospace;
+    --mirc-c-0: #fff;
+    --mirc-c-1: #000;
     --mirc-c-2: #00007f;
     --mirc-c-3: #009300;
-    --mirc-c-4: #ff0000;
+    --mirc-c-4: #f00;
     --mirc-c-5: #7f0000;
     --mirc-c-6: #9c009c;
     --mirc-c-7: #fc7f00;
-    --mirc-c-8: #ffff00;
+    --mirc-c-8: #ff0;
     --mirc-c-9: #00fc00;
     --mirc-c-10: #009393;
-    --mirc-c-11: #00ffff;
+    --mirc-c-11: #0ff;
     --mirc-c-12: #0000fc;
-    --mirc-c-13: #ff00ff;
+    --mirc-c-13: #f0f;
     --mirc-c-14: #7f7f7f;
     --mirc-c-15: #d2d2d2;
   }
@@ -80,11 +70,13 @@
     --msg-font-size: 0.9rem;
     --msg-line-height: 1.45;
   }
+
   html[data-density="balanced"] {
     --row-pad-y: 3px;
     --msg-font-size: 0.95rem;
     --msg-line-height: 1.55;
   }
+
   html[data-density="comfortable"] {
     --row-pad-y: 6px;
     --msg-font-size: 1rem;
@@ -94,6 +86,7 @@
   * {
     box-sizing: border-box;
   }
+
   html,
   body {
     margin: 0;
@@ -104,9 +97,11 @@
     font-size: 1rem;
     -webkit-font-smoothing: antialiased;
   }
+
   body {
     overflow: hidden;
   }
+
   button {
     font: inherit;
     color: inherit;
@@ -114,11 +109,13 @@
     border: 0;
     cursor: pointer;
   }
+
   input,
   textarea {
     font: inherit;
     color: inherit;
   }
+
   ::selection {
     background: var(--accent-soft);
     color: var(--accent-strong);
@@ -128,15 +125,18 @@
     width: 10px;
     height: 10px;
   }
+
   *::-webkit-scrollbar-track {
     background: transparent;
   }
+
   *::-webkit-scrollbar-thumb {
     background: color-mix(in srgb, var(--hair-strong) 80%, transparent);
     border-radius: 10px;
     border: 2px solid transparent;
     background-clip: padding-box;
   }
+
   *::-webkit-scrollbar-thumb:hover {
     background: color-mix(in srgb, var(--fg-3) 70%, transparent);
     background-clip: padding-box;
@@ -146,7 +146,7 @@
     display: inline-block;
     vertical-align: text-bottom;
     fill: none;
-    stroke: currentColor;
+    stroke: currentcolor;
     flex-shrink: 0;
   }
 }

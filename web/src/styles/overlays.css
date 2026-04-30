@@ -6,13 +6,14 @@
     border-radius: 10px;
     background: var(--bg-2);
     color: var(--fg-0);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
     width: min(92vw, 720px);
     max-width: 92vw;
   }
+
   .ks-dialog::backdrop,
   .kh-dialog::backdrop {
-    background: rgba(0, 0, 0, 0.55);
+    background: rgb(0 0 0 / 55%);
   }
 
   .ks-card,
@@ -39,6 +40,7 @@
     padding: 11px 12px;
     outline: none;
   }
+
   .ks-input:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent);
@@ -63,6 +65,7 @@
     text-align: left;
     color: var(--fg-1);
   }
+
   .ks-result:hover,
   .ks-result.selected {
     background: var(--bg-4);
@@ -75,6 +78,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
   .ks-result-meta {
     color: var(--fg-2);
     font-size: 0.9rem;
@@ -82,12 +86,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
   .ks-result-flags {
     display: inline-flex;
     gap: 6px;
     justify-content: flex-end;
     flex-wrap: wrap;
   }
+
   .ks-flag {
     font-size: 0.72rem;
     line-height: 1.2;
@@ -96,13 +102,16 @@
     border-radius: 999px;
     padding: 3px 7px;
   }
+
   .ks-flag.mention {
     background: var(--mention);
     color: var(--surface-contrast-fg);
   }
+
   .ks-flag.unread {
     color: var(--accent-strong);
   }
+
   .ks-empty {
     color: var(--fg-2);
     padding: 4px 2px;
@@ -114,20 +123,24 @@
     justify-content: space-between;
     gap: 12px;
   }
+
   .kh-close {
     border: 1px solid var(--hair-strong);
     border-radius: 6px;
     padding: 6px 10px;
     color: var(--fg-1);
   }
+
   .kh-close:hover {
     background: var(--bg-4);
     color: var(--fg-0);
   }
+
   .kh-section {
     display: grid;
     gap: 6px;
   }
+
   .kh-title {
     margin: 0;
     color: var(--fg-2);
@@ -135,21 +148,24 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
+
   .kh-row {
     display: grid;
     grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
     gap: 12px;
     align-items: start;
   }
+
   .kh-keys {
     font-family: var(--mono);
     color: var(--fg-0);
   }
+
   .kh-desc {
     color: var(--fg-1);
   }
 
-  @media (max-width: 640px) {
+  @media (width <= 640px) {
     .ks-dialog,
     .kh-dialog {
       width: min(96vw, 720px);

@@ -24,6 +24,7 @@
     font-size: 0.9rem;
     position: relative;
   }
+
   .topicbar::after {
     content: "";
     position: absolute;
@@ -33,15 +34,18 @@
     height: 1px;
     background: linear-gradient(to right, transparent, var(--topicbar-rule), transparent);
   }
+
   .topicbar .chan {
     font-family: var(--mono);
     font-weight: 600;
     font-size: 1.1rem;
     color: var(--fg-0);
   }
+
   .topicbar .chan .hash {
     color: var(--accent);
   }
+
   .topicbar .title {
     display: flex;
     align-items: baseline;
@@ -63,9 +67,11 @@
     align-items: center;
     gap: 6px;
   }
+
   .topicbar .topic:hover {
     background: var(--bg-4);
   }
+
   .topicbar .topic .topictext {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -73,6 +79,7 @@
     flex: 1;
     min-width: 0;
   }
+
   .topicbar .topic .topictext.is-empty {
     color: var(--fg-3);
   }
@@ -83,10 +90,12 @@
     font-size: 11px;
     margin-left: 6px;
   }
+
   .topicbar .topic .edit {
     opacity: 0;
     color: var(--fg-3);
   }
+
   .topicbar .topic:hover .edit {
     opacity: 1;
   }
@@ -97,6 +106,7 @@
     align-items: center;
     color: var(--fg-2);
   }
+
   .topicbar .actions .memcount {
     display: inline-flex;
     align-items: center;
@@ -107,9 +117,11 @@
     border-radius: 3px;
     color: var(--fg-1);
   }
+
   .topicbar .actions .memcount[hidden] {
     display: none;
   }
+
   .topicbar .actions .icbtn {
     width: 24px;
     height: 24px;
@@ -118,10 +130,12 @@
     place-items: center;
     color: var(--fg-2);
   }
+
   .topicbar .actions .icbtn:hover {
     background: var(--bg-4);
     color: var(--fg-0);
   }
+
   .topicbar .actions .icbtn.toggled {
     color: var(--accent);
     background: var(--accent-soft);

@@ -8,20 +8,23 @@
     color: var(--fg-1);
     background: var(--bg-3);
   }
+
   .statusview[hidden] {
     display: none;
   }
+
   .statusview .statuslines > div {
     padding: 1px 0;
     white-space: normal;
     overflow-wrap: anywhere;
-    word-break: break-word;
   }
+
   .statusview .stts {
     color: var(--fg-3);
     font-size: 0.8rem;
     margin-right: 10px;
   }
+
   .statusview .stcat {
     display: inline-block;
     min-width: 28px;
@@ -29,12 +32,15 @@
     color: var(--fg-2);
     font-weight: 500;
   }
+
   .statusview .stcat.ok {
     color: var(--green);
   }
+
   .statusview .stcat.bad {
     color: var(--red);
   }
+
   .statusview .stdim {
     color: var(--fg-3);
   }
@@ -49,6 +55,7 @@
     padding: 2px 6px;
     cursor: pointer;
   }
+
   .theme-select:hover {
     color: var(--fg-0);
     border-color: var(--accent);

@@ -6,6 +6,7 @@
     flex-direction: column;
     overflow: hidden;
   }
+
   .memberpane[data-hidden="true"] {
     display: none;
   }
@@ -17,12 +18,14 @@
     justify-content: space-between;
     border-bottom: 1px solid var(--hair);
   }
+
   .mheader .lbl {
     font-family: var(--mono);
     font-size: 0.8rem;
     color: var(--fg-1);
     text-transform: lowercase;
   }
+
   .mheader .count {
     font-family: var(--mono);
     font-size: 0.8rem;
@@ -36,6 +39,7 @@
     font-family: var(--mono);
     font-size: 0.9rem;
   }
+
   .mgroup {
     padding: 8px 12px 2px;
     font-family: var(--mono);
@@ -43,6 +47,7 @@
     color: var(--fg-3);
     letter-spacing: 0.06em;
   }
+
   .member {
     display: grid;
     grid-template-columns: 12px minmax(0, 1fr);
@@ -57,42 +62,51 @@
     white-space: nowrap;
     width: calc(100% - 8px);
   }
+
   .member:hover {
     background: var(--bg-4);
     color: var(--fg-0);
   }
+
   .member .pfx {
     font-family: var(--mono);
     font-weight: 700;
     font-size: 0.8rem;
     text-align: center;
   }
+
   .member .pfx.op {
     color: var(--red);
   }
+
   .member .pfx.hop {
     color: var(--magenta);
   }
+
   .member .pfx.voice {
     color: var(--green);
   }
+
   .member .pfx.none {
     color: transparent;
   }
+
   .member .mn {
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
   }
+
   .member.away .mn {
     color: var(--fg-3);
   }
+
   .member.me .mn {
     color: var(--accent);
     font-weight: 600;
   }
 
-  @media (max-width: 1100px) {
+  @media (width <= 1100px) {
     .memberpane {
       display: none;
     }

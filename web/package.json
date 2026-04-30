@@ -10,8 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "biome check src tests",
-    "lint:fix": "biome check --write src tests",
+    "lint": "biome check src tests && stylelint \"src/**/*.css\"",
+    "lint:fix": "biome check --write src tests && stylelint \"src/**/*.css\" --fix",
     "format": "biome format --write src tests"
   },
   "devDependencies": {
@@ -20,6 +20,8 @@
     "@vitest/browser-playwright": "^4.1.5",
     "@vitest/coverage-v8": "^4.1.5",
     "playwright": "^1.59.1",
+    "stylelint": "^17.9.1",
+    "stylelint-config-standard": "^40.0.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.11",
     "vitest": "^4.1.5"

@@ -10,37 +10,44 @@
     max-height: calc(100vh - 64px);
     overflow-y: auto;
   }
+
   .nf-dialog::backdrop {
-    background: rgba(0, 0, 0, 0.6);
+    background: rgb(0 0 0 / 60%);
   }
+
   .nf-form {
     display: flex;
     flex-direction: column;
     gap: 12px;
     padding: 24px;
   }
+
   .nf-title {
     margin: 0 0 4px;
     font-size: 1rem;
     font-weight: 600;
     color: var(--fg-0);
   }
+
   .nf-field {
     display: flex;
     flex-direction: column;
     gap: 4px;
     flex: 1;
   }
+
   .nf-row {
     display: flex;
     gap: 12px;
     align-items: flex-end;
   }
+
   .nf-label {
     font-size: 0.8rem;
     color: var(--fg-2);
     font-family: var(--sans);
   }
+
   .nf-input {
     background: var(--bg-input);
     border: 1px solid var(--hair-strong);
@@ -51,35 +58,42 @@
     padding: 6px 8px;
     width: 100%;
   }
+
   .nf-input:focus {
     outline: none;
     border-color: var(--accent);
   }
+
   .nf-input-sm {
     width: 90px;
   }
+
   .nf-checkbox-wrap {
     display: flex;
     align-items: center;
     gap: 6px;
     padding-bottom: 8px;
   }
+
   .nf-checkbox {
     accent-color: var(--accent);
     width: 14px;
     height: 14px;
     cursor: pointer;
   }
+
   .nf-checkbox-label {
     font-size: 0.85rem;
     color: var(--fg-1);
     cursor: pointer;
   }
+
   .nf-section {
     border: 1px solid var(--hair);
     border-radius: 4px;
     padding: 8px 10px;
   }
+
   .nf-section-title {
     font-size: 0.8rem;
     color: var(--fg-2);
@@ -87,25 +101,30 @@
     user-select: none;
     margin-bottom: 0;
   }
+
   details[open].nf-section .nf-section-title {
     margin-bottom: 10px;
   }
+
   details[open].nf-section {
     display: flex;
     flex-direction: column;
     gap: 10px;
   }
+
   .nf-error {
     color: var(--red);
     font-size: 0.85rem;
     margin: 0;
   }
+
   .nf-actions {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
     margin-top: 4px;
   }
+
   .nf-btn {
     padding: 6px 16px;
     border-radius: 4px;
@@ -114,20 +133,24 @@
     border: 1px solid var(--hair-strong);
     color: var(--fg-1);
   }
+
   .nf-btn:hover {
     background: var(--bg-4);
     color: var(--fg-0);
   }
+
   .nf-btn-primary {
     background: var(--accent);
     border-color: var(--accent);
     color: var(--bg-0);
     font-weight: 600;
   }
+
   .nf-btn-primary:hover {
     background: var(--accent-strong);
     border-color: var(--accent-strong);
   }
+
   .nf-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
@@ -144,20 +167,24 @@
     max-height: calc(100vh - 64px);
     overflow-y: auto;
   }
+
   .sd-dialog::backdrop {
-    background: rgba(0, 0, 0, 0.6);
+    background: rgb(0 0 0 / 60%);
   }
+
   .sd-inner {
     display: flex;
     flex-direction: column;
     gap: 12px;
     padding: 24px;
   }
+
   .sd-title {
     font-size: 1.1rem;
     font-weight: 600;
     margin: 0 0 4px;
   }
+
   .sd-section-title {
     font-size: 0.85rem;
     font-weight: 600;
@@ -166,29 +193,35 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
+
   .sd-desc {
     font-size: 0.85rem;
     color: var(--fg-2);
     margin: 0;
   }
+
   .sd-error {
     color: var(--red);
     font-size: 0.85rem;
     margin: 0;
   }
+
   .sd-msg {
     color: var(--green, #4caf50);
     font-size: 0.85rem;
     margin: 0;
   }
+
   .sd-diff {
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
+
   .sd-diff[hidden] {
     display: none;
   }
+
   .sd-diff-label {
     font-size: 0.75rem;
     font-weight: 600;
@@ -196,6 +229,7 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
+
   .sd-pre {
     background: var(--bg-1);
     border: 1px solid var(--hair);
@@ -209,19 +243,23 @@
     overflow-y: auto;
     white-space: pre;
   }
+
   .sd-line {
     display: block;
   }
+
   .sd-line-add {
     background: color-mix(in oklch, var(--green, #4caf50) 18%, transparent);
     color: color-mix(in oklch, var(--green, #4caf50) 80%, var(--fg-0));
   }
+
   .sd-line-remove {
     background: color-mix(in oklch, var(--red) 18%, transparent);
     color: color-mix(in oklch, var(--red) 80%, var(--fg-0));
     text-decoration: line-through;
     opacity: 0.7;
   }
+
   .sd-btn {
     padding: 6px 16px;
     border-radius: 4px;
@@ -231,33 +269,40 @@
     color: var(--fg-1);
     align-self: flex-start;
   }
+
   .sd-btn:hover {
     background: var(--bg-4);
     color: var(--fg-0);
   }
+
   .sd-btn-primary {
     background: var(--accent);
     border-color: var(--accent);
     color: var(--bg-0);
     font-weight: 600;
   }
+
   .sd-btn-primary:hover {
     background: var(--accent-strong);
     border-color: var(--accent-strong);
   }
+
   .sd-btn-secondary {
     background: transparent;
   }
+
   .sd-btn-ghost {
     background: transparent;
     color: var(--fg-2);
     align-self: flex-end;
     margin-top: 4px;
   }
+
   .sd-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
+
   .sd-close {
     align-self: flex-end;
   }
