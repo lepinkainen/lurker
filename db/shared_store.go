@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 )
 
 type bufferRegistryRow struct {
@@ -91,7 +92,7 @@ func upsertBufferRegistryOrLogRow[T any](ctx context.Context, d *sql.DB, selectQ
 	if err == nil {
 		return id, false, out, nil
 	}
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, false, out, err
 	}
 	res, err := d.ExecContext(ctx, insertQuery, insertArgs...)

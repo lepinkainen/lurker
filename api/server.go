@@ -5,7 +5,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"io/fs"
 	"net/http"
 	"path"
@@ -86,10 +85,9 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listThemes(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	if s.Themes == nil {
-		_ = json.NewEncoder(w).Encode(map[string]any{"themes": []any{}})
+		writeJSON(w, http.StatusOK, map[string]any{"themes": []any{}})
 		return
 	}
 	themes, err := s.Themes.Load()
@@ -97,12 +95,11 @@ func (s *Server) listThemes(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "load themes: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"themes": themes})
+	writeJSON(w, http.StatusOK, map[string]any{"themes": themes})
 }
 
 func (s *Server) whoami(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	writeJSON(w, http.StatusOK, map[string]string{
 		"name":       s.AppName,
 		"version":    s.Version,
 		"hash":       s.GitHash,

@@ -121,7 +121,7 @@ func seed(ctx context.Context, stores *ircdb.MultiStore, networks []seedNetwork)
 }
 
 func seedStatus(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID int64, base time.Time) error {
-	_, localID, err := resolveLocalBuffer(ctx, stores, log, networkID, "", ircdb.BufferStatus)
+	localID, err := resolveLocalBuffer(ctx, stores, log, networkID, "", ircdb.BufferStatus)
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func seedStatus(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogSto
 }
 
 func seedChannelBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID int64, c seedChannel, base time.Time) error {
-	_, localID, err := resolveLocalBuffer(ctx, stores, log, networkID, c.Name, ircdb.BufferChannel)
+	localID, err := resolveLocalBuffer(ctx, stores, log, networkID, c.Name, ircdb.BufferChannel)
 	if err != nil {
 		return err
 	}
@@ -148,23 +148,19 @@ func seedChannelBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb
 }
 
 func seedQueryBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID int64, q seedQuery, base time.Time) error {
-	_, localID, err := resolveLocalBuffer(ctx, stores, log, networkID, q.Nick, ircdb.BufferQuery)
+	localID, err := resolveLocalBuffer(ctx, stores, log, networkID, q.Nick, ircdb.BufferQuery)
 	if err != nil {
 		return err
 	}
 	return insertLines(ctx, log, localID, q.Lines, base)
 }
 
-func resolveLocalBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID int64, name, kind string) (globalID, localID int64, err error) {
-	globalID, _, _, err = stores.UpsertBufferRegistry(ctx, networkID, name, kind)
-	if err != nil {
-		return 0, 0, err
+func resolveLocalBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID int64, name, kind string) (localID int64, err error) {
+	if _, _, _, err = stores.UpsertBufferRegistry(ctx, networkID, name, kind); err != nil {
+		return 0, err
 	}
 	localID, _, _, err = ircdb.UpsertLogBuffer(ctx, log.DB, networkID, name, kind)
-	if err != nil {
-		return 0, 0, err
-	}
-	return globalID, localID, nil
+	return localID, err
 }
 
 func insertLines(ctx context.Context, log *ircdb.LogStore, bufferID int64, lines []seedLine, base time.Time) error {

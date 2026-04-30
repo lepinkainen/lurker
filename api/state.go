@@ -246,7 +246,13 @@ func toChannelMemberDTOs(in []ircdb.ChannelMember) []channelMemberDTO {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(data)
+	_, _ = w.Write([]byte("\n"))
 }

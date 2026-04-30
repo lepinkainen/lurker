@@ -25,7 +25,11 @@ func newAPIClient(baseURL string) *apiClient {
 }
 
 func (c *apiClient) fetchState(ctx context.Context) (*stateResponse, error) {
-	resp, err := c.http.Get(c.baseURL + "/api/state")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/state", http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("build state request: %w", err)
+	}
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch state: %w", err)
 	}
@@ -61,9 +65,12 @@ func (c *apiClient) connectWS(ctx context.Context) (*websocket.Conn, error) {
 	wsURL = strings.Replace(wsURL, "http://", "ws://", 1)
 	wsURL += "/api/stream"
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ws dial: %w", err)
+	}
+	if resp != nil {
+		_ = resp.Body.Close()
 	}
 	return conn, nil
 }

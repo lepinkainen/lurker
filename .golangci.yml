@@ -8,6 +8,17 @@ run:
 linters:
   enable:
     - govet
+    - bodyclose
+    - errorlint
+    - nilerr
+    - nilnil
+    - durationcheck
+    - makezero
+    - unconvert
+    - gocheckcompilerdirectives
+    - goprintffuncname
+    - errchkjson
+    - unparam
     - errcheck
     - staticcheck
     - unused

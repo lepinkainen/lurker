@@ -47,7 +47,7 @@ func TestManagerPersistsMessages(t *testing.T) {
 func TestSelfJoinDoesNotPersistJoinMessage(t *testing.T) {
 	fixture := newTestHandlerFixture(t)
 	logStore := fixture.LogStore
-	client := newTestClient(t, "tester")
+	client := newTestClient(t)
 	h := fixture.Handler
 
 	h.onJoin(client, mustEvent(t, ":tester!~u@h JOIN #test"))
@@ -290,7 +290,7 @@ func TestBanlistRepliesPersistToStatusBuffer(t *testing.T) {
 func TestPublishMemberListUsesTrackedMembers(t *testing.T) {
 	h := hub.New()
 	fixture := newTestHandlerFixture(t, withTestHandlerHub(h))
-	client := newTestClient(t, "tester")
+	client := newTestClient(t)
 	handler := fixture.Handler
 	handler.register(client)
 
@@ -321,7 +321,7 @@ func TestPublishMemberListUsesTrackedMembers(t *testing.T) {
 }
 
 func TestMemberListUsesDisplayNickCaseFromUser(t *testing.T) {
-	client := newTestClient(t, "tester")
+	client := newTestClient(t)
 	runClientEvent(client, mustEvent(t, ":Shrike!u@h JOIN #test"))
 	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :shrike"))
 
@@ -465,7 +465,8 @@ func TestBuildClientConfiguresTLSInsecureSkipVerify(t *testing.T) {
 	}
 }
 
-func newTestClient(_ *testing.T, nick string) *girc.Client {
+func newTestClient(_ *testing.T) *girc.Client {
+	const nick = "tester"
 	return girc.New(girc.Config{Server: "test.invalid", Port: 6667, Nick: nick, User: nick, Name: nick})
 }
 

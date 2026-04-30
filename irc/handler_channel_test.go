@@ -12,7 +12,7 @@ func TestSelfPartUpdatesJoinedStateAndClearsMembers(t *testing.T) {
 	f := newTestHandlerFixture(t, withTestHandlerHub(h))
 	events, unsub := h.Subscribe(16)
 	defer unsub()
-	client := newTestClient(t, "tester")
+	client := newTestClient(t)
 	var cleared []string
 	var joined []struct {
 		channel string
@@ -46,7 +46,7 @@ func TestRemotePartPublishesPresenceOnly(t *testing.T) {
 	f := newTestHandlerFixture(t, withTestHandlerHub(h))
 	events, unsub := h.Subscribe(16)
 	defer unsub()
-	client := newTestClient(t, "tester")
+	client := newTestClient(t)
 	var joinedCalls int
 	f.Handler.setJoinedHook = func(string, bool) { joinedCalls++ }
 	f.Handler.clearMemberListHook = func(string) { t.Fatal("remote part should not clear member list") }

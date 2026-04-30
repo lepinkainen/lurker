@@ -11,8 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/lepinkainen/lurker/internal/closeutil"
 )
 
 // Config controls periodic remote image metadata checks.
@@ -301,7 +299,7 @@ func registryToken(ctx context.Context, client *http.Client, cfg Config, repo st
 	if err != nil {
 		return "", fmt.Errorf("registry probe: %w", err)
 	}
-	defer closeutil.Ignore(resp.Body)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusOK {
 		return "", nil
 	}
@@ -327,7 +325,7 @@ func registryToken(ctx context.Context, client *http.Client, cfg Config, repo st
 	if err != nil {
 		return "", fmt.Errorf("registry token request: %w", err)
 	}
-	defer closeutil.Ignore(resp.Body)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("registry token request: unexpected status %s", resp.Status)
 	}
@@ -379,7 +377,7 @@ func getRegistryJSON(ctx context.Context, client *http.Client, url, token string
 	if err != nil {
 		return nil, "", "", err
 	}
-	defer closeutil.Ignore(resp.Body)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", "", fmt.Errorf("registry request %s: unexpected status %s", url, resp.Status)
 	}
