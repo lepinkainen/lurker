@@ -36,9 +36,21 @@ func (c *apiClient) fetchState(ctx context.Context) (*stateResponse, error) {
 		return nil, fmt.Errorf("read state: %w", err)
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		preview := string(body)
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		return nil, fmt.Errorf("parse state: server returned %d: %s", resp.StatusCode, preview)
+	}
+
 	var state stateResponse
 	if err := json.Unmarshal(body, &state); err != nil {
-		return nil, fmt.Errorf("parse state: %w", err)
+		preview := string(body)
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		return nil, fmt.Errorf("parse state: %w (body: %s)", err, preview)
 	}
 	return &state, nil
 }
