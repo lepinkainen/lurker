@@ -41,7 +41,7 @@ export function highlightMentions(html: string, nick: string): string {
 }
 
 export function mentionsMe(m: { content?: string }, nick: string): boolean {
-  if (!nick || !m.content) return false;
+  if (!(nick && m.content)) return false;
   return new RegExp(`\\b${escapeRegExp(nick)}\\b`, "i").test(m.content);
 }
 

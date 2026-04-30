@@ -3,7 +3,6 @@ import { type Buffer, state } from "../src/app-state";
 import {
   handleFormatKey,
   handleHistoryKey,
-  handleSlashCommand,
   insertTextAtCursor,
   recordSentInput,
   restoreInputDraft,
@@ -13,6 +12,7 @@ import {
   uploadFile,
 } from "../src/input";
 import { resetAppState } from "../src/reset";
+import { handleSlashCommand } from "../src/slash-commands";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -255,7 +255,7 @@ describe("input history", () => {
 
 describe("uploadFile", () => {
   it("posts multipart data and returns the uploaded URL", async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
       expect(init?.method).toBe("POST");
       expect(init?.body).toBeInstanceOf(FormData);
       return new Response(JSON.stringify({ url: "/uploads/test.txt" }), {

@@ -12,7 +12,9 @@ export function attachNetworkDragHandlers(sec: HTMLElement, network: Network, de
     try {
       e.dataTransfer?.setData("text/plain", String(network.id));
       if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-    } catch {}
+    } catch {
+      // Some browsers restrict DataTransfer mutation; drag state still works without it.
+    }
     sec.classList.add("dragging");
   });
   sec.addEventListener("dragend", () => {

@@ -51,8 +51,8 @@ export function prepareSidebarModel(): SidebarModel {
         const buffers = networkBuffers(network.id);
         return {
           network,
-          collapsed: !!state.layout.collapsed[network.id],
-          headerActive: !!buffers.status && state.activeId === buffers.status.id,
+          collapsed: Boolean(state.layout.collapsed[network.id]),
+          headerActive: Boolean(buffers.status) && state.activeId === buffers.status.id,
           buffers,
         };
       }),

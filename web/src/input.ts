@@ -2,7 +2,9 @@ import { type Buffer, type BufferInputState, state } from "./app-state";
 import { escapeHTML } from "./format";
 import { handleSlashCommand, matchSlashCommands } from "./slash-commands";
 
-export { handleSlashCommand } from "./slash-commands";
+const WHITESPACE_RE = /\s+/;
+const TRAILING_WHITESPACE_RE = /\s$/;
+const LEADING_WHITESPACE_RE = /^\s/;
 
 export type InputDeps = {
   inputEl: HTMLInputElement;
@@ -30,9 +32,9 @@ export function updateCmdPop(inputEl: HTMLInputElement, cmdPopEl: HTMLElement) {
     cmdPopEl.hidden = true;
     return;
   }
-  const query = value.slice(1).split(/\s+/)[0].toLowerCase();
+  const query = value.slice(1).split(WHITESPACE_RE)[0].toLowerCase();
   const matches = matchSlashCommands(query);
-  if (!matches.length) {
+  if (matches.length === 0) {
     cmdPopEl.hidden = true;
     return;
   }
@@ -49,7 +51,7 @@ export function updateCmdPop(inputEl: HTMLInputElement, cmdPopEl: HTMLElement) {
 export function onSubmit(ev: SubmitEvent, deps: InputDeps) {
   ev.preventDefault();
   const text = deps.inputEl.value.trim();
-  if (!text || !state.wsReady) return;
+  if (!(text && state.wsReady)) return;
   const buffer = deps.getActiveBuffer();
   if (!buffer) return;
   if (text.startsWith("/")) {
@@ -117,7 +119,7 @@ export function handleHistoryKey(
   if (bufferId == null) return false;
   const entry = bufferInputState(bufferId);
   if (ev.key === "ArrowUp") {
-    if (!entry.entries.length) return false;
+    if (entry.entries.length === 0) return false;
     ev.preventDefault();
     if (entry.index === null) {
       entry.draft = inputEl.value;
@@ -176,8 +178,8 @@ export function insertTextAtCursor(inputEl: HTMLInputElement, text: string) {
   const end = inputEl.selectionEnd ?? start;
   const before = inputEl.value.slice(0, start);
   const after = inputEl.value.slice(end);
-  const prefix = before && !/\s$/.test(before) ? " " : "";
-  const suffix = after && !/^\s/.test(after) ? " " : "";
+  const prefix = before && !TRAILING_WHITESPACE_RE.test(before) ? " " : "";
+  const suffix = after && !LEADING_WHITESPACE_RE.test(after) ? " " : "";
   const inserted = `${prefix}${text}${suffix}`;
   inputEl.value = before + inserted + after;
   const caret = before.length + inserted.length;
@@ -218,10 +220,10 @@ function bindUploadHandlers(deps: InputDeps) {
   deps.uploadInputEl.addEventListener("change", () => {
     const file = deps.uploadInputEl.files?.[0];
     deps.uploadInputEl.value = "";
-    if (file) void uploadAndInsert(file, deps);
+    if (file) uploadAndInsert(file, deps);
   });
   deps.inputForm.addEventListener("dragover", (ev) => {
-    if (!ev.dataTransfer?.files?.length) return;
+    if (!ev.dataTransfer?.files || ev.dataTransfer.files.length === 0) return;
     ev.preventDefault();
     deps.inputForm.classList.add("upload-dragover");
   });
@@ -231,7 +233,7 @@ function bindUploadHandlers(deps: InputDeps) {
     const file = ev.dataTransfer?.files?.[0];
     if (!file) return;
     ev.preventDefault();
-    void uploadAndInsert(file, deps);
+    uploadAndInsert(file, deps);
   });
 }
 

@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type Buffer, type Network, state } from "../src/app-state";
+import { orderedNetworks } from "../src/buffers";
 import { resetAppState } from "../src/reset";
-import { orderedNetworks, renderSidebar, type SidebarDeps } from "../src/sidebar";
+import { renderSidebar, type SidebarDeps } from "../src/sidebar";
 
 function buf(overrides: Partial<Buffer>): Buffer {
   return {

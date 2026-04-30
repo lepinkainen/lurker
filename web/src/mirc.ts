@@ -36,8 +36,8 @@ function openTag(st: State): string {
   const styles: string[] = [];
   if (st.fg !== null) styles.push(`color:var(--mirc-c-${st.fg})`);
   if (st.bg !== null) styles.push(`background:var(--mirc-c-${st.bg})`);
-  const cls = classes.length ? ` class="${classes.join(" ")}"` : "";
-  const sty = styles.length ? ` style="${styles.join(";")}"` : "";
+  const cls = classes.length > 0 ? ` class="${classes.join(" ")}"` : "";
+  const sty = styles.length > 0 ? ` style="${styles.join(";")}"` : "";
   return `<span${cls}${sty}>`;
 }
 

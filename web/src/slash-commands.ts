@@ -115,7 +115,7 @@ const registry: SlashCommandEntry[] = [
         type: "ctcp",
         network_id: buffer.network_id,
         target,
-        content: ctcpCmd + (ctcpArgs.length ? ` ${ctcpArgs.join(" ")}` : ""),
+        content: ctcpCmd + (ctcpArgs.length > 0 ? ` ${ctcpArgs.join(" ")}` : ""),
       });
     }
   }),
@@ -144,6 +144,7 @@ const registry: SlashCommandEntry[] = [
 ];
 
 const registryByName = new Map(registry.flatMap((entry) => entry.names.map((name) => [name, entry] as const)));
+const WHITESPACE_RE = /\s+/;
 
 export const SLASH_COMMANDS: SlashCommand[] = registry.flatMap(({ cmd, args, desc, aliases = [] }) => [
   { cmd, args, desc },
@@ -155,7 +156,7 @@ export function matchSlashCommands(query: string): SlashCommand[] {
 }
 
 export function handleSlashCommand(text: string, buffer: Buffer, sendCmd: SendCmd): boolean {
-  const [cmd, ...rest] = text.slice(1).split(/\s+/);
+  const [cmd, ...rest] = text.slice(1).split(WHITESPACE_RE);
   const entry = registryByName.get((cmd || "").toLowerCase());
   if (!entry) return false;
   entry.handle({ buffer, rest, args: rest.join(" ").trim(), sendCmd });

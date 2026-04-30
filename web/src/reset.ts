@@ -3,7 +3,9 @@ import { loadLayout, state } from "./app-state";
 export function resetAppState() {
   try {
     state.ws?.close();
-  } catch {}
+  } catch {
+    // Reset should continue even if the browser rejects a close attempt.
+  }
   state.networks.clear();
   state.buffers.clear();
   state.messages.clear();

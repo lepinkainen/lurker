@@ -64,7 +64,7 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
   const hostEl = textInput("nf-host", existing?.host ?? "");
   hostEl.required = true;
 
-  const portEl = numberInput("nf-port", existing?.port ?? 6697, 1, 65535);
+  const portEl = numberInput("nf-port", existing?.port ?? 6697, 1, 65_535);
 
   const tlsEl = document.createElement("input");
   tlsEl.type = "checkbox";
@@ -174,7 +174,7 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
     const saslUser = saslUserEl.value.trim();
     const saslPass = saslPassEl.value;
 
-    if (!name || !host || !port || !nick) {
+    if (!(name && host && port && nick)) {
       errEl.textContent = "Name, host, port, and nick are required.";
       errEl.hidden = false;
       return;

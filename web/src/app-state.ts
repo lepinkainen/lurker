@@ -125,7 +125,9 @@ export function loadLayout(): LayoutSettings {
 export function saveLayout(layout: LayoutSettings) {
   try {
     localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
-  } catch {}
+  } catch {
+    // Persisting layout is best-effort; ignore unavailable storage/quota failures.
+  }
 }
 
 export const state: AppState = {

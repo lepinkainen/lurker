@@ -36,7 +36,7 @@ export function onBackdropClick(e: MouseEvent) {
   if (!isMobileViewport()) return;
   const sidebarOpen = document.body.dataset.sidebarOpen === "true";
   const membersOpen = document.body.dataset.membersOpen === "true";
-  if (!sidebarOpen && !membersOpen) return;
+  if (!(sidebarOpen || membersOpen)) return;
   const target = e.target as HTMLElement | null;
   if (!target) return;
   if (sidebarOpen && !target.closest("#sidebar") && !target.closest("#mobile-menu")) {

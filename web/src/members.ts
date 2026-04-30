@@ -71,7 +71,7 @@ export function renderMembers(dom: MembersDom) {
     ["regulars", members.filter((member) => !member.prefix)],
   ];
   for (const [name, items] of groups) {
-    if (!items.length) continue;
+    if (items.length === 0) continue;
     const heading = document.createElement("div");
     heading.className = "mgroup";
     heading.textContent = `${name} · ${items.length}`;

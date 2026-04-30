@@ -1,8 +1,9 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import process from "node:process";
 
-const REPO_ROOT = resolve(__dirname, "..", "..");
+const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 const BACKEND_PORT = process.env.LURKER_TEST_PORT ?? "8099";
 const DATA_DIR = resolve(REPO_ROOT, "data-test");
 const BINARY = resolve(REPO_ROOT, "build", "lurker-test");

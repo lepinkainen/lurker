@@ -135,10 +135,12 @@ describe("nickHue", () => {
   });
 });
 
+const OKLCH_FUNCTION_RE = /^oklch\(/;
+
 describe("nickColor", () => {
   it("emits oklch with CSS vars", () => {
     const c = nickColor("alice");
-    expect(c).toMatch(/^oklch\(/);
+    expect(c).toMatch(OKLCH_FUNCTION_RE);
     expect(c).toContain("var(--nick-l");
     expect(c).toContain("var(--nick-c");
     expect(c).toContain("deg)");

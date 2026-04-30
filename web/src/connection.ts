@@ -1,7 +1,7 @@
 import { type Member, type Message, type StateResponse, state, type UpdateStatus } from "./app-state";
 
 export const RECONNECT_BASE_MS = 1000;
-export const RECONNECT_MAX_MS = 30000;
+export const RECONNECT_MAX_MS = 30_000;
 
 export type ConnectionDeps = {
   domReady: () => boolean;
@@ -45,8 +45,9 @@ export async function hydrate(deps: ConnectionDeps) {
         ...buffer,
       });
     }
-    for (const [id, msgs] of Object.entries(s.initial_messages || {})) state.messages.set(+id, msgs as Message[]);
-    for (const [id, members] of Object.entries(s.members || {})) state.members.set(+id, members as Member[]);
+    for (const [id, msgs] of Object.entries(s.initial_messages || {}))
+      state.messages.set(Number(id), msgs as Message[]);
+    for (const [id, members] of Object.entries(s.members || {})) state.members.set(Number(id), members as Member[]);
     if (updateRes?.ok) {
       state.updateStatus = (await updateRes.json()) as UpdateStatus;
     } else {
@@ -54,7 +55,7 @@ export async function hydrate(deps: ConnectionDeps) {
     }
     deps.inferUnreadCounts();
     deps.renderSidebar();
-    if (!state.activeId && state.buffers.size) {
+    if (!state.activeId && state.buffers.size > 0) {
       const fromUrl = deps.bufferFromHash(location.hash);
       const firstChannel = [...state.buffers.values()].find(
         (buffer) => buffer.kind === "channel" && buffer.joined === true,

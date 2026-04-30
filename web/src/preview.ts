@@ -17,7 +17,7 @@ export function renderPreview(p: Preview): HTMLElement | null {
 }
 
 export function renderPreviews(list: Preview[] | undefined): HTMLElement | null {
-  if (!list?.length) return null;
+  if (!list || list.length === 0) return null;
   const wrap = document.createElement("div");
   wrap.className = "previews";
   let added = 0;

@@ -18,9 +18,51 @@
     "enabled": true,
     "rules": {
       "recommended": true,
-      "security": "error"
+      "security": "error",
+      "correctness": "error",
+      "performance": "error",
+      "complexity": {
+        "noImplicitCoercions": "error",
+        "noVoid": "error",
+        "useSimplifiedLogicExpression": "error"
+      },
+      "suspicious": {
+        "noEmptyBlockStatements": "error",
+        "noEvolvingTypes": "error",
+        "noMisplacedAssertion": "error",
+        "useAwait": "error"
+      },
+      "style": {
+        "useExplicitLengthCheck": "error",
+        "useNumericSeparators": "error"
+      }
     }
   },
+  "overrides": [
+    {
+      "includes": ["tests/globalSetup.ts"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noNodejsModules": "off"
+          },
+          "performance": {
+            "noAwaitInLoops": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["tests/**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noAwaitInLoops": "off"
+          }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "double"

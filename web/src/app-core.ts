@@ -39,7 +39,7 @@ export function start() {
   const d = dom;
   renderStatus();
   applyThemeDefaults();
-  void initThemeSelector();
+  initThemeSelector();
   bindInputHandlers({
     inputEl: d.inputEl,
     inputForm: d.inputForm,
@@ -374,9 +374,10 @@ function onMessagesScroll() {
 
 function loadOlderHistory() {
   const bufferId = state.activeId;
-  if (!bufferId || !state.wsReady || state.loadingHistory.has(bufferId) || state.historyExhausted.has(bufferId)) return;
+  if (!(bufferId && state.wsReady) || state.loadingHistory.has(bufferId) || state.historyExhausted.has(bufferId))
+    return;
   const list = state.messages.get(bufferId) || [];
-  if (!list.length) return;
+  if (list.length === 0) return;
   state.loadingHistory.add(bufferId);
   sendCmd({ type: "history", buffer_id: bufferId, before: list[0].id, limit: 100 });
 }
@@ -384,7 +385,7 @@ function loadOlderHistory() {
 function maybeMarkActiveRead() {
   const b = state.buffers.get(state.activeId);
   const list = state.messages.get(state.activeId) || [];
-  if (!state.wsReady || !b || !list.length) return;
+  if (!(state.wsReady && b) || list.length === 0) return;
   const lastId = list[list.length - 1].id;
   const current = b.last_seen_id || 0;
   const sent = state.lastMarkedReadId.get(b.id) || 0;

@@ -15,7 +15,7 @@ export function bufferHashFor(buffer: Buffer): string {
 export function bufferFromHash(hash: string): Buffer | null {
   if (!hash?.startsWith("#net/")) return null;
   const parts = hash.slice(5).split("/");
-  if (parts.length < 1 || !parts[0]) return null;
+  if (parts.length === 0 || !parts[0]) return null;
   const netName = decodeURIComponent(parts[0]);
   const network = [...state.networks.values()].find((n) => n.name === netName);
   if (!network) return null;

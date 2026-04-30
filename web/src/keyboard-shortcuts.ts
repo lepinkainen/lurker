@@ -11,9 +11,11 @@ let switcherDialog: HTMLDialogElement | null = null;
 let helpDialog: HTMLDialogElement | null = null;
 let cleanupKeydown: (() => void) | null = null;
 
+const APPLE_PLATFORM_RE = /Mac|iPhone|iPad|iPod/i;
+
 function macLabels() {
   const platform = `${navigator.platform || ""} ${navigator.userAgent || ""}`;
-  const mac = /Mac|iPhone|iPad|iPod/i.test(platform);
+  const mac = APPLE_PLATFORM_RE.test(platform);
   return {
     mod: mac ? "Cmd" : "Ctrl",
     combo: (key: string) => `${mac ? "Cmd" : "Ctrl"}+${key}`,
@@ -28,7 +30,7 @@ function isTextEditingElement(target: EventTarget | null): boolean {
   if (el instanceof HTMLInputElement) {
     return !["button", "checkbox", "radio", "submit", "file", "range", "color"].includes(el.type);
   }
-  return el.isContentEditable || !!el.closest("[contenteditable=true]");
+  return el.isContentEditable || Boolean(el.closest("[contenteditable=true]"));
 }
 
 function closeSwitcher() {
@@ -52,7 +54,7 @@ function nextMatchingBufferId(
   ids: number[],
   predicate: (id: number) => boolean,
 ): number | null {
-  if (!ids.length) return null;
+  if (ids.length === 0) return null;
   const startIndex = startId == null ? -1 : ids.indexOf(startId);
   for (let step = 1; step <= ids.length; step += 1) {
     const id = ids[(Math.max(startIndex, -1) + step) % ids.length];
@@ -66,7 +68,7 @@ function previousMatchingBufferId(
   ids: number[],
   predicate: (id: number) => boolean,
 ): number | null {
-  if (!ids.length) return null;
+  if (ids.length === 0) return null;
   const startIndex = startId == null ? 0 : ids.indexOf(startId);
   for (let step = 1; step <= ids.length; step += 1) {
     const index = (Math.max(startIndex, 0) - step + ids.length) % ids.length;
@@ -103,7 +105,7 @@ function renderSwitcherResults(
   choose: (bufferId: number) => void,
 ) {
   const results = searchBuffers(query);
-  if (!results.length) {
+  if (results.length === 0) {
     listEl.replaceChildren();
     listEl.hidden = true;
     emptyEl.hidden = false;
@@ -216,14 +218,14 @@ function openChannelSwitcher(deps: KeyboardShortcutsDeps) {
   input.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      if (!results.length) return;
+      if (results.length === 0) return;
       selection.index = (selection.index + 1 + results.length) % results.length;
       results = renderSwitcherResults(list, empty, input.value, selection, choose);
       return;
     }
     if (e.key === "ArrowUp") {
       e.preventDefault();
-      if (!results.length) return;
+      if (results.length === 0) return;
       selection.index = (selection.index - 1 + results.length) % results.length;
       results = renderSwitcherResults(list, empty, input.value, selection, choose);
       return;
@@ -345,7 +347,7 @@ function navigateBuffer(setActive: (id: number) => void, previous = false) {
 
 function isUnreadMessageBuffer(id: number): boolean {
   const buffer = state.buffers.get(id);
-  return !!buffer && buffer.kind === "channel" && buffer.unread > 0;
+  return Boolean(buffer) && buffer.kind === "channel" && buffer.unread > 0;
 }
 
 function activeChannelIds(): number[] {
@@ -393,7 +395,7 @@ export function initKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     if (switcherDialog || helpDialog) return;
 
     const editing = isTextEditingElement(e.target);
-    if (!editing && !e.ctrlKey && !e.metaKey && !e.altKey && e.key === "?") {
+    if (!(editing || e.ctrlKey || e.metaKey || e.altKey) && e.key === "?") {
       e.preventDefault();
       openHelpOverlay();
       return;

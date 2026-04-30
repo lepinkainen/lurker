@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __handleWSMessage, __initForTests, __resetForTests } from "../src/main";
 import { fixtureIndexHTML } from "./fixture-index";
 
+const LEADING_HASH_RE = /^#/;
+
 function installFixture() {
   const parsed = new DOMParser().parseFromString(fixtureIndexHTML, "text/html");
   document.body.innerHTML = parsed.body.innerHTML;
@@ -48,7 +50,7 @@ describe("main UI", () => {
     // pick a non-active buffer (query or channel) — queries are always visible without opening archive fold
     const target = await waitFor(() => {
       const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan:not(.active):not(.archives)");
-      return rows.length ? rows[0] : null;
+      return rows.length > 0 ? rows[0] : null;
     });
     const name = target.querySelector(".name")?.textContent || "";
     expect(name).toBeTruthy();
@@ -86,7 +88,7 @@ describe("main UI", () => {
 
     const target = await waitFor(() => {
       const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan:not(.active):not(.archives)");
-      return rows.length ? rows[0] : null;
+      return rows.length > 0 ? rows[0] : null;
     });
     const name = target.querySelector(".name")?.textContent || "";
     expect(name).toBeTruthy();
@@ -99,7 +101,7 @@ describe("main UI", () => {
     });
     expect(active).toBeTruthy();
     const headerName = document.getElementById("buffer-name")?.textContent || "";
-    expect(headerName.replace(/^#/, "")).toBe(name.replace(/^#/, ""));
+    expect(headerName.replace(LEADING_HASH_RE, "")).toBe(name.replace(LEADING_HASH_RE, ""));
   });
 
   it("shows slash-command popup on input and hides on clear", async () => {
@@ -153,7 +155,7 @@ describe("main UI", () => {
 
     const target = await waitFor(() => {
       const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan:not(.active):not(.archives)");
-      return rows.length ? rows[0] : null;
+      return rows.length > 0 ? rows[0] : null;
     });
     const targetName = target.querySelector(".name")?.textContent || "";
     expect(targetName).toBeTruthy();

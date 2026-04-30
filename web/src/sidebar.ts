@@ -13,8 +13,6 @@ export type SidebarDeps = {
   iconEl: (symbolId: string, size: number, opts?: { className?: string; label?: string }) => SVGSVGElement;
 };
 
-export { orderedNetworks } from "./buffers";
-
 export function renderSidebar(deps: SidebarDeps) {
   const { sbScrollEl } = deps;
   if (!sbScrollEl) return;
@@ -32,7 +30,7 @@ function rerender(deps: SidebarDeps) {
 }
 
 function appendPinnedSection(root: HTMLElement, pinned: Buffer[], deps: SidebarDeps) {
-  if (!pinned.length) return;
+  if (pinned.length === 0) return;
   const sec = document.createElement("div");
   sec.className = "sb-section";
   const hdr = document.createElement("div");
@@ -50,7 +48,7 @@ function appendPinnedSection(root: HTMLElement, pinned: Buffer[], deps: SidebarD
 }
 
 function appendDisabledSection(root: HTMLElement, disabled: Network[], deps: SidebarDeps) {
-  if (!disabled.length) return;
+  if (disabled.length === 0) return;
   const disabledSec = document.createElement("div");
   disabledSec.className = "sb-disabled-group";
   const disabledHdr = document.createElement("div");
@@ -76,7 +74,9 @@ function networkSection(model: SidebarNetworkModel, deps: SidebarDeps) {
   sec.className = networkSectionClass(network.id);
   attachNetworkDragHandlers(sec, network, {
     render: () => rerender(deps),
-    reorder: (fromId, toId) => void reorderNetwork(fromId, toId, deps),
+    reorder: (fromId, toId) => {
+      reorderNetwork(fromId, toId, deps);
+    },
   });
 
   sec.appendChild(networkHeader(model, deps));
@@ -175,8 +175,8 @@ function appendOpenNetworkRows(sec: HTMLElement, model: SidebarNetworkModel, dep
 
 function appendArchiveSection(sec: HTMLElement, model: SidebarNetworkModel, deps: SidebarDeps) {
   const { network, buffers } = model;
-  if (!buffers.parted.length) return;
-  const archOpen = !!state.layout.archivesOpen[network.id];
+  if (buffers.parted.length === 0) return;
+  const archOpen = Boolean(state.layout.archivesOpen[network.id]);
   const arch = document.createElement("button");
   arch.type = "button";
   arch.className = ["sbrow", "archives", archOpen && "open"].filter(Boolean).join(" ");
@@ -264,7 +264,7 @@ function pinToggle(buffer: Buffer, deps: SidebarDeps) {
   pin.textContent = buffer.pinned ? "⚑" : "⚐";
   const toggle = (e: Event) => {
     e.stopPropagation();
-    void updateBufferSettings(buffer, { pinned: !buffer.pinned }, deps);
+    updateBufferSettings(buffer, { pinned: !buffer.pinned }, deps);
   };
   pin.addEventListener("click", toggle);
   pin.addEventListener("keydown", (e) => {
@@ -335,7 +335,9 @@ function settingCheckbox(labelText: string, checked: boolean, onChange: (checked
   const input = document.createElement("input");
   input.type = "checkbox";
   input.checked = checked;
-  input.addEventListener("change", () => void onChange(input.checked));
+  input.addEventListener("change", () => {
+    onChange(input.checked);
+  });
   label.append(input, document.createTextNode(labelText));
   return label;
 }

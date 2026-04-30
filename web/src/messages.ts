@@ -27,6 +27,8 @@ type MessageDeps = {
   iconEl: (symbolId: string, size: number, opts?: { className?: string; label?: string }) => SVGSVGElement;
 };
 
+const LEADING_HASH_RE = /^#/;
+
 export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
   const buffer = state.buffers.get(state.activeId);
   if (!buffer) return;
@@ -38,7 +40,7 @@ export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
     const hash = document.createElement("span");
     hash.className = "hash";
     hash.textContent = "#";
-    dom.bufferNameEl.append(hash, document.createTextNode(buffer.name.replace(/^#/, "")));
+    dom.bufferNameEl.append(hash, document.createTextNode(buffer.name.replace(LEADING_HASH_RE, "")));
   } else if (buffer.kind === "status") {
     dom.bufferNameEl.textContent = network ? `${network.name} (status)` : "(status)";
   } else {
@@ -163,12 +165,14 @@ export function onBufferUpdate(
   const buffer = state.buffers.get(msg.id);
   if (!buffer) return;
   if (Object.hasOwn(msg, "topic")) buffer.topic = msg.topic || "";
-  if (Object.hasOwn(msg, "joined")) buffer.joined = !!msg.joined;
+  if (Object.hasOwn(msg, "joined")) buffer.joined = Boolean(msg.joined);
   if (Object.hasOwn(msg, "last_seen_id")) buffer.last_seen_id = msg.last_seen_id || 0;
-  if (Object.hasOwn(msg, "show_embeds")) buffer.show_embeds = !!msg.show_embeds;
-  if (Object.hasOwn(msg, "show_presence_events")) buffer.show_presence_events = !!msg.show_presence_events;
-  if (Object.hasOwn(msg, "collapse_presence_events")) buffer.collapse_presence_events = !!msg.collapse_presence_events;
-  if (Object.hasOwn(msg, "pinned")) buffer.pinned = !!msg.pinned;
+  if (Object.hasOwn(msg, "show_embeds")) buffer.show_embeds = Boolean(msg.show_embeds);
+  if (Object.hasOwn(msg, "show_presence_events")) buffer.show_presence_events = Boolean(msg.show_presence_events);
+  if (Object.hasOwn(msg, "collapse_presence_events")) {
+    buffer.collapse_presence_events = Boolean(msg.collapse_presence_events);
+  }
+  if (Object.hasOwn(msg, "pinned")) buffer.pinned = Boolean(msg.pinned);
   handlers.inferUnreadCounts();
   handlers.renderHeader();
   handlers.renderSidebar();
@@ -183,7 +187,7 @@ export function onHistoryResult(
   const known = new Set(existing.map((message) => message.id));
   const prepend = (msg.messages || []).filter((message) => !known.has(message.id));
   state.messages.set(msg.buffer_id, [...prepend, ...existing]);
-  if (!prepend.length) state.historyExhausted.add(msg.buffer_id);
+  if (prepend.length === 0) state.historyExhausted.add(msg.buffer_id);
   state.loadingHistory.delete(msg.buffer_id);
   if (msg.buffer_id === state.activeId) {
     const oldHeight = messagesEl.scrollHeight;
@@ -200,7 +204,7 @@ function renderStatusView(statusViewEl: HTMLElement) {
   wrap.className = "statuslines";
   const list = state.messages.get(buffer.id) || [];
   for (const message of list) wrap.appendChild(statusLine(message));
-  if (!list.length) {
+  if (list.length === 0) {
     const network = state.networks.get(buffer.network_id);
     const empty = document.createElement("div");
     empty.innerHTML = `<span class="stts">—</span><span class="stcat ok">ok</span><span class="stdim">${escapeHTML(network ? `connected to ${network.host || network.name}` : "no log entries yet")}</span>`;
@@ -242,7 +246,7 @@ function renderMessages(messagesEl: HTMLElement) {
   const buffer = state.buffers.get(state.activeId);
   const lastSeen = buffer?.last_seen_id || 0;
   let unreadInserted = false;
-  let lastDayKey = null;
+  let lastDayKey: string | null = null;
 
   for (const message of list) {
     if (isHiddenPresence(message, buffer)) continue;

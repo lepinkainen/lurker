@@ -4,7 +4,7 @@ type Network = { id: number; name: string; sort_order?: number };
 
 async function fetchNetworks(): Promise<Network[]> {
   const res = await fetch("/api/state");
-  expect(res.ok).toBe(true);
+  if (!res.ok) throw new Error(`fetch networks failed: ${res.status}`);
   const s = await res.json();
   return s.networks as Network[];
 }
