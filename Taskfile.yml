@@ -20,7 +20,7 @@ vars:
 tasks:
   build:
     desc: Run lint, tests, frontend build, then build the local binary
-    deps: [lint, test, web-build, build-tui]
+    deps: [lint, test, test-web, web-build, build-tui]
     cmds:
       - mkdir -p {{.BUILD_DIR}}
       - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .

@@ -78,10 +78,9 @@ describe("renderSidebar", () => {
     expect(rows).toContain("#zzz");
   });
 
-  it("renders pinned section at top when pinned ids present", () => {
+  it("renders pinned section at top when pinned buffers are present", () => {
     state.networks.set(1, net({ id: 1 }));
-    state.buffers.set(10, buf({ id: 10, network_id: 1, name: "#aaa", joined: true }));
-    state.layout.pinned = [10];
+    state.buffers.set(10, buf({ id: 10, network_id: 1, name: "#aaa", joined: true, pinned: true }));
     const d = deps();
     renderSidebar(d);
     const first = d.sbScrollEl.firstElementChild;
@@ -95,11 +94,11 @@ describe("renderSidebar", () => {
     renderSidebar(d);
 
     d.sbScrollEl.querySelector<HTMLElement>(".sbrow.chan .pin-toggle")?.click();
-    expect(state.layout.pinned).toEqual([10]);
+    expect(state.buffers.get(10)?.pinned).toBe(true);
     expect(d.sbScrollEl.firstElementChild?.querySelector(".pinned-hdr")).not.toBeNull();
 
     d.sbScrollEl.querySelector<HTMLElement>(".sbrow.pinned .pin-toggle")?.click();
-    expect(state.layout.pinned).toEqual([]);
+    expect(state.buffers.get(10)?.pinned).toBe(false);
   });
 
   it("collapses network when collapsed flag set and shows unread badge", () => {
