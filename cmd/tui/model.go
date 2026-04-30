@@ -424,11 +424,12 @@ func (m *model) handleWSEvent(ev wsEvent) {
 		}
 
 	case "buffer_update":
+		bufID := ev.ID // backend uses "id" for buffer_update, not "buffer_id"
 		if ev.Topic != "" {
-			m.topics[ev.BufferID] = ev.Topic
+			m.topics[bufID] = ev.Topic
 		}
 		for i := range m.buffers {
-			if m.buffers[i].ID == ev.BufferID {
+			if m.buffers[i].ID == bufID {
 				if ev.Topic != "" {
 					m.buffers[i].Topic = ev.Topic
 				}
