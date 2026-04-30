@@ -92,7 +92,8 @@ export async function loadInitialTheme(): Promise<{ themes: Theme[]; active: The
   }
   if (themes.length === 0) return { themes, active: null };
   const wantedId = storedThemeId();
-  const fallback = themes.find((t) => t.id === "tokyo-night") ?? themes[0];
+  // biome-ignore lint/style/noNonNullAssertion: themes.length > 0 checked above
+  const fallback = themes.find((t) => t.id === "tokyo-night") ?? themes[0]!;
   const active = themes.find((t) => t.id === wantedId) ?? fallback;
   applyTheme(active);
   return { themes, active };

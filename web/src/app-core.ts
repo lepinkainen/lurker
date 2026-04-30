@@ -1,6 +1,6 @@
 import "./style.css";
 import "./mobile.css";
-import { type ChannelListEntry, type Member, type Message, type Network, state } from "./app-state";
+import { activeBuffer, type ChannelListEntry, type Member, type Message, type Network, state } from "./app-state";
 import { connectWS, hydrate, nextReconnectDelay, scheduleReconnect } from "./connection";
 import { captureDom, type DomRefs } from "./dom";
 import { bindInputHandlers, restoreInputDraft, saveInputDraft, updateCmdPop, updateInputEnabled } from "./input";
@@ -46,7 +46,7 @@ export function start() {
     uploadInputEl: d.uploadInputEl,
     uploadButtonEl: d.uploadButtonEl,
     cmdPopEl: d.cmdPopEl,
-    getActiveBuffer: () => state.buffers.get(state.activeId),
+    getActiveBuffer: activeBuffer,
     sendCmd,
   });
   d.messagesEl.addEventListener("scroll", onMessagesScroll);
@@ -124,21 +124,22 @@ type WSMessage =
   | { type: "channel_list"; network_id: number; entries: ChannelListEntry[]; done: boolean }
   | { type: "ignorelist_result"; req_id: string; network_id: number; masks: string[] };
 
-function handleWSMessage(msg: WSMessage) {
-  switch (msg.type) {
+function handleWSMessage(msg: unknown) {
+  const m = msg as WSMessage;
+  switch (m.type) {
     case "message":
-      onMessage(msg, {
+      onMessage(m, {
         renderActiveView: renderActiveViewLocal,
         maybeMarkActiveRead,
         renderSidebar: renderSidebarLocal,
       });
       break;
     case "buffer_created":
-      state.buffers.set(msg.id, {
-        id: msg.id,
-        network_id: msg.network_id,
-        name: msg.name,
-        kind: msg.kind,
+      state.buffers.set(m.id, {
+        id: m.id,
+        network_id: m.network_id,
+        name: m.name,
+        kind: m.kind,
         joined: false,
         topic: "",
         unread: 0,
@@ -152,46 +153,46 @@ function handleWSMessage(msg: WSMessage) {
       renderSidebarLocal();
       break;
     case "buffer_update":
-      onBufferUpdate(msg, { inferUnreadCounts, renderHeader: renderHeaderLocal, renderSidebar: renderSidebarLocal });
+      onBufferUpdate(m, { inferUnreadCounts, renderHeader: renderHeaderLocal, renderSidebar: renderSidebarLocal });
       break;
     case "buffer_settings":
-      onBufferUpdate(msg, { inferUnreadCounts, renderHeader: renderHeaderLocal, renderSidebar: renderSidebarLocal });
+      onBufferUpdate(m, { inferUnreadCounts, renderHeader: renderHeaderLocal, renderSidebar: renderSidebarLocal });
       renderActiveViewLocal();
       break;
     case "network_state": {
-      const n = state.networks.get(msg.network_id);
+      const n = state.networks.get(m.network_id);
       if (n) {
-        n.status = msg.state;
+        n.status = m.state;
         renderSidebarLocal();
         renderHeaderLocal();
       }
       break;
     }
     case "history_result":
-      onHistoryResult(msg, { renderActiveView: renderActiveViewLocal }, mustDom().messagesEl);
+      onHistoryResult(m, { renderActiveView: renderActiveViewLocal }, mustDom().messagesEl);
       break;
     case "preview":
-      onPreview(msg, mustDom().messagesEl);
+      onPreview(m, mustDom().messagesEl);
       break;
     case "member_list":
-      state.members.set(msg.buffer_id, msg.members || []);
-      if (msg.buffer_id === state.activeId) {
+      state.members.set(m.buffer_id, m.members || []);
+      if (m.buffer_id === state.activeId) {
         renderHeaderLocal();
         renderMembersLocal();
       }
       break;
     case "channel_list":
-      if (!state.channelList || state.channelList.network_id !== msg.network_id) {
-        state.channelList = { network_id: msg.network_id, entries: [], done: false };
+      if (!state.channelList || state.channelList.network_id !== m.network_id) {
+        state.channelList = { network_id: m.network_id, entries: [], done: false };
       }
-      state.channelList.entries.push(...msg.entries);
-      state.channelList.done = msg.done;
-      if (msg.done && msg.network_id === state.networks.get(state.buffers.get(state.activeId)?.network_id ?? -1)?.id) {
+      state.channelList.entries.push(...m.entries);
+      state.channelList.done = m.done;
+      if (m.done && m.network_id === state.networks.get(activeBuffer()?.network_id ?? -1)?.id) {
         renderChannelListPanel(mustDom().messagesEl);
       }
       break;
     case "ignorelist_result":
-      console.log("ignore list:", msg.masks);
+      console.log("ignore list:", m.masks);
       break;
   }
 }
@@ -324,7 +325,7 @@ function iconEl(symbolId: string, size: number, opts: { className?: string; labe
 }
 
 function activePromptNick(): string {
-  const b = state.activeId !== null ? state.buffers.get(state.activeId) : null;
+  const b = activeBuffer();
   if (b) {
     const n = state.networks.get(b.network_id) as (Network & { nick?: string }) | undefined;
     if (n?.nick) return n.nick;
@@ -379,14 +380,15 @@ function loadOlderHistory() {
   const list = state.messages.get(bufferId) || [];
   if (list.length === 0) return;
   state.loadingHistory.add(bufferId);
-  sendCmd({ type: "history", buffer_id: bufferId, before: list[0].id, limit: 100 });
+  sendCmd({ type: "history", buffer_id: bufferId, before: list[0]?.id, limit: 100 });
 }
 
 function maybeMarkActiveRead() {
-  const b = state.buffers.get(state.activeId);
-  const list = state.messages.get(state.activeId) || [];
+  const b = activeBuffer();
+  const list = state.messages.get(state.activeId ?? -1) || [];
   if (!(state.wsReady && b) || list.length === 0) return;
-  const lastId = list[list.length - 1].id;
+  const lastId = list[list.length - 1]?.id;
+  if (lastId === undefined) return;
   const current = b.last_seen_id || 0;
   const sent = state.lastMarkedReadId.get(b.id) || 0;
   if (lastId <= current || lastId <= sent) return;

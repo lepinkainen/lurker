@@ -57,7 +57,8 @@ function nextMatchingBufferId(
   if (ids.length === 0) return null;
   const startIndex = startId === null ? -1 : ids.indexOf(startId);
   for (let step = 1; step <= ids.length; step += 1) {
-    const id = ids[(Math.max(startIndex, -1) + step) % ids.length];
+    // biome-ignore lint/style/noNonNullAssertion: modulo index is always in bounds after length check
+    const id = ids[(Math.max(startIndex, -1) + step) % ids.length]!;
     if (id !== startId && predicate(id)) return id;
   }
   return null;
@@ -72,7 +73,8 @@ function previousMatchingBufferId(
   const startIndex = startId === null ? 0 : ids.indexOf(startId);
   for (let step = 1; step <= ids.length; step += 1) {
     const index = (Math.max(startIndex, 0) - step + ids.length) % ids.length;
-    const id = ids[index];
+    // biome-ignore lint/style/noNonNullAssertion: modulo index is always in bounds after length check
+    const id = ids[index]!;
     if (id !== startId && predicate(id)) return id;
   }
   return null;
@@ -347,7 +349,7 @@ function navigateBuffer(setActive: (id: number) => void, previous = false) {
 
 function isUnreadMessageBuffer(id: number): boolean {
   const buffer = state.buffers.get(id);
-  return Boolean(buffer) && buffer.kind === "channel" && buffer.unread > 0;
+  return buffer !== undefined && buffer.kind === "channel" && buffer.unread > 0;
 }
 
 function activeChannelIds(): number[] {

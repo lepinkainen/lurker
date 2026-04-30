@@ -1,4 +1,4 @@
-import { type Buffer, type BufferInputState, state } from "./app-state";
+import { activeBuffer, type Buffer, type BufferInputState, state } from "./app-state";
 import { escapeHTML } from "./format";
 import { handleSlashCommand, matchSlashCommands } from "./slash-commands";
 
@@ -17,7 +17,7 @@ export type InputDeps = {
 };
 
 export function updateInputEnabled(inputEl: HTMLInputElement) {
-  const buffer = state.buffers.get(state.activeId);
+  const buffer = activeBuffer();
   inputEl.disabled = !(
     state.wsReady &&
     buffer &&
@@ -32,7 +32,7 @@ export function updateCmdPop(inputEl: HTMLInputElement, cmdPopEl: HTMLElement) {
     cmdPopEl.hidden = true;
     return;
   }
-  const query = value.slice(1).split(WHITESPACE_RE)[0].toLowerCase();
+  const query = (value.slice(1).split(WHITESPACE_RE)[0] ?? "").toLowerCase();
   const matches = matchSlashCommands(query);
   if (matches.length === 0) {
     cmdPopEl.hidden = true;

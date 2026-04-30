@@ -387,7 +387,8 @@ async function reorderNetwork(fromId: number, toId: number, deps: SidebarDeps) {
   const toIdx = ids.indexOf(toId);
   if (fromIdx < 0 || toIdx < 0) return;
   const [moved] = ids.splice(fromIdx, 1);
-  ids.splice(toIdx, 0, moved);
+  // biome-ignore lint/style/noNonNullAssertion: fromIdx >= 0 guarantees splice returned an element
+  ids.splice(toIdx, 0, moved!);
 
   const previous = orderedNetworks().map((network) => ({ id: network.id, sort_order: network.sort_order }));
   ids.forEach((id, idx) => {
@@ -404,7 +405,7 @@ async function reorderNetwork(fromId: number, toId: number, deps: SidebarDeps) {
     console.error("reorder failed", err);
     for (const prev of previous) {
       const net = state.networks.get(prev.id);
-      if (net) net.sort_order = prev.sort_order;
+      if (net && prev.sort_order !== undefined) net.sort_order = prev.sort_order;
     }
     rerender(deps);
   }

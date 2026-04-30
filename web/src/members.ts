@@ -1,4 +1,4 @@
-import { type Member, state } from "./app-state";
+import { activeBuffer, type Member, state } from "./app-state";
 import { nickEl } from "./nick";
 
 export type MembersDom = {
@@ -15,7 +15,7 @@ export function membersForActive(): Member[] {
 }
 
 export function populateMembersForActive() {
-  const buffer = state.buffers.get(state.activeId);
+  const buffer = activeBuffer();
   if (!buffer || buffer.kind !== "channel") return;
   if (state.members.has(buffer.id)) return;
   const names = new Set<string>();
@@ -50,7 +50,7 @@ function memberRow(member: Member) {
 }
 
 export function renderMembers(dom: MembersDom) {
-  const active = state.buffers.get(state.activeId);
+  const active = activeBuffer();
   const isChannel = active && active.kind === "channel";
   const showPane = state.showMemberList && isChannel;
   dom.memberPaneEl.dataset.hidden = showPane ? "false" : "true";

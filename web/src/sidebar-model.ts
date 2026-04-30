@@ -52,7 +52,7 @@ export function prepareSidebarModel(): SidebarModel {
         return {
           network,
           collapsed: Boolean(state.layout.collapsed[network.id]),
-          headerActive: Boolean(buffers.status) && state.activeId === buffers.status.id,
+          headerActive: buffers.status !== null && state.activeId === buffers.status.id,
           buffers,
         };
       }),

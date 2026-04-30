@@ -1,4 +1,4 @@
-import { type Message, state } from "./app-state";
+import { activeBuffer, type Message, state } from "./app-state";
 import {
   classifyKind,
   dayKeyOf,
@@ -30,7 +30,7 @@ type MessageDeps = {
 const LEADING_HASH_RE = /^#/u;
 
 export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
-  const buffer = state.buffers.get(state.activeId);
+  const buffer = activeBuffer();
   if (!buffer) return;
   deps.renderPromptNick();
   const isChannel = buffer.kind === "channel";
@@ -78,7 +78,7 @@ export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
 }
 
 export function renderActiveView(dom: MessagesDom, _deps: MessageDeps) {
-  const buffer = state.buffers.get(state.activeId);
+  const buffer = activeBuffer();
   if (!buffer) return;
   if (buffer.kind === "status") {
     dom.messagesEl.hidden = true;
@@ -198,7 +198,7 @@ export function onHistoryResult(
 
 function renderStatusView(statusViewEl: HTMLElement) {
   statusViewEl.innerHTML = "";
-  const buffer = state.buffers.get(state.activeId);
+  const buffer = activeBuffer();
   if (!buffer) return;
   const wrap = document.createElement("div");
   wrap.className = "statuslines";
@@ -242,8 +242,8 @@ function statusLine(message: Message) {
 
 function renderMessages(messagesEl: HTMLElement) {
   messagesEl.innerHTML = "";
-  const list = state.messages.get(state.activeId) || [];
-  const buffer = state.buffers.get(state.activeId);
+  const list = state.messages.get(state.activeId ?? -1) || [];
+  const buffer = activeBuffer();
   const lastSeen = buffer?.last_seen_id || 0;
   let unreadInserted = false;
   let lastDayKey: string | null = null;

@@ -1,4 +1,4 @@
-import { type Buffer, type Network, state } from "./app-state";
+import { activeBuffer, type Buffer, type Network, state } from "./app-state";
 
 function byName(a: Buffer, b: Buffer) {
   return a.name.localeCompare(b.name);
@@ -70,7 +70,7 @@ export function getAllNavigableBufferIds(): number[] {
 }
 
 export function currentNetworkStatusBufferId(): number | null {
-  const active = state.activeId !== null ? state.buffers.get(state.activeId) : null;
+  const active = activeBuffer();
   if (!active) return null;
   return groupedBuffers(active.network_id).status?.id ?? null;
 }

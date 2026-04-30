@@ -63,7 +63,8 @@ export function mircFormat(input: string): string {
 
   let i = 0;
   while (i < input.length) {
-    const ch = input[i];
+    // biome-ignore lint/style/noNonNullAssertion: i < input.length guarantees defined
+    const ch = input[i]!;
     switch (ch) {
       case BOLD:
         closeIfOpen();

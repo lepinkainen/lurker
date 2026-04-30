@@ -154,3 +154,7 @@ export const state: AppState = {
   updateStatus: null,
   channelList: null,
 };
+
+export function activeBuffer(): Buffer | undefined {
+  return state.activeId !== null ? state.buffers.get(state.activeId) : undefined;
+}

@@ -38,10 +38,6 @@ export async function hydrate(deps: ConnectionDeps) {
       state.buffers.set(buffer.id, {
         unread: 0,
         mentions: 0,
-        show_embeds: true,
-        show_presence_events: true,
-        collapse_presence_events: false,
-        pinned: false,
         ...buffer,
       });
     }
@@ -60,8 +56,8 @@ export async function hydrate(deps: ConnectionDeps) {
       const firstChannel = [...state.buffers.values()].find(
         (buffer) => buffer.kind === "channel" && buffer.joined === true,
       );
-      const initial = fromUrl || firstChannel || state.buffers.values().next().value;
-      deps.setActive(initial.id, { replaceHash: true });
+      const initial = fromUrl ?? firstChannel ?? state.buffers.values().next().value;
+      if (initial) deps.setActive(initial.id, { replaceHash: true });
     }
     state.reconnectAttempts = 0;
     deps.scheduleReconnect(0);
