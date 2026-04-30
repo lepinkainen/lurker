@@ -1,0 +1,99 @@
+package irc
+
+import (
+	"testing"
+
+	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
+)
+
+type recordingPreviewEnqueuer struct {
+	calls []previewCall
+}
+
+type previewCall struct {
+	networkID int64
+	bufferID  int64
+	messageID int64
+	content   string
+}
+
+func (r *recordingPreviewEnqueuer) Enqueue(networkID, bufferID, messageID int64, content string) {
+	r.calls = append(r.calls, previewCall{networkID: networkID, bufferID: bufferID, messageID: messageID, content: content})
+}
+
+func TestServerNoticeRoutesToStatusBuffer(t *testing.T) {
+	f := newTestHandlerFixture(t)
+
+	f.Handler.onPrivmsg(nil, mustEvent(t, ":irc.example NOTICE tester :maintenance soon"))
+
+	msg := lastHandlerMessage(t, f)
+	if msg.BufferKind != ircdb.BufferStatus || msg.BufferName != "*status*" {
+		t.Fatalf("buffer = %q/%q, want status", msg.BufferKind, msg.BufferName)
+	}
+	if msg.Kind != "notice" || msg.Sender != "irc.example" || msg.Content != "maintenance soon" {
+		t.Fatalf("message = %+v", msg)
+	}
+}
+
+func TestPrivmsgCTCPAndActionKinds(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		raw         string
+		wantKind    string
+		wantContent string
+	}{
+		{name: "action", raw: ":alice!u@h PRIVMSG #test :\x01ACTION waves\x01", wantKind: "action", wantContent: "waves"},
+		{name: "ctcp", raw: ":alice!u@h PRIVMSG #test :\x01VERSION client\x01", wantKind: "ctcp", wantContent: "VERSION client"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newTestHandlerFixture(t)
+
+			f.Handler.onPrivmsg(nil, mustEvent(t, tc.raw))
+
+			msg := lastHandlerMessage(t, f)
+			if msg.Kind != tc.wantKind || msg.Content != tc.wantContent {
+				t.Fatalf("message = %+v, want kind=%q content=%q", msg, tc.wantKind, tc.wantContent)
+			}
+		})
+	}
+}
+
+func TestIgnoredNickSkipsPersistence(t *testing.T) {
+	f := newTestHandlerFixture(t)
+	if err := ircdb.CreateIgnore(t.Context(), f.Stores.Control, f.Network.ID, "bad*"); err != nil {
+		t.Fatal(err)
+	}
+
+	f.Handler.onPrivmsg(nil, mustEvent(t, ":badguy!u@h PRIVMSG #test :ignore me"))
+	f.Handler.onPrivmsg(nil, mustEvent(t, ":alice!u@h PRIVMSG #test :keep me"))
+
+	if count := handlerMessageCount(t, f); count != 1 {
+		t.Fatalf("message count = %d, want 1", count)
+	}
+	msg := lastHandlerMessage(t, f)
+	if msg.Sender != "alice" || msg.Content != "keep me" {
+		t.Fatalf("message = %+v", msg)
+	}
+}
+
+func TestPreviewEnqueuedOnlyForUserAuthoredMessageKinds(t *testing.T) {
+	f := newTestHandlerFixture(t, withTestHandlerHub(hub.New()))
+	previews := &recordingPreviewEnqueuer{}
+	f.Handler.previews = previews
+
+	f.Handler.onPrivmsg(nil, mustEvent(t, ":alice!u@h PRIVMSG #test :https://example.com/a"))
+	f.Handler.onPrivmsg(nil, mustEvent(t, ":alice!u@h NOTICE #test :https://example.com/b"))
+	f.Handler.onPrivmsg(nil, mustEvent(t, ":alice!u@h PRIVMSG #test :\x01ACTION shares https://example.com/c\x01"))
+	f.Handler.onJoin(nil, mustEvent(t, ":alice!u@h JOIN #test"))
+	f.Handler.onMode(nil, mustEvent(t, ":alice!u@h MODE #test +o bob"))
+
+	if len(previews.calls) != 3 {
+		t.Fatalf("preview calls = %d, want 3: %+v", len(previews.calls), previews.calls)
+	}
+	for _, call := range previews.calls {
+		if call.networkID != f.Network.ID || call.bufferID == 0 || call.messageID == 0 || call.content == "" {
+			t.Fatalf("bad preview call: %+v", call)
+		}
+	}
+}

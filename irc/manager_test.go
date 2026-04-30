@@ -15,26 +15,9 @@ import (
 )
 
 func TestManagerPersistsMessages(t *testing.T) {
-	dir := t.TempDir()
-	stores, err := ircdb.OpenMultiStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if cerr := stores.Close(); cerr != nil {
-			t.Fatalf("close stores: %v", cerr)
-		}
-	}()
-
-	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	logStore, err := stores.LogStore(netrow.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+	fixture := newTestHandlerFixture(t)
+	h := fixture.Handler
+	logStore := fixture.LogStore
 
 	h.onJoin(nil, mustEvent(t, ":tester!~u@h JOIN #test"))
 	h.onPrivmsg(nil, mustEvent(t, ":alice!~u@h PRIVMSG #test :hello from fake"))
@@ -55,34 +38,17 @@ func TestManagerPersistsMessages(t *testing.T) {
 	}
 
 	var hit string
-	err = logStore.DB.QueryRow(`SELECT content FROM messages_fts WHERE messages_fts MATCH 'fake' LIMIT 1`).Scan(&hit)
+	err := logStore.DB.QueryRow(`SELECT content FROM messages_fts WHERE messages_fts MATCH 'fake' LIMIT 1`).Scan(&hit)
 	if err != nil || hit != "hello from fake" {
 		t.Fatalf("fts hit = %q, err = %v", hit, err)
 	}
 }
 
 func TestSelfJoinDoesNotPersistJoinMessage(t *testing.T) {
-	dir := t.TempDir()
-	stores, err := ircdb.OpenMultiStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if cerr := stores.Close(); cerr != nil {
-			t.Fatalf("close stores: %v", cerr)
-		}
-	}()
-
-	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	logStore, err := stores.LogStore(netrow.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	fixture := newTestHandlerFixture(t)
+	logStore := fixture.LogStore
 	client := newTestClient(t, "tester")
-	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+	h := fixture.Handler
 
 	h.onJoin(client, mustEvent(t, ":tester!~u@h JOIN #test"))
 	h.onJoin(client, mustEvent(t, ":alice!~u@h JOIN #test"))
@@ -109,26 +75,9 @@ func TestSelfJoinDoesNotPersistJoinMessage(t *testing.T) {
 }
 
 func TestMsgIDDedupAndServerTime(t *testing.T) {
-	dir := t.TempDir()
-	stores, err := ircdb.OpenMultiStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if cerr := stores.Close(); cerr != nil {
-			t.Fatalf("close stores: %v", cerr)
-		}
-	}()
-
-	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	logStore, err := stores.LogStore(netrow.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+	fixture := newTestHandlerFixture(t)
+	logStore := fixture.LogStore
+	h := fixture.Handler
 
 	h.onJoin(nil, mustEvent(t, ":tester!~u@h JOIN #test"))
 
@@ -339,27 +288,10 @@ func TestBanlistRepliesPersistToStatusBuffer(t *testing.T) {
 }
 
 func TestPublishMemberListUsesTrackedMembers(t *testing.T) {
-	stores, err := ircdb.OpenMultiStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if cerr := stores.Close(); cerr != nil {
-			t.Fatalf("close stores: %v", cerr)
-		}
-	}()
-
-	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	logStore, err := stores.LogStore(netrow.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	h := hub.New()
+	fixture := newTestHandlerFixture(t, withTestHandlerHub(h))
 	client := newTestClient(t, "tester")
-	handler := &handler{stores: stores, db: logStore.DB, hub: h, networkID: netrow.ID, networkName: "fake"}
+	handler := fixture.Handler
 	handler.register(client)
 
 	runClientEvent(client, mustEvent(t, ":tester!u@h JOIN #test"))
