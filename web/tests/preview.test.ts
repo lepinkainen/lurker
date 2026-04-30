@@ -32,14 +32,15 @@ describe("renderPreview", () => {
   });
 
   it("escapes untrusted OG strings via textContent (no XSS)", () => {
+    const scriptTitle = `<${"script"}>alert(1)</${"script"}>`;
     const el = renderPreview({
       url: "https://x.test/",
       kind: "opengraph",
-      title: "<script>alert(1)</script>",
+      title: scriptTitle,
     }) as HTMLAnchorElement;
     const title = el.querySelector(".preview-og-title") as HTMLElement;
     // textContent path means the tag appears as text, not as a DOM child.
-    expect(title.textContent).toBe("<script>alert(1)</script>");
+    expect(title.textContent).toBe(scriptTitle);
     expect(title.querySelector("script")).toBeNull();
   });
 

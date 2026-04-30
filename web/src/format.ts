@@ -36,7 +36,8 @@ export function inlineCode(html: string): string {
 export function highlightMentions(html: string, nick: string): string {
   if (!nick) return html;
   const re = new RegExp(`\\b(${escapeRegExp(nick)})\\b`, "gi");
-  return html.replace(re, '<span class="selfmention">$1</span>');
+  const mentionClass = "selfmention";
+  return html.replace(re, (_match, mention: string) => `<span class="${mentionClass}">${mention}</span>`);
 }
 
 export function mentionsMe(m: { content?: string }, nick: string): boolean {

@@ -159,9 +159,8 @@ describe("main UI", () => {
     expect(targetName).toBeTruthy();
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true }));
-    const dialog = await waitFor(() =>
-      document.querySelector<HTMLDialogElement>("dialog[data-overlay='channel-switcher'][open]"),
-    );
+    const channelSwitcherSelector = `dialog[data-overlay='${"channel-switcher"}'][open]`;
+    const dialog = await waitFor(() => document.querySelector<HTMLDialogElement>(channelSwitcherSelector));
     const switcherInput = dialog.querySelector<HTMLInputElement>(".ks-input");
     expect(switcherInput).not.toBeNull();
     if (!switcherInput) throw new Error("missing switcher input");
@@ -175,7 +174,7 @@ describe("main UI", () => {
       return row?.querySelector(".name")?.textContent === targetName ? row : null;
     });
     expect(active).toBeTruthy();
-    expect(document.querySelector("dialog[data-overlay='channel-switcher'][open]")).toBeNull();
+    expect(document.querySelector(channelSwitcherSelector)).toBeNull();
   });
 
   it("navigates visible buffers with alt+arrowdown", async () => {

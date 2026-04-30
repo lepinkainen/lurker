@@ -67,12 +67,14 @@ describe("inlineCode", () => {
 });
 
 describe("highlightMentions", () => {
+  const mention = (text: string) => `<span class="selfmention">${text}</span>`;
+
   it("wraps exact matches on word boundary", () => {
-    expect(highlightMentions("hey alice", "alice")).toBe('hey <span class="selfmention">alice</span>');
+    expect(highlightMentions("hey alice", "alice")).toBe(`hey ${mention("alice")}`);
   });
 
   it("is case-insensitive", () => {
-    expect(highlightMentions("hi ALICE!", "alice")).toBe('hi <span class="selfmention">ALICE</span>!');
+    expect(highlightMentions("hi ALICE!", "alice")).toBe(`hi ${mention("ALICE")}!`);
   });
 
   it("does not match inside words", () => {

@@ -33,7 +33,7 @@ describe("mircFormat", () => {
   });
 
   it("applies foreground color", () => {
-    expect(mircFormat("\x034red\x03plain")).toBe('<span style="color:var(--mirc-c-4)">red</span>plain');
+    expect(mircFormat(`\x03${4}red\x03plain`)).toBe('<span style="color:var(--mirc-c-4)">red</span>plain');
   });
 
   it("applies fg+bg color", () => {

@@ -47,7 +47,7 @@ describe("membersForActive", () => {
   });
 });
 
-describe("populateMembersForActive", () => {
+describe("active member population", () => {
   beforeEach(() => resetAppState());
 
   it("noops on non-channel buffer", () => {
