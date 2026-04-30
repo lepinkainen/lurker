@@ -20,13 +20,14 @@ vars:
 tasks:
   build:
     desc: Run lint, tests, frontend build, then build the local binary
-    deps: [lint, test, web-build]
+    deps: [lint, test, web-build, build-tui]
     cmds:
       - mkdir -p {{.BUILD_DIR}}
       - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
 
   build-linux:
     desc: Build the Linux binary into build/
+    deps: [build-tui-linux]
     cmds:
       - mkdir -p {{.BUILD_DIR}}
       - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}}-linux-amd64 .
@@ -53,6 +54,12 @@ tasks:
     cmds:
       - mkdir -p {{.BUILD_DIR}}
       - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/lurker-tui ./cmd/tui
+
+  build-tui-linux:
+    desc: Build the TUI client Linux binary to build/lurker-tui-linux-amd64
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/lurker-tui-linux-amd64 ./cmd/tui
 
   dev-web:
     desc: Build the frontend then run backend via air (restarts 5s after Go edits settle)
