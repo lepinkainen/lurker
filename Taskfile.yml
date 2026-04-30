@@ -43,6 +43,17 @@ tasks:
     cmds:
       - go run .
 
+  tui:
+    desc: Run the TUI client (reads tui-config.yaml or ~/.config/lurker/tui.yaml)
+    cmds:
+      - go run ./cmd/tui
+
+  build-tui:
+    desc: Build the TUI client binary to build/lurker-tui
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/lurker-tui ./cmd/tui
+
   dev-web:
     desc: Build the frontend then run backend via air (restarts 5s after Go edits settle)
     deps: [web-build]

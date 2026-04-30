@@ -1,0 +1,5 @@
+# lurker TUI client configuration
+# Copy to tui-config.yaml (local) or ~/.config/lurker/tui.yaml
+
+# URL of the running lurker backend
+backend_url: http://localhost:8080
