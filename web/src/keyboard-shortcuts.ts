@@ -11,7 +11,7 @@ let switcherDialog: HTMLDialogElement | null = null;
 let helpDialog: HTMLDialogElement | null = null;
 let cleanupKeydown: (() => void) | null = null;
 
-const APPLE_PLATFORM_RE = /Mac|iPhone|iPad|iPod/i;
+const APPLE_PLATFORM_RE = /Mac|iPhone|iPad|iPod/iu;
 
 function macLabels() {
   const platform = `${navigator.platform || ""} ${navigator.userAgent || ""}`;
@@ -55,7 +55,7 @@ function nextMatchingBufferId(
   predicate: (id: number) => boolean,
 ): number | null {
   if (ids.length === 0) return null;
-  const startIndex = startId == null ? -1 : ids.indexOf(startId);
+  const startIndex = startId === null ? -1 : ids.indexOf(startId);
   for (let step = 1; step <= ids.length; step += 1) {
     const id = ids[(Math.max(startIndex, -1) + step) % ids.length];
     if (id !== startId && predicate(id)) return id;
@@ -69,7 +69,7 @@ function previousMatchingBufferId(
   predicate: (id: number) => boolean,
 ): number | null {
   if (ids.length === 0) return null;
-  const startIndex = startId == null ? 0 : ids.indexOf(startId);
+  const startIndex = startId === null ? 0 : ids.indexOf(startId);
   for (let step = 1; step <= ids.length; step += 1) {
     const index = (Math.max(startIndex, 0) - step + ids.length) % ids.length;
     const id = ids[index];
@@ -342,7 +342,7 @@ function navigateBuffer(setActive: (id: number) => void, previous = false) {
   const next = previous
     ? previousMatchingBufferId(state.activeId, ids, () => true)
     : nextMatchingBufferId(state.activeId, ids, () => true);
-  if (next != null) setActive(next);
+  if (next !== null) setActive(next);
 }
 
 function isUnreadMessageBuffer(id: number): boolean {
@@ -359,18 +359,18 @@ function navigateUnread(setActive: (id: number) => void, previous = false) {
   const next = previous
     ? previousMatchingBufferId(state.activeId, ids, isUnreadMessageBuffer)
     : nextMatchingBufferId(state.activeId, ids, isUnreadMessageBuffer);
-  if (next != null) setActive(next);
+  if (next !== null) setActive(next);
 }
 
 function navigateMention(setActive: (id: number) => void) {
   const ids = activeChannelIds();
   const next = nextMatchingBufferId(state.activeId, ids, (id) => (state.buffers.get(id)?.mentions || 0) > 0);
-  if (next != null) setActive(next);
+  if (next !== null) setActive(next);
 }
 
 function navigateFirstUnread(setActive: (id: number) => void) {
   const firstUnread = activeChannelIds().find(isUnreadMessageBuffer);
-  if (firstUnread != null && firstUnread !== state.activeId) setActive(firstUnread);
+  if (firstUnread !== undefined && firstUnread !== state.activeId) setActive(firstUnread);
 }
 
 function focusInput(inputEl: HTMLInputElement) {
@@ -449,7 +449,7 @@ export function initKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     }
     if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === "s") {
       const statusId = currentNetworkStatusBufferId();
-      if (statusId != null && statusId !== state.activeId) {
+      if (statusId !== null && statusId !== state.activeId) {
         e.preventDefault();
         deps.setActive(statusId);
       }

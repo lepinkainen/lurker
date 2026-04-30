@@ -39,7 +39,7 @@ export function start() {
   const d = dom;
   renderStatus();
   applyThemeDefaults();
-  initThemeSelector();
+  initThemeSelector().catch((err: unknown) => console.error("theme selector", err));
   bindInputHandlers({
     inputEl: d.inputEl,
     inputForm: d.inputForm,
@@ -324,7 +324,7 @@ function iconEl(symbolId: string, size: number, opts: { className?: string; labe
 }
 
 function activePromptNick(): string {
-  const b = state.activeId != null ? state.buffers.get(state.activeId) : null;
+  const b = state.activeId !== null ? state.buffers.get(state.activeId) : null;
   if (b) {
     const n = state.networks.get(b.network_id) as (Network & { nick?: string }) | undefined;
     if (n?.nick) return n.nick;
@@ -339,7 +339,7 @@ function renderPromptNick() {
 }
 
 function setActive(id: number, opts: { skipHash?: boolean; replaceHash?: boolean } = {}) {
-  if (dom && state.activeId != null) saveInputDraft(state.activeId, dom.inputEl.value, true);
+  if (dom && state.activeId !== null) saveInputDraft(state.activeId, dom.inputEl.value, true);
   state.activeId = id;
   state.channelList = null;
   setSidebarDrawer(false);

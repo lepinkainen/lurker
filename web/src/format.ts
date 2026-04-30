@@ -9,7 +9,7 @@ export type SysMessage = {
 
 export function escapeHTML(s: unknown): string {
   return String(s ?? "").replace(
-    /[&<>"']/g,
+    /[&<>"']/gu,
     (c) =>
       ({
         "&": "&amp;",
@@ -22,27 +22,27 @@ export function escapeHTML(s: unknown): string {
 }
 
 export function escapeRegExp(s: unknown): string {
-  return String(s ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return String(s ?? "").replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 export function linkify(html: string): string {
-  return html.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noreferrer">$1</a>');
+  return html.replace(/(https?:\/\/[^\s<]+)/gu, '<a href="$1" target="_blank" rel="noreferrer">$1</a>');
 }
 
 export function inlineCode(html: string): string {
-  return html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  return html.replace(/`([^`]+)`/gu, "<code>$1</code>");
 }
 
 export function highlightMentions(html: string, nick: string): string {
   if (!nick) return html;
-  const re = new RegExp(`\\b(${escapeRegExp(nick)})\\b`, "gi");
+  const re = new RegExp(`\\b(${escapeRegExp(nick)})\\b`, "giu");
   const mentionClass = "selfmention";
   return html.replace(re, (_match, mention: string) => `<span class="${mentionClass}">${mention}</span>`);
 }
 
 export function mentionsMe(m: { content?: string }, nick: string): boolean {
   if (!(nick && m.content)) return false;
-  return new RegExp(`\\b${escapeRegExp(nick)}\\b`, "i").test(m.content);
+  return new RegExp(`\\b${escapeRegExp(nick)}\\b`, "iu").test(m.content);
 }
 
 export function isSelf(m: { sender?: string }, nick: string): boolean {

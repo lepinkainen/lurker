@@ -23,7 +23,7 @@ export function attachNetworkDragHandlers(sec: HTMLElement, network: Network, de
     deps.render();
   });
   sec.addEventListener("dragover", (e) => {
-    if (state.drag.id == null || state.drag.id === network.id) return;
+    if (state.drag.id === null || state.drag.id === network.id) return;
     e.preventDefault();
     if (state.drag.over !== network.id) {
       state.drag.over = network.id;
@@ -36,7 +36,7 @@ export function attachNetworkDragHandlers(sec: HTMLElement, network: Network, de
   sec.addEventListener("drop", (e) => {
     e.preventDefault();
     const fromId = state.drag.id;
-    if (fromId != null && fromId !== network.id) deps.reorder(fromId, network.id);
+    if (fromId !== null && fromId !== network.id) deps.reorder(fromId, network.id);
     state.drag.id = null;
     state.drag.over = null;
     deps.render();

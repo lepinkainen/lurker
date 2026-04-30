@@ -27,7 +27,7 @@ type MessageDeps = {
   iconEl: (symbolId: string, size: number, opts?: { className?: string; label?: string }) => SVGSVGElement;
 };
 
-const LEADING_HASH_RE = /^#/;
+const LEADING_HASH_RE = /^#/u;
 
 export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
   const buffer = state.buffers.get(state.activeId);

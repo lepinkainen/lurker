@@ -44,7 +44,7 @@ function numberInput(id: string, value: number, min: number, max: number): HTMLI
 }
 
 export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => void): void {
-  const isEdit = existing != null;
+  const isEdit = existing !== undefined;
 
   const dialog = document.createElement("dialog");
   dialog.className = "nf-dialog";

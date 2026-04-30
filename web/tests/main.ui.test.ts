@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __handleWSMessage, __initForTests, __resetForTests } from "../src/main";
 import { fixtureIndexHTML } from "./fixture-index";
 
-const LEADING_HASH_RE = /^#/;
+const LEADING_HASH_RE = /^#/u;
 
 function installFixture() {
   const parsed = new DOMParser().parseFromString(fixtureIndexHTML, "text/html");

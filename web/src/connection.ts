@@ -110,11 +110,11 @@ export function connectWS(deps: ConnectionDeps) {
 }
 
 export function clearReconnectTimer() {
-  if (state.reconnectTimer != null) {
+  if (state.reconnectTimer !== null) {
     window.clearTimeout(state.reconnectTimer);
     state.reconnectTimer = null;
   }
-  if (state.reconnectTicker != null) {
+  if (state.reconnectTicker !== null) {
     window.clearInterval(state.reconnectTicker);
     state.reconnectTicker = null;
   }
@@ -142,7 +142,7 @@ export function scheduleReconnect(
     }, 250);
   }
   state.reconnectTimer = window.setTimeout(() => {
-    if (state.reconnectTicker != null) {
+    if (state.reconnectTicker !== null) {
       window.clearInterval(state.reconnectTicker);
       state.reconnectTicker = null;
     }

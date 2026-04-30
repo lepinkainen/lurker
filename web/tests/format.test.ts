@@ -135,7 +135,7 @@ describe("nickHue", () => {
   });
 });
 
-const OKLCH_FUNCTION_RE = /^oklch\(/;
+const OKLCH_FUNCTION_RE = /^oklch\(/u;
 
 describe("nickColor", () => {
   it("emits oklch with CSS vars", () => {

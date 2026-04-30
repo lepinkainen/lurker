@@ -75,7 +75,7 @@ function networkSection(model: SidebarNetworkModel, deps: SidebarDeps) {
   attachNetworkDragHandlers(sec, network, {
     render: () => rerender(deps),
     reorder: (fromId, toId) => {
-      reorderNetwork(fromId, toId, deps);
+      reorderNetwork(fromId, toId, deps).catch((err: unknown) => console.error("reorder failed", err));
     },
   });
 
@@ -264,7 +264,9 @@ function pinToggle(buffer: Buffer, deps: SidebarDeps) {
   pin.textContent = buffer.pinned ? "⚑" : "⚐";
   const toggle = (e: Event) => {
     e.stopPropagation();
-    updateBufferSettings(buffer, { pinned: !buffer.pinned }, deps);
+    updateBufferSettings(buffer, { pinned: !buffer.pinned }, deps).catch((err: unknown) =>
+      console.error("buffer settings", err),
+    );
   };
   pin.addEventListener("click", toggle);
   pin.addEventListener("keydown", (e) => {
@@ -336,7 +338,7 @@ function settingCheckbox(labelText: string, checked: boolean, onChange: (checked
   input.type = "checkbox";
   input.checked = checked;
   input.addEventListener("change", () => {
-    onChange(input.checked);
+    onChange(input.checked).catch((err: unknown) => console.error("setting change", err));
   });
   label.append(input, document.createTextNode(labelText));
   return label;

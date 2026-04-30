@@ -1,7 +1,7 @@
 import { type Buffer, state } from "./app-state";
 
 function encSeg(s: string): string {
-  return encodeURIComponent(s).replace(/%23/g, "#");
+  return encodeURIComponent(s).replace(/%23/gu, "#");
 }
 
 export function bufferHashFor(buffer: Buffer): string {
@@ -22,8 +22,8 @@ export function bufferFromHash(hash: string): Buffer | null {
   const bufName = parts[1] ? decodeURIComponent(parts.slice(1).join("/")) : null;
   for (const buffer of state.buffers.values()) {
     if (buffer.network_id !== network.id) continue;
-    if (bufName == null && buffer.kind === "status") return buffer;
-    if (bufName != null && buffer.name === bufName) return buffer;
+    if (bufName === null && buffer.kind === "status") return buffer;
+    if (bufName !== null && buffer.name === bufName) return buffer;
   }
   return null;
 }

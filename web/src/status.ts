@@ -8,8 +8,8 @@ export function renderSidebarStatus(dom: DomRefs) {
   } else if (state.backendStatus === "connecting") {
     backend = { cls: "warn", text: "Connecting…" };
   } else if (state.backendStatus === "reconnecting") {
-    const secs = state.reconnectAt == null ? null : Math.max(1, Math.ceil((state.reconnectAt - Date.now()) / 1000));
-    backend = { cls: "warn", text: secs == null ? "Reconnecting…" : `Reconnecting in ${secs}s` };
+    const secs = state.reconnectAt === null ? null : Math.max(1, Math.ceil((state.reconnectAt - Date.now()) / 1000));
+    backend = { cls: "warn", text: secs === null ? "Reconnecting…" : `Reconnecting in ${secs}s` };
   } else {
     backend = { cls: "bad", text: "Offline" };
   }

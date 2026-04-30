@@ -11,7 +11,7 @@ export type MembersDom = {
 };
 
 export function membersForActive(): Member[] {
-  return state.activeId != null ? state.members.get(state.activeId) || [] : [];
+  return state.activeId !== null ? state.members.get(state.activeId) || [] : [];
 }
 
 export function populateMembersForActive() {

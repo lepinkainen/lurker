@@ -2,9 +2,9 @@ import { type Buffer, type BufferInputState, state } from "./app-state";
 import { escapeHTML } from "./format";
 import { handleSlashCommand, matchSlashCommands } from "./slash-commands";
 
-const WHITESPACE_RE = /\s+/;
-const TRAILING_WHITESPACE_RE = /\s$/;
-const LEADING_WHITESPACE_RE = /^\s/;
+const WHITESPACE_RE = /\s+/u;
+const TRAILING_WHITESPACE_RE = /\s$/u;
+const LEADING_WHITESPACE_RE = /^\s/u;
 
 export type InputDeps = {
   inputEl: HTMLInputElement;
@@ -89,14 +89,14 @@ function bufferInputState(bufferId: number): BufferInputState {
 }
 
 export function saveInputDraft(bufferId: number | null, draft: string, resetBrowse = false) {
-  if (bufferId == null) return;
+  if (bufferId === null) return;
   const entry = bufferInputState(bufferId);
   if (resetBrowse) entry.index = null;
   if (entry.index === null) entry.draft = draft;
 }
 
 export function restoreInputDraft(inputEl: HTMLInputElement, bufferId: number | null) {
-  inputEl.value = bufferId == null ? "" : bufferInputState(bufferId).draft;
+  inputEl.value = bufferId === null ? "" : bufferInputState(bufferId).draft;
 }
 
 export function recordSentInput(bufferId: number, text: string) {
@@ -116,7 +116,7 @@ export function handleHistoryKey(
   if ((ev.key !== "ArrowUp" && ev.key !== "ArrowDown") || ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) {
     return false;
   }
-  if (bufferId == null) return false;
+  if (bufferId === null) return false;
   const entry = bufferInputState(bufferId);
   if (ev.key === "ArrowUp") {
     if (entry.entries.length === 0) return false;
@@ -220,7 +220,7 @@ function bindUploadHandlers(deps: InputDeps) {
   deps.uploadInputEl.addEventListener("change", () => {
     const file = deps.uploadInputEl.files?.[0];
     deps.uploadInputEl.value = "";
-    if (file) uploadAndInsert(file, deps);
+    if (file) uploadAndInsert(file, deps).catch((err: unknown) => console.error("upload failed", err));
   });
   deps.inputForm.addEventListener("dragover", (ev) => {
     if (!ev.dataTransfer?.files || ev.dataTransfer.files.length === 0) return;
@@ -233,7 +233,7 @@ function bindUploadHandlers(deps: InputDeps) {
     const file = ev.dataTransfer?.files?.[0];
     if (!file) return;
     ev.preventDefault();
-    uploadAndInsert(file, deps);
+    uploadAndInsert(file, deps).catch((err: unknown) => console.error("upload failed", err));
   });
 }
 

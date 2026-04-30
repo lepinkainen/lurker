@@ -70,7 +70,7 @@ export function getAllNavigableBufferIds(): number[] {
 }
 
 export function currentNetworkStatusBufferId(): number | null {
-  const active = state.activeId != null ? state.buffers.get(state.activeId) : null;
+  const active = state.activeId !== null ? state.buffers.get(state.activeId) : null;
   if (!active) return null;
   return groupedBuffers(active.network_id).status?.id ?? null;
 }

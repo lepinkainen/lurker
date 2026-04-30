@@ -35,6 +35,13 @@
       "style": {
         "useExplicitLengthCheck": "error",
         "useNumericSeparators": "error"
+      },
+      "nursery": {
+        "noEqualsToNull": "error",
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error",
+        "useExhaustiveSwitchCases": "error",
+        "useUnicodeRegex": "error"
       }
     }
   },

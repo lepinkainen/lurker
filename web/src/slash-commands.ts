@@ -144,7 +144,7 @@ const registry: SlashCommandEntry[] = [
 ];
 
 const registryByName = new Map(registry.flatMap((entry) => entry.names.map((name) => [name, entry] as const)));
-const WHITESPACE_RE = /\s+/;
+const WHITESPACE_RE = /\s+/u;
 
 export const SLASH_COMMANDS: SlashCommand[] = registry.flatMap(({ cmd, args, desc, aliases = [] }) => [
   { cmd, args, desc },
