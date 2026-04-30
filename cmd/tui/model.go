@@ -73,9 +73,9 @@ type model struct {
 
 	networks      []networkDTO
 	buffers       []bufferDTO
-	networkStates map[int64]string            // network_id -> state string
-	messages      map[int64][]messageDTO      // buffer_id -> messages
-	topics        map[int64]string            // buffer_id -> topic
+	networkStates map[int64]string       // network_id -> state string
+	messages      map[int64][]messageDTO // buffer_id -> messages
+	topics        map[int64]string       // buffer_id -> topic
 	sidebarItems  []sidebarItem
 	sidebarSel    int
 	activeBuffer  *bufferDTO
@@ -261,11 +261,11 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return *m, nil
 
 	case "pgup":
-		m.viewport.HalfViewUp()
+		m.viewport.HalfPageUp()
 		return *m, nil
 
 	case "pgdown":
-		m.viewport.HalfViewDown()
+		m.viewport.HalfPageDown()
 		return *m, nil
 
 	case "enter":
