@@ -300,12 +300,17 @@ function channelOptionsToggle(buffer: Buffer, deps: SidebarDeps) {
 
 function openChannelOptions(buffer: Buffer, deps: SidebarDeps) {
   const dialog = document.createElement("dialog");
-  dialog.className = "settings-dialog channel-options-dialog";
+  dialog.className = "nf-dialog";
+
+  const inner = document.createElement("div");
+  inner.className = "nf-form";
+
   const title = document.createElement("h2");
+  title.className = "nf-title";
   title.textContent = `${buffer.name} display`;
-  const form = document.createElement("div");
-  form.className = "settings-form";
-  form.append(
+
+  inner.append(
+    title,
     settingCheckbox("Pin", buffer.pinned, (checked) => updateBufferSettings(buffer, { pinned: checked }, deps)),
     settingCheckbox("Show embeds", buffer.show_embeds, (checked) =>
       updateBufferSettings(buffer, { show_embeds: checked }, deps),
@@ -315,33 +320,50 @@ function openChannelOptions(buffer: Buffer, deps: SidebarDeps) {
     ),
   );
   if (buffer.show_presence_events) {
-    form.append(
+    inner.append(
       settingCheckbox("Collapse presence events", buffer.collapse_presence_events, (checked) =>
         updateBufferSettings(buffer, { collapse_presence_events: checked }, deps),
       ),
     );
   }
+
+  const actions = document.createElement("div");
+  actions.className = "nf-actions";
   const close = document.createElement("button");
   close.type = "button";
+  close.className = "nf-btn";
   close.textContent = "Close";
   close.addEventListener("click", () => dialog.close());
-  dialog.append(title, form, close);
+  actions.append(close);
+
+  inner.append(actions);
+  dialog.append(inner);
   dialog.addEventListener("close", () => dialog.remove());
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close();
+  });
   document.body.appendChild(dialog);
   dialog.showModal();
 }
 
 function settingCheckbox(labelText: string, checked: boolean, onChange: (checked: boolean) => Promise<void>) {
-  const label = document.createElement("label");
-  label.className = "setting-row";
+  const wrap = document.createElement("div");
+  wrap.className = "nf-checkbox-wrap";
   const input = document.createElement("input");
   input.type = "checkbox";
+  input.className = "nf-checkbox";
   input.checked = checked;
+  const id = `cb-${Math.random().toString(36).slice(2)}`;
+  input.id = id;
   input.addEventListener("change", () => {
     onChange(input.checked).catch((err: unknown) => console.error("setting change", err));
   });
-  label.append(input, document.createTextNode(labelText));
-  return label;
+  const label = document.createElement("label");
+  label.className = "nf-checkbox-label";
+  label.htmlFor = id;
+  label.textContent = labelText;
+  wrap.append(input, label);
+  return wrap;
 }
 
 async function updateBufferSettings(
