@@ -59,6 +59,7 @@ function startBackend() {
       DATA_DIR,
       CONFIG_PATH: "/dev/null",
       ADDR: `:${BACKEND_PORT}`,
+      LURKER_TEST_FIXTURE_RUNTIME: "1",
     },
     stdio: ["ignore", "inherit", "inherit"],
   });

@@ -8,6 +8,7 @@ describe("seeded backend", () => {
     const state = await res.json();
     const names = state.networks.map((n: { name: string }) => n.name).sort();
     expect(names).toEqual(["libera", "oftc"]);
+    expect(state.networks.map((n: { status: string }) => n.status)).toEqual(["connected", "connected"]);
 
     const liberaBuffers = state.buffers
       .filter(
@@ -19,6 +20,15 @@ describe("seeded backend", () => {
     expect(liberaBuffers).toContain("#lurker");
     expect(liberaBuffers).toContain("#go-nuts");
     expect(liberaBuffers).toContain("alice");
+
+    const lurker = state.buffers.find((b: { name: string }) => b.name === "#lurker");
+    expect(lurker.joined).toBe(true);
+    expect(state.members[String(lurker.id)].map((m: { nick: string }) => m.nick)).toEqual([
+      "alice",
+      "bob",
+      "carol",
+      "lurkertest",
+    ]);
   });
 
   it("returns seeded messages for the #lurker buffer", async () => {

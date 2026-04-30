@@ -7,7 +7,7 @@ describe("app-state layout persistence", () => {
   });
 
   it("returns default layout when nothing is saved", () => {
-    expect(loadLayout()).toEqual({ collapsed: {}, pinned: [], archivesOpen: {} });
+    expect(loadLayout()).toEqual({ collapsed: {}, pinned: [], archivesOpen: {}, sidebarHidden: false });
   });
 
   it("merges saved layout with defaults", () => {
@@ -23,12 +23,13 @@ describe("app-state layout persistence", () => {
       collapsed: { 1: true },
       pinned: [10, 11],
       archivesOpen: {},
+      sidebarHidden: false,
     });
   });
 
   it("falls back to defaults on invalid json", () => {
     localStorage.setItem("lurker.layout", "not-json");
-    expect(loadLayout()).toEqual({ collapsed: {}, pinned: [], archivesOpen: {} });
+    expect(loadLayout()).toEqual({ collapsed: {}, pinned: [], archivesOpen: {}, sidebarHidden: false });
   });
 
   it("saves layout to localStorage", () => {

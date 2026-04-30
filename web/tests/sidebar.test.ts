@@ -47,7 +47,10 @@ describe("orderedNetworks", () => {
 });
 
 describe("renderSidebar", () => {
-  beforeEach(() => resetAppState());
+  beforeEach(() => {
+    localStorage.clear();
+    resetAppState();
+  });
 
   it("clears scroll element when state empty", () => {
     const d = deps();
@@ -82,6 +85,20 @@ describe("renderSidebar", () => {
     renderSidebar(d);
     const first = d.sbScrollEl.firstElementChild;
     expect(first?.querySelector(".pinned-hdr")).not.toBeNull();
+  });
+
+  it("toggles pinned buffers from visible row control", () => {
+    state.networks.set(1, net({ id: 1 }));
+    state.buffers.set(10, buf({ id: 10, network_id: 1, name: "#aaa", joined: true }));
+    const d = deps();
+    renderSidebar(d);
+
+    d.sbScrollEl.querySelector<HTMLElement>(".sbrow.chan .pin-toggle")?.click();
+    expect(state.layout.pinned).toEqual([10]);
+    expect(d.sbScrollEl.firstElementChild?.querySelector(".pinned-hdr")).not.toBeNull();
+
+    d.sbScrollEl.querySelector<HTMLElement>(".sbrow.pinned .pin-toggle")?.click();
+    expect(state.layout.pinned).toEqual([]);
   });
 
   it("collapses network when collapsed flag set and shows unread badge", () => {

@@ -55,6 +55,13 @@ func main() {
 	defer closeutil.Ignore(previewSvc, "component", "preview")
 	mgr := irc.NewManager(stores, evHub)
 	mgr.SetPreviewEnqueuer(previewSvc)
+	if os.Getenv("LURKER_TEST_FIXTURE_RUNTIME") != "" {
+		if err := mgr.LoadFixtureRuntimeState(ctx); err != nil {
+			slog.Error("load fixture runtime state", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("test fixture runtime state loaded")
+	}
 	if nets := cfg.Networks; len(nets) > 0 {
 		startErr := mgr.Start(ctx, nets)
 		if startErr != nil {

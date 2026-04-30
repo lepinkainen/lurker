@@ -1,17 +1,10 @@
-import { type Buffer, type Network, type ReorderResponse, saveLayout, state } from "./app-state";
-import { groupedBuffers, orderedNetworks } from "./buffers";
+import { type Buffer, type Network, saveLayout, state } from "./app-state";
+import { orderedNetworks } from "./buffers";
 import { dotClass } from "./format";
+import { reorderNetworks, setNetworkDisabled } from "./network-api";
 import { openNetworkForm } from "./network-form";
-
-async function setNetworkDisabled(id: number, disabled: boolean): Promise<Network> {
-  const res = await fetch(`/api/networks/${id}`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ disabled }),
-  });
-  if (!res.ok) throw new Error((await res.text()) || res.statusText);
-  return (await res.json()) as Network;
-}
+import { attachNetworkDragHandlers } from "./sidebar-dnd";
+import { prepareSidebarModel, type SidebarNetworkModel, togglePinnedBuffer } from "./sidebar-model";
 
 export type SidebarDeps = {
   sbScrollEl: HTMLDivElement;
@@ -26,102 +19,94 @@ export function renderSidebar(deps: SidebarDeps) {
   if (!sbScrollEl) return;
   sbScrollEl.innerHTML = "";
 
-  const pinned = (state.layout.pinned || []).map((id) => state.buffers.get(id)).filter(Boolean) as Buffer[];
-  if (pinned.length) {
-    const sec = document.createElement("div");
-    sec.className = "sb-section";
-    const hdr = document.createElement("div");
-    hdr.className = "sb-hdr pinned-hdr";
-    hdr.innerHTML = '<span class="pinico">⚑</span><span class="title">Pinned</span>';
-    sec.appendChild(hdr);
-    for (const buffer of pinned) sec.appendChild(bufferRow(buffer, deps, { pinned: true }));
-    sbScrollEl.appendChild(sec);
-  }
+  const model = prepareSidebarModel();
+  appendPinnedSection(sbScrollEl, model.pinned, deps);
+  for (const network of model.activeNetworks) sbScrollEl.appendChild(networkSection(network, deps));
+  appendDisabledSection(sbScrollEl, model.disabledNetworks, deps);
+  sbScrollEl.appendChild(addNetworkButton(deps));
+}
 
-  const all = orderedNetworks();
-  const active = all.filter((n) => !n.disabled);
-  const disabled = all.filter((n) => n.disabled);
+function rerender(deps: SidebarDeps) {
+  renderSidebar(deps);
+}
 
-  for (const network of active) sbScrollEl.appendChild(networkSection(network, deps));
+function appendPinnedSection(root: HTMLElement, pinned: Buffer[], deps: SidebarDeps) {
+  if (!pinned.length) return;
+  const sec = document.createElement("div");
+  sec.className = "sb-section";
+  const hdr = document.createElement("div");
+  hdr.className = "sb-hdr pinned-hdr";
+  hdr.innerHTML = '<span class="pinico">⚑</span><span class="title">Pinned</span>';
+  sec.appendChild(hdr);
+  for (const buffer of pinned) sec.appendChild(bufferRow(buffer, deps, { pinned: true }));
+  root.appendChild(sec);
+}
 
-  if (disabled.length > 0) {
-    const disabledSec = document.createElement("div");
-    disabledSec.className = "sb-disabled-group";
-    const disabledHdr = document.createElement("div");
-    disabledHdr.className = "sb-disabled-hdr";
-    disabledHdr.textContent = "Disabled";
-    disabledSec.appendChild(disabledHdr);
-    for (const network of disabled) disabledSec.appendChild(disabledNetworkRow(network, deps));
-    sbScrollEl.appendChild(disabledSec);
-  }
+function appendDisabledSection(root: HTMLElement, disabled: Network[], deps: SidebarDeps) {
+  if (!disabled.length) return;
+  const disabledSec = document.createElement("div");
+  disabledSec.className = "sb-disabled-group";
+  const disabledHdr = document.createElement("div");
+  disabledHdr.className = "sb-disabled-hdr";
+  disabledHdr.textContent = "Disabled";
+  disabledSec.appendChild(disabledHdr);
+  for (const network of disabled) disabledSec.appendChild(disabledNetworkRow(network, deps));
+  root.appendChild(disabledSec);
+}
 
+function addNetworkButton(deps: SidebarDeps) {
   const add = document.createElement("button");
   add.type = "button";
   add.className = "sb-add";
   add.innerHTML = "<span>+</span><span>Add a network</span>";
-  add.addEventListener("click", () => openNetworkForm(undefined, () => renderSidebar(deps)));
-  sbScrollEl.appendChild(add);
+  add.addEventListener("click", () => openNetworkForm(undefined, () => rerender(deps)));
+  return add;
 }
 
-function networkSection(network: Network, deps: SidebarDeps) {
+function networkSection(model: SidebarNetworkModel, deps: SidebarDeps) {
+  const { network, collapsed } = model;
   const sec = document.createElement("div");
-  const collapsed = !!state.layout.collapsed[network.id];
-  sec.className = [
+  sec.className = networkSectionClass(network.id);
+  attachNetworkDragHandlers(sec, network, {
+    render: () => rerender(deps),
+    reorder: (fromId, toId) => void reorderNetwork(fromId, toId, deps),
+  });
+
+  sec.appendChild(networkHeader(model, deps));
+  if (!collapsed) appendOpenNetworkRows(sec, model, deps);
+  return sec;
+}
+
+function networkSectionClass(networkId: number) {
+  return [
     "sb-section",
     "netsection",
-    state.drag.id === network.id && "dragging",
-    state.drag.over === network.id && state.drag.id !== network.id && "dragover",
+    state.drag.id === networkId && "dragging",
+    state.drag.over === networkId && state.drag.id !== networkId && "dragover",
   ]
     .filter(Boolean)
     .join(" ");
-  sec.draggable = true;
-  sec.addEventListener("dragstart", (e) => {
-    state.drag.id = network.id;
-    try {
-      e.dataTransfer?.setData("text/plain", String(network.id));
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-    } catch {}
-    sec.classList.add("dragging");
-  });
-  sec.addEventListener("dragend", () => {
-    state.drag.id = null;
-    state.drag.over = null;
-    renderSidebar(deps);
-  });
-  sec.addEventListener("dragover", (e) => {
-    if (state.drag.id == null || state.drag.id === network.id) return;
-    e.preventDefault();
-    if (state.drag.over !== network.id) {
-      state.drag.over = network.id;
-      renderSidebar(deps);
-    }
-  });
-  sec.addEventListener("dragleave", () => {
-    if (state.drag.over === network.id) state.drag.over = null;
-  });
-  sec.addEventListener("drop", (e) => {
-    e.preventDefault();
-    const fromId = state.drag.id;
-    if (fromId != null && fromId !== network.id) void reorderNetwork(fromId, network.id, deps);
-    state.drag.id = null;
-    state.drag.over = null;
-    renderSidebar(deps);
-  });
+}
 
-  const { status: statusB, channels, queries, parted } = groupedBuffers(network.id);
-  const netBufs = [statusB, ...channels, ...queries, ...parted].filter(Boolean) as Buffer[];
-  const headerActive = statusB && state.activeId === statusB.id;
-  const dot = dotClass(network.status);
-  const unreadTotal = netBufs.reduce((sum, buffer) => sum + (buffer.unread || 0), 0);
-  const mentionTotal = netBufs.reduce((sum, buffer) => sum + (buffer.mentions || 0), 0);
-
+function networkHeader(model: SidebarNetworkModel, deps: SidebarDeps) {
+  const { network, collapsed, headerActive, buffers } = model;
   const hdr = document.createElement("button");
   hdr.type = "button";
-  hdr.className = ["sb-hdr", "net-hdr", headerActive && "active", collapsed && "collapsed", dot]
+  hdr.className = ["sb-hdr", "net-hdr", headerActive && "active", collapsed && "collapsed", dotClass(network.status)]
     .filter(Boolean)
     .join(" ");
   hdr.title = `${network.host || ""} · ${network.status || "offline"} · click to show server log`;
 
+  hdr.append(collapseCaret(network, collapsed, deps), dragGrip(), networkName(network));
+  if (network.tls) hdr.appendChild(tlsLockIcon(deps));
+  hdr.appendChild(networkActions(model, deps));
+  hdr.addEventListener("click", () => {
+    if (buffers.status) deps.setActive(buffers.status.id);
+  });
+  return hdr;
+}
+
+function collapseCaret(network: Network, collapsed: boolean, deps: SidebarDeps) {
   const caret = document.createElement("span");
   caret.className = "caret";
   caret.textContent = collapsed ? "▸" : "▾";
@@ -129,23 +114,39 @@ function networkSection(network: Network, deps: SidebarDeps) {
     e.stopPropagation();
     state.layout.collapsed[network.id] = !collapsed;
     saveLayout(state.layout);
-    renderSidebar(deps);
+    rerender(deps);
   });
+  return caret;
+}
+
+function dragGrip() {
   const grip = document.createElement("span");
   grip.className = "grip";
   grip.title = "Drag to reorder";
   grip.textContent = "⋮⋮";
+  return grip;
+}
+
+function networkName(network: Network) {
   const name = document.createElement("span");
   name.className = "netname";
   name.textContent = network.name;
-  const tlsIcon = network.tls ? tlsLockIcon(deps) : null;
+  return name;
+}
+
+function networkActions(model: SidebarNetworkModel, deps: SidebarDeps) {
   const actions = document.createElement("span");
   actions.className = "netactions";
-  if (collapsed && mentionTotal > 0) {
-    actions.appendChild(badge("mentionbadge", mentionTotal));
-  } else if (collapsed && unreadTotal > 0) {
-    actions.appendChild(badge("unreadbadge", unreadTotal));
+  if (model.collapsed && model.buffers.mentionTotal > 0) {
+    actions.appendChild(badge("mentionbadge", model.buffers.mentionTotal));
+  } else if (model.collapsed && model.buffers.unreadTotal > 0) {
+    actions.appendChild(badge("unreadbadge", model.buffers.unreadTotal));
   }
+  actions.append(networkEditButton(model.network, deps));
+  return actions;
+}
+
+function networkEditButton(network: Network, deps: SidebarDeps) {
   const editBtn = document.createElement("button");
   editBtn.type = "button";
   editBtn.className = "icbtn small net-edit";
@@ -154,72 +155,49 @@ function networkSection(network: Network, deps: SidebarDeps) {
   editBtn.appendChild(deps.iconEl("ic-gear", 11));
   editBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    openNetworkForm(network, () => renderSidebar(deps));
+    openNetworkForm(network, () => rerender(deps));
   });
-  actions.append(editBtn);
-  hdr.append(caret, grip, name);
-  if (tlsIcon) hdr.appendChild(tlsIcon);
-  hdr.appendChild(actions);
-  hdr.addEventListener("click", () => {
-    if (statusB) deps.setActive(statusB.id);
+  return editBtn;
+}
+
+function appendOpenNetworkRows(sec: HTMLElement, model: SidebarNetworkModel, deps: SidebarDeps) {
+  for (const buffer of model.buffers.channels) sec.appendChild(bufferRow(buffer, deps));
+  for (const buffer of model.buffers.queries) sec.appendChild(bufferRow(buffer, deps));
+  appendArchiveSection(sec, model, deps);
+}
+
+function appendArchiveSection(sec: HTMLElement, model: SidebarNetworkModel, deps: SidebarDeps) {
+  const { network, buffers } = model;
+  if (!buffers.parted.length) return;
+  const archOpen = !!state.layout.archivesOpen[network.id];
+  const arch = document.createElement("button");
+  arch.type = "button";
+  arch.className = ["sbrow", "archives", archOpen && "open"].filter(Boolean).join(" ");
+  arch.append(archiveCaret(archOpen), span("name", "Archive"), span("archcount", String(buffers.parted.length)));
+  arch.addEventListener("click", () => {
+    state.layout.archivesOpen[network.id] = !archOpen;
+    saveLayout(state.layout);
+    rerender(deps);
   });
-  sec.appendChild(hdr);
+  sec.appendChild(arch);
+  if (archOpen) for (const buffer of buffers.parted) sec.appendChild(bufferRow(buffer, deps));
+}
 
-  if (!collapsed) {
-    for (const buffer of channels) sec.appendChild(bufferRow(buffer, deps));
-    for (const buffer of queries) sec.appendChild(bufferRow(buffer, deps));
-    if (parted.length) {
-      const archOpen = !!state.layout.archivesOpen[network.id];
-      const arch = document.createElement("button");
-      arch.type = "button";
-      arch.className = ["sbrow", "archives", archOpen && "open"].filter(Boolean).join(" ");
-      const archCaret = document.createElement("span");
-      archCaret.className = "caret";
-      archCaret.textContent = archOpen ? "▾" : "▸";
-      const nm = document.createElement("span");
-      nm.className = "name";
-      nm.textContent = "Archive";
-      const cnt = document.createElement("span");
-      cnt.className = "archcount";
-      cnt.textContent = String(parted.length);
-      arch.append(archCaret, nm, cnt);
-      arch.addEventListener("click", () => {
-        state.layout.archivesOpen[network.id] = !archOpen;
-        saveLayout(state.layout);
-        renderSidebar(deps);
-      });
-      sec.appendChild(arch);
-      if (archOpen) {
-        for (const buffer of parted) sec.appendChild(bufferRow(buffer, deps));
-      }
-    }
-  }
-
-  return sec;
+function archiveCaret(open: boolean) {
+  return span("caret", open ? "▾" : "▸");
 }
 
 function disabledNetworkRow(network: Network, deps: SidebarDeps) {
   const row = document.createElement("div");
   row.className = "sb-disabled-row";
-
-  const name = document.createElement("span");
-  name.className = "sb-disabled-name";
-  name.textContent = network.name;
-
   const actions = document.createElement("span");
   actions.className = "sb-disabled-actions";
+  actions.append(networkEditButton(network, deps), enableNetworkButton(network, deps));
+  row.append(span("sb-disabled-name", network.name), actions);
+  return row;
+}
 
-  const editBtn = document.createElement("button");
-  editBtn.type = "button";
-  editBtn.className = "icbtn small net-edit";
-  editBtn.title = "Edit network";
-  editBtn.setAttribute("aria-label", "Edit network");
-  editBtn.appendChild(deps.iconEl("ic-gear", 11));
-  editBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    openNetworkForm(network, () => renderSidebar(deps));
-  });
-
+function enableNetworkButton(network: Network, deps: SidebarDeps) {
   const enableBtn = document.createElement("button");
   enableBtn.type = "button";
   enableBtn.className = "icbtn small net-enable";
@@ -231,25 +209,32 @@ function disabledNetworkRow(network: Network, deps: SidebarDeps) {
     try {
       const updated = await setNetworkDisabled(network.id, false);
       state.networks.set(updated.id, updated);
-      renderSidebar(deps);
+      rerender(deps);
     } catch (err) {
       console.error("enable network", err);
     }
   });
-
-  actions.append(editBtn, enableBtn);
-  row.append(name, actions);
-  return row;
+  return enableBtn;
 }
 
 function bufferRow(buffer: Buffer, deps: SidebarDeps, opts: { pinned?: boolean } = {}) {
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = [
+  btn.className = bufferRowClass(buffer, opts.pinned);
+  btn.appendChild(span("name", buffer.kind === "status" ? "(status)" : buffer.name));
+  if (buffer.mentions > 0) btn.appendChild(badge("mentionbadge", buffer.mentions));
+  else if (buffer.unread > 0) btn.appendChild(badge("unreadbadge", buffer.unread));
+  btn.appendChild(pinToggle(buffer, deps, !!opts.pinned));
+  btn.addEventListener("click", () => deps.setActive(buffer.id));
+  return btn;
+}
+
+function bufferRowClass(buffer: Buffer, pinned = false) {
+  return [
     "sbrow",
     "chan",
     buffer.kind,
-    opts.pinned && "pinned",
+    pinned && "pinned",
     buffer.id === state.activeId && "active",
     buffer.unread > 0 && "unread",
     buffer.mentions > 0 && "mention",
@@ -257,15 +242,29 @@ function bufferRow(buffer: Buffer, deps: SidebarDeps, opts: { pinned?: boolean }
   ]
     .filter(Boolean)
     .join(" ");
-  const display = buffer.kind === "status" ? "(status)" : buffer.name;
-  const nm = document.createElement("span");
-  nm.className = "name";
-  nm.textContent = display;
-  btn.appendChild(nm);
-  if (buffer.mentions > 0) btn.appendChild(badge("mentionbadge", buffer.mentions));
-  else if (buffer.unread > 0) btn.appendChild(badge("unreadbadge", buffer.unread));
-  btn.addEventListener("click", () => deps.setActive(buffer.id));
-  return btn;
+}
+
+function pinToggle(buffer: Buffer, deps: SidebarDeps, pinned: boolean) {
+  const pin = document.createElement("span");
+  pin.className = ["pin-toggle", pinned && "active"].filter(Boolean).join(" ");
+  pin.role = "button";
+  pin.tabIndex = 0;
+  pin.title = pinned ? "Unpin buffer" : "Pin buffer";
+  pin.setAttribute("aria-label", pin.title);
+  pin.textContent = pinned ? "⚑" : "⚐";
+  const toggle = (e: Event) => {
+    e.stopPropagation();
+    togglePinnedBuffer(buffer.id);
+    saveLayout(state.layout);
+    rerender(deps);
+  };
+  pin.addEventListener("click", toggle);
+  pin.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    toggle(e);
+  });
+  return pin;
 }
 
 function tlsLockIcon(deps: SidebarDeps) {
@@ -276,6 +275,13 @@ function badge(cls: string, n: number) {
   const el = document.createElement("span");
   el.className = `badge ${cls}`;
   el.textContent = n > 99 ? "99+" : String(n);
+  return el;
+}
+
+function span(cls: string, text: string) {
+  const el = document.createElement("span");
+  el.className = cls;
+  el.textContent = text;
   return el;
 }
 
@@ -292,24 +298,18 @@ async function reorderNetwork(fromId: number, toId: number, deps: SidebarDeps) {
     const net = state.networks.get(id);
     if (net) net.sort_order = idx;
   });
-  renderSidebar(deps);
+  rerender(deps);
 
   try {
-    const res = await fetch("/api/networks/reorder", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ids }),
-    });
-    if (!res.ok) throw new Error(`reorder ${res.status}`);
-    const data: ReorderResponse = await res.json();
+    const data = await reorderNetworks(ids);
     for (const network of data.networks || []) state.networks.set(network.id, network);
-    renderSidebar(deps);
+    rerender(deps);
   } catch (err) {
     console.error("reorder failed", err);
     for (const prev of previous) {
       const net = state.networks.get(prev.id);
       if (net) net.sort_order = prev.sort_order;
     }
-    renderSidebar(deps);
+    rerender(deps);
   }
 }

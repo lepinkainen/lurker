@@ -40,7 +40,12 @@ describe("resetAppState", () => {
     expect(state.lastMarkedReadId.size).toBe(0);
     expect(state.me.nick).toBe("you");
     expect(state.showMemberList).toBe(true);
-    expect(state.layout).toEqual({ collapsed: { 5: true }, pinned: [2], archivesOpen: { 1: true } });
+    expect(state.layout).toEqual({
+      collapsed: { 5: true },
+      pinned: [2],
+      archivesOpen: { 1: true },
+      sidebarHidden: false,
+    });
     expect(state.drag).toEqual({ id: null, over: null });
   });
 

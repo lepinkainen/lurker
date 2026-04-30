@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -71,30 +72,32 @@ type connectorFunc func(ctx context.Context, client *girc.Client, server ServerC
 
 // Manager owns IRC clients and connection lifecycle for all networks.
 type Manager struct {
-	stores        *ircdb.MultiStore
-	hub           *hub.Hub
-	previews      PreviewEnqueuer
-	wg            sync.WaitGroup
-	mu            sync.Mutex
-	conn          map[int64]*girc.Client
-	state         map[int64]string
-	runtime       map[int64]networkRuntime
-	membersLoaded map[int64]map[string]bool
-	joined        map[int64]map[string]bool
-	connector     connectorFunc
+	stores         *ircdb.MultiStore
+	hub            *hub.Hub
+	previews       PreviewEnqueuer
+	wg             sync.WaitGroup
+	mu             sync.Mutex
+	conn           map[int64]*girc.Client
+	state          map[int64]string
+	runtime        map[int64]networkRuntime
+	membersLoaded  map[int64]map[string]bool
+	joined         map[int64]map[string]bool
+	fixtureMembers map[int64]map[string][]ircdb.ChannelMember
+	connector      connectorFunc
 }
 
 // NewManager constructs a Manager.
 func NewManager(stores *ircdb.MultiStore, h *hub.Hub) *Manager {
 	return &Manager{
-		stores:        stores,
-		hub:           h,
-		conn:          map[int64]*girc.Client{},
-		state:         map[int64]string{},
-		runtime:       map[int64]networkRuntime{},
-		membersLoaded: map[int64]map[string]bool{},
-		joined:        map[int64]map[string]bool{},
-		connector:     defaultConnector,
+		stores:         stores,
+		hub:            h,
+		conn:           map[int64]*girc.Client{},
+		state:          map[int64]string{},
+		runtime:        map[int64]networkRuntime{},
+		membersLoaded:  map[int64]map[string]bool{},
+		joined:         map[int64]map[string]bool{},
+		fixtureMembers: map[int64]map[string][]ircdb.ChannelMember{},
+		connector:      defaultConnector,
 	}
 }
 
@@ -489,9 +492,13 @@ func (m *Manager) ChannelMembers(networkID int64, channel string) []ircdb.Channe
 	m.mu.Lock()
 	c := m.conn[networkID]
 	loaded := m.membersLoaded[networkID][channel]
+	fixtureMembers := slices.Clone(m.fixtureMembers[networkID][channel])
 	m.mu.Unlock()
-	if c == nil || !c.IsConnected() || channel == "" {
+	if channel == "" {
 		return nil
+	}
+	if c == nil || !c.IsConnected() {
+		return fixtureMembers
 	}
 	members := buildChannelMembers(c, channel)
 	if members == nil {
