@@ -341,15 +341,16 @@ function navigateBuffer(setActive: (id: number) => void, previous = false) {
   if (next != null) setActive(next);
 }
 
+function isUnreadMessageBuffer(id: number): boolean {
+  const buffer = state.buffers.get(id);
+  return !!buffer && buffer.kind !== "status" && buffer.unread > 0;
+}
+
 function navigateUnread(setActive: (id: number) => void, previous = false) {
   const ids = getVisibleSidebarBufferIds();
-  const pick = (id: number) => {
-    const buffer = state.buffers.get(id);
-    return !!buffer && buffer.unread > 0;
-  };
   const next = previous
-    ? previousMatchingBufferId(state.activeId, ids, pick)
-    : nextMatchingBufferId(state.activeId, ids, pick);
+    ? previousMatchingBufferId(state.activeId, ids, isUnreadMessageBuffer)
+    : nextMatchingBufferId(state.activeId, ids, isUnreadMessageBuffer);
   if (next != null) setActive(next);
 }
 
@@ -360,7 +361,7 @@ function navigateMention(setActive: (id: number) => void) {
 }
 
 function navigateFirstUnread(setActive: (id: number) => void) {
-  const firstUnread = getVisibleSidebarBufferIds().find((id) => (state.buffers.get(id)?.unread || 0) > 0);
+  const firstUnread = getVisibleSidebarBufferIds().find(isUnreadMessageBuffer);
   if (firstUnread != null && firstUnread !== state.activeId) setActive(firstUnread);
 }
 
