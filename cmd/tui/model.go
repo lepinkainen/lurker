@@ -134,6 +134,21 @@ func fetchStateCmd(c *apiClient) tea.Cmd {
 	}
 }
 
+func reconnectWSCmd(c *apiClient, delay time.Duration) tea.Cmd {
+	return func() tea.Msg {
+		time.Sleep(delay)
+		ctx, cancel := context.WithCancel(context.Background())
+		conn, err := c.connectWS(ctx)
+		if err != nil {
+			cancel()
+			return wsErrorMsg{err}
+		}
+		ch := startWSReader(ctx, conn)
+		_ = cancel
+		return wsConnectedMsg{conn: conn, ch: ch, cancel: cancel}
+	}
+}
+
 func connectWSCmd(c *apiClient) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -191,10 +206,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForWSEvent(m.wsChan)
 
 	case wsErrorMsg:
-		m.status = fmt.Sprintf("WS error: %v — reconnecting…", msg.err)
+		m.status = fmt.Sprintf("WS error: %v — reconnecting in 5s…", msg.err)
 		m.wsConn = nil
 		m.wsChan = nil
-		return m, connectWSCmd(m.client)
+		return m, reconnectWSCmd(m.client, 5*time.Second)
 
 	case errMsg:
 		m.status = fmt.Sprintf("Error: %v", msg.err)
