@@ -95,10 +95,9 @@ export function inferUnreadCounts() {
   for (const buffer of state.buffers.values()) {
     const list = state.messages.get(buffer.id) || [];
     const lastSeen = buffer.last_seen_id || 0;
-    const visible = list.filter((message) => !isHiddenPresence(message, buffer));
-    const unread = visible.filter((message) => message.id > lastSeen).length;
-    const mentions = visible.filter((message) => message.id > lastSeen && mentionsMe(message, state.me.nick)).length;
-    buffer.unread = buffer.id === state.activeId ? 0 : unread;
+    const unreadActivity = list.filter((message) => message.id > lastSeen && countsAsUnreadActivity(message));
+    const mentions = unreadActivity.filter((message) => mentionsMe(message, state.me.nick)).length;
+    buffer.unread = buffer.id === state.activeId ? 0 : unreadActivity.length;
     buffer.mentions = buffer.id === state.activeId ? 0 : mentions;
   }
 }
@@ -118,7 +117,7 @@ export function onMessage(
     buffer &&
     msg.buffer_id !== state.activeId &&
     msg.id > (buffer.last_seen_id || 0) &&
-    !isHiddenPresence(msg, buffer)
+    countsAsUnreadActivity(msg)
   ) {
     buffer.unread = (buffer.unread || 0) + 1;
     if (mentionsMe(msg, state.me.nick)) buffer.mentions = (buffer.mentions || 0) + 1;
@@ -255,7 +254,13 @@ function renderMessages(messagesEl: HTMLElement) {
       messagesEl.appendChild(daySeparator(message.ts));
       lastDayKey = dayKey;
     }
-    if (!unreadInserted && message.id > lastSeen && state.activeId !== null && lastSeen > 0) {
+    if (
+      !unreadInserted &&
+      message.id > lastSeen &&
+      countsAsUnreadActivity(message) &&
+      state.activeId !== null &&
+      lastSeen > 0
+    ) {
       const bar = document.createElement("div");
       bar.className = "unreadbar";
       const label = document.createElement("span");
@@ -319,6 +324,25 @@ function messageRow(message: Message) {
 
 function isHiddenPresence(message: Message, buffer: import("./app-state").Buffer | undefined) {
   return buffer?.show_presence_events === false && ["join", "part", "quit", "nick"].includes(message.kind || "");
+}
+
+function countsAsUnreadActivity(message: Message) {
+  return ![
+    "join",
+    "part",
+    "quit",
+    "nick",
+    "mode",
+    "kick",
+    "connected",
+    "disconnected",
+    "error",
+    "away",
+    "back",
+    "account",
+    "chghost",
+    "status",
+  ].includes(message.kind || "");
 }
 
 function renderBodyHTML(message: Message) {

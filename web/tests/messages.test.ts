@@ -126,6 +126,18 @@ describe("renderActiveView", () => {
     renderActiveView(d, deps);
     expect(d.messagesEl.querySelector(".unreadbar")).not.toBeNull();
   });
+
+  it("does not insert unread bar for only state-change noise past last_seen_id", () => {
+    state.activeId = 1;
+    state.buffers.set(1, buf({ id: 1, name: "#x", last_seen_id: 5 }));
+    state.messages.set(1, [
+      { id: 6, buffer_id: 1, sender: "a", content: "joined", kind: "join", ts: "2024-05-01T10:01:00Z" },
+      { id: 7, buffer_id: 1, sender: "a", content: "+o a", kind: "mode", ts: "2024-05-01T10:02:00Z" },
+    ]);
+    const d = dom();
+    renderActiveView(d, deps);
+    expect(d.messagesEl.querySelector(".unreadbar")).toBeNull();
+  });
 });
 
 describe("onMessage", () => {
@@ -152,6 +164,18 @@ describe("onMessage", () => {
     onMessage({ id: 10, buffer_id: 1, sender: "a", content: "hi", kind: "message" }, handlers);
     expect(state.buffers.get(1)?.unread).toBe(0);
     expect(handlers.renderActiveView).toHaveBeenCalled();
+  });
+
+  it("does not bump unread or mentions for state-change noise on inactive buffer", () => {
+    state.activeId = 99;
+    state.me.nick = "you";
+    state.buffers.set(1, buf({ id: 1, show_presence_events: true }));
+    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    ["join", "part", "quit", "nick", "mode", "kick", "connected", "disconnected", "error"].forEach((kind, idx) => {
+      onMessage({ id: 10 + idx, buffer_id: 1, sender: "alice", content: `mentions you in ${kind}`, kind }, handlers);
+    });
+    expect(state.buffers.get(1)?.unread).toBe(0);
+    expect(state.buffers.get(1)?.mentions).toBe(0);
   });
 
   it("dedupes by id and keeps sorted", () => {
@@ -188,6 +212,20 @@ describe("inferUnreadCounts", () => {
     expect(state.buffers.get(1)?.unread).toBe(0);
     expect(state.buffers.get(2)?.unread).toBe(2);
     expect(state.buffers.get(2)?.mentions).toBe(1);
+  });
+
+  it("excludes state-change noise but counts topic changes as unread activity", () => {
+    state.activeId = 99;
+    state.me.nick = "you";
+    state.buffers.set(1, buf({ id: 1, last_seen_id: 5, show_presence_events: true }));
+    state.messages.set(1, [
+      { id: 6, buffer_id: 1, sender: "a", content: "you joined", kind: "join" },
+      { id: 7, buffer_id: 1, sender: "a", content: "you parted", kind: "part" },
+      { id: 8, buffer_id: 1, sender: "a", content: "new topic", kind: "topic" },
+    ]);
+    inferUnreadCounts();
+    expect(state.buffers.get(1)?.unread).toBe(1);
+    expect(state.buffers.get(1)?.mentions).toBe(0);
   });
 });
 
