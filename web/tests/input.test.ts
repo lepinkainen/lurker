@@ -1,16 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Buffer, state } from "../src/app-state";
-import {
-  handleFormatKey,
-  handleHistoryKey,
-  insertTextAtCursor,
-  recordSentInput,
-  restoreInputDraft,
-  saveInputDraft,
-  updateCmdPop,
-  updateInputEnabled,
-  uploadFile,
-} from "../src/input";
+import { handleFormatKey, updateInputEnabled } from "../src/input";
+import { updateCmdPop } from "../src/input-command-popup";
+import { handleHistoryKey, recordSentInput, restoreInputDraft, saveInputDraft } from "../src/input-history";
+import { insertTextAtCursor, uploadFile } from "../src/input-upload";
 import { resetAppState } from "../src/reset";
 import { handleSlashCommand } from "../src/slash-commands";
 

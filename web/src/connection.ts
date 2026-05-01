@@ -5,40 +5,40 @@ export const RECONNECT_MAX_MS = 30_000;
 export const WS_STALE_MS = 60_000;
 export const WS_HEALTHCHECK_MS = 10_000;
 
-export type ConnectionDeps = {
-  domReady: () => boolean;
-  renderSidebarStatus: () => void;
+export type StateSyncDeps = {
   renderPromptNick: () => void;
+  inferUnreadCounts: () => void;
   renderSidebar: () => void;
   renderHeader: () => void;
   renderActiveView: () => void;
   renderMembers: () => void;
-  updateInputEnabled: () => void;
-  maybeMarkActiveRead: () => void;
-  inferUnreadCounts: () => void;
-  scheduleReconnect: (delayMs: number) => void;
-  nextReconnectDelay: () => number;
   setActive: (id: number, opts?: { skipHash?: boolean; replaceHash?: boolean }) => void;
   bufferFromHash: (hash: string) => { id: number } | null;
+};
+
+export type HydrateDeps = StateSyncDeps & {
+  renderSidebarStatus: () => void;
+  scheduleReconnect: (delayMs: number) => void;
+  nextReconnectDelay: () => number;
+};
+
+export type WebSocketDeps = HydrateDeps & {
+  domReady: () => boolean;
+  updateInputEnabled: () => void;
+  maybeMarkActiveRead: () => void;
   handleWSMessage: (msg: unknown) => void;
 };
 
-type StateSyncDeps = Pick<
-  ConnectionDeps,
-  | "renderPromptNick"
-  | "inferUnreadCounts"
-  | "renderSidebar"
-  | "renderHeader"
-  | "renderActiveView"
-  | "renderMembers"
-  | "bufferFromHash"
-  | "setActive"
->;
-
 type HealthCheckDeps = Pick<
-  ConnectionDeps,
+  WebSocketDeps,
   "domReady" | "renderSidebarStatus" | "updateInputEnabled" | "renderSidebar" | "scheduleReconnect"
 >;
+
+type ReconnectDeps = {
+  domReady: () => boolean;
+  renderSidebarStatus: () => void;
+  connectWS: () => void;
+};
 
 async function syncStateFromServer(deps: StateSyncDeps) {
   const [stateRes, updateRes] = await Promise.all([
@@ -88,7 +88,7 @@ async function syncStateFromServer(deps: StateSyncDeps) {
   }
 }
 
-export async function hydrate(deps: ConnectionDeps) {
+export async function hydrate(deps: HydrateDeps) {
   try {
     state.backendStatus = "connecting";
     deps.renderSidebarStatus();
@@ -129,7 +129,7 @@ export function checkWebSocketHealth(deps: HealthCheckDeps) {
   deps.scheduleReconnect(0);
 }
 
-export function connectWS(deps: ConnectionDeps) {
+export function connectWS(deps: WebSocketDeps) {
   if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
   state.backendStatus = "connecting";
   deps.renderSidebarStatus();
@@ -194,10 +194,7 @@ export function nextReconnectDelay(): number {
   return delay;
 }
 
-export function scheduleReconnect(
-  deps: Pick<ConnectionDeps, "domReady" | "renderSidebarStatus"> & { connectWS: () => void },
-  delayMs: number,
-) {
+export function scheduleReconnect(deps: ReconnectDeps, delayMs: number) {
   clearReconnectTimer();
   state.backendStatus = "reconnecting";
   state.reconnectAt = Date.now() + delayMs;

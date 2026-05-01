@@ -1,10 +1,13 @@
 import "./style.css";
 import "./mobile.css";
 import { activeBuffer, type ChannelListEntry, type Member, type Message, type Network, state } from "./app-state";
-import { connectWS, hydrate, nextReconnectDelay, scheduleReconnect } from "./connection";
+import { renderChannelListPanel } from "./channel-list";
+import { connectWS, hydrate, nextReconnectDelay, scheduleReconnect, type WebSocketDeps } from "./connection";
 import { captureDom, type DomRefs } from "./dom";
-import { bindInputHandlers, restoreInputDraft, saveInputDraft, updateCmdPop, updateInputEnabled } from "./input";
-import { cleanupKeyboardShortcuts, initKeyboardShortcuts, openHelpOverlay } from "./keyboard-shortcuts";
+import { bindInputHandlers, updateInputEnabled } from "./input";
+import { updateCmdPop } from "./input-command-popup";
+import { restoreInputDraft, saveInputDraft } from "./input-history";
+import { cleanupKeyboardShortcuts, initKeyboardShortcuts } from "./keyboard-routing";
 import { populateMembersForActive, renderMembers } from "./members";
 import {
   inferUnreadCounts,
@@ -20,12 +23,14 @@ import { nickAvatar } from "./nick";
 import { resetAppState } from "./reset";
 import { bufferFromHash, bufferHashFor } from "./router";
 import { openSettingsDialog } from "./settings-dialog";
+import { openHelpOverlay } from "./shortcuts-help";
 import { renderSidebar } from "./sidebar";
 import { renderSidebarStatus } from "./status";
 import { applyThemeDefaults, initThemeSelector } from "./theme-ui";
 import { isMobileViewport, onBackdropClick, setMembersDrawer, setSidebarDrawer } from "./ui-shell";
 
 let dom: DomRefs | null = null;
+let appView: AppView | null = null;
 let domReady = false;
 
 function mustDom(): DomRefs {
@@ -33,11 +38,18 @@ function mustDom(): DomRefs {
   return dom;
 }
 
+function mustView(): AppView {
+  if (!appView) throw new Error("app view not initialized");
+  return appView;
+}
+
 export function start() {
   dom = captureDom();
   domReady = true;
   const d = dom;
-  renderStatus();
+  const view = createAppView(d);
+  appView = view;
+  view.renderStatus();
   applyThemeDefaults();
   initThemeSelector().catch((err: unknown) => console.error("theme selector", err));
   bindInputHandlers({
@@ -57,7 +69,7 @@ export function start() {
       return;
     }
     state.showMemberList = !state.showMemberList;
-    renderMembersLocal();
+    view.renderMembers();
   });
   d.mobileMenuEl.addEventListener("click", () => {
     setSidebarDrawer(document.body.dataset.sidebarOpen !== "true");
@@ -69,27 +81,30 @@ export function start() {
   const onHash = () => onHashChange(setActive);
   window.addEventListener("hashchange", onHash);
   window.addEventListener("popstate", onHash);
-  return hydrate(buildDeps());
+  const connectionDeps = createConnectionDeps(view);
+  return hydrate(connectionDeps);
 }
 
-function buildDeps() {
-  return {
+type AppView = ReturnType<typeof createAppView>;
+
+function createConnectionDeps(view: AppView): WebSocketDeps {
+  const deps: WebSocketDeps = {
     domReady: () => domReady,
-    renderSidebarStatus: renderStatus,
-    renderPromptNick,
-    renderSidebar: renderSidebarLocal,
-    renderHeader: renderHeaderLocal,
-    renderActiveView: renderActiveViewLocal,
-    renderMembers: renderMembersLocal,
-    updateInputEnabled: updateInputEnabledLocal,
+    renderSidebarStatus: view.renderStatus,
+    renderPromptNick: view.renderPromptNick,
+    renderSidebar: view.renderSidebar,
+    renderHeader: view.renderHeader,
+    renderActiveView: view.renderActiveView,
+    renderMembers: view.renderMembers,
+    updateInputEnabled: view.updateInputEnabled,
     maybeMarkActiveRead,
     inferUnreadCounts,
     scheduleReconnect: (delayMs: number) =>
       scheduleReconnect(
         {
           domReady: () => domReady,
-          renderSidebarStatus: renderStatus,
-          connectWS: () => connectWS(buildDeps()),
+          renderSidebarStatus: view.renderStatus,
+          connectWS: () => connectWS(deps),
         },
         delayMs,
       ),
@@ -98,11 +113,47 @@ function buildDeps() {
     bufferFromHash,
     handleWSMessage,
   };
+  return deps;
 }
 
-function renderStatus() {
-  if (!dom) return;
-  renderSidebarStatus(dom);
+function createAppView(d: DomRefs) {
+  const messageArea = {
+    messagesEl: d.messagesEl,
+    statusViewEl: d.statusViewEl,
+    bufferNameEl: d.bufferNameEl,
+    bufferTopicEl: d.bufferTopicEl,
+    inputEl: d.inputEl,
+  };
+  const view = {
+    dom: d,
+    renderStatus: () => renderSidebarStatus(d),
+    renderPromptNick: () => {
+      const nick = activePromptNick();
+      d.inputNickEl.replaceChildren(nickAvatar(nick), nick);
+    },
+    renderHeader: () => renderHeader(messageArea, { renderPromptNick: view.renderPromptNick, iconEl }),
+    renderActiveView: () => {
+      if (state.channelList?.done) {
+        d.statusViewEl.hidden = true;
+        d.messagesEl.hidden = false;
+        renderChannelListPanel(d.messagesEl, { sendCmd, renderActiveView: view.renderActiveView });
+        return;
+      }
+      renderActiveView(messageArea, { renderPromptNick: view.renderPromptNick, iconEl });
+    },
+    renderMembers: () =>
+      renderMembers({
+        memberPaneEl: d.memberPaneEl,
+        toggleMembersEl: d.toggleMembersEl,
+        memberCountEl: d.memberCountEl,
+        memberCountInlineEl: d.memberCountInlineEl,
+        bufferMemcountEl: d.bufferMemcountEl,
+        memberListEl: d.memberListEl,
+      }),
+    updateInputEnabled: () => updateInputEnabled(d.inputEl),
+    renderSidebar: () => renderSidebar({ sbScrollEl: d.sbScrollEl, setActive, iconEl }),
+  };
+  return view;
 }
 
 type WSMessage =
@@ -126,12 +177,13 @@ type WSMessage =
 
 function handleWSMessage(msg: unknown) {
   const m = msg as WSMessage;
+  const view = mustView();
   switch (m.type) {
     case "message":
       onMessage(m, {
-        renderActiveView: renderActiveViewLocal,
+        renderActiveView: view.renderActiveView,
         maybeMarkActiveRead,
-        renderSidebar: renderSidebarLocal,
+        renderSidebar: view.renderSidebar,
       });
       break;
     case "buffer_created":
@@ -150,35 +202,33 @@ function handleWSMessage(msg: unknown) {
         collapse_presence_events: false,
         pinned: false,
       });
-      renderSidebarLocal();
+      view.renderSidebar();
       break;
     case "buffer_update":
-      onBufferUpdate(m, { inferUnreadCounts, renderHeader: renderHeaderLocal, renderSidebar: renderSidebarLocal });
-      break;
     case "buffer_settings":
-      onBufferUpdate(m, { inferUnreadCounts, renderHeader: renderHeaderLocal, renderSidebar: renderSidebarLocal });
-      renderActiveViewLocal();
+      onBufferUpdate(m, { inferUnreadCounts, renderHeader: view.renderHeader, renderSidebar: view.renderSidebar });
+      if (m.type === "buffer_settings") view.renderActiveView();
       break;
     case "network_state": {
       const n = state.networks.get(m.network_id);
-      if (n) {
+      if (n && n.status !== m.state) {
         n.status = m.state;
-        renderSidebarLocal();
-        renderHeaderLocal();
+        view.renderSidebar();
+        view.renderHeader();
       }
       break;
     }
     case "history_result":
-      onHistoryResult(m, { renderActiveView: renderActiveViewLocal }, mustDom().messagesEl);
+      onHistoryResult(m, { renderActiveView: view.renderActiveView }, view.dom.messagesEl);
       break;
     case "preview":
-      onPreview(m, mustDom().messagesEl);
+      onPreview(m, view.dom.messagesEl);
       break;
     case "member_list":
       state.members.set(m.buffer_id, m.members || []);
       if (m.buffer_id === state.activeId) {
-        renderHeaderLocal();
-        renderMembersLocal();
+        view.renderHeader();
+        view.renderMembers();
       }
       break;
     case "channel_list":
@@ -188,7 +238,7 @@ function handleWSMessage(msg: unknown) {
       state.channelList.entries.push(...m.entries);
       state.channelList.done = m.done;
       if (m.done && m.network_id === state.networks.get(activeBuffer()?.network_id ?? -1)?.id) {
-        renderChannelListPanel(mustDom().messagesEl);
+        renderChannelListPanel(view.dom.messagesEl, { sendCmd, renderActiveView: view.renderActiveView });
       }
       break;
     case "ignorelist_result":
@@ -197,111 +247,7 @@ function handleWSMessage(msg: unknown) {
   }
 }
 
-function renderChannelListPanel(messagesEl: HTMLElement) {
-  if (!state.channelList) return;
-  const { network_id, entries } = state.channelList;
-  messagesEl.innerHTML = "";
-  const panel = document.createElement("div");
-  panel.className = "cl-panel";
-
-  const header = document.createElement("div");
-  header.className = "cl-header";
-  const title = document.createElement("span");
-  title.textContent = `${entries.length} channels`;
-  const closeBtn = document.createElement("button");
-  closeBtn.className = "cl-close";
-  closeBtn.textContent = "✕";
-  closeBtn.addEventListener("click", () => {
-    state.channelList = null;
-    renderActiveViewLocal();
-  });
-  header.append(title, closeBtn);
-  panel.appendChild(header);
-
-  const list = document.createElement("div");
-  list.className = "cl-list";
-  for (const entry of entries) {
-    const row = document.createElement("div");
-    row.className = "cl-row";
-    const name = document.createElement("span");
-    name.className = "cl-name";
-    name.textContent = entry.name;
-    const count = document.createElement("span");
-    count.className = "cl-count";
-    count.textContent = String(entry.count);
-    const topic = document.createElement("span");
-    topic.className = "cl-topic";
-    topic.textContent = entry.topic || "";
-    const joinBtn = document.createElement("button");
-    joinBtn.className = "cl-join";
-    joinBtn.textContent = "Join";
-    joinBtn.addEventListener("click", () => {
-      sendCmd({ type: "join", network_id, channel: entry.name });
-      state.channelList = null;
-      renderActiveViewLocal();
-    });
-    row.append(name, count, topic, joinBtn);
-    list.appendChild(row);
-  }
-  panel.appendChild(list);
-  messagesEl.appendChild(panel);
-}
-
-function renderHeaderLocal() {
-  const d = mustDom();
-  renderHeader(
-    {
-      messagesEl: d.messagesEl,
-      statusViewEl: d.statusViewEl,
-      bufferNameEl: d.bufferNameEl,
-      bufferTopicEl: d.bufferTopicEl,
-      inputEl: d.inputEl,
-    },
-    { renderPromptNick, iconEl },
-  );
-}
-
-function renderActiveViewLocal() {
-  const d = mustDom();
-  if (state.channelList?.done) {
-    d.statusViewEl.hidden = true;
-    d.messagesEl.hidden = false;
-    renderChannelListPanel(d.messagesEl);
-    return;
-  }
-  renderActiveView(
-    {
-      messagesEl: d.messagesEl,
-      statusViewEl: d.statusViewEl,
-      bufferNameEl: d.bufferNameEl,
-      bufferTopicEl: d.bufferTopicEl,
-      inputEl: d.inputEl,
-    },
-    { renderPromptNick, iconEl },
-  );
-}
-
-function renderMembersLocal() {
-  const d = mustDom();
-  renderMembers({
-    memberPaneEl: d.memberPaneEl,
-    toggleMembersEl: d.toggleMembersEl,
-    memberCountEl: d.memberCountEl,
-    memberCountInlineEl: d.memberCountInlineEl,
-    bufferMemcountEl: d.bufferMemcountEl,
-    memberListEl: d.memberListEl,
-  });
-}
-
-function updateInputEnabledLocal() {
-  updateInputEnabled(mustDom().inputEl);
-}
-
 const SVG_NS = "http://www.w3.org/2000/svg";
-
-function renderSidebarLocal() {
-  renderSidebar({ sbScrollEl: mustDom().sbScrollEl, setActive, iconEl });
-}
 
 function iconEl(symbolId: string, size: number, opts: { className?: string; label?: string } = {}): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
@@ -333,12 +279,6 @@ function activePromptNick(): string {
   return state.me.nick || "";
 }
 
-function renderPromptNick() {
-  if (!dom) return;
-  const nick = activePromptNick();
-  dom.inputNickEl.replaceChildren(nickAvatar(nick), nick);
-}
-
 function setActive(id: number, opts: { skipHash?: boolean; replaceHash?: boolean } = {}) {
   if (dom && state.activeId !== null) saveInputDraft(state.activeId, dom.inputEl.value, true);
   state.activeId = id;
@@ -354,17 +294,18 @@ function setActive(id: number, opts: { skipHash?: boolean; replaceHash?: boolean
       }
     }
   }
+  const view = mustView();
   inferUnreadCounts();
   populateMembersForActive();
-  renderSidebarLocal();
-  renderHeaderLocal();
-  renderActiveViewLocal();
-  renderMembersLocal();
-  updateInputEnabledLocal();
-  restoreInputDraft(mustDom().inputEl, id);
-  updateCmdPop(mustDom().inputEl, mustDom().cmdPopEl);
+  view.renderSidebar();
+  view.renderHeader();
+  view.renderActiveView();
+  view.renderMembers();
+  view.updateInputEnabled();
+  restoreInputDraft(view.dom.inputEl, id);
+  updateCmdPop(view.dom.inputEl, view.dom.cmdPopEl);
   maybeMarkActiveRead();
-  mustDom().inputEl.focus();
+  view.dom.inputEl.focus();
 }
 
 function onMessagesScroll() {
@@ -396,7 +337,7 @@ function maybeMarkActiveRead() {
   b.unread = 0;
   b.mentions = 0;
   state.lastMarkedReadId.set(b.id, lastId);
-  renderSidebarLocal();
+  appView?.renderSidebar();
   sendCmd({ type: "mark_read", buffer_id: b.id, message_id: lastId });
 }
 
@@ -410,8 +351,9 @@ function sendCmd(cmd: Record<string, unknown>) {
 export function resetForTests() {
   cleanupKeyboardShortcuts();
   resetAppState();
-  if (domReady) renderPromptNick();
+  if (domReady) appView?.renderPromptNick();
   dom = null;
+  appView = null;
   domReady = false;
 }
 

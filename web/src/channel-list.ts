@@ -1,0 +1,57 @@
+import { state } from "./app-state";
+
+export type ChannelListPanelDeps = {
+  sendCmd: (cmd: Record<string, unknown>) => void;
+  renderActiveView: () => void;
+};
+
+function closeChannelList(deps: ChannelListPanelDeps) {
+  state.channelList = null;
+  deps.renderActiveView();
+}
+
+export function renderChannelListPanel(messagesEl: HTMLElement, deps: ChannelListPanelDeps) {
+  if (!state.channelList) return;
+  const { network_id, entries } = state.channelList;
+  messagesEl.innerHTML = "";
+  const panel = document.createElement("div");
+  panel.className = "cl-panel";
+
+  const header = document.createElement("div");
+  header.className = "cl-header";
+  const title = document.createElement("span");
+  title.textContent = `${entries.length} channels`;
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "cl-close";
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", () => closeChannelList(deps));
+  header.append(title, closeBtn);
+  panel.appendChild(header);
+
+  const list = document.createElement("div");
+  list.className = "cl-list";
+  for (const entry of entries) {
+    const row = document.createElement("div");
+    row.className = "cl-row";
+    const name = document.createElement("span");
+    name.className = "cl-name";
+    name.textContent = entry.name;
+    const count = document.createElement("span");
+    count.className = "cl-count";
+    count.textContent = String(entry.count);
+    const topic = document.createElement("span");
+    topic.className = "cl-topic";
+    topic.textContent = entry.topic || "";
+    const joinBtn = document.createElement("button");
+    joinBtn.className = "cl-join";
+    joinBtn.textContent = "Join";
+    joinBtn.addEventListener("click", () => {
+      deps.sendCmd({ type: "join", network_id, channel: entry.name });
+      closeChannelList(deps);
+    });
+    row.append(name, count, topic, joinBtn);
+    list.appendChild(row);
+  }
+  panel.appendChild(list);
+  messagesEl.appendChild(panel);
+}
