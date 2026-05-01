@@ -1,4 +1,6 @@
 import { type Network, state } from "./app-state";
+import { openDialog } from "./dialog";
+import { sendJSON } from "./http";
 
 type FormResult = Network & { nick: string };
 
@@ -46,8 +48,7 @@ function numberInput(id: string, value: number, min: number, max: number): HTMLI
 export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => void): void {
   const isEdit = existing !== undefined;
 
-  const dialog = document.createElement("dialog");
-  dialog.className = "nf-dialog";
+  const { dialog, close } = openDialog({ className: "nf-dialog" });
 
   const form = document.createElement("form");
   form.method = "dialog";
@@ -129,7 +130,7 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
   cancelBtn.type = "button";
   cancelBtn.className = "nf-btn";
   cancelBtn.textContent = "Cancel";
-  cancelBtn.addEventListener("click", () => dialog.close());
+  cancelBtn.addEventListener("click", close);
 
   const submitBtn = document.createElement("button");
   submitBtn.type = "submit";
@@ -152,15 +153,6 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
   );
 
   dialog.appendChild(form);
-  document.body.appendChild(dialog);
-
-  dialog.addEventListener("close", () => {
-    dialog.remove();
-  });
-
-  dialog.addEventListener("click", (e) => {
-    if (e.target === dialog) dialog.close();
-  });
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -197,19 +189,9 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
 
     try {
       const url = existing ? `/api/networks/${existing.id}` : "/api/networks";
-      const method = isEdit ? "PATCH" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || res.statusText);
-      }
-      const data = (await res.json()) as FormResult;
+      const data = await sendJSON<FormResult>(url, isEdit ? "PATCH" : "POST", body);
       state.networks.set(data.id, data);
-      dialog.close();
+      close();
       onDone?.(data);
     } catch (err) {
       errEl.textContent = err instanceof Error ? err.message : "Request failed";

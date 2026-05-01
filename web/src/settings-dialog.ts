@@ -1,6 +1,8 @@
+import { openDialog } from "./dialog";
+import { jsonFetch, sendJSON } from "./http";
+
 export function openSettingsDialog(): void {
-  const dialog = document.createElement("dialog");
-  dialog.className = "sd-dialog";
+  const { dialog, close } = openDialog({ className: "sd-dialog" });
 
   const inner = document.createElement("div");
   inner.className = "sd-inner";
@@ -92,9 +94,7 @@ export function openSettingsDialog(): void {
     diffArea.hidden = true;
 
     try {
-      const res = await fetch("/api/config/yaml/preview");
-      if (!res.ok) throw new Error((await res.text()) || res.statusText);
-      const data = (await res.json()) as { current: string; proposed: string };
+      const data = await jsonFetch<{ current: string; proposed: string }>("/api/config/yaml/preview");
       proposedContent = data.proposed;
       if (data.current === data.proposed) {
         msgEl.textContent = "No changes — config.yaml already matches current network state.";
@@ -120,12 +120,7 @@ export function openSettingsDialog(): void {
     msgEl.hidden = true;
 
     try {
-      const res = await fetch("/api/config/yaml/save", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ content: proposedContent }),
-      });
-      if (!res.ok) throw new Error((await res.text()) || res.statusText);
+      await sendJSON<unknown>("/api/config/yaml/save", "POST", { content: proposedContent });
       msgEl.textContent = "Saved to config.yaml.";
       msgEl.hidden = false;
     } catch (err) {
@@ -141,16 +136,10 @@ export function openSettingsDialog(): void {
   closeBtn.type = "button";
   closeBtn.className = "sd-btn sd-btn-ghost sd-close";
   closeBtn.textContent = "Close";
-  closeBtn.addEventListener("click", () => dialog.close());
+  closeBtn.addEventListener("click", close);
 
   inner.append(title, sectionTitle, desc, previewBtn, errEl, msgEl, diffArea, saveBtn, closeBtn);
   dialog.appendChild(inner);
-  document.body.appendChild(dialog);
-
-  dialog.addEventListener("close", () => dialog.remove());
-  dialog.addEventListener("click", (e) => {
-    if (e.target === dialog) dialog.close();
-  });
 
   dialog.showModal();
 }
