@@ -97,6 +97,9 @@ export type AppState = {
   reconnectTimer: number | null;
   reconnectAt: number | null;
   reconnectTicker: number | null;
+  lastWSActivityAt: number;
+  wsHealthTimer: number | null;
+  needsStateSyncOnConnect: boolean;
   loadingHistory: Set<number>;
   historyExhausted: Set<number>;
   lastMarkedReadId: Map<number, number>;
@@ -144,6 +147,9 @@ export const state: AppState = {
   reconnectTimer: null,
   reconnectAt: null,
   reconnectTicker: null,
+  lastWSActivityAt: 0,
+  wsHealthTimer: null,
+  needsStateSyncOnConnect: false,
   loadingHistory: new Set(),
   historyExhausted: new Set(),
   lastMarkedReadId: new Map(),

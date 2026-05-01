@@ -2,6 +2,8 @@ import { type Member, type Message, type StateResponse, state, type UpdateStatus
 
 export const RECONNECT_BASE_MS = 1000;
 export const RECONNECT_MAX_MS = 30_000;
+export const WS_STALE_MS = 60_000;
+export const WS_HEALTHCHECK_MS = 10_000;
 
 export type ConnectionDeps = {
   domReady: () => boolean;
@@ -21,44 +23,76 @@ export type ConnectionDeps = {
   handleWSMessage: (msg: unknown) => void;
 };
 
+type StateSyncDeps = Pick<
+  ConnectionDeps,
+  | "renderPromptNick"
+  | "inferUnreadCounts"
+  | "renderSidebar"
+  | "renderHeader"
+  | "renderActiveView"
+  | "renderMembers"
+  | "bufferFromHash"
+  | "setActive"
+>;
+
+type HealthCheckDeps = Pick<
+  ConnectionDeps,
+  "domReady" | "renderSidebarStatus" | "updateInputEnabled" | "renderSidebar" | "scheduleReconnect"
+>;
+
+async function syncStateFromServer(deps: StateSyncDeps) {
+  const [stateRes, updateRes] = await Promise.all([
+    fetch("/api/state"),
+    fetch("/api/update-status", { headers: { Accept: "application/json" } }).catch(() => null),
+  ]);
+  if (!stateRes.ok) throw new Error(`state ${stateRes.status}`);
+  const s: StateResponse = await stateRes.json();
+  state.me.nick = s.current_nick || s.nick || s.user?.nick || s.networks?.[0]?.nick || "you";
+  for (const network of s.networks || []) state.networks.set(network.id, network);
+  deps.renderPromptNick();
+  for (const buffer of s.buffers || []) {
+    state.buffers.set(buffer.id, {
+      unread: 0,
+      mentions: 0,
+      ...buffer,
+    });
+  }
+  for (const [id, msgs] of Object.entries(s.initial_messages || {})) {
+    const bufferID = Number(id);
+    const existing = state.messages.get(bufferID) || [];
+    const byID = new Map(existing.map((msg) => [msg.id, msg]));
+    for (const msg of msgs as Message[]) byID.set(msg.id, msg);
+    state.messages.set(
+      bufferID,
+      [...byID.values()].sort((a, b) => a.id - b.id),
+    );
+  }
+  for (const [id, members] of Object.entries(s.members || {})) state.members.set(Number(id), members as Member[]);
+  if (updateRes?.ok) {
+    state.updateStatus = (await updateRes.json()) as UpdateStatus;
+  } else {
+    state.updateStatus = null;
+  }
+  deps.inferUnreadCounts();
+  deps.renderSidebar();
+  deps.renderHeader();
+  deps.renderActiveView();
+  deps.renderMembers();
+  if (!state.activeId && state.buffers.size > 0) {
+    const fromUrl = deps.bufferFromHash(location.hash);
+    const firstChannel = [...state.buffers.values()].find(
+      (buffer) => buffer.kind === "channel" && buffer.joined === true,
+    );
+    const initial = fromUrl ?? firstChannel ?? state.buffers.values().next().value;
+    if (initial) deps.setActive(initial.id, { replaceHash: true });
+  }
+}
+
 export async function hydrate(deps: ConnectionDeps) {
   try {
     state.backendStatus = "connecting";
     deps.renderSidebarStatus();
-    const [stateRes, updateRes] = await Promise.all([
-      fetch("/api/state"),
-      fetch("/api/update-status", { headers: { Accept: "application/json" } }).catch(() => null),
-    ]);
-    if (!stateRes.ok) throw new Error(`state ${stateRes.status}`);
-    const s: StateResponse = await stateRes.json();
-    state.me.nick = s.current_nick || s.nick || s.user?.nick || s.networks?.[0]?.nick || "you";
-    for (const network of s.networks || []) state.networks.set(network.id, network);
-    deps.renderPromptNick();
-    for (const buffer of s.buffers || []) {
-      state.buffers.set(buffer.id, {
-        unread: 0,
-        mentions: 0,
-        ...buffer,
-      });
-    }
-    for (const [id, msgs] of Object.entries(s.initial_messages || {}))
-      state.messages.set(Number(id), msgs as Message[]);
-    for (const [id, members] of Object.entries(s.members || {})) state.members.set(Number(id), members as Member[]);
-    if (updateRes?.ok) {
-      state.updateStatus = (await updateRes.json()) as UpdateStatus;
-    } else {
-      state.updateStatus = null;
-    }
-    deps.inferUnreadCounts();
-    deps.renderSidebar();
-    if (!state.activeId && state.buffers.size > 0) {
-      const fromUrl = deps.bufferFromHash(location.hash);
-      const firstChannel = [...state.buffers.values()].find(
-        (buffer) => buffer.kind === "channel" && buffer.joined === true,
-      );
-      const initial = fromUrl ?? firstChannel ?? state.buffers.values().next().value;
-      if (initial) deps.setActive(initial.id, { replaceHash: true });
-    }
+    await syncStateFromServer(deps);
     state.reconnectAttempts = 0;
     deps.scheduleReconnect(0);
   } catch (err) {
@@ -69,6 +103,32 @@ export async function hydrate(deps: ConnectionDeps) {
   }
 }
 
+function startWSHealthCheck(deps: HealthCheckDeps) {
+  if (state.wsHealthTimer !== null) return;
+  state.wsHealthTimer = window.setInterval(() => checkWebSocketHealth(deps), WS_HEALTHCHECK_MS);
+}
+
+export function checkWebSocketHealth(deps: HealthCheckDeps) {
+  const ws = state.ws;
+  if (!(ws && state.wsReady) || ws.readyState !== WebSocket.OPEN) return;
+  if (Date.now() - state.lastWSActivityAt <= WS_STALE_MS) return;
+
+  try {
+    ws.close();
+  } catch {
+    // Some browsers can throw while closing a dead socket; recovery continues below.
+  }
+  if (state.ws === ws) state.ws = null;
+  state.wsReady = false;
+  state.backendStatus = "offline";
+  state.needsStateSyncOnConnect = true;
+  if (!deps.domReady()) return;
+  deps.renderSidebarStatus();
+  deps.updateInputEnabled();
+  deps.renderSidebar();
+  deps.scheduleReconnect(0);
+}
+
 export function connectWS(deps: ConnectionDeps) {
   if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
   state.backendStatus = "connecting";
@@ -76,16 +136,26 @@ export function connectWS(deps: ConnectionDeps) {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${proto}//${location.host}/api/stream`);
   state.ws = ws;
+  startWSHealthCheck(deps);
   ws.addEventListener("open", () => {
     state.wsReady = true;
+    state.lastWSActivityAt = Date.now();
     state.backendStatus = "connected";
     state.reconnectAttempts = 0;
     deps.renderSidebarStatus();
     deps.updateInputEnabled();
     deps.maybeMarkActiveRead();
     deps.renderSidebar();
+    if (state.needsStateSyncOnConnect) {
+      syncStateFromServer(deps)
+        .then(() => {
+          state.needsStateSyncOnConnect = false;
+        })
+        .catch((err) => console.error("reconnect state sync failed", err));
+    }
   });
   ws.addEventListener("message", (ev) => {
+    state.lastWSActivityAt = Date.now();
     try {
       deps.handleWSMessage(JSON.parse(ev.data));
     } catch {
@@ -96,6 +166,7 @@ export function connectWS(deps: ConnectionDeps) {
     if (state.ws === ws) state.ws = null;
     state.wsReady = false;
     state.backendStatus = "offline";
+    state.needsStateSyncOnConnect = true;
     if (!deps.domReady()) return;
     deps.renderSidebarStatus();
     deps.updateInputEnabled();

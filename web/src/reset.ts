@@ -14,6 +14,12 @@ export function resetAppState() {
   state.activeId = null;
   state.ws = null;
   state.wsReady = false;
+  if (state.wsHealthTimer !== null) {
+    window.clearInterval(state.wsHealthTimer);
+    state.wsHealthTimer = null;
+  }
+  state.lastWSActivityAt = 0;
+  state.needsStateSyncOnConnect = false;
   state.loadingHistory.clear();
   state.historyExhausted.clear();
   state.lastMarkedReadId.clear();

@@ -52,6 +52,13 @@ type historyResult struct {
 	Messages []messageDTO `json:"messages"`
 }
 
+type bufferLastSeenEvent struct {
+	Type       string `json:"type"`
+	ID         int64  `json:"id"`
+	NetworkID  int64  `json:"network_id"`
+	LastSeenID int64  `json:"last_seen_id"`
+}
+
 type ignoreListResult struct {
 	Type      string   `json:"type"`
 	ReqID     string   `json:"req_id"`
@@ -270,9 +277,17 @@ func (s *Server) cmdMarkRead(ctx context.Context, c *websocket.Conn, cmd clientC
 		writeWSErr(ctx, c, cmd.ReqID, "mark_read requires buffer_id and message_id")
 		return
 	}
+	networkID, _, _, err := s.Stores.LookupBuffer(ctx, cmd.BufferID)
+	if err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
 	if err := s.Stores.MarkBufferLastSeen(ctx, cmd.BufferID, cmd.MessageID); err != nil {
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return
+	}
+	if s.Hub != nil {
+		s.Hub.Publish(bufferLastSeenEvent{Type: "buffer_update", ID: cmd.BufferID, NetworkID: networkID, LastSeenID: cmd.MessageID})
 	}
 	writeWSAck(ctx, c, cmd.ReqID)
 }
