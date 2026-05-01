@@ -29,6 +29,10 @@ linters:
   exclusions:
     paths:
       - llm-shared
+    rules:
+      - linters:
+          - misspell
+        text: "LISTEND"
   settings:
     govet:
       enable:
