@@ -21,18 +21,51 @@ func (h *handler) register(c *girc.Client) {
 	c.Handlers.Add(girc.CAP_ACCOUNT, h.onAccount)
 	c.Handlers.Add(girc.CAP_CHGHOST, h.onChghost)
 	c.Handlers.Add(girc.RPL_ENDOFNAMES, h.onEndOfNames)
-	c.Handlers.Add("322", h.onRPLList)    // RPL_LIST
-	c.Handlers.Add("323", h.onRPLListEnd) // RPL_LIST end
+	c.Handlers.Add(girc.RPL_LIST, h.onRPLList)
+	c.Handlers.Add(girc.RPL_LISTEND, h.onRPLListEnd)
 	// echo-message: girc routes our own PRIVMSG/NOTICE echoes only through
 	// ALL_EVENTS. Catch them here and feed the normal persistence path so
 	// outbound messages land in history with the server-assigned msgid.
-	c.Handlers.Add(girc.ALL_EVENTS, func(c *girc.Client, e girc.Event) {
-		if e.Echo {
-			if e.Command == girc.PRIVMSG || e.Command == girc.NOTICE {
-				h.onPrivmsg(c, e)
-			}
-			return
+	c.Handlers.Add(girc.ALL_EVENTS, h.onAllEvent)
+}
+
+func (h *handler) onAllEvent(c *girc.Client, e girc.Event) {
+	if e.Echo {
+		if e.Command == girc.PRIVMSG || e.Command == girc.NOTICE {
+			h.onPrivmsg(c, e)
 		}
-		h.onUnhandledEvent(e)
-	})
+		return
+	}
+	if isExplicitlyHandledEvent(e.Command) {
+		return
+	}
+	h.onUnhandledEvent(e)
+}
+
+func isExplicitlyHandledEvent(command string) bool {
+	switch command {
+	case girc.CONNECTED,
+		girc.DISCONNECTED,
+		girc.PRIVMSG,
+		girc.NOTICE,
+		girc.JOIN,
+		girc.PART,
+		girc.KICK,
+		girc.TOPIC,
+		girc.RPL_TOPIC,
+		girc.MODE,
+		girc.RPL_CHANNELMODEIS,
+		girc.INVITE,
+		girc.QUIT,
+		girc.NICK,
+		girc.CAP_AWAY,
+		girc.CAP_ACCOUNT,
+		girc.CAP_CHGHOST,
+		girc.RPL_ENDOFNAMES,
+		girc.RPL_LIST,
+		girc.RPL_LISTEND:
+		return true
+	default:
+		return false
+	}
 }

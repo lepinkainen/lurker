@@ -36,6 +36,22 @@ func TestServerNoticeRoutesToStatusBuffer(t *testing.T) {
 	}
 }
 
+func TestAllEventsSkipsExplicitPrivmsgHandler(t *testing.T) {
+	f := newTestHandlerFixture(t)
+	e := mustEvent(t, "@msgid=abc123 :egobot!u@h PRIVMSG ##hntop :new post")
+
+	f.Handler.onAllEvent(nil, e)
+	f.Handler.onPrivmsg(nil, e)
+
+	if count := handlerMessageCount(t, f); count != 1 {
+		t.Fatalf("message count = %d, want 1", count)
+	}
+	msg := lastHandlerMessage(t, f)
+	if msg.BufferName != "##hntop" || msg.BufferKind != ircdb.BufferChannel || msg.Kind != "privmsg" || msg.Content != "new post" {
+		t.Fatalf("message = %+v, want channel privmsg", msg)
+	}
+}
+
 func TestPrivmsgCTCPAndActionKinds(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
