@@ -14,6 +14,11 @@ func (h *handler) onConnected(c *girc.Client, e girc.Event) {
 	}
 	h.publishNetworkState(StateConnected)
 	h.logStatus(StateConnected.String(), "")
+	for _, line := range h.connectCommands {
+		if err := c.Cmd.SendRaw(line); err != nil {
+			slog.Warn("send connect command", "err", err, "network", h.networkName)
+		}
+	}
 	for _, ch := range h.autojoin {
 		c.Cmd.Join(ch)
 	}

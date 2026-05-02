@@ -34,6 +34,16 @@ function passwordInput(id: string, placeholder = ""): HTMLInputElement {
   return el;
 }
 
+function textareaInput(id: string, value = "", placeholder = ""): HTMLTextAreaElement {
+  const el = document.createElement("textarea");
+  el.id = id;
+  el.className = "nf-input";
+  el.rows = 5;
+  el.value = value;
+  el.placeholder = placeholder;
+  return el;
+}
+
 function numberInput(id: string, value: number, min: number, max: number): HTMLInputElement {
   const el = document.createElement("input");
   el.type = "number";
@@ -100,6 +110,31 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
 
   const saslPassEl = passwordInput("nf-sasl-pass", isEdit ? "leave blank to keep existing" : "");
 
+  const connectCommandsEl = textareaInput(
+    "nf-connect-commands",
+    "",
+    "PRIVMSG NickServ :IDENTIFY hunter2\nMODE mynick +x",
+  );
+  const connectCommandsHelp = document.createElement("p");
+  connectCommandsHelp.className = "nf-help";
+  connectCommandsHelp.textContent =
+    "Raw IRC commands sent after connect/registration, before autojoin. One command per line. May contain secrets.";
+
+  if (isEdit) {
+    fetch(`/api/networks/${existing.id}/connect-commands`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<{ commands?: string[] }>;
+      })
+      .then((data) => {
+        connectCommandsEl.value = (data.commands ?? []).join("\n");
+      })
+      .catch(() => {
+        connectCommandsHelp.textContent =
+          "Could not load connect commands. Saving will replace them with the textarea contents.";
+      });
+  }
+
   const portRow = document.createElement("div");
   portRow.className = "nf-row";
   const portField = field("Port", portEl);
@@ -118,6 +153,17 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
   saslSummary.className = "nf-section-title";
   saslSummary.textContent = "SASL authentication (optional)";
   saslSection.append(saslSummary, field("Username", saslUserEl), field("Password", saslPassEl));
+
+  const connectCommandsSection = document.createElement("details");
+  connectCommandsSection.className = "nf-section";
+  const connectCommandsSummary = document.createElement("summary");
+  connectCommandsSummary.className = "nf-section-title";
+  connectCommandsSummary.textContent = "Connect commands (optional)";
+  connectCommandsSection.append(
+    connectCommandsSummary,
+    field("Connect commands", connectCommandsEl),
+    connectCommandsHelp,
+  );
 
   const errEl = document.createElement("p");
   errEl.className = "nf-error";
@@ -148,6 +194,7 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
     field("Real name", realnameEl),
     ...(isEdit ? [disabledWrap] : []),
     saslSection,
+    connectCommandsSection,
     errEl,
     actions,
   );
@@ -165,6 +212,10 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
     const realname = realnameEl.value.trim();
     const saslUser = saslUserEl.value.trim();
     const saslPass = saslPassEl.value;
+    const connectCommands = connectCommandsEl.value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
 
     if (!(name && host && port && nick)) {
       errEl.textContent = "Name, host, port, and nick are required.";
@@ -181,6 +232,7 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
       realname,
       sasl_user: saslUser,
       sasl_pass: saslPass,
+      connect_commands: connectCommands,
     };
     if (isEdit) body.disabled = disabledEl.checked;
 

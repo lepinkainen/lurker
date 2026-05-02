@@ -13,6 +13,8 @@ Base routes currently exposed:
 - `POST /api/networks/reorder`
 - `PATCH /api/networks/{id}`
 - `DELETE /api/networks/{id}`
+- `GET /api/networks/{id}/connect-commands`
+- `PUT /api/networks/{id}/connect-commands`
 - `POST /api/networks/{id}/connect`
 - `POST /api/networks/{id}/disconnect`
 
@@ -105,6 +107,7 @@ Expected fields include:
 - `nick`
 - optional `realname`
 - optional SASL fields
+- optional `connect_commands` array of raw IRC lines
 
 New networks are appended to the end of sidebar order by assigning the next `sort_order`.
 
@@ -134,7 +137,23 @@ Updates network properties.
 Notes:
 
 - patch semantics are partial for the existing editable fields
+- optional `connect_commands` replaces the saved raw command list
 - if the network name changes, the backend renames the log DB file conservatively
+
+## Network connect commands
+
+Explicit secret-bearing endpoints:
+
+- `GET /api/networks/{id}/connect-commands`
+- `PUT /api/networks/{id}/connect-commands`
+
+Payload:
+
+```json
+{ "commands": ["PRIVMSG NickServ :IDENTIFY hunter2", "MODE mynick +x"] }
+```
+
+Blank lines are ignored and commands are sent after IRC registration, before autojoin. These commands are intentionally not included in `GET /api/state`.
 
 ## `DELETE /api/networks/{id}`
 

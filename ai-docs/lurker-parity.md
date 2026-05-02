@@ -150,7 +150,7 @@ Add a `POST /api/upload` endpoint that accepts multipart file data, stores it un
 ## 6. Server / operational
 
 ### 6.1 Per-network connect commands
-A list of raw IRC commands (e.g. `PRIVMSG NickServ :IDENTIFY hunter2`) executed in order after a successful connect + nick registration. Stored as an ordered list on the network record in the control DB. Useful for NickServ auth, auto-set modes, joining password-protected channels.
+Implemented. A list of raw IRC commands (e.g. `PRIVMSG NickServ :IDENTIFY hunter2`) executes in order after successful IRC registration and before autojoin. Commands are stored in `control.db` and are editable via explicit API/web UI paths because they may contain secrets.
 
 ### 6.2 Message log retention
 Backend message logs are retained indefinitely. Do not add automatic max-age cleanup, max-row cleanup, or periodic deletion jobs for stored messages.

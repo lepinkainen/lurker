@@ -11,15 +11,20 @@ import (
 )
 
 type networkRequest struct {
-	Name     string `json:"name"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	TLS      *bool  `json:"tls,omitzero"`
-	Nick     string `json:"nick"`
-	Realname string `json:"realname,omitzero"`
-	SASLUser string `json:"sasl_user,omitzero"`
-	SASLPass string `json:"sasl_pass,omitzero"`
-	Disabled *bool  `json:"disabled,omitzero"`
+	Name            string   `json:"name"`
+	Host            string   `json:"host"`
+	Port            int      `json:"port"`
+	TLS             *bool    `json:"tls,omitzero"`
+	Nick            string   `json:"nick"`
+	Realname        string   `json:"realname,omitzero"`
+	SASLUser        string   `json:"sasl_user,omitzero"`
+	SASLPass        string   `json:"sasl_pass,omitzero"`
+	ConnectCommands []string `json:"connect_commands,omitzero"`
+	Disabled        *bool    `json:"disabled,omitzero"`
+}
+
+type connectCommandsRequest struct {
+	Commands []string `json:"commands"`
 }
 
 type reorderNetworksRequest struct {
@@ -57,6 +62,10 @@ func (s *Server) createNetwork(w http.ResponseWriter, r *http.Request) {
 	created, err := ircdb.CreateNetwork(r.Context(), s.Stores.Control, n)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := ircdb.SetNetworkConnectCommands(r.Context(), s.Stores.Control, created.ID, req.ConnectCommands); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if _, err := s.Stores.OpenNetwork(r.Context(), created); err != nil {
@@ -127,6 +136,14 @@ func (s *Server) patchNetwork(w http.ResponseWriter, r *http.Request) {
 	// Only update other fields if any non-disabled fields were sent.
 	dbNet := req.toDBNetwork()
 	var updated ircdb.Network
+	if req.ConnectCommands != nil {
+		setErr := ircdb.SetNetworkConnectCommands(r.Context(), s.Stores.Control, id, req.ConnectCommands)
+		if setErr != nil {
+			http.Error(w, setErr.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	if dbNet.Name != "" || dbNet.Host != "" || dbNet.Port != 0 || dbNet.Nick != "" {
 		updated, err = ircdb.UpdateNetwork(r.Context(), s.Stores.Control, id, dbNet)
 		if err != nil {
@@ -175,6 +192,49 @@ func (s *Server) deleteNetwork(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) getNetworkConnectCommands(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNetworkID(w, r)
+	if !ok {
+		return
+	}
+	if _, err := ircdb.GetNetwork(r.Context(), s.Stores.Control, id); err != nil {
+		writeNetworkDBError(w, err, http.StatusInternalServerError)
+		return
+	}
+	commands, err := ircdb.ListNetworkConnectCommands(r.Context(), s.Stores.Control, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, connectCommandsRequest{Commands: commands})
+}
+
+func (s *Server) putNetworkConnectCommands(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNetworkID(w, r)
+	if !ok {
+		return
+	}
+	var req connectCommandsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if _, err := ircdb.GetNetwork(r.Context(), s.Stores.Control, id); err != nil {
+		writeNetworkDBError(w, err, http.StatusInternalServerError)
+		return
+	}
+	if err := ircdb.SetNetworkConnectCommands(r.Context(), s.Stores.Control, id, req.Commands); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	commands, err := ircdb.ListNetworkConnectCommands(r.Context(), s.Stores.Control, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, connectCommandsRequest{Commands: commands})
+}
+
 func (s *Server) connectNetwork(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseNetworkID(w, r)
 	if !ok {
@@ -198,6 +258,12 @@ func (s *Server) connectNetwork(w http.ResponseWriter, r *http.Request) {
 		SASLUser: n.SASLUser,
 		SASLPass: n.SASLPass,
 	}
+	commands, err := ircdb.ListNetworkConnectCommands(r.Context(), s.Stores.Control, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	nc.ConnectCommands = commands
 	if err := s.Manager.StartNetwork(r.Context(), id, nc); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

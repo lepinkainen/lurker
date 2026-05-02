@@ -136,5 +136,15 @@ func ListNetworksWithSASL(ctx context.Context, d *sql.DB) ([]Network, error) {
 		n.SASLPass = saslPass.String
 		out = append(out, n)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		commands, err := ListNetworkConnectCommands(ctx, d, out[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		out[i].ConnectCommands = commands
+	}
+	return out, nil
 }

@@ -58,14 +58,15 @@ type FileConfig struct {
 }
 
 type NetworkFileConfig struct {
-	Network  string             `yaml:"network"`
-	Nick     string             `yaml:"nick,omitempty"`
-	User     string             `yaml:"user,omitempty"`
-	Realname string             `yaml:"realname,omitempty"`
-	Channels []string           `yaml:"channels,omitempty"`
-	SASLUser string             `yaml:"sasl_user,omitempty"`
-	SASLPass string             `yaml:"sasl_pass,omitempty"`
-	Servers  []ServerFileConfig `yaml:"servers"`
+	Network         string             `yaml:"network"`
+	Nick            string             `yaml:"nick,omitempty"`
+	User            string             `yaml:"user,omitempty"`
+	Realname        string             `yaml:"realname,omitempty"`
+	Channels        []string           `yaml:"channels,omitempty"`
+	ConnectCommands []string           `yaml:"connect_commands,omitempty"`
+	SASLUser        string             `yaml:"sasl_user,omitempty"`
+	SASLPass        string             `yaml:"sasl_pass,omitempty"`
+	Servers         []ServerFileConfig `yaml:"servers"`
 }
 
 type ServerFileConfig struct {
@@ -201,14 +202,15 @@ func buildNetworks(fc FileConfig) ([]irc.NetworkConfig, error) {
 			})
 		}
 		out = append(out, irc.NetworkConfig{
-			Name:     n.Network,
-			Servers:  servers,
-			Nick:     nick,
-			User:     user,
-			Realname: realname,
-			Channels: n.Channels,
-			SASLUser: n.SASLUser,
-			SASLPass: n.SASLPass,
+			Name:            n.Network,
+			Servers:         servers,
+			Nick:            nick,
+			User:            user,
+			Realname:        realname,
+			Channels:        n.Channels,
+			ConnectCommands: n.ConnectCommands,
+			SASLUser:        n.SASLUser,
+			SASLPass:        n.SASLPass,
 		})
 	}
 	return out, nil
@@ -274,6 +276,7 @@ func previewConfigYAML(configPath string, networks []ircdb.Network) (current, pr
 			entry.Realname = n.Realname
 		}
 		// user (ident) is not stored in DB — preserve from original YAML entry.
+		entry.ConnectCommands = n.ConnectCommands
 		entry.SASLUser = n.SASLUser
 		entry.SASLPass = n.SASLPass
 		tls := n.TLS

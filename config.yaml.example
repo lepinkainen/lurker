@@ -19,6 +19,9 @@ networks:
       - "#golang"
     sasl_user: mynick
     sasl_pass: secret
+    connect_commands:
+      - "PRIVMSG NickServ :IDENTIFY secret"
+      - "MODE mynick +x"
     servers:
       - host: irc.ircnet.com
         port: 6697

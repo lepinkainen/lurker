@@ -4,17 +4,18 @@ import "github.com/google/uuid"
 
 // Network is the minimal network row used at startup.
 type Network struct {
-	ID        uuid.UUID
-	Name      string
-	Host      string
-	Port      int
-	TLS       bool
-	Nick      string
-	Realname  string
-	SASLUser  string
-	SASLPass  string
-	SortOrder int
-	Disabled  bool
+	ID              uuid.UUID
+	Name            string
+	Host            string
+	Port            int
+	TLS             bool
+	Nick            string
+	Realname        string
+	SASLUser        string
+	SASLPass        string
+	ConnectCommands []string
+	SortOrder       int
+	Disabled        bool
 }
 
 // BufferKind enumerates the rows allowed in buffers.kind.

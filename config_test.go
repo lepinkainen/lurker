@@ -3,7 +3,10 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	ircdb "github.com/lepinkainen/lurker/db"
 )
 
 func TestLoadNetworksFromYAML(t *testing.T) {
@@ -18,6 +21,9 @@ networks:
     nick: mynick
     realname: My Real Name
     channels: ["#test"]
+    connect_commands:
+      - "PRIVMSG NickServ :IDENTIFY secret"
+      - "MODE mynick +x"
     servers:
       - host: irc.ircnet.com
         port: 6697
@@ -64,7 +70,34 @@ networks:
 	if nets[0].User != "globaluser" {
 		t.Fatalf("user = %q, want globaluser", nets[0].User)
 	}
+	if len(nets[0].ConnectCommands) != 2 || nets[0].ConnectCommands[0] != "PRIVMSG NickServ :IDENTIFY secret" {
+		t.Fatalf("connect commands = %#v", nets[0].ConnectCommands)
+	}
 	if nets[1].Nick != "globalnick" || nets[1].User != "globaluser" || nets[1].Realname != "Global Real Name" {
 		t.Fatalf("global inheritance failed: %+v", nets[1])
+	}
+}
+
+func TestPreviewConfigYAMLIncludesConnectCommands(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(`networks:
+  - network: Libera
+    channels: ["#go"]
+    servers:
+      - host: old.example
+        port: 6667
+        tls: false
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, proposed, err := previewConfigYAML(path, []ircdb.Network{{
+		Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "tester", ConnectCommands: []string{"MODE tester +x"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(proposed, "connect_commands:") || !strings.Contains(proposed, "MODE tester +x") {
+		t.Fatalf("proposed yaml missing connect commands:\n%s", proposed)
 	}
 }

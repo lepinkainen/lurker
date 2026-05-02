@@ -138,6 +138,59 @@ func TestReorderNetworksEndpointRejectsInvalidPermutation(t *testing.T) {
 
 }
 
+func TestNetworkConnectCommandsEndpointsAndStateDoesNotLeak(t *testing.T) {
+	ctx := t.Context()
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stores.Close() }()
+
+	n, err := ircdb.CreateNetwork(ctx, stores.Control, ircdb.Network{Name: "Libera", Host: "127.0.0.1", Port: 1, TLS: false, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stores.OpenNetwork(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(stores, hub.New())}
+	h := srv.Handler()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/networks/"+n.ID.String()+"/connect-commands", bytes.NewBufferString(`{"commands":["  PRIVMSG NickServ :IDENTIFY secret  ","","MODE tester +x"]}`)).WithContext(ctx)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put commands status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body connectCommandsRequest
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Commands) != 2 || body.Commands[0] != "PRIVMSG NickServ :IDENTIFY secret" || body.Commands[1] != "MODE tester +x" {
+		t.Fatalf("commands = %#v", body.Commands)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/networks/"+n.ID.String()+"/connect-commands", http.NoBody).WithContext(ctx)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get commands status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("IDENTIFY secret")) {
+		t.Fatalf("expected command response, body=%s", rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/state", http.NoBody).WithContext(ctx)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("state status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte("IDENTIFY secret")) || bytes.Contains(rec.Body.Bytes(), []byte("connect_commands")) {
+		t.Fatalf("state leaked connect commands: %s", rec.Body.String())
+	}
+}
+
 func TestConnectDisconnectEndpointsUpdateState(t *testing.T) {
 	ctx := t.Context()
 

@@ -23,6 +23,8 @@ Observed connection states include:
 - `connected`
 - `disconnected`
 
+After successful IRC registration, the handler sends saved per-network connect commands with `SendRaw` in stored order, logs send failures as warnings, then joins configured autojoin channels. Commands are reloaded from storage before each reconnect. Connect commands may contain secrets and are loaded from config/API storage rather than exposed in `/api/state`.
+
 ## Event persistence model
 
 Inbound IRC events are handled in `irc/handler.go`.

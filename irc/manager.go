@@ -38,14 +38,15 @@ type ServerConfig struct {
 
 // NetworkConfig is the runtime configuration for a single logical IRC network.
 type NetworkConfig struct {
-	Name     string         // display/unique key, e.g. "libera"
-	Servers  []ServerConfig // ordered failover / round-robin candidates
-	Nick     string         // desired nickname
-	User     string         // ident
-	Realname string         // realname / gecos
-	Channels []string       // channels to autojoin after connect
-	SASLUser string         // empty disables SASL
-	SASLPass string
+	Name            string         // display/unique key, e.g. "libera"
+	Servers         []ServerConfig // ordered failover / round-robin candidates
+	Nick            string         // desired nickname
+	User            string         // ident
+	Realname        string         // realname / gecos
+	Channels        []string       // channels to autojoin after connect
+	ConnectCommands []string       // raw IRC lines sent after registration, before autojoin
+	SASLUser        string         // empty disables SASL
+	SASLPass        string
 }
 
 // PrimaryServer returns the first configured server, if any.
@@ -123,6 +124,9 @@ func (m *Manager) Start(ctx context.Context, nets []NetworkConfig) error {
 			SASLPass: nc.SASLPass,
 		})
 		if err != nil {
+			return err
+		}
+		if err := ircdb.SetNetworkConnectCommands(ctx, m.stores.Control, nrow.ID, nc.ConnectCommands); err != nil {
 			return err
 		}
 		if err := m.StartNetwork(ctx, nrow.ID, nc); err != nil {
@@ -591,6 +595,11 @@ func (m *Manager) runNetwork(ctx context.Context, networkID uuid.UUID, nc Networ
 			return
 		}
 		server := nc.serverAt(serverIndex)
+		if commands, err := ircdb.ListNetworkConnectCommands(ctx, m.stores.Control, networkID); err != nil {
+			log.Warn("load connect commands", "err", err)
+		} else {
+			nc.ConnectCommands = commands
+		}
 		client := m.buildClient(ctx, networkID, nc, server)
 
 		m.mu.Lock()
@@ -683,7 +692,7 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 		slog.Error("log store", "err", err, "network_id", networkID)
 		return client
 	}
-	h := &handler{stores: m.stores, db: logStore.DB, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectedHook: func(currentNick string) {
+	h := &handler{stores: m.stores, db: logStore.DB, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectCommands: nc.ConnectCommands, connectedHook: func(currentNick string) {
 		m.mu.Lock()
 		m.state[networkID] = StateConnected.String()
 		if _, ok := m.membersLoaded[networkID]; !ok {

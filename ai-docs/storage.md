@@ -20,6 +20,7 @@ Important tables:
 
 - `networks`
 - `buffer_registry`
+- `network_connect_commands`
 - `schema_migrations`
 
 The `networks` table stores:
@@ -28,6 +29,8 @@ The `networks` table stores:
 - human-facing network name
 - connection settings like host/port/tls/nick/realname/SASL
 - `sort_order` for persistent sidebar ordering
+
+`network_connect_commands` stores an ordered raw IRC command list per network, keyed by `(network_id, position)` with `ON DELETE CASCADE`. Commands may contain secrets and are only exposed through the explicit connect-command API, not `/api/state`.
 
 The `buffer_registry` table stores the global API-facing buffer ID namespace. Buffer IDs are UUIDv7 values stored as 16-byte SQLite `BLOB`s and serialized over JSON as strings.
 

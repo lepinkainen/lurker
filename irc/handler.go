@@ -18,6 +18,7 @@ type handler struct {
 	networkID           uuid.UUID
 	networkName         string
 	autojoin            []string
+	connectCommands     []string
 	connectedHook       func(currentNick string)
 	memberListHook      func(channel string)
 	clearMemberListHook func(channel string)
