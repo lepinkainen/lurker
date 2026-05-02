@@ -13,7 +13,6 @@ import (
 
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/hub"
-	"github.com/lepinkainen/lurker/irc"
 	"github.com/lepinkainen/lurker/theme"
 	"github.com/lepinkainen/lurker/updates"
 )
@@ -25,11 +24,20 @@ type UploadConfig struct {
 	BaseURL  string
 }
 
+// manager is the full IRC manager surface the API package needs. Keep the
+// consumer-specific interfaces small and colocated with the handlers that use
+// them; Server composes those narrow interfaces into one dependency slot.
+type manager interface {
+	wsManager
+	stateManager
+	networkManager
+}
+
 // Server bundles the dependencies every API handler needs.
 type Server struct {
 	Stores        *ircdb.MultiStore
 	Hub           *hub.Hub
-	Manager       *irc.Manager
+	Manager       manager
 	Web           fs.FS // embedded web UI; nil disables serving
 	Themes        *theme.Loader
 	AppName       string

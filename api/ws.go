@@ -67,6 +67,29 @@ type ignoreListResult struct {
 	Masks     []string  `json:"masks"`
 }
 
+// wsManager is the IRC manager surface used by WebSocket command handlers.
+type wsManager interface {
+	Send(networkID uuid.UUID, target, content string) error
+	LogOutbound(ctx context.Context, networkID uuid.UUID, target, kind, content string) error
+	Join(networkID uuid.UUID, channel string) error
+	Part(networkID uuid.UUID, channel, reason string) error
+	ChangeNick(networkID uuid.UUID, nick string) error
+	Me(networkID uuid.UUID, target, message string) error
+	Topic(networkID uuid.UUID, channel, topic string) error
+	Whois(networkID uuid.UUID, nick string) error
+	Invite(networkID uuid.UUID, nick, channel string) error
+	Kick(networkID uuid.UUID, channel, nick, reason string) error
+	Mode(networkID uuid.UUID, target, modes string, params ...string) error
+	Raw(networkID uuid.UUID, line string) error
+	Away(networkID uuid.UUID, message string) error
+	Back(networkID uuid.UUID) error
+	Quit(networkID uuid.UUID, message string) error
+	Rejoin(networkID uuid.UUID, channel string) error
+	Notice(networkID uuid.UUID, target, content string) error
+	CTCP(networkID uuid.UUID, nick, command, args string) error
+	ListChannels(networkID uuid.UUID, filter string) error
+}
+
 // stream is the WebSocket endpoint. It subscribes to the event hub and
 // forwards every published event as JSON; it also reads client commands
 // and dispatches them to the IRC manager or the SQLite store.

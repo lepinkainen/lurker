@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -29,6 +30,14 @@ type connectCommandsRequest struct {
 
 type reorderNetworksRequest struct {
 	IDs []uuid.UUID `json:"ids"`
+}
+
+// networkManager is the IRC lifecycle/state surface needed by network API
+// handlers.
+type networkManager interface {
+	StateSnapshot() map[uuid.UUID]string
+	StartNetwork(ctx context.Context, networkID uuid.UUID, nc irc.NetworkConfig) error
+	StopNetwork(networkID uuid.UUID) error
 }
 
 func (r networkRequest) toDBNetwork() ircdb.Network {

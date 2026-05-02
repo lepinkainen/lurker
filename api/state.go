@@ -69,6 +69,13 @@ type stateDTO struct {
 	Members         map[string][]channelMemberDTO `json:"members,omitzero"`
 }
 
+// stateManager is the IRC runtime state surface needed by /api/state.
+type stateManager interface {
+	StateSnapshot() map[uuid.UUID]string
+	IsJoined(networkID uuid.UUID, channel string) bool
+	ChannelMembers(networkID uuid.UUID, channel string) []ircdb.ChannelMember
+}
+
 // state serves the full snapshot a client needs to render from scratch:
 // every network, every buffer, plus the last 100 messages per buffer.
 func (s *Server) state(w http.ResponseWriter, r *http.Request) {
