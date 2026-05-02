@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+
+	"github.com/google/uuid"
 )
 
 // ErrBufferNotFound indicates the requested global buffer does not exist.
@@ -14,7 +16,7 @@ var ErrBufferSettingsUnsupported = errors.New("db: buffer settings unsupported f
 
 // BufferSettings are per-buffer display preferences stored in the control DB.
 type BufferSettings struct {
-	BufferID               int64
+	BufferID               uuid.UUID
 	ShowEmbeds             bool
 	ShowPresenceEvents     bool
 	CollapsePresenceEvents bool
@@ -30,18 +32,18 @@ type BufferSettingsPatch struct {
 	Pinned                 *bool
 }
 
-func defaultBufferSettings(bufferID int64) BufferSettings {
+func defaultBufferSettings(bufferID uuid.UUID) BufferSettings {
 	return BufferSettings{BufferID: bufferID, ShowEmbeds: true, ShowPresenceEvents: true}
 }
 
 // ListBufferSettings returns persisted settings keyed by buffer id. Missing rows use defaults elsewhere.
-func ListBufferSettings(ctx context.Context, d *sql.DB) (map[int64]BufferSettings, error) {
+func ListBufferSettings(ctx context.Context, d *sql.DB) (map[uuid.UUID]BufferSettings, error) {
 	rows, err := d.QueryContext(ctx, `SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at FROM buffer_settings`)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	out := map[int64]BufferSettings{}
+	out := map[uuid.UUID]BufferSettings{}
 	for rows.Next() {
 		var s BufferSettings
 		var showEmbeds, showPresence, collapsePresence, pinned int
@@ -58,15 +60,15 @@ func ListBufferSettings(ctx context.Context, d *sql.DB) (map[int64]BufferSetting
 }
 
 // GetBufferSettings returns settings with defaults when no row exists.
-func GetBufferSettings(ctx context.Context, d *sql.DB, bufferID int64) (BufferSettings, error) {
+func GetBufferSettings(ctx context.Context, d *sql.DB, bufferID uuid.UUID) (BufferSettings, error) {
 	var s BufferSettings
 	var showEmbeds, showPresence, collapsePresence, pinned int
-	err := d.QueryRowContext(ctx, `SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at FROM buffer_settings WHERE buffer_id = ?`, bufferID).
+	err := d.QueryRowContext(ctx, `SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at FROM buffer_settings WHERE buffer_id = ?`, bufferID[:]).
 		Scan(&s.BufferID, &showEmbeds, &showPresence, &collapsePresence, &pinned, &s.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			var exists int
-			if scanErr := d.QueryRowContext(ctx, `SELECT COUNT(1) FROM buffer_registry WHERE id = ?`, bufferID).Scan(&exists); scanErr != nil {
+			if scanErr := d.QueryRowContext(ctx, `SELECT COUNT(1) FROM buffer_registry WHERE id = ?`, bufferID[:]).Scan(&exists); scanErr != nil {
 				return BufferSettings{}, scanErr
 			}
 			if exists == 0 {
@@ -84,9 +86,9 @@ func GetBufferSettings(ctx context.Context, d *sql.DB, bufferID int64) (BufferSe
 }
 
 // UpdateBufferSettings applies a partial settings patch for a channel buffer.
-func UpdateBufferSettings(ctx context.Context, d *sql.DB, bufferID int64, patch BufferSettingsPatch) (BufferSettings, error) {
+func UpdateBufferSettings(ctx context.Context, d *sql.DB, bufferID uuid.UUID, patch BufferSettingsPatch) (BufferSettings, error) {
 	var kind string
-	if err := d.QueryRowContext(ctx, `SELECT kind FROM buffer_registry WHERE id = ?`, bufferID).Scan(&kind); err != nil {
+	if err := d.QueryRowContext(ctx, `SELECT kind FROM buffer_registry WHERE id = ?`, bufferID[:]).Scan(&kind); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return BufferSettings{}, ErrBufferNotFound
 		}
@@ -121,7 +123,7 @@ func UpdateBufferSettings(ctx context.Context, d *sql.DB, bufferID int64, patch 
 		collapse_presence_events=excluded.collapse_presence_events,
 		pinned=excluded.pinned,
 		updated_at=excluded.updated_at`,
-		bufferID, boolInt(current.ShowEmbeds), boolInt(current.ShowPresenceEvents), boolInt(current.CollapsePresenceEvents), boolInt(current.Pinned), current.UpdatedAt)
+		bufferID[:], boolInt(current.ShowEmbeds), boolInt(current.ShowPresenceEvents), boolInt(current.CollapsePresenceEvents), boolInt(current.Pinned), current.UpdatedAt)
 	if err != nil {
 		return BufferSettings{}, err
 	}

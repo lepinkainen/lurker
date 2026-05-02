@@ -65,21 +65,21 @@ describe("connection recovery", () => {
         return Promise.resolve(
           Response.json({
             current_nick: "tester",
-            networks: [{ id: 1, name: "Libera", status: "connected" }],
+            networks: [{ id: "1", name: "Libera", status: "connected" }],
             buffers: [
               {
-                id: 10,
-                network_id: 1,
+                id: "10",
+                network_id: "1",
                 name: "#go",
                 kind: "channel",
-                last_seen_id: 0,
+                last_seen_id: "0",
                 show_embeds: true,
                 show_presence_events: true,
                 collapse_presence_events: false,
                 pinned: false,
               },
             ],
-            initial_messages: { "10": [{ id: 99, buffer_id: 10, content: "missed while asleep" }] },
+            initial_messages: { "10": [{ id: "99", buffer_id: "10", content: "missed while asleep" }] },
             members: {},
           }),
         );
@@ -122,7 +122,7 @@ describe("connection recovery", () => {
     connectWS(d);
     FakeWebSocket.instances[0].open();
     await vi.waitFor(() => {
-      expect(state.messages.get(10)).toEqual([{ id: 99, buffer_id: 10, content: "missed while asleep" }]);
+      expect(state.messages.get("10")).toEqual([{ id: "99", buffer_id: "10", content: "missed while asleep" }]);
     });
 
     expect(fetch).toHaveBeenCalledWith("/api/state");

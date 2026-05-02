@@ -4,37 +4,38 @@ import (
 	"context"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 )
 
 // API DTOs — mirror the shapes returned by /api/state and /api/stream.
 
 type networkDTO struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	Status    string `json:"status"`
-	SortOrder int    `json:"sort_order"`
-	Disabled  bool   `json:"disabled"`
-	Nick      string `json:"nick"`
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	Status    string    `json:"status"`
+	SortOrder int       `json:"sort_order"`
+	Disabled  bool      `json:"disabled"`
+	Nick      string    `json:"nick"`
 }
 
 type bufferDTO struct {
-	ID         int64  `json:"id"`
-	NetworkID  int64  `json:"network_id"`
-	Name       string `json:"name"`
-	Kind       string `json:"kind"`
-	Topic      string `json:"topic"`
-	Joined     bool   `json:"joined"`
-	LastSeenID int64  `json:"last_seen_id"`
+	ID         uuid.UUID `json:"id"`
+	NetworkID  uuid.UUID `json:"network_id"`
+	Name       string    `json:"name"`
+	Kind       string    `json:"kind"`
+	Topic      string    `json:"topic"`
+	Joined     bool      `json:"joined"`
+	LastSeenID uuid.UUID `json:"last_seen_id"`
 }
 
 type messageDTO struct {
-	ID        int64  `json:"id"`
-	NetworkID int64  `json:"network_id"`
-	BufferID  int64  `json:"buffer_id"`
-	TS        string `json:"ts"`
-	Sender    string `json:"sender"`
-	Kind      string `json:"kind"`
-	Content   string `json:"content"`
+	ID        uuid.UUID `json:"id"`
+	NetworkID uuid.UUID `json:"network_id"`
+	BufferID  uuid.UUID `json:"buffer_id"`
+	TS        string    `json:"ts"`
+	Sender    string    `json:"sender"`
+	Kind      string    `json:"kind"`
+	Content   string    `json:"content"`
 }
 
 type stateResponse struct {
@@ -48,13 +49,13 @@ type stateResponse struct {
 type wsEvent struct {
 	Type string `json:"type"`
 	// message
-	ID        int64  `json:"id"`
-	NetworkID int64  `json:"network_id"`
-	BufferID  int64  `json:"buffer_id"`
-	TS        string `json:"ts"`
-	Sender    string `json:"sender"`
-	Kind      string `json:"kind"`
-	Content   string `json:"content"`
+	ID        uuid.UUID `json:"id"`
+	NetworkID uuid.UUID `json:"network_id"`
+	BufferID  uuid.UUID `json:"buffer_id"`
+	TS        string    `json:"ts"`
+	Sender    string    `json:"sender"`
+	Kind      string    `json:"kind"`
+	Content   string    `json:"content"`
 	// buffer_update
 	Topic  string `json:"topic"`
 	Joined bool   `json:"joined"`
@@ -84,7 +85,7 @@ type errMsg struct{ err error }
 // sidebarItem is one row in the left navigation pane.
 type sidebarItem struct {
 	label     string
-	bufferID  int64
-	networkID int64
+	bufferID  uuid.UUID
+	networkID uuid.UUID
 	isHeader  bool // true for network-name rows
 }

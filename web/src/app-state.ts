@@ -1,14 +1,14 @@
 import type { Preview } from "./preview";
 
 export type LayoutSettings = {
-  collapsed: Record<number, boolean>;
-  pinned: number[];
-  archivesOpen: Record<number, boolean>;
+  collapsed: Record<string, boolean>;
+  pinned: string[];
+  archivesOpen: Record<string, boolean>;
   sidebarHidden: boolean;
 };
 
 export type Network = {
-  id: number;
+  id: string;
   name: string;
   host?: string;
   port?: number;
@@ -21,14 +21,14 @@ export type Network = {
 };
 
 export type Buffer = {
-  id: number;
-  network_id: number;
+  id: string;
+  network_id: string;
   name: string;
   kind: string;
   joined?: boolean;
   topic?: string;
   topic_set_by?: string;
-  last_seen_id?: number;
+  last_seen_id?: string;
   unread: number;
   mentions: number;
   show_embeds: boolean;
@@ -38,8 +38,8 @@ export type Buffer = {
 };
 
 export type Message = {
-  id: number;
-  buffer_id: number;
+  id: string;
+  buffer_id: string;
   sender?: string;
   target?: string;
   content?: string;
@@ -84,12 +84,12 @@ export type BufferInputState = {
 };
 
 export type AppState = {
-  networks: Map<number, Network>;
-  buffers: Map<number, Buffer>;
-  messages: Map<number, Message[]>;
-  members: Map<number, Member[]>;
-  inputHistory: Map<number, BufferInputState>;
-  activeId: number | null;
+  networks: Map<string, Network>;
+  buffers: Map<string, Buffer>;
+  messages: Map<string, Message[]>;
+  members: Map<string, Member[]>;
+  inputHistory: Map<string, BufferInputState>;
+  activeId: string | null;
   ws: WebSocket | null;
   wsReady: boolean;
   backendStatus: "connecting" | "connected" | "offline" | "reconnecting";
@@ -100,15 +100,15 @@ export type AppState = {
   lastWSActivityAt: number;
   wsHealthTimer: number | null;
   needsStateSyncOnConnect: boolean;
-  loadingHistory: Set<number>;
-  historyExhausted: Set<number>;
-  lastMarkedReadId: Map<number, number>;
+  loadingHistory: Set<string>;
+  historyExhausted: Set<string>;
+  lastMarkedReadId: Map<string, string>;
   me: { nick: string };
   showMemberList: boolean;
   layout: LayoutSettings;
-  drag: { id: number | null; over: number | null };
+  drag: { id: string | null; over: string | null };
   updateStatus: UpdateStatus | null;
-  channelList: { network_id: number; entries: ChannelListEntry[]; done: boolean } | null;
+  channelList: { network_id: string; entries: ChannelListEntry[]; done: boolean } | null;
 };
 
 const LAYOUT_KEY = "lurker.layout";

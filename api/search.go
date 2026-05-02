@@ -9,11 +9,11 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	networkID, ok := parseOptionalQueryInt64(w, r, "network", "bad network")
+	networkID, ok := parseOptionalQueryUUID(w, r, "network", "bad network")
 	if !ok {
 		return
 	}
-	bufferID, ok := parseOptionalQueryInt64(w, r, "buffer", "bad buffer")
+	bufferID, ok := parseOptionalQueryUUID(w, r, "buffer", "bad buffer")
 	if !ok {
 		return
 	}

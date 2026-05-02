@@ -9,6 +9,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/google/uuid"
 
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/hub"
@@ -26,15 +27,7 @@ func TestMarkReadBroadcastsBufferUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bufferID, _, _, err := stores.UpsertBufferRegistry(ctx, n.ID, "#go", ircdb.BufferChannel)
-	if err != nil {
-		t.Fatal(err)
-	}
-	logStore, err := stores.LogStore(n.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, _, err = ircdb.UpsertLogBuffer(ctx, logStore.DB, n.ID, "#go", ircdb.BufferChannel)
+	bufferID, _, _, err := stores.EnsureBuffer(ctx, n.ID, "#go", ircdb.BufferChannel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +50,7 @@ func TestMarkReadBroadcastsBufferUpdate(t *testing.T) {
 	}
 	defer func() { _ = c.Close(websocket.StatusNormalClosure, "") }()
 
-	const lastSeenID int64 = 42
+	lastSeenID := uuid.Must(uuid.NewV7())
 	if err := wsjson.Write(wsCtx, c, clientCmd{Type: "mark_read", ReqID: "r1", BufferID: bufferID, MessageID: lastSeenID}); err != nil {
 		t.Fatal(err)
 	}
@@ -102,12 +95,12 @@ func TestJoinUsesNetworkIDChannelAndPartUsesBufferID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bufferID, _, _, err := stores.UpsertBufferRegistry(ctx, n.ID, "#go", ircdb.BufferChannel)
+	bufferID, _, _, err := stores.EnsureBuffer(ctx, n.ID, "#go", ircdb.BufferChannel)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if n.ID == 0 || bufferID == 0 {
+	if n.ID == uuid.Nil || bufferID == uuid.Nil {
 		t.Fatal("expected non-zero ids")
 	}
 }

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strconv"
 
+	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/preview"
 )
@@ -14,37 +14,37 @@ import (
 // networkDTO is the wire shape for a network row. We don't ship sasl
 // credentials to clients, ever.
 type networkDTO struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	Host      string `json:"host"`
-	Port      int    `json:"port"`
-	TLS       bool   `json:"tls"`
-	Nick      string `json:"nick"`
-	Realname  string `json:"realname,omitzero"`
-	Status    string `json:"status,omitzero"`
-	SortOrder int    `json:"sort_order"`
-	Disabled  bool   `json:"disabled,omitzero"`
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	Host      string    `json:"host"`
+	Port      int       `json:"port"`
+	TLS       bool      `json:"tls"`
+	Nick      string    `json:"nick"`
+	Realname  string    `json:"realname,omitzero"`
+	Status    string    `json:"status,omitzero"`
+	SortOrder int       `json:"sort_order"`
+	Disabled  bool      `json:"disabled,omitzero"`
 }
 
 type bufferDTO struct {
-	ID                     int64  `json:"id"`
-	NetworkID              int64  `json:"network_id"`
-	Name                   string `json:"name"`
-	Kind                   string `json:"kind"`
-	Topic                  string `json:"topic,omitzero"`
-	Joined                 bool   `json:"joined"`
-	LastSeenID             int64  `json:"last_seen_id,omitzero"`
-	CreatedAt              string `json:"created_at"`
-	ShowEmbeds             bool   `json:"show_embeds"`
-	ShowPresenceEvents     bool   `json:"show_presence_events"`
-	CollapsePresenceEvents bool   `json:"collapse_presence_events"`
-	Pinned                 bool   `json:"pinned"`
+	ID                     uuid.UUID `json:"id"`
+	NetworkID              uuid.UUID `json:"network_id"`
+	Name                   string    `json:"name"`
+	Kind                   string    `json:"kind"`
+	Topic                  string    `json:"topic,omitzero"`
+	Joined                 bool      `json:"joined"`
+	LastSeenID             uuid.UUID `json:"last_seen_id,omitzero"`
+	CreatedAt              string    `json:"created_at"`
+	ShowEmbeds             bool      `json:"show_embeds"`
+	ShowPresenceEvents     bool      `json:"show_presence_events"`
+	CollapsePresenceEvents bool      `json:"collapse_presence_events"`
+	Pinned                 bool      `json:"pinned"`
 }
 
 type messageDTO struct {
-	ID        int64                     `json:"id"`
-	NetworkID int64                     `json:"network_id"`
-	BufferID  int64                     `json:"buffer_id"`
+	ID        uuid.UUID                 `json:"id"`
+	NetworkID uuid.UUID                 `json:"network_id"`
+	BufferID  uuid.UUID                 `json:"buffer_id"`
 	MsgID     string                    `json:"msgid,omitzero"`
 	TS        string                    `json:"ts"`
 	Sender    string                    `json:"sender"`
@@ -65,7 +65,7 @@ type channelMemberDTO struct {
 type stateDTO struct {
 	Networks        []networkDTO                  `json:"networks"`
 	Buffers         []bufferDTO                   `json:"buffers"`
-	InitialMessages map[string][]messageDTO       `json:"initial_messages"` // keyed by buffer id (string so JSON handles large ids cleanly)
+	InitialMessages map[string][]messageDTO       `json:"initial_messages"`
 	Members         map[string][]channelMemberDTO `json:"members,omitzero"`
 }
 
@@ -89,7 +89,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		InitialMessages: map[string][]messageDTO{},
 		Members:         map[string][]channelMemberDTO{},
 	}
-	states := map[int64]string{}
+	states := map[uuid.UUID]string{}
 	if s.Manager != nil {
 		states = s.Manager.StateSnapshot()
 	}
@@ -109,7 +109,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		})
 		if b.Kind == ircdb.BufferChannel && s.Manager != nil {
 			if members := s.Manager.ChannelMembers(b.NetworkID, b.Name); members != nil {
-				out.Members[strconv.FormatInt(b.ID, 10)] = toChannelMemberDTOs(members)
+				out.Members[b.ID.String()] = toChannelMemberDTOs(members)
 			}
 		}
 		msgs, err := s.Stores.RecentMessages(ctx, b.ID, 100)
@@ -117,7 +117,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 			slog.Error("recent messages", "err", err, "buffer_id", b.ID)
 			continue
 		}
-		out.InitialMessages[strconv.FormatInt(b.ID, 10)] = s.toMessageDTOs(ctx, msgs)
+		out.InitialMessages[b.ID.String()] = s.toMessageDTOs(ctx, msgs)
 	}
 
 	writeJSON(w, http.StatusOK, out)
@@ -125,11 +125,16 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 
 // history serves older-than-cursor messages for a buffer.
 func (s *Server) history(w http.ResponseWriter, r *http.Request) {
-	bufferID, ok := parsePathInt64(w, r, "id", "bad buffer id")
+	bufferID, ok := parsePathUUID(w, r, "id", "bad buffer id")
 	if !ok {
 		return
 	}
-	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
+	var before uuid.UUID
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		if parsed, err := uuid.Parse(raw); err == nil {
+			before = parsed
+		}
+	}
 	msgs, err := s.loadHistory(r.Context(), bufferID, before, clampLimit(r.URL.Query().Get("limit"), 200, 500))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -141,12 +146,12 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) loadHistory(ctx context.Context, bufferID, before int64, limit int) ([]messageDTO, error) {
+func (s *Server) loadHistory(ctx context.Context, bufferID, before uuid.UUID, limit int) ([]messageDTO, error) {
 	var (
 		msgs []ircdb.StoredMessage
 		err  error
 	)
-	if before > 0 {
+	if before != uuid.Nil {
 		msgs, err = s.Stores.MessagesBefore(ctx, bufferID, before, limit)
 	} else {
 		msgs, err = s.Stores.RecentMessages(ctx, bufferID, limit)
@@ -179,12 +184,12 @@ func (s *Server) attachPreviews(ctx context.Context, msgs []messageDTO) {
 	}
 
 	// Group message IDs by network so we hit each log DB once.
-	byNetwork := map[int64][]int64{}
-	indexByMsg := map[int64]map[int64]int{} // network -> message id -> index in msgs
+	byNetwork := map[uuid.UUID][]uuid.UUID{}
+	indexByMsg := map[uuid.UUID]map[uuid.UUID]int{}
 	for i, m := range msgs {
 		byNetwork[m.NetworkID] = append(byNetwork[m.NetworkID], m.ID)
 		if indexByMsg[m.NetworkID] == nil {
-			indexByMsg[m.NetworkID] = map[int64]int{}
+			indexByMsg[m.NetworkID] = map[uuid.UUID]int{}
 		}
 		indexByMsg[m.NetworkID][m.ID] = i
 	}

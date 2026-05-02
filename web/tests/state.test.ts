@@ -12,7 +12,7 @@ describe("seeded backend", () => {
 
     const liberaBuffers = state.buffers
       .filter(
-        (b: { network_id: number }) =>
+        (b: { network_id: string }) =>
           b.network_id === state.networks.find((n: { name: string }) => n.name === "libera").id,
       )
       .map((b: { name: string }) => b.name)

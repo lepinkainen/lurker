@@ -29,13 +29,13 @@ func (h *handler) onDisconnected(_ *girc.Client, e girc.Event) {
 func (h *handler) logStatus(kind, content string) {
 	ctx, cancel := h.eventContext()
 	defer cancel()
-	globalBufID, localBufID, err := h.ensureBuffer(ctx, "", ircdb.BufferStatus)
+	bufID, err := h.ensureBuffer(ctx, "", ircdb.BufferStatus)
 	if err != nil {
 		slog.Error("ensure status buffer", "err", err, "network", h.networkName)
 		return
 	}
 	id, ts, inserted, err := ircdb.InsertLogMessage(ctx, h.db, ircdb.LogMessageInput{
-		BufferID:  localBufID,
+		BufferID:  bufID,
 		Timestamp: time.Now(),
 		Sender:    "*",
 		Kind:      kind,
@@ -44,7 +44,7 @@ func (h *handler) logStatus(kind, content string) {
 	})
 	if err == nil && inserted && h.hub != nil {
 		h.hub.Publish(&MessageEvent{
-			Type: "message", ID: id, NetworkID: h.networkID, BufferID: globalBufID,
+			Type: "message", ID: id, NetworkID: h.networkID, BufferID: bufID,
 			TS: ts, Sender: "*", Kind: kind, Content: content,
 		})
 	}

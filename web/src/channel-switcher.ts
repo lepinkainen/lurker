@@ -19,7 +19,7 @@ function renderSwitcherResults(
   emptyEl: HTMLElement,
   query: string,
   selection: { index: number },
-  choose: (bufferId: number) => void,
+  choose: (bufferId: string) => void,
 ) {
   const results = searchBuffers(query);
   if (results.length === 0) {
@@ -136,7 +136,7 @@ export function openChannelSwitcher(deps: KeyboardShortcutsDeps, beforeOpen?: ()
   document.body.appendChild(dialog);
 
   const selection = { index: 0 };
-  const choose = (bufferId: number) => {
+  const choose = (bufferId: string) => {
     closeChannelSwitcher();
     deps.setActive(bufferId);
   };

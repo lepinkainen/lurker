@@ -6,16 +6,18 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // LogStore manages one per-network log database.
 type LogStore struct {
-	NetworkID int64
+	NetworkID uuid.UUID
 	DB        *sql.DB
 }
 
 // OpenLogStore opens the per-network log DB for a validated network name.
-func OpenLogStore(networkID int64, path string) (*LogStore, error) {
+func OpenLogStore(networkID uuid.UUID, path string) (*LogStore, error) {
 	d, err := OpenLog(path)
 	if err != nil {
 		return nil, err
@@ -39,7 +41,7 @@ type LogMessageRow = logMessageRow
 
 // LogMessageInput is an inbound IRC event prepared for per-network storage.
 type LogMessageInput struct {
-	BufferID  int64
+	BufferID  uuid.UUID
 	MsgID     string
 	Timestamp time.Time
 	Sender    string
@@ -50,26 +52,12 @@ type LogMessageInput struct {
 	Raw       string
 }
 
-// UpsertLogBuffer creates or looks up a per-network buffer row.
-func UpsertLogBuffer(ctx context.Context, d *sql.DB, networkID int64, name, kind string) (id int64, created bool, buf LogBufferRow, err error) {
-	name, kind = normalizeBufferIdentity(name, kind)
-	now := Now()
-	return upsertBufferRegistryOrLogRow(
-		ctx,
-		d,
-		`SELECT id FROM buffers WHERE name = ?`,
-		[]any{name},
-		`INSERT INTO buffers(name, kind, created_at) VALUES (?, ?, ?)`,
-		[]any{name, kind, now},
-		logBufferRow{Name: name, Kind: kind, CreatedAt: now},
-		func(row *logBufferRow, id int64) { row.ID = id },
-	)
-}
-
 // InsertLogMessage inserts an IRC event into the per-network log.
-func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id int64, ts string, inserted bool, err error) {
+func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id uuid.UUID, ts string, inserted bool, err error) {
 	ts = FormatTime(m.Timestamp)
+	newId := newID()
 	insert := logMessageInsert{
+		ID:       newId,
 		BufferID: m.BufferID,
 		MsgID:    m.MsgID,
 		TS:       ts,
@@ -82,23 +70,29 @@ func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id int
 	}
 	return insertMessageRow(ctx, d,
 		`INSERT OR IGNORE INTO messages
-		   (buffer_id, msgid, ts, sender, account, kind, target, content, raw)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		[]any{insert.BufferID, nullableString(insert.MsgID), insert.TS, insert.Sender, nullableString(insert.Account), insert.Kind, nullableString(insert.Target), insert.Content, insert.Raw},
+		   (id, buffer_id, msgid, ts, sender, account, kind, target, content, raw)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		[]any{insert.ID[:], insert.BufferID[:], nullableString(insert.MsgID), insert.TS, insert.Sender, nullableString(insert.Account), insert.Kind, nullableString(insert.Target), insert.Content, insert.Raw},
 		ts,
+		newId,
 	)
 }
 
 // ListLogBuffers returns every buffer stored in a per-network log DB.
 func ListLogBuffers(ctx context.Context, d *sql.DB) ([]LogBufferRow, error) {
 	rows, err := d.QueryContext(ctx,
-		`SELECT id, name, kind, COALESCE(topic,''), COALESCE(last_seen_id,0), created_at
+		`SELECT id, name, kind, COALESCE(topic,''), last_seen_id, created_at
 		 FROM buffers ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
 	scanned, err := scanLogBufferRows(rows, func(b *logBufferRow) error {
-		return rows.Scan(&b.ID, &b.Name, &b.Kind, &b.Topic, &b.LastSeenID, &b.CreatedAt)
+		var lastSeen []byte
+		if scanErr := rows.Scan(&b.ID, &b.Name, &b.Kind, &b.Topic, &lastSeen, &b.CreatedAt); scanErr != nil {
+			return scanErr
+		}
+		b.LastSeenID = scanUUID(lastSeen)
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -107,18 +101,18 @@ func ListLogBuffers(ctx context.Context, d *sql.DB) ([]LogBufferRow, error) {
 }
 
 // RecentLogMessages returns recent messages for a buffer in ascending order.
-func RecentLogMessages(ctx context.Context, d *sql.DB, bufferID int64, limit int) ([]LogMessageRow, error) {
+func RecentLogMessages(ctx context.Context, d *sql.DB, bufferID uuid.UUID, limit int) ([]LogMessageRow, error) {
 	return logMessagesQuery(ctx, d,
 		`SELECT id, buffer_id, COALESCE(msgid,''), ts, sender,
 		        COALESCE(account,''), kind, COALESCE(target,''), content
 		 FROM (
 		   SELECT * FROM messages WHERE buffer_id = ? ORDER BY id DESC LIMIT ?
 		 ) ORDER BY id ASC`,
-		bufferID, limit)
+		bufferID[:], limit)
 }
 
 // LogMessagesBefore returns messages before a given message ID.
-func LogMessagesBefore(ctx context.Context, d *sql.DB, bufferID, before int64, limit int) ([]LogMessageRow, error) {
+func LogMessagesBefore(ctx context.Context, d *sql.DB, bufferID, before uuid.UUID, limit int) ([]LogMessageRow, error) {
 	return logMessagesQuery(ctx, d,
 		`SELECT id, buffer_id, COALESCE(msgid,''), ts, sender,
 		        COALESCE(account,''), kind, COALESCE(target,''), content
@@ -126,13 +120,13 @@ func LogMessagesBefore(ctx context.Context, d *sql.DB, bufferID, before int64, l
 		   SELECT * FROM messages WHERE buffer_id = ? AND id < ?
 		   ORDER BY id DESC LIMIT ?
 		 ) ORDER BY id ASC`,
-		bufferID, before, limit)
+		bufferID[:], before[:], limit)
 }
 
 // LookupLogBuffer returns the name and kind for a local log buffer.
-func LookupLogBuffer(ctx context.Context, d *sql.DB, bufferID int64) (name, kind string, err error) {
+func LookupLogBuffer(ctx context.Context, d *sql.DB, bufferID uuid.UUID) (name, kind string, err error) {
 	err = d.QueryRowContext(ctx,
-		`SELECT name, kind FROM buffers WHERE id = ?`, bufferID,
+		`SELECT name, kind FROM buffers WHERE id = ?`, bufferID[:],
 	).Scan(&name, &kind)
 	return
 }
@@ -149,20 +143,12 @@ func logMessagesQuery(ctx context.Context, d *sql.DB, q string, args ...any) ([]
 }
 
 // EnsureStatusBuffer ensures the synthetic status buffer exists for a network.
-func EnsureStatusBuffer(ctx context.Context, store *MultiStore, networkID int64) (int64, error) {
-	logStore, err := store.LogStore(networkID)
+func EnsureStatusBuffer(ctx context.Context, store *MultiStore, networkID uuid.UUID) (uuid.UUID, error) {
+	id, _, _, err := store.EnsureBuffer(ctx, networkID, "", BufferStatus)
 	if err != nil {
-		return 0, err
+		return uuid.Nil, err
 	}
-	registryID, _, _, err := store.UpsertBufferRegistry(ctx, networkID, "", BufferStatus)
-	if err != nil {
-		return 0, err
-	}
-	_, _, _, err = UpsertLogBuffer(ctx, logStore.DB, networkID, "", BufferStatus)
-	if err != nil {
-		return 0, err
-	}
-	return registryID, nil
+	return id, nil
 }
 
 // UpdateLogBufferTopic updates the topic for a buffer.
@@ -172,25 +158,26 @@ func UpdateLogBufferTopic(ctx context.Context, d *sql.DB, name, topic string) er
 }
 
 // UpdateLogBufferLastSeen updates the last seen message ID for a buffer.
-func UpdateLogBufferLastSeen(ctx context.Context, d *sql.DB, name string, lastSeenID int64) error {
-	_, err := d.ExecContext(ctx, `UPDATE buffers SET last_seen_id = ? WHERE name = ?`, lastSeenID, name)
+func UpdateLogBufferLastSeen(ctx context.Context, d *sql.DB, name string, lastSeenID uuid.UUID) error {
+	_, err := d.ExecContext(ctx, `UPDATE buffers SET last_seen_id = ? WHERE name = ?`, uuidParam(lastSeenID), name)
 	return err
 }
 
-// SearchLogMessages searches a per-network log DB using FTS.
-func SearchLogMessages(ctx context.Context, d *sql.DB, query string, bufferID int64, limit int) ([]LogMessageRow, error) {
+// SearchLogMessages searches a per-network log DB using FTS. Returns messages
+// joined to their FTS rowid match. The internal rowid is not exposed.
+func SearchLogMessages(ctx context.Context, d *sql.DB, query string, bufferID uuid.UUID, limit int) ([]LogMessageRow, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	q := `SELECT m.id, m.buffer_id, COALESCE(m.msgid,''), m.ts, m.sender,
 		     COALESCE(m.account,''), m.kind, COALESCE(m.target,''), m.content
 	      FROM messages_fts f
-	      JOIN messages m ON m.id = f.rowid`
+	      JOIN messages m ON m.rowid = f.rowid`
 	args := []any{query}
 	where := ` WHERE messages_fts MATCH ?`
-	if bufferID > 0 {
+	if bufferID != uuid.Nil {
 		where += ` AND m.buffer_id = ?`
-		args = append(args, bufferID)
+		args = append(args, bufferID[:])
 	}
 	q += where + ` ORDER BY m.id DESC LIMIT ?`
 	args = append(args, limit)
@@ -198,12 +185,12 @@ func SearchLogMessages(ctx context.Context, d *sql.DB, query string, bufferID in
 }
 
 func (s *LogStore) String() string {
-	return fmt.Sprintf("LogStore(network_id=%d)", s.NetworkID)
+	return fmt.Sprintf("LogStore(network_id=%s)", s.NetworkID.String())
 }
 
 // MessagePreviewLink is one (message_id, url) association in a per-network log.
 type MessagePreviewLink struct {
-	MessageID int64
+	MessageID uuid.UUID
 	URL       string
 	Position  int
 }
@@ -226,7 +213,8 @@ func InsertMessagePreviewLinks(ctx context.Context, d *sql.DB, links []MessagePr
 		return err
 	}
 	for _, l := range links {
-		if _, err := stmt.ExecContext(ctx, l.MessageID, l.URL, l.Position); err != nil {
+		mid := l.MessageID
+		if _, err := stmt.ExecContext(ctx, mid[:], l.URL, l.Position); err != nil {
 			_ = stmt.Close()
 			_ = tx.Rollback()
 			return err
@@ -238,7 +226,7 @@ func InsertMessagePreviewLinks(ctx context.Context, d *sql.DB, links []MessagePr
 
 // ListMessagePreviewLinks returns (message_id, url, position) rows for the
 // given message IDs ordered by (message_id, position).
-func ListMessagePreviewLinks(ctx context.Context, d *sql.DB, messageIDs []int64) ([]MessagePreviewLink, error) {
+func ListMessagePreviewLinks(ctx context.Context, d *sql.DB, messageIDs []uuid.UUID) ([]MessagePreviewLink, error) {
 	if len(messageIDs) == 0 {
 		return nil, nil
 	}
@@ -246,7 +234,7 @@ func ListMessagePreviewLinks(ctx context.Context, d *sql.DB, messageIDs []int64)
 	args := make([]any, len(messageIDs))
 	for i, id := range messageIDs {
 		placeholders[i] = "?"
-		args[i] = id
+		args[i] = id[:]
 	}
 	q := fmt.Sprintf(
 		`SELECT message_id, url, position FROM message_previews

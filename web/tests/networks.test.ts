@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-type Network = { id: number; name: string; sort_order?: number };
+type Network = { id: string; name: string; sort_order?: number };
 
 async function fetchNetworks(): Promise<Network[]> {
   const res = await fetch("/api/state");

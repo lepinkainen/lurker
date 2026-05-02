@@ -13,8 +13,8 @@ afterEach(() => {
 
 function makeBuffer(overrides: Partial<Buffer> = {}): Buffer {
   return {
-    id: 1,
-    network_id: 10,
+    id: "1",
+    network_id: "10",
     name: "#chan",
     kind: "channel",
     joined: true,
@@ -31,20 +31,20 @@ describe("handleSlashCommand", () => {
     const send = vi.fn();
     const buffer = makeBuffer();
     expect(handleSlashCommand("/join #foo", buffer, send)).toBe(true);
-    expect(send).toHaveBeenCalledWith({ type: "join", network_id: 10, channel: "#foo" });
+    expect(send).toHaveBeenCalledWith({ type: "join", network_id: "10", channel: "#foo" });
   });
 
   it("emits part with reason", () => {
     const send = vi.fn();
-    const buffer = makeBuffer({ id: 7 });
+    const buffer = makeBuffer({ id: "7" });
     expect(handleSlashCommand("/part bye now", buffer, send)).toBe(true);
-    expect(send).toHaveBeenCalledWith({ type: "part", buffer_id: 7, content: "bye now" });
+    expect(send).toHaveBeenCalledWith({ type: "part", buffer_id: "7", content: "bye now" });
   });
 
   it("emits part with empty reason", () => {
     const send = vi.fn();
-    expect(handleSlashCommand("/part", makeBuffer({ id: 7 }), send)).toBe(true);
-    expect(send).toHaveBeenCalledWith({ type: "part", buffer_id: 7, content: "" });
+    expect(handleSlashCommand("/part", makeBuffer({ id: "7" }), send)).toBe(true);
+    expect(send).toHaveBeenCalledWith({ type: "part", buffer_id: "7", content: "" });
   });
 
   it("returns false for unknown command", () => {
@@ -56,13 +56,13 @@ describe("handleSlashCommand", () => {
   it("is case-insensitive on command name", () => {
     const send = vi.fn();
     expect(handleSlashCommand("/JOIN #x", makeBuffer(), send)).toBe(true);
-    expect(send).toHaveBeenCalledWith({ type: "join", network_id: 10, channel: "#x" });
+    expect(send).toHaveBeenCalledWith({ type: "join", network_id: "10", channel: "#x" });
   });
 
   it("supports alias commands from the same registry", () => {
     const send = vi.fn();
-    expect(handleSlashCommand("/cycle", makeBuffer({ id: 7 }), send)).toBe(true);
-    expect(send).toHaveBeenCalledWith({ type: "rejoin", buffer_id: 7 });
+    expect(handleSlashCommand("/cycle", makeBuffer({ id: "7" }), send)).toBe(true);
+    expect(send).toHaveBeenCalledWith({ type: "rejoin", buffer_id: "7" });
   });
 });
 
@@ -78,8 +78,8 @@ describe("updateInputEnabled", () => {
 
   it("disables input when ws not ready", () => {
     state.wsReady = false;
-    state.activeId = 1;
-    state.buffers.set(1, makeBuffer());
+    state.activeId = "1";
+    state.buffers.set("1", makeBuffer());
     const i = el();
     updateInputEnabled(i);
     expect(i.disabled).toBe(true);
@@ -87,8 +87,8 @@ describe("updateInputEnabled", () => {
 
   it("disables input on status buffer", () => {
     state.wsReady = true;
-    state.activeId = 1;
-    state.buffers.set(1, makeBuffer({ kind: "status" }));
+    state.activeId = "1";
+    state.buffers.set("1", makeBuffer({ kind: "status" }));
     const i = el();
     updateInputEnabled(i);
     expect(i.disabled).toBe(true);
@@ -96,8 +96,8 @@ describe("updateInputEnabled", () => {
 
   it("disables input on parted channel", () => {
     state.wsReady = true;
-    state.activeId = 1;
-    state.buffers.set(1, makeBuffer({ joined: false }));
+    state.activeId = "1";
+    state.buffers.set("1", makeBuffer({ joined: false }));
     const i = el();
     updateInputEnabled(i);
     expect(i.disabled).toBe(true);
@@ -105,8 +105,8 @@ describe("updateInputEnabled", () => {
 
   it("enables input on joined channel with ws ready", () => {
     state.wsReady = true;
-    state.activeId = 1;
-    state.buffers.set(1, makeBuffer({ joined: true }));
+    state.activeId = "1";
+    state.buffers.set("1", makeBuffer({ joined: true }));
     const i = el();
     updateInputEnabled(i);
     expect(i.disabled).toBe(false);
@@ -114,8 +114,8 @@ describe("updateInputEnabled", () => {
 
   it("enables input on query buffer", () => {
     state.wsReady = true;
-    state.activeId = 1;
-    state.buffers.set(1, makeBuffer({ kind: "query" }));
+    state.activeId = "1";
+    state.buffers.set("1", makeBuffer({ kind: "query" }));
     const i = el();
     updateInputEnabled(i);
     expect(i.disabled).toBe(false);

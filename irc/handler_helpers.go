@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lrstanley/girc"
 )
@@ -40,24 +41,23 @@ func modeTargetAndArgs(e girc.Event) (target, args string, ok bool) {
 	}
 	return e.Params[0], strings.Join(e.Params[1:], " "), true
 }
-func (h *handler) ensureBuffer(ctx context.Context, name, kind string) (globalBufID, localBufID int64, err error) {
-	globalBufID, created, buf, err := h.stores.UpsertBufferRegistry(ctx, h.networkID, name, kind)
+
+// ensureBuffer ensures a buffer exists in both the global registry and the
+// per-network log DB with the SAME UUID. Returns that single ID.
+func (h *handler) ensureBuffer(ctx context.Context, name, kind string) (bufID uuid.UUID, err error) {
+	bufID, created, buf, err := h.stores.EnsureBuffer(ctx, h.networkID, name, kind)
 	if err != nil {
-		return 0, 0, err
+		return uuid.Nil, err
 	}
-	localBufID, _, _, err = ircdb.UpsertLogBuffer(ctx, h.db, h.networkID, name, kind)
-	if err != nil {
-		return 0, 0, err
-	}
-	h.publishBufferCreated(created, globalBufID, buf)
-	return globalBufID, localBufID, nil
+	h.publishBufferCreated(created, bufID, buf)
+	return bufID, nil
 }
 
-func (h *handler) publishBufferCreated(created bool, globalBufID int64, buf ircdb.Buffer) {
+func (h *handler) publishBufferCreated(created bool, bufID uuid.UUID, buf ircdb.Buffer) {
 	if !created || h.hub == nil {
 		return
 	}
-	h.hub.Publish(&BufferCreatedEvent{Type: "buffer_created", ID: globalBufID, NetworkID: buf.NetworkID, Name: buf.Name, Kind: buf.Kind, CreatedAt: buf.CreatedAt})
+	h.hub.Publish(&BufferCreatedEvent{Type: "buffer_created", ID: bufID, NetworkID: buf.NetworkID, Name: buf.Name, Kind: buf.Kind, CreatedAt: buf.CreatedAt})
 }
 
 func (h *handler) publishBufferUpdate(ev BufferUpdateEvent) {

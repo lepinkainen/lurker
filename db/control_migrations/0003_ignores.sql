@@ -1,6 +1,6 @@
 CREATE TABLE ignores (
-  id         INTEGER PRIMARY KEY,
-  network_id INTEGER NOT NULL REFERENCES networks(id) ON DELETE CASCADE,
+  id         BLOB    PRIMARY KEY CHECK (length(id) = 16),
+  network_id BLOB    NOT NULL REFERENCES networks(id) ON DELETE CASCADE,
   mask       TEXT    NOT NULL,
   created_at TEXT    NOT NULL,
   UNIQUE (network_id, mask)

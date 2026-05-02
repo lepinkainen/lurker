@@ -2,11 +2,11 @@ import { state } from "./app-state";
 import { getVisibleSidebarBufferIds } from "./buffers";
 
 function findMatchingBufferId(
-  startId: number | null,
-  ids: number[],
-  predicate: (id: number) => boolean,
+  startId: string | null,
+  ids: string[],
+  predicate: (id: string) => boolean,
   direction: 1 | -1,
-): number | null {
+): string | null {
   if (ids.length === 0) return null;
   const fallback = direction === 1 ? -1 : 0;
   const startIndex = startId === null ? fallback : ids.indexOf(startId);
@@ -20,26 +20,26 @@ function findMatchingBufferId(
   return null;
 }
 
-function isUnreadMessageBuffer(id: number): boolean {
+function isUnreadMessageBuffer(id: string): boolean {
   const buffer = state.buffers.get(id);
   return buffer !== undefined && buffer.kind === "channel" && buffer.unread > 0;
 }
 
-function activeChannelIds(): number[] {
+function activeChannelIds(): string[] {
   return getVisibleSidebarBufferIds().filter((id) => state.buffers.get(id)?.kind === "channel");
 }
 
-export function navigateBuffer(setActive: (id: number) => void, previous = false) {
+export function navigateBuffer(setActive: (id: string) => void, previous = false) {
   const next = findMatchingBufferId(state.activeId, getVisibleSidebarBufferIds(), () => true, previous ? -1 : 1);
   if (next !== null) setActive(next);
 }
 
-export function navigateUnread(setActive: (id: number) => void, previous = false) {
+export function navigateUnread(setActive: (id: string) => void, previous = false) {
   const next = findMatchingBufferId(state.activeId, activeChannelIds(), isUnreadMessageBuffer, previous ? -1 : 1);
   if (next !== null) setActive(next);
 }
 
-export function navigateMention(setActive: (id: number) => void) {
+export function navigateMention(setActive: (id: string) => void) {
   const next = findMatchingBufferId(
     state.activeId,
     activeChannelIds(),
@@ -49,7 +49,7 @@ export function navigateMention(setActive: (id: number) => void) {
   if (next !== null) setActive(next);
 }
 
-export function navigateFirstUnread(setActive: (id: number) => void) {
+export function navigateFirstUnread(setActive: (id: string) => void) {
   const firstUnread = activeChannelIds().find(isUnreadMessageBuffer);
   if (firstUnread !== undefined && firstUnread !== state.activeId) setActive(firstUnread);
 }

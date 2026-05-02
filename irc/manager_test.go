@@ -448,12 +448,13 @@ func TestBuildClientConfiguresTLSInsecureSkipVerify(t *testing.T) {
 	}()
 
 	ctx := context.Background()
-	if _, err := stores.UpsertNetwork(ctx, ircdb.Network{Name: "ircnet", Host: "irc.example", Port: 6697, TLS: true, Nick: "tester"}); err != nil {
+	netrow, err := stores.UpsertNetwork(ctx, ircdb.Network{Name: "ircnet", Host: "irc.example", Port: 6697, TLS: true, Nick: "tester"})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	m := NewManager(stores, nil)
-	client := m.buildClient(ctx, 1, NetworkConfig{Name: "ircnet", Nick: "tester", User: "tester", Realname: "tester"}, ServerConfig{Host: "irc.example", Port: 6697, TLS: true, TLSInsecure: true})
+	client := m.buildClient(ctx, netrow.ID, NetworkConfig{Name: "ircnet", Nick: "tester", User: "tester", Realname: "tester"}, ServerConfig{Host: "irc.example", Port: 6697, TLS: true, TLSInsecure: true})
 	if client.Config.TLSConfig == nil {
 		t.Fatal("expected TLS config")
 	}

@@ -28,16 +28,15 @@ type Post struct {
 
 type Source interface {
     Name() string                   // e.g. "mastodon", "bluesky"
-    NetworkID() int64               // resolved at startup
+    NetworkID() uuid.UUID           // resolved at startup
     Start(ctx context.Context) error
     Wait()                          // blocks until goroutines drain
 }
 
 // IngestPost is the shared funnel — the analogue of irc.handler.storeEvent.
-// It resolves the buffer via stores.UpsertBufferRegistry and stores.UpsertLogBuffer
-// (same calls IRC uses, see irc/handler.go:575-586), inserts via
-// db.InsertLogMessage, then publishes a MessageEvent on the hub.
-func IngestPost(ctx context.Context, deps Deps, networkID int64, channelName string, p Post) error
+// It resolves the buffer via stores.EnsureBuffer (same shared-UUID path IRC uses),
+// inserts via db.InsertLogMessage, then publishes a MessageEvent on the hub.
+func IngestPost(ctx context.Context, deps Deps, networkID uuid.UUID, channelName string, p Post) error
 ```
 
 `Deps` carries the `*db.MultiStore`, `*hub.Hub`, and the per-network log DB handle. Adapters never touch the DB or hub directly — they only build a `Post` and call `IngestPost`.

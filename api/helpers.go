@@ -5,30 +5,31 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/irc"
 )
 
-func parsePathInt64(w http.ResponseWriter, r *http.Request, key, msg string) (int64, bool) {
-	v, err := strconv.ParseInt(r.PathValue(key), 10, 64)
+func parsePathUUID(w http.ResponseWriter, r *http.Request, key, msg string) (uuid.UUID, bool) {
+	id, err := uuid.Parse(r.PathValue(key))
 	if err != nil {
 		http.Error(w, msg, http.StatusBadRequest)
-		return 0, false
+		return uuid.Nil, false
 	}
-	return v, true
+	return id, true
 }
 
-func parseOptionalQueryInt64(w http.ResponseWriter, r *http.Request, key, msg string) (int64, bool) {
+func parseOptionalQueryUUID(w http.ResponseWriter, r *http.Request, key, msg string) (uuid.UUID, bool) {
 	raw := r.URL.Query().Get(key)
 	if raw == "" {
-		return 0, true
+		return uuid.Nil, true
 	}
-	v, err := strconv.ParseInt(raw, 10, 64)
+	id, err := uuid.Parse(raw)
 	if err != nil {
 		http.Error(w, msg, http.StatusBadRequest)
-		return 0, false
+		return uuid.Nil, false
 	}
-	return v, true
+	return id, true
 }
 
 func clampLimit(raw string, def, maxLimit int) int {
@@ -43,8 +44,8 @@ func clampLimitInt(limit, def, maxLimit int) int {
 	return limit
 }
 
-func parseNetworkID(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	return parsePathInt64(w, r, "id", "bad network id")
+func parseNetworkID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	return parsePathUUID(w, r, "id", "bad network id")
 }
 
 func writeNetworkDBError(w http.ResponseWriter, err error, fallbackStatus int) {

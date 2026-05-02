@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/hub"
 	"github.com/lepinkainen/lurker/irc"
@@ -38,7 +39,7 @@ func TestNetworkCRUDAndDeleteRetainsLogDB(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
 		t.Fatal(err)
 	}
-	if created.ID == 0 {
+	if created.ID == uuid.Nil {
 		t.Fatal("expected created id")
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "libera.db")); err != nil {
@@ -46,14 +47,14 @@ func TestNetworkCRUDAndDeleteRetainsLogDB(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPatch, "/api/networks/"+fmt.Sprintf("%d", created.ID), bytes.NewBufferString(`{"nick":"tester2"}`))
+	req = httptest.NewRequest(http.MethodPatch, "/api/networks/"+created.ID.String(), bytes.NewBufferString(`{"nick":"tester2"}`))
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch status = %d body=%s", rec.Code, rec.Body.String())
 	}
 
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodDelete, "/api/networks/"+fmt.Sprintf("%d", created.ID), http.NoBody)
+	req = httptest.NewRequest(http.MethodDelete, "/api/networks/"+created.ID.String(), http.NoBody)
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d body=%s", rec.Code, rec.Body.String())
@@ -87,7 +88,7 @@ func TestReorderNetworksEndpointPersistsOrder(t *testing.T) {
 	h := srv.Handler()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/networks/reorder", bytes.NewBufferString(fmt.Sprintf(`{"ids":[%d,%d]}`, n2.ID, n1.ID))).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodPost, "/api/networks/reorder", bytes.NewBufferString(fmt.Sprintf(`{"ids":[%q,%q]}`, n2.ID, n1.ID))).WithContext(ctx)
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reorder status = %d body=%s", rec.Code, rec.Body.String())
@@ -121,10 +122,11 @@ func TestReorderNetworksEndpointRejectsInvalidPermutation(t *testing.T) {
 	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(stores, hub.New())}
 	h := srv.Handler()
 
+	otherID := uuid.New()
 	for _, body := range []string{
-		fmt.Sprintf(`{"ids":[%d]}`, n1.ID),
-		fmt.Sprintf(`{"ids":[%d,%d]}`, n1.ID, n1.ID),
-		fmt.Sprintf(`{"ids":[%d,999999]}`, n1.ID),
+		fmt.Sprintf(`{"ids":[%q]}`, n1.ID),
+		fmt.Sprintf(`{"ids":[%q,%q]}`, n1.ID, n1.ID),
+		fmt.Sprintf(`{"ids":[%q,%q]}`, n1.ID, otherID),
 	} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/api/networks/reorder", bytes.NewBufferString(body)).WithContext(ctx)
@@ -154,7 +156,7 @@ func TestConnectDisconnectEndpointsUpdateState(t *testing.T) {
 	h := srv.Handler()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/networks/"+fmt.Sprintf("%d", n.ID)+"/connect", http.NoBody).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodPost, "/api/networks/"+n.ID.String()+"/connect", http.NoBody).WithContext(ctx)
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("connect status = %d body=%s", rec.Code, rec.Body.String())
@@ -165,7 +167,7 @@ func TestConnectDisconnectEndpointsUpdateState(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/networks/"+fmt.Sprintf("%d", n.ID)+"/disconnect", http.NoBody).WithContext(ctx)
+	req = httptest.NewRequest(http.MethodPost, "/api/networks/"+n.ID.String()+"/disconnect", http.NoBody).WithContext(ctx)
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("disconnect status = %d body=%s", rec.Code, rec.Body.String())

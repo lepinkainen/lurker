@@ -3,29 +3,22 @@ package db
 import (
 	"context"
 	"database/sql"
-	"errors"
+
+	"github.com/google/uuid"
 )
 
-type bufferRegistryRow struct {
-	ID        int64
-	NetworkID int64
-	Name      string
-	Kind      string
-	CreatedAt string
-}
-
 type logBufferRow struct {
-	ID         int64
+	ID         uuid.UUID
 	Name       string
 	Kind       string
 	Topic      string
-	LastSeenID int64
+	LastSeenID uuid.UUID
 	CreatedAt  string
 }
 
 type logMessageRow struct {
-	ID       int64
-	BufferID int64
+	ID       uuid.UUID
+	BufferID uuid.UUID
 	MsgID    string
 	TS       string
 	Sender   string
@@ -36,7 +29,8 @@ type logMessageRow struct {
 }
 
 type logMessageInsert struct {
-	BufferID int64
+	ID       uuid.UUID
+	BufferID uuid.UUID
 	MsgID    string
 	TS       string
 	Sender   string
@@ -87,42 +81,20 @@ func scanLogMessageRows(rows *sql.Rows, scan func(*logMessageRow) error) ([]logM
 	return out, rows.Err()
 }
 
-func upsertBufferRegistryOrLogRow[T any](ctx context.Context, d *sql.DB, selectQuery string, selectArgs []any, insertQuery string, insertArgs []any, row T, setID func(*T, int64)) (id int64, created bool, out T, err error) {
-	err = d.QueryRowContext(ctx, selectQuery, selectArgs...).Scan(&id)
-	if err == nil {
-		return id, false, out, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return 0, false, out, err
-	}
-	res, err := d.ExecContext(ctx, insertQuery, insertArgs...)
-	if err != nil {
-		if err2 := d.QueryRowContext(ctx, selectQuery, selectArgs...).Scan(&id); err2 == nil {
-			return id, false, out, nil
-		}
-		return 0, false, out, err
-	}
-	id, err = res.LastInsertId()
-	if err != nil {
-		return 0, false, out, err
-	}
-	out = row
-	setID(&out, id)
-	return id, true, out, nil
-}
-
-func insertMessageRow(ctx context.Context, d *sql.DB, query string, args []any, ts string) (id int64, storedTS string, inserted bool, err error) {
+// insertMessageRow executes the provided INSERT (which must include a BLOB id
+// column). On affected=0 (duplicate msgid), returns Nil and inserted=false.
+// Otherwise returns the caller-provided id.
+func insertMessageRow(ctx context.Context, d *sql.DB, query string, args []any, ts string, id uuid.UUID) (resolved uuid.UUID, storedTS string, inserted bool, err error) {
 	res, err := d.ExecContext(ctx, query, args...)
 	if err != nil {
-		return 0, ts, false, err
+		return uuid.Nil, ts, false, err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return 0, ts, false, err
+		return uuid.Nil, ts, false, err
 	}
 	if affected == 0 {
-		return 0, ts, false, nil
+		return uuid.Nil, ts, false, nil
 	}
-	id, err = res.LastInsertId()
-	return id, ts, true, err
+	return id, ts, true, nil
 }

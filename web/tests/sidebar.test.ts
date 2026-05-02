@@ -6,8 +6,8 @@ import { renderSidebar, type SidebarDeps } from "../src/sidebar";
 
 function buf(overrides: Partial<Buffer>): Buffer {
   return {
-    id: 0,
-    network_id: 10,
+    id: "0",
+    network_id: "10",
     name: "",
     kind: "channel",
     joined: true,
@@ -17,7 +17,7 @@ function buf(overrides: Partial<Buffer>): Buffer {
   };
 }
 
-function net(overrides: Partial<Network> & { id: number }): Network {
+function net(overrides: Partial<Network> & { id: string }): Network {
   return { id: overrides.id, name: `net${overrides.id}`, status: "connected", ...overrides };
 }
 
@@ -33,17 +33,17 @@ describe("orderedNetworks", () => {
   beforeEach(() => resetAppState());
 
   it("sorts by sort_order then id", () => {
-    state.networks.set(3, net({ id: 3, sort_order: 1 }));
-    state.networks.set(1, net({ id: 1, sort_order: 0 }));
-    state.networks.set(2, net({ id: 2, sort_order: 1 }));
-    expect(orderedNetworks().map((n) => n.id)).toEqual([1, 2, 3]);
+    state.networks.set("3", net({ id: "3", sort_order: 1 }));
+    state.networks.set("1", net({ id: "1", sort_order: 0 }));
+    state.networks.set("2", net({ id: "2", sort_order: 1 }));
+    expect(orderedNetworks().map((n) => n.id)).toEqual(["1", "2", "3"]);
   });
 
   it("places networks without sort_order last, sorted by id", () => {
-    state.networks.set(5, net({ id: 5, sort_order: 0 }));
-    state.networks.set(3, net({ id: 3 }));
-    state.networks.set(2, net({ id: 2 }));
-    expect(orderedNetworks().map((n) => n.id)).toEqual([5, 2, 3]);
+    state.networks.set("5", net({ id: "5", sort_order: 0 }));
+    state.networks.set("3", net({ id: "3" }));
+    state.networks.set("2", net({ id: "2" }));
+    expect(orderedNetworks().map((n) => n.id)).toEqual(["5", "2", "3"]);
   });
 });
 
@@ -62,12 +62,12 @@ describe("renderSidebar", () => {
   });
 
   it("renders network sections in order with channels and queries", () => {
-    state.networks.set(1, net({ id: 1, name: "alpha", sort_order: 0 }));
-    state.networks.set(2, net({ id: 2, name: "beta", sort_order: 1 }));
-    state.buffers.set(10, buf({ id: 10, network_id: 1, name: "#aaa", kind: "channel", joined: true }));
-    state.buffers.set(11, buf({ id: 11, network_id: 1, name: "alice", kind: "query" }));
-    state.buffers.set(12, buf({ id: 12, network_id: 1, name: "(status)", kind: "status" }));
-    state.buffers.set(13, buf({ id: 13, network_id: 2, name: "#zzz", kind: "channel", joined: true }));
+    state.networks.set("1", net({ id: "1", name: "alpha", sort_order: 0 }));
+    state.networks.set("2", net({ id: "2", name: "beta", sort_order: 1 }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#aaa", kind: "channel", joined: true }));
+    state.buffers.set("11", buf({ id: "11", network_id: "1", name: "alice", kind: "query" }));
+    state.buffers.set("12", buf({ id: "12", network_id: "1", name: "(status)", kind: "status" }));
+    state.buffers.set("13", buf({ id: "13", network_id: "2", name: "#zzz", kind: "channel", joined: true }));
     const d = deps();
     renderSidebar(d);
     const names = [...d.sbScrollEl.querySelectorAll(".netname")].map((n) => n.textContent);
@@ -79,8 +79,8 @@ describe("renderSidebar", () => {
   });
 
   it("renders pinned section at top when pinned buffers are present", () => {
-    state.networks.set(1, net({ id: 1 }));
-    state.buffers.set(10, buf({ id: 10, network_id: 1, name: "#aaa", joined: true, pinned: true }));
+    state.networks.set("1", net({ id: "1" }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#aaa", joined: true, pinned: true }));
     const d = deps();
     renderSidebar(d);
     const first = d.sbScrollEl.firstElementChild;
@@ -88,22 +88,22 @@ describe("renderSidebar", () => {
   });
 
   it("toggles pinned buffers from visible row control", () => {
-    state.networks.set(1, net({ id: 1 }));
-    state.buffers.set(10, buf({ id: 10, network_id: 1, name: "#aaa", joined: true }));
+    state.networks.set("1", net({ id: "1" }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#aaa", joined: true }));
     const d = deps();
     renderSidebar(d);
 
     d.sbScrollEl.querySelector<HTMLElement>(".sbrow.chan .pin-toggle")?.click();
-    expect(state.buffers.get(10)?.pinned).toBe(true);
+    expect(state.buffers.get("10")?.pinned).toBe(true);
     expect(d.sbScrollEl.firstElementChild?.querySelector(".pinned-hdr")).not.toBeNull();
 
     d.sbScrollEl.querySelector<HTMLElement>(".sbrow.pinned .pin-toggle")?.click();
-    expect(state.buffers.get(10)?.pinned).toBe(false);
+    expect(state.buffers.get("10")?.pinned).toBe(false);
   });
 
   it("collapses network when collapsed flag set and shows unread badge", () => {
-    state.networks.set(1, net({ id: 1 }));
-    state.buffers.set(10, buf({ id: 10, network_id: 1, name: "#x", joined: true, unread: 3 }));
+    state.networks.set("1", net({ id: "1" }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#x", joined: true, unread: 3 }));
     state.layout.collapsed[1] = true;
     const d = deps();
     renderSidebar(d);
@@ -113,19 +113,19 @@ describe("renderSidebar", () => {
   });
 
   it("buffers a click row that triggers setActive", () => {
-    state.networks.set(1, net({ id: 1 }));
-    state.buffers.set(10, buf({ id: 10, network_id: 1, name: "#x", joined: true }));
+    state.networks.set("1", net({ id: "1" }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#x", joined: true }));
     const d = deps();
     renderSidebar(d);
     const row = d.sbScrollEl.querySelector<HTMLButtonElement>(".sbrow.chan");
     expect(row).not.toBeNull();
     row?.click();
-    expect(d.setActive).toHaveBeenCalledWith(10);
+    expect(d.setActive).toHaveBeenCalledWith("10");
   });
 
   it("renders archive fold for parted channels", () => {
-    state.networks.set(1, net({ id: 1 }));
-    state.buffers.set(10, buf({ id: 10, network_id: 1, name: "#left", kind: "channel", joined: false }));
+    state.networks.set("1", net({ id: "1" }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#left", kind: "channel", joined: false }));
     const d = deps();
     renderSidebar(d);
     const arch = d.sbScrollEl.querySelector(".sbrow.archives");

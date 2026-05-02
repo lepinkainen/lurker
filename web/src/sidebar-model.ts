@@ -30,7 +30,7 @@ export function pinnedBuffers(): Buffer[] {
     });
 }
 
-export function networkBuffers(networkId: number): NetworkBuffers {
+export function networkBuffers(networkId: string): NetworkBuffers {
   const grouped = groupedBuffers(networkId);
   const all = [grouped.status, ...grouped.channels, ...grouped.queries, ...grouped.parted].filter(Boolean) as Buffer[];
   return {

@@ -1,25 +1,24 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
 type resolvedGlobalBuffer struct {
-	networkID int64
+	networkID uuid.UUID
 	name      string
-	localID   int64
+	id        uuid.UUID
 	logStore  *LogStore
-}
-
-type bufferNameMappings struct {
-	localToName  map[int64]string
-	nameToGlobal map[string]int64
 }
 
 // ChannelMember is runtime member state for a channel user.
@@ -40,7 +39,7 @@ type MultiStore struct {
 	DataDir  string
 
 	mu   sync.RWMutex
-	logs map[int64]*LogStore
+	logs map[uuid.UUID]*LogStore
 }
 
 // OpenMultiStore opens the control DB, the shared previews DB, and any
@@ -56,7 +55,7 @@ func OpenMultiStore(dataDir string) (*MultiStore, error) {
 		_ = control.Close()
 		return nil, err
 	}
-	ms := &MultiStore{Control: control, Previews: previews, DataDir: dataDir, logs: map[int64]*LogStore{}}
+	ms := &MultiStore{Control: control, Previews: previews, DataDir: dataDir, logs: map[uuid.UUID]*LogStore{}}
 	if err := ms.OpenConfiguredNetworks(context.Background()); err != nil {
 		_ = previews.Close()
 		_ = control.Close()
@@ -131,18 +130,18 @@ func (ms *MultiStore) OpenNetwork(ctx context.Context, n Network) (*LogStore, er
 }
 
 // LogStore returns an already-open log DB for a network.
-func (ms *MultiStore) LogStore(networkID int64) (*LogStore, error) {
+func (ms *MultiStore) LogStore(networkID uuid.UUID) (*LogStore, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 	store := ms.logs[networkID]
 	if store == nil {
-		return nil, fmt.Errorf("log store for network %d not open", networkID)
+		return nil, fmt.Errorf("log store for network %s not open", networkID.String())
 	}
 	return store, nil
 }
 
 // CloseNetwork closes the log DB for a network if it is open.
-func (ms *MultiStore) CloseNetwork(networkID int64) error {
+func (ms *MultiStore) CloseNetwork(networkID uuid.UUID) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	store := ms.logs[networkID]
@@ -154,7 +153,7 @@ func (ms *MultiStore) CloseNetwork(networkID int64) error {
 }
 
 // DeleteNetwork removes a network from the control DB and closes its log DB.
-func (ms *MultiStore) DeleteNetwork(ctx context.Context, networkID int64) error {
+func (ms *MultiStore) DeleteNetwork(ctx context.Context, networkID uuid.UUID) error {
 	if _, err := GetNetwork(ctx, ms.Control, networkID); err != nil {
 		return err
 	}
@@ -195,14 +194,16 @@ func (ms *MultiStore) RenameNetworkLogDB(oldName, newName string) error {
 }
 
 // NetworkIDs returns sorted IDs for currently open networks.
-func (ms *MultiStore) NetworkIDs() []int64 {
+func (ms *MultiStore) NetworkIDs() []uuid.UUID {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
-	out := make([]int64, 0, len(ms.logs))
+	out := make([]uuid.UUID, 0, len(ms.logs))
 	for id := range ms.logs {
 		out = append(out, id)
 	}
-	slices.Sort(out)
+	slices.SortFunc(out, func(a, b uuid.UUID) int {
+		return bytes.Compare(a[:], b[:])
+	})
 	return out
 }
 
@@ -218,13 +219,101 @@ func (ms *MultiStore) UpsertNetwork(ctx context.Context, n Network) (Network, er
 	return nrow, nil
 }
 
-// UpsertBufferRegistry creates or looks up a global buffer registry row.
-func (ms *MultiStore) UpsertBufferRegistry(ctx context.Context, networkID int64, name, kind string) (id int64, created bool, buf Buffer, err error) {
-	return UpsertBufferRegistry(ctx, ms.Control, networkID, name, kind)
+// ErrBufferIDMismatch indicates the per-network log DB holds a buffer row
+// whose UUID does not match the global registry. This should never happen in
+// normal operation; it indicates external corruption or a bug.
+var ErrBufferIDMismatch = errors.New("db: buffer id mismatch between registry and log DB")
+
+// EnsureBuffer is the single authoritative path for buffer creation. It
+// ensures a row exists in both buffer_registry (control DB) and buffers
+// (per-network log DB) with the SAME UUID. If the log row is missing while
+// the registry row exists, it self-heals by inserting with the registry id.
+// If the log row exists with a different UUID, returns ErrBufferIDMismatch.
+func (ms *MultiStore) EnsureBuffer(ctx context.Context, networkID uuid.UUID, name, kind string) (id uuid.UUID, created bool, buf Buffer, err error) {
+	name, kind = normalizeBufferIdentity(name, kind)
+	logStore, err := ms.LogStore(networkID)
+	if err != nil {
+		return uuid.Nil, false, Buffer{}, err
+	}
+
+	// Resolve registry row by its canonical key. If absent, create a fresh
+	// UUIDv7; if another writer wins the race, re-select the row it created.
+	now := Now()
+	buf = Buffer{NetworkID: networkID, Name: name, Kind: kind, CreatedAt: now}
+	switch err := ms.Control.QueryRowContext(ctx,
+		`SELECT id, kind, created_at FROM buffer_registry WHERE network_id = ? AND name = ?`,
+		networkID[:], name,
+	).Scan(&buf.ID, &buf.Kind, &buf.CreatedAt); {
+	case err == nil:
+		// Existing registry row.
+	case errors.Is(err, sql.ErrNoRows):
+		buf.ID = newID()
+		if _, ierr := ms.Control.ExecContext(ctx,
+			`INSERT INTO buffer_registry(id, network_id, name, kind, created_at) VALUES (?, ?, ?, ?, ?)`,
+			buf.ID[:], networkID[:], name, kind, now,
+		); ierr != nil {
+			if rerr := ms.Control.QueryRowContext(ctx,
+				`SELECT id, kind, created_at FROM buffer_registry WHERE network_id = ? AND name = ?`,
+				networkID[:], name,
+			).Scan(&buf.ID, &buf.Kind, &buf.CreatedAt); rerr != nil {
+				return uuid.Nil, false, Buffer{}, ierr
+			}
+		} else {
+			created = true
+		}
+	default:
+		return uuid.Nil, false, Buffer{}, err
+	}
+
+	// Verify or self-heal the per-network log buffer row. Same name with a
+	// different UUID is corruption: never silently preserve divergent IDs.
+	var logID uuid.UUID
+	var lastSeen []byte
+	switch err := logStore.DB.QueryRowContext(ctx,
+		`SELECT id, COALESCE(topic,''), last_seen_id, created_at FROM buffers WHERE name = ?`, name,
+	).Scan(&logID, &buf.Topic, &lastSeen, &buf.CreatedAt); {
+	case err == nil:
+		if logID != buf.ID {
+			return uuid.Nil, false, Buffer{}, fmt.Errorf("%w: name=%q registry=%s log=%s",
+				ErrBufferIDMismatch, name, buf.ID, logID)
+		}
+		buf.LastSeenID = scanUUID(lastSeen)
+	case errors.Is(err, sql.ErrNoRows):
+		if _, ierr := logStore.DB.ExecContext(ctx,
+			`INSERT INTO buffers(id, name, kind, created_at) VALUES (?, ?, ?, ?)`,
+			buf.ID[:], name, buf.Kind, buf.CreatedAt,
+		); ierr != nil {
+			// Possible race: re-select and verify instead of silently diverging.
+			if rerr := logStore.DB.QueryRowContext(ctx,
+				`SELECT id, COALESCE(topic,''), last_seen_id, created_at FROM buffers WHERE name = ?`, name,
+			).Scan(&logID, &buf.Topic, &lastSeen, &buf.CreatedAt); rerr != nil {
+				return uuid.Nil, false, Buffer{}, ierr
+			}
+			if logID != buf.ID {
+				return uuid.Nil, false, Buffer{}, fmt.Errorf("%w: name=%q registry=%s log=%s",
+					ErrBufferIDMismatch, name, buf.ID, logID)
+			}
+			buf.LastSeenID = scanUUID(lastSeen)
+		}
+	case err != nil:
+		return uuid.Nil, false, Buffer{}, err
+	}
+
+	settings, serr := GetBufferSettings(ctx, ms.Control, buf.ID)
+	if serr == nil {
+		buf.ShowEmbeds = settings.ShowEmbeds
+		buf.ShowPresenceEvents = settings.ShowPresenceEvents
+		buf.CollapsePresenceEvents = settings.CollapsePresenceEvents
+		buf.Pinned = settings.Pinned
+	} else {
+		buf.ShowEmbeds = true
+		buf.ShowPresenceEvents = true
+	}
+	return buf.ID, created, buf, nil
 }
 
 // LookupBuffer resolves a global buffer ID to network/name/kind.
-func (ms *MultiStore) LookupBuffer(ctx context.Context, bufferID int64) (networkID int64, name, kind string, err error) {
+func (ms *MultiStore) LookupBuffer(ctx context.Context, bufferID uuid.UUID) (networkID uuid.UUID, name, kind string, err error) {
 	return LookupBufferRegistry(ctx, ms.Control, bufferID)
 }
 
@@ -245,7 +334,7 @@ func (ms *MultiStore) ListAllBuffers(ctx context.Context) ([]Buffer, error) {
 			return nil, err
 		}
 		registryRows, err := ms.Control.QueryContext(ctx,
-			`SELECT id, name, kind, created_at FROM buffer_registry WHERE network_id = ? ORDER BY id`, n.ID)
+			`SELECT id, name, kind, created_at FROM buffer_registry WHERE network_id = ? ORDER BY id`, n.ID[:])
 		if err != nil {
 			return nil, err
 		}
@@ -266,11 +355,11 @@ func (ms *MultiStore) ListAllBuffers(ctx context.Context) ([]Buffer, error) {
 				b.ShowEmbeds = true
 				b.ShowPresenceEvents = true
 			}
-			var lastSeenID int64
+			var lastSeenBytes []byte
 			if err := logStore.DB.QueryRowContext(ctx,
-				`SELECT COALESCE(topic,''), COALESCE(last_seen_id,0) FROM buffers WHERE name = ?`, b.Name,
-			).Scan(&b.Topic, &lastSeenID); err == nil {
-				b.LastSeenID = lastSeenID
+				`SELECT COALESCE(topic,''), last_seen_id FROM buffers WHERE name = ?`, b.Name,
+			).Scan(&b.Topic, &lastSeenBytes); err == nil {
+				b.LastSeenID = scanUUID(lastSeenBytes)
 			}
 			out = append(out, b)
 		}
@@ -282,12 +371,12 @@ func (ms *MultiStore) ListAllBuffers(ctx context.Context) ([]Buffer, error) {
 }
 
 // RecentMessages returns recent messages for a global buffer ID.
-func (ms *MultiStore) RecentMessages(ctx context.Context, globalBufferID int64, limit int) ([]StoredMessage, error) {
+func (ms *MultiStore) RecentMessages(ctx context.Context, globalBufferID uuid.UUID, limit int) ([]StoredMessage, error) {
 	buf, err := ms.resolveGlobalBuffer(ctx, globalBufferID)
 	if err != nil {
 		return nil, err
 	}
-	msgs, err := RecentLogMessages(ctx, buf.logStore.DB, buf.localID, limit)
+	msgs, err := RecentLogMessages(ctx, buf.logStore.DB, buf.id, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -295,12 +384,12 @@ func (ms *MultiStore) RecentMessages(ctx context.Context, globalBufferID int64, 
 }
 
 // MessagesBefore returns messages before a given message ID.
-func (ms *MultiStore) MessagesBefore(ctx context.Context, globalBufferID, before int64, limit int) ([]StoredMessage, error) {
+func (ms *MultiStore) MessagesBefore(ctx context.Context, globalBufferID, before uuid.UUID, limit int) ([]StoredMessage, error) {
 	buf, err := ms.resolveGlobalBuffer(ctx, globalBufferID)
 	if err != nil {
 		return nil, err
 	}
-	msgs, err := LogMessagesBefore(ctx, buf.logStore.DB, buf.localID, before, limit)
+	msgs, err := LogMessagesBefore(ctx, buf.logStore.DB, buf.id, before, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +397,7 @@ func (ms *MultiStore) MessagesBefore(ctx context.Context, globalBufferID, before
 }
 
 // MarkBufferLastSeen updates the last seen message ID for a global buffer.
-func (ms *MultiStore) MarkBufferLastSeen(ctx context.Context, globalBufferID, lastSeenID int64) error {
+func (ms *MultiStore) MarkBufferLastSeen(ctx context.Context, globalBufferID, lastSeenID uuid.UUID) error {
 	buf, err := ms.resolveGlobalBuffer(ctx, globalBufferID)
 	if err != nil {
 		return err
@@ -317,20 +406,20 @@ func (ms *MultiStore) MarkBufferLastSeen(ctx context.Context, globalBufferID, la
 }
 
 // Search searches stored messages and maps results back to global buffer IDs.
-func (ms *MultiStore) Search(ctx context.Context, query string, networkID, globalBufferID int64, limit int) ([]StoredMessage, error) {
-	if globalBufferID > 0 {
+func (ms *MultiStore) Search(ctx context.Context, query string, networkID, globalBufferID uuid.UUID, limit int) ([]StoredMessage, error) {
+	if globalBufferID != uuid.Nil {
 		buf, err := ms.resolveGlobalBuffer(ctx, globalBufferID)
 		if err != nil {
 			return nil, err
 		}
-		msgs, err := SearchLogMessages(ctx, buf.logStore.DB, query, buf.localID, limit)
+		msgs, err := SearchLogMessages(ctx, buf.logStore.DB, query, buf.id, limit)
 		if err != nil {
 			return nil, err
 		}
 		return toStoredMessages(buf.networkID, globalBufferID, msgs), nil
 	}
 
-	if networkID > 0 {
+	if networkID != uuid.Nil {
 		return ms.searchNetwork(ctx, networkID, query, limit)
 	}
 
@@ -345,35 +434,19 @@ func (ms *MultiStore) Search(ctx context.Context, query string, networkID, globa
 	return out, nil
 }
 
-func (ms *MultiStore) searchNetwork(ctx context.Context, networkID int64, query string, limit int) ([]StoredMessage, error) {
+func (ms *MultiStore) searchNetwork(ctx context.Context, networkID uuid.UUID, query string, limit int) ([]StoredMessage, error) {
 	logStore, err := ms.LogStore(networkID)
 	if err != nil {
 		return nil, err
 	}
-	msgs, err := SearchLogMessages(ctx, logStore.DB, query, 0, limit)
+	msgs, err := SearchLogMessages(ctx, logStore.DB, query, uuid.Nil, limit)
 	if err != nil {
 		return nil, err
 	}
-	mappings, err := ms.bufferNameMappings(ctx, networkID, logStore)
-	if err != nil {
-		return nil, err
-	}
-	return mapSearchMessagesToGlobal(networkID, msgs, mappings)
-}
-
-func mapSearchMessagesToGlobal(networkID int64, msgs []LogMessageRow, mappings bufferNameMappings) ([]StoredMessage, error) {
 	out := make([]StoredMessage, 0, len(msgs))
 	for _, m := range msgs {
-		name, ok := mappings.localToName[m.BufferID]
-		if !ok {
-			return nil, fmt.Errorf("missing local buffer mapping for network %d buffer %d", networkID, m.BufferID)
-		}
-		globalBufferID, ok := mappings.nameToGlobal[name]
-		if !ok {
-			return nil, fmt.Errorf("missing global buffer mapping for network %d buffer %q", networkID, name)
-		}
 		out = append(out, StoredMessage{
-			ID: m.ID, NetworkID: networkID, BufferID: globalBufferID,
+			ID: m.ID, NetworkID: networkID, BufferID: m.BufferID,
 			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Account: m.Account,
 			Kind: m.Kind, Target: m.Target, Content: m.Content,
 		})
@@ -381,7 +454,7 @@ func mapSearchMessagesToGlobal(networkID int64, msgs []LogMessageRow, mappings b
 	return out, nil
 }
 
-func (ms *MultiStore) resolveGlobalBuffer(ctx context.Context, globalBufferID int64) (resolvedGlobalBuffer, error) {
+func (ms *MultiStore) resolveGlobalBuffer(ctx context.Context, globalBufferID uuid.UUID) (resolvedGlobalBuffer, error) {
 	networkID, name, _, err := ms.LookupBuffer(ctx, globalBufferID)
 	if err != nil {
 		return resolvedGlobalBuffer{}, err
@@ -390,56 +463,10 @@ func (ms *MultiStore) resolveGlobalBuffer(ctx context.Context, globalBufferID in
 	if err != nil {
 		return resolvedGlobalBuffer{}, err
 	}
-	var localID int64
-	if err := logStore.DB.QueryRowContext(ctx, `SELECT id FROM buffers WHERE name = ?`, name).Scan(&localID); err != nil {
-		return resolvedGlobalBuffer{}, err
-	}
-	return resolvedGlobalBuffer{networkID: networkID, name: name, localID: localID, logStore: logStore}, nil
+	return resolvedGlobalBuffer{networkID: networkID, name: name, id: globalBufferID, logStore: logStore}, nil
 }
 
-func (ms *MultiStore) bufferNameMappings(ctx context.Context, networkID int64, logStore *LogStore) (bufferNameMappings, error) {
-	localRows, err := logStore.DB.QueryContext(ctx, `SELECT id, name FROM buffers`)
-	if err != nil {
-		return bufferNameMappings{}, err
-	}
-	defer func() { _ = localRows.Close() }()
-	localToName := map[int64]string{}
-	for localRows.Next() {
-		var id int64
-		var name string
-		scanErr := localRows.Scan(&id, &name)
-		if scanErr != nil {
-			return bufferNameMappings{}, scanErr
-		}
-		localToName[id] = name
-	}
-	rowsErr := localRows.Err()
-	if rowsErr != nil {
-		return bufferNameMappings{}, rowsErr
-	}
-
-	globalRows, err := ms.Control.QueryContext(ctx, `SELECT id, name FROM buffer_registry WHERE network_id = ?`, networkID)
-	if err != nil {
-		return bufferNameMappings{}, err
-	}
-	defer func() { _ = globalRows.Close() }()
-	nameToGlobal := map[string]int64{}
-	for globalRows.Next() {
-		var id int64
-		var name string
-		if err := globalRows.Scan(&id, &name); err != nil {
-			return bufferNameMappings{}, err
-		}
-		nameToGlobal[name] = id
-	}
-	if err := globalRows.Err(); err != nil {
-		return bufferNameMappings{}, err
-	}
-
-	return bufferNameMappings{localToName: localToName, nameToGlobal: nameToGlobal}, nil
-}
-
-func toStoredMessages(networkID, globalBufferID int64, in []LogMessageRow) []StoredMessage {
+func toStoredMessages(networkID, globalBufferID uuid.UUID, in []LogMessageRow) []StoredMessage {
 	out := make([]StoredMessage, 0, len(in))
 	for _, m := range in {
 		out = append(out, StoredMessage{

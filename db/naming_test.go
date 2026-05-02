@@ -4,6 +4,8 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestValidateNetworkName(t *testing.T) {
@@ -112,9 +114,9 @@ func TestUpsertNetworkCaseInsensitiveDuplicateReturnsSameRow(t *testing.T) {
 	}
 
 	if first.ID != second.ID {
-		t.Fatalf("ids differ: first=%d second=%d", first.ID, second.ID)
+		t.Fatalf("ids differ: first=%s second=%s", first.ID, second.ID)
 	}
-	if second.ID == 0 {
+	if second.ID == uuid.Nil {
 		t.Fatal("expected non-zero id on conflict upsert")
 	}
 }
@@ -159,9 +161,9 @@ func TestUpsertNetworkNoOpConflictOnFreshConnectionReturnsExistingRowID(t *testi
 	}
 
 	if got.ID != want.ID {
-		t.Fatalf("id = %d, want %d", got.ID, want.ID)
+		t.Fatalf("id = %s, want %s", got.ID, want.ID)
 	}
-	if got.ID == 0 {
+	if got.ID == uuid.Nil {
 		t.Fatal("expected non-zero id on no-op conflict upsert")
 	}
 }

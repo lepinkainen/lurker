@@ -79,7 +79,7 @@ export function start() {
   document.getElementById("settings-btn")?.addEventListener("click", () => openSettingsDialog());
   document.addEventListener("click", onBackdropClick);
   initTouchGestures({ sidebarEl: d.sidebarEl });
-  initKeyboardShortcuts({ inputEl: d.inputEl, setActive: (id: number) => setActive(id) });
+  initKeyboardShortcuts({ inputEl: d.inputEl, setActive: (id: string) => setActive(id) });
   const onHash = () => onHashChange(setActive);
   window.addEventListener("hashchange", onHash);
   window.addEventListener("popstate", onHash);
@@ -160,22 +160,22 @@ function createAppView(d: DomRefs) {
 
 type WSMessage =
   | ({ type: "message" } & Message)
-  | { type: "buffer_created"; id: number; network_id: number; name: string; kind: string }
-  | { type: "buffer_update"; id: number; topic?: string; joined?: boolean; last_seen_id?: number }
+  | { type: "buffer_created"; id: string; network_id: string; name: string; kind: string }
+  | { type: "buffer_update"; id: string; topic?: string; joined?: boolean; last_seen_id?: string }
   | {
       type: "buffer_settings";
-      id: number;
+      id: string;
       show_embeds: boolean;
       show_presence_events: boolean;
       collapse_presence_events: boolean;
       pinned: boolean;
     }
-  | { type: "network_state"; network_id: number; state: string }
-  | { type: "history_result"; buffer_id: number; messages?: Message[] }
-  | { type: "preview"; buffer_id: number; message_id: number; previews?: Message["previews"] }
-  | { type: "member_list"; buffer_id: number; members?: Member[] }
-  | { type: "channel_list"; network_id: number; entries: ChannelListEntry[]; done: boolean }
-  | { type: "ignorelist_result"; req_id: string; network_id: number; masks: string[] };
+  | { type: "network_state"; network_id: string; state: string }
+  | { type: "history_result"; buffer_id: string; messages?: Message[] }
+  | { type: "preview"; buffer_id: string; message_id: string; previews?: Message["previews"] }
+  | { type: "member_list"; buffer_id: string; members?: Member[] }
+  | { type: "channel_list"; network_id: string; entries: ChannelListEntry[]; done: boolean }
+  | { type: "ignorelist_result"; req_id: string; network_id: string; masks: string[] };
 
 function handleWSMessage(msg: unknown) {
   const m = msg as WSMessage;
@@ -198,7 +198,7 @@ function handleWSMessage(msg: unknown) {
         topic: "",
         unread: 0,
         mentions: 0,
-        last_seen_id: 0,
+        last_seen_id: "",
         show_embeds: true,
         show_presence_events: true,
         collapse_presence_events: false,
@@ -239,7 +239,7 @@ function handleWSMessage(msg: unknown) {
       }
       state.channelList.entries.push(...m.entries);
       state.channelList.done = m.done;
-      if (m.done && m.network_id === state.networks.get(activeBuffer()?.network_id ?? -1)?.id) {
+      if (m.done && m.network_id === state.networks.get(activeBuffer()?.network_id ?? "")?.id) {
         renderChannelListPanel(view.dom.messagesEl, { sendCmd, renderActiveView: view.renderActiveView });
       }
       break;
@@ -281,7 +281,7 @@ function activePromptNick(): string {
   return state.me.nick || "";
 }
 
-function setActive(id: number, opts: { skipHash?: boolean; replaceHash?: boolean } = {}) {
+function setActive(id: string, opts: { skipHash?: boolean; replaceHash?: boolean } = {}) {
   if (dom && state.activeId !== null) saveInputDraft(state.activeId, dom.inputEl.value, true);
   state.activeId = id;
   state.channelList = null;
@@ -328,12 +328,12 @@ function loadOlderHistory() {
 
 function maybeMarkActiveRead() {
   const b = activeBuffer();
-  const list = state.messages.get(state.activeId ?? -1) || [];
+  const list = state.messages.get(state.activeId ?? "") || [];
   if (!(state.wsReady && b) || list.length === 0) return;
   const lastId = list[list.length - 1]?.id;
   if (lastId === undefined) return;
-  const current = b.last_seen_id || 0;
-  const sent = state.lastMarkedReadId.get(b.id) || 0;
+  const current = b.last_seen_id || "";
+  const sent = state.lastMarkedReadId.get(b.id) || "";
   if (lastId <= current || lastId <= sent) return;
   b.last_seen_id = lastId;
   b.unread = 0;

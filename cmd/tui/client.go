@@ -10,6 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/google/uuid"
 )
 
 type apiClient struct {
@@ -96,7 +97,7 @@ func startWSReader(ctx context.Context, conn *websocket.Conn) <-chan wsEvent {
 	return ch
 }
 
-func sendMessage(ctx context.Context, conn *websocket.Conn, bufferID int64, content string) error {
+func sendMessage(ctx context.Context, conn *websocket.Conn, bufferID uuid.UUID, content string) error {
 	return wsjson.Write(ctx, conn, map[string]any{
 		"type":      "send",
 		"buffer_id": bufferID,

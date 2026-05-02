@@ -54,7 +54,7 @@ Runtime flow:
 2. control DB and configured per-network log DBs are opened
 3. bootstrap networks from `config.yaml` are upserted into control DB and started
 4. HTTP API and web UI are served from the same Go process
-5. IRC events are persisted to SQLite and published to the hub
+5. IRC events resolve buffers through `MultiStore.EnsureBuffer`, persist to SQLite with UUIDv7 IDs, and publish to the hub
 6. background update checker polls GHCR image metadata and caches latest status in memory
 7. WebSocket clients receive hub events and issue commands back to the backend
 
@@ -122,9 +122,11 @@ Typical deployment expectations:
 ## Important invariants and gotchas
 
 - `config.yaml` is seed input only after startup
+- backend message logs are retained indefinitely; do not add automatic message retention or periodic cleanup that deletes history
 - preserve `data/` to keep control DB and all log DBs
 - network names should be treated as stable
-- global buffer IDs come from control DB, but messages live in per-network DBs
+- buffer/network/message IDs are UUIDv7 values serialized as strings in API payloads
+- buffer IDs are shared between `control.db.buffer_registry` and each per-network `buffers` table; `MultiStore.EnsureBuffer` is the authoritative creation path
 - deleting a network does not delete its historical log DB file
 - sidebar network order is persisted in `networks.sort_order`
 - `/whoami` is the preferred endpoint for identifying a running instance

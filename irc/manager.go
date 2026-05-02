@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/lrstanley/girc"
 
 	ircdb "github.com/lepinkainen/lurker/db"
@@ -77,12 +78,12 @@ type Manager struct {
 	previews       PreviewEnqueuer
 	wg             sync.WaitGroup
 	mu             sync.Mutex
-	conn           map[int64]*girc.Client
-	state          map[int64]string
-	runtime        map[int64]networkRuntime
-	membersLoaded  map[int64]map[string]bool
-	joined         map[int64]map[string]bool
-	fixtureMembers map[int64]map[string][]ircdb.ChannelMember
+	conn           map[uuid.UUID]*girc.Client
+	state          map[uuid.UUID]string
+	runtime        map[uuid.UUID]networkRuntime
+	membersLoaded  map[uuid.UUID]map[string]bool
+	joined         map[uuid.UUID]map[string]bool
+	fixtureMembers map[uuid.UUID]map[string][]ircdb.ChannelMember
 	connector      connectorFunc
 }
 
@@ -91,12 +92,12 @@ func NewManager(stores *ircdb.MultiStore, h *hub.Hub) *Manager {
 	return &Manager{
 		stores:         stores,
 		hub:            h,
-		conn:           map[int64]*girc.Client{},
-		state:          map[int64]string{},
-		runtime:        map[int64]networkRuntime{},
-		membersLoaded:  map[int64]map[string]bool{},
-		joined:         map[int64]map[string]bool{},
-		fixtureMembers: map[int64]map[string][]ircdb.ChannelMember{},
+		conn:           map[uuid.UUID]*girc.Client{},
+		state:          map[uuid.UUID]string{},
+		runtime:        map[uuid.UUID]networkRuntime{},
+		membersLoaded:  map[uuid.UUID]map[string]bool{},
+		joined:         map[uuid.UUID]map[string]bool{},
+		fixtureMembers: map[uuid.UUID]map[string][]ircdb.ChannelMember{},
 		connector:      defaultConnector,
 	}
 }
@@ -132,7 +133,7 @@ func (m *Manager) Start(ctx context.Context, nets []NetworkConfig) error {
 }
 
 // StartNetwork starts managing one network runtime.
-func (m *Manager) StartNetwork(parent context.Context, networkID int64, nc NetworkConfig) error {
+func (m *Manager) StartNetwork(parent context.Context, networkID uuid.UUID, nc NetworkConfig) error {
 	m.mu.Lock()
 	if _, ok := m.runtime[networkID]; ok {
 		m.mu.Unlock()
@@ -150,7 +151,7 @@ func (m *Manager) StartNetwork(parent context.Context, networkID int64, nc Netwo
 }
 
 // StopNetwork stops a running network runtime.
-func (m *Manager) StopNetwork(networkID int64) error {
+func (m *Manager) StopNetwork(networkID uuid.UUID) error {
 	m.mu.Lock()
 	rt, ok := m.runtime[networkID]
 	if !ok {
@@ -180,7 +181,7 @@ func (m *Manager) Wait() { m.wg.Wait() }
 var ErrNotConnected = errors.New("irc: network not connected")
 
 // Send sends a PRIVMSG to a target on a connected network.
-func (m *Manager) Send(networkID int64, target, content string) error {
+func (m *Manager) Send(networkID uuid.UUID, target, content string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -195,7 +196,7 @@ func (m *Manager) Send(networkID int64, target, content string) error {
 // publishes it on the hub. Necessary because the IRC servers we talk to
 // don't honor the echo-message capability, so outbound PRIVMSGs would
 // otherwise be missing from history and from other connected clients.
-func (m *Manager) LogOutbound(ctx context.Context, networkID int64, target, kind, content string) error {
+func (m *Manager) LogOutbound(ctx context.Context, networkID uuid.UUID, target, kind, content string) error {
 	if m.stores == nil {
 		return errors.New("irc: stores unavailable")
 	}
@@ -203,15 +204,11 @@ func (m *Manager) LogOutbound(ctx context.Context, networkID int64, target, kind
 	if girc.IsValidChannel(target) {
 		bufKind = ircdb.BufferChannel
 	}
-	globalBufID, _, _, err := m.stores.UpsertBufferRegistry(ctx, networkID, target, bufKind)
+	bufID, _, _, err := m.stores.EnsureBuffer(ctx, networkID, target, bufKind)
 	if err != nil {
 		return err
 	}
 	logStore, err := m.stores.LogStore(networkID)
-	if err != nil {
-		return err
-	}
-	localBufID, _, _, err := ircdb.UpsertLogBuffer(ctx, logStore.DB, networkID, target, bufKind)
 	if err != nil {
 		return err
 	}
@@ -220,7 +217,7 @@ func (m *Manager) LogOutbound(ctx context.Context, networkID int64, target, kind
 		return errors.New("irc: cannot log outbound message without known nick")
 	}
 	id, ts, inserted, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
-		BufferID:  localBufID,
+		BufferID:  bufID,
 		Timestamp: time.Now(),
 		Sender:    nick,
 		Kind:      kind,
@@ -236,20 +233,20 @@ func (m *Manager) LogOutbound(ctx context.Context, networkID int64, target, kind
 		Type:      "message",
 		ID:        id,
 		NetworkID: networkID,
-		BufferID:  globalBufID,
+		BufferID:  bufID,
 		TS:        ts,
 		Sender:    nick,
 		Kind:      kind,
 		Content:   content,
 	})
 	if m.previews != nil && (kind == "privmsg" || kind == "notice" || kind == "action") {
-		m.previews.Enqueue(networkID, globalBufID, id, content)
+		m.previews.Enqueue(networkID, bufID, id, content)
 	}
 	return nil
 }
 
 // Join sends a JOIN command on a connected network.
-func (m *Manager) Join(networkID int64, channel string) error {
+func (m *Manager) Join(networkID uuid.UUID, channel string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -261,7 +258,7 @@ func (m *Manager) Join(networkID int64, channel string) error {
 }
 
 // Part sends a PART command on a connected network.
-func (m *Manager) Part(networkID int64, channel, reason string) error {
+func (m *Manager) Part(networkID uuid.UUID, channel, reason string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -273,7 +270,7 @@ func (m *Manager) Part(networkID int64, channel, reason string) error {
 }
 
 // ChangeNick sends a NICK command on a connected network.
-func (m *Manager) ChangeNick(networkID int64, nick string) error {
+func (m *Manager) ChangeNick(networkID uuid.UUID, nick string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -285,7 +282,7 @@ func (m *Manager) ChangeNick(networkID int64, nick string) error {
 }
 
 // Me sends a CTCP ACTION to a target on a connected network.
-func (m *Manager) Me(networkID int64, target, message string) error {
+func (m *Manager) Me(networkID uuid.UUID, target, message string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -297,7 +294,7 @@ func (m *Manager) Me(networkID int64, target, message string) error {
 }
 
 // Topic sets the topic for a channel on a connected network.
-func (m *Manager) Topic(networkID int64, channel, topic string) error {
+func (m *Manager) Topic(networkID uuid.UUID, channel, topic string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -309,7 +306,7 @@ func (m *Manager) Topic(networkID int64, channel, topic string) error {
 }
 
 // Whois sends a WHOIS request on a connected network.
-func (m *Manager) Whois(networkID int64, nick string) error {
+func (m *Manager) Whois(networkID uuid.UUID, nick string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -321,7 +318,7 @@ func (m *Manager) Whois(networkID int64, nick string) error {
 }
 
 // Invite sends an INVITE command on a connected network.
-func (m *Manager) Invite(networkID int64, nick, channel string) error {
+func (m *Manager) Invite(networkID uuid.UUID, nick, channel string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -333,7 +330,7 @@ func (m *Manager) Invite(networkID int64, nick, channel string) error {
 }
 
 // Kick sends a KICK command on a connected network.
-func (m *Manager) Kick(networkID int64, channel, nick, reason string) error {
+func (m *Manager) Kick(networkID uuid.UUID, channel, nick, reason string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -345,7 +342,7 @@ func (m *Manager) Kick(networkID int64, channel, nick, reason string) error {
 }
 
 // Mode sends a MODE command on a connected network.
-func (m *Manager) Mode(networkID int64, target, modes string, params ...string) error {
+func (m *Manager) Mode(networkID uuid.UUID, target, modes string, params ...string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -357,7 +354,7 @@ func (m *Manager) Mode(networkID int64, target, modes string, params ...string) 
 }
 
 // Away sets the away status on a connected network.
-func (m *Manager) Away(networkID int64, message string) error {
+func (m *Manager) Away(networkID uuid.UUID, message string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -369,7 +366,7 @@ func (m *Manager) Away(networkID int64, message string) error {
 }
 
 // Back clears the away status on a connected network.
-func (m *Manager) Back(networkID int64) error {
+func (m *Manager) Back(networkID uuid.UUID) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -381,7 +378,7 @@ func (m *Manager) Back(networkID int64) error {
 }
 
 // Quit sends QUIT with an optional message and stops the network runtime.
-func (m *Manager) Quit(networkID int64, message string) error {
+func (m *Manager) Quit(networkID uuid.UUID, message string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -395,7 +392,7 @@ func (m *Manager) Quit(networkID int64, message string) error {
 }
 
 // Rejoin parts then rejoins a channel on a connected network.
-func (m *Manager) Rejoin(networkID int64, channel string) error {
+func (m *Manager) Rejoin(networkID uuid.UUID, channel string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -408,7 +405,7 @@ func (m *Manager) Rejoin(networkID int64, channel string) error {
 }
 
 // Notice sends a NOTICE to a target on a connected network.
-func (m *Manager) Notice(networkID int64, target, content string) error {
+func (m *Manager) Notice(networkID uuid.UUID, target, content string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -420,7 +417,7 @@ func (m *Manager) Notice(networkID int64, target, content string) error {
 }
 
 // CTCP sends a CTCP request to a nick on a connected network.
-func (m *Manager) CTCP(networkID int64, nick, command, args string) error {
+func (m *Manager) CTCP(networkID uuid.UUID, nick, command, args string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -432,7 +429,7 @@ func (m *Manager) CTCP(networkID int64, nick, command, args string) error {
 }
 
 // ListChannels sends a LIST command, optionally filtered by a channel name prefix.
-func (m *Manager) ListChannels(networkID int64, filter string) error {
+func (m *Manager) ListChannels(networkID uuid.UUID, filter string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -448,7 +445,7 @@ func (m *Manager) ListChannels(networkID int64, filter string) error {
 }
 
 // Raw sends a raw IRC line on a connected network.
-func (m *Manager) Raw(networkID int64, line string) error {
+func (m *Manager) Raw(networkID uuid.UUID, line string) error {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	m.mu.Unlock()
@@ -460,7 +457,7 @@ func (m *Manager) Raw(networkID int64, line string) error {
 
 // Nick returns the current nickname for a network. Falls back to the
 // configured nick when the connection isn't active.
-func (m *Manager) Nick(networkID int64) string {
+func (m *Manager) Nick(networkID uuid.UUID) string {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	rt, ok := m.runtime[networkID]
@@ -477,10 +474,10 @@ func (m *Manager) Nick(networkID int64) string {
 }
 
 // StateSnapshot returns a copy of current network states.
-func (m *Manager) StateSnapshot() map[int64]string {
+func (m *Manager) StateSnapshot() map[uuid.UUID]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make(map[int64]string, len(m.state))
+	out := make(map[uuid.UUID]string, len(m.state))
 	for id, state := range m.state {
 		out[id] = state
 	}
@@ -488,7 +485,7 @@ func (m *Manager) StateSnapshot() map[int64]string {
 }
 
 // ChannelMembers returns the currently tracked members for a joined channel.
-func (m *Manager) ChannelMembers(networkID int64, channel string) []ircdb.ChannelMember {
+func (m *Manager) ChannelMembers(networkID uuid.UUID, channel string) []ircdb.ChannelMember {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	loaded := m.membersLoaded[networkID][channel]
@@ -521,7 +518,7 @@ func (m *Manager) ChannelMembers(networkID int64, channel string) []ircdb.Channe
 
 // IsJoined returns whether a JOIN has been seen for the given channel on
 // this connection. Resets to false at process restart and on disconnect.
-func (m *Manager) IsJoined(networkID int64, channel string) bool {
+func (m *Manager) IsJoined(networkID uuid.UUID, channel string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	channels := m.joined[networkID]
@@ -532,7 +529,7 @@ func (m *Manager) IsJoined(networkID int64, channel string) bool {
 }
 
 // setJoined records the joined state for a channel under the given network.
-func (m *Manager) setJoined(networkID int64, channel string, joined bool) {
+func (m *Manager) setJoined(networkID uuid.UUID, channel string, joined bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	channels := m.joined[networkID]
@@ -555,7 +552,7 @@ func (m *Manager) setJoined(networkID int64, channel string, joined bool) {
 
 // drainJoined removes and returns all channels currently flagged joined for
 // a network. Used on disconnect to fan out parted events.
-func (m *Manager) drainJoined(networkID int64) []string {
+func (m *Manager) drainJoined(networkID uuid.UUID) []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	channels := m.joined[networkID]
@@ -570,7 +567,7 @@ func (m *Manager) drainJoined(networkID int64) []string {
 	return out
 }
 
-func (m *Manager) clearChannelMembersLoaded(networkID int64, channel string) {
+func (m *Manager) clearChannelMembersLoaded(networkID uuid.UUID, channel string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	channels := m.membersLoaded[networkID]
@@ -583,7 +580,7 @@ func (m *Manager) clearChannelMembersLoaded(networkID int64, channel string) {
 	}
 }
 
-func (m *Manager) runNetwork(ctx context.Context, networkID int64, nc NetworkConfig) {
+func (m *Manager) runNetwork(ctx context.Context, networkID uuid.UUID, nc NetworkConfig) {
 	log := slog.With("network", nc.Name, "network_id", networkID)
 	backoff := time.Second
 	const maxBackoff = 5 * time.Minute
@@ -647,7 +644,7 @@ func defaultConnector(_ context.Context, client *girc.Client, _ ServerConfig) er
 	return client.Connect()
 }
 
-func (m *Manager) buildClient(ctx context.Context, networkID int64, nc NetworkConfig, server ServerConfig) *girc.Client {
+func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc NetworkConfig, server ServerConfig) *girc.Client {
 	user := nc.User
 	if user == "" {
 		user = nc.Nick

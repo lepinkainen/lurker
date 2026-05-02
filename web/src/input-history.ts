@@ -3,7 +3,7 @@ import { updateCmdPop } from "./input-command-popup";
 
 const MAX_INPUT_HISTORY = 100;
 
-function bufferInputState(bufferId: number): BufferInputState {
+function bufferInputState(bufferId: string): BufferInputState {
   let entry = state.inputHistory.get(bufferId);
   if (!entry) {
     entry = { entries: [], draft: "", index: null };
@@ -12,18 +12,18 @@ function bufferInputState(bufferId: number): BufferInputState {
   return entry;
 }
 
-export function saveInputDraft(bufferId: number | null, draft: string, resetBrowse = false) {
+export function saveInputDraft(bufferId: string | null, draft: string, resetBrowse = false) {
   if (bufferId === null) return;
   const entry = bufferInputState(bufferId);
   if (resetBrowse) entry.index = null;
   if (entry.index === null) entry.draft = draft;
 }
 
-export function restoreInputDraft(inputEl: HTMLInputElement, bufferId: number | null) {
+export function restoreInputDraft(inputEl: HTMLInputElement, bufferId: string | null) {
   inputEl.value = bufferId === null ? "" : bufferInputState(bufferId).draft;
 }
 
-export function recordSentInput(bufferId: number, text: string) {
+export function recordSentInput(bufferId: string, text: string) {
   const entry = bufferInputState(bufferId);
   entry.entries.push(text);
   if (entry.entries.length > MAX_INPUT_HISTORY) entry.entries.splice(0, entry.entries.length - MAX_INPUT_HISTORY);
@@ -35,7 +35,7 @@ export function handleHistoryKey(
   ev: KeyboardEvent,
   inputEl: HTMLInputElement,
   cmdPopEl: HTMLElement,
-  bufferId: number | null,
+  bufferId: string | null,
 ): boolean {
   if ((ev.key !== "ArrowUp" && ev.key !== "ArrowDown") || ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) {
     return false;

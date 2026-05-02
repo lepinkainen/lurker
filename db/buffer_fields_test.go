@@ -1,6 +1,11 @@
 package db
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+
+	"github.com/google/uuid"
+)
 
 func TestQueryBufferCreationAndBufferFields(t *testing.T) {
 	ctx := t.Context()
@@ -16,11 +21,7 @@ func TestQueryBufferCreationAndBufferFields(t *testing.T) {
 	}
 	logStore, _ := ms.LogStore(n.ID)
 
-	_, _, _, err = ms.UpsertBufferRegistry(ctx, n.ID, "alice", BufferQuery)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, buf, err := UpsertLogBuffer(ctx, logStore.DB, n.ID, "alice", BufferQuery)
+	_, _, buf, err := ms.EnsureBuffer(ctx, n.ID, "alice", BufferQuery)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,11 +29,7 @@ func TestQueryBufferCreationAndBufferFields(t *testing.T) {
 		t.Fatalf("kind = %q, want %q", buf.Kind, BufferQuery)
 	}
 
-	_, _, _, err = ms.UpsertBufferRegistry(ctx, n.ID, "#go", BufferChannel)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, _, err = UpsertLogBuffer(ctx, logStore.DB, n.ID, "#go", BufferChannel)
+	_, _, _, err = ms.EnsureBuffer(ctx, n.ID, "#go", BufferChannel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +37,8 @@ func TestQueryBufferCreationAndBufferFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = UpdateLogBufferLastSeen(ctx, logStore.DB, "#go", 42)
+	lastSeen := uuid.Must(uuid.NewV7())
+	err = UpdateLogBufferLastSeen(ctx, logStore.DB, "#go", lastSeen)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,8 +54,8 @@ func TestQueryBufferCreationAndBufferFields(t *testing.T) {
 			if b.Topic != "new topic" {
 				t.Fatalf("topic = %q", b.Topic)
 			}
-			if b.LastSeenID != 42 {
-				t.Fatalf("last_seen_id = %d", b.LastSeenID)
+			if !bytes.Equal(b.LastSeenID[:], lastSeen[:]) {
+				t.Fatalf("last_seen_id = %s, want %s", b.LastSeenID, lastSeen)
 			}
 		}
 	}
@@ -75,18 +73,18 @@ func TestMarkBufferLastSeenPersists(t *testing.T) {
 	defer func() { _ = ms.Close() }()
 
 	n, _ := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
-	globalID, _, _, _ := ms.UpsertBufferRegistry(ctx, n.ID, "#go", BufferChannel)
+	globalID, _, _, _ := ms.EnsureBuffer(ctx, n.ID, "#go", BufferChannel)
 	logStore, _ := ms.LogStore(n.ID)
-	_, _, _, _ = UpsertLogBuffer(ctx, logStore.DB, n.ID, "#go", BufferChannel)
-	if err := ms.MarkBufferLastSeen(ctx, globalID, 99); err != nil {
+	want := uuid.Must(uuid.NewV7())
+	if err := ms.MarkBufferLastSeen(ctx, globalID, want); err != nil {
 		t.Fatal(err)
 	}
 
-	var got int64
-	if err := logStore.DB.QueryRow(`SELECT COALESCE(last_seen_id,0) FROM buffers WHERE name = '#go'`).Scan(&got); err != nil {
+	var got []byte
+	if err := logStore.DB.QueryRow(`SELECT last_seen_id FROM buffers WHERE name = '#go'`).Scan(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got != 99 {
-		t.Fatalf("got %d, want 99", got)
+	if !bytes.Equal(got, want[:]) {
+		t.Fatalf("got %x, want %x", got, want[:])
 	}
 }

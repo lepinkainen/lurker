@@ -1,8 +1,10 @@
 package db
 
+import "github.com/google/uuid"
+
 // Network is the minimal network row used at startup.
 type Network struct {
-	ID        int64
+	ID        uuid.UUID
 	Name      string
 	Host      string
 	Port      int
@@ -25,12 +27,12 @@ const (
 // Buffer is global/API-facing buffer view built from control DB rows plus
 // derived or enriched state from per-network log DBs.
 type Buffer struct {
-	ID                     int64
-	NetworkID              int64
+	ID                     uuid.UUID
+	NetworkID              uuid.UUID
 	Name                   string
 	Kind                   string
 	Topic                  string
-	LastSeenID             int64
+	LastSeenID             uuid.UUID
 	CreatedAt              string
 	ShowEmbeds             bool
 	ShowPresenceEvents     bool
@@ -41,9 +43,9 @@ type Buffer struct {
 // StoredMessage is global/API-facing message view built from per-network log
 // rows plus explicit global metadata.
 type StoredMessage struct {
-	ID        int64
-	NetworkID int64
-	BufferID  int64
+	ID        uuid.UUID
+	NetworkID uuid.UUID
+	BufferID  uuid.UUID
 	MsgID     string
 	TS        string
 	Sender    string

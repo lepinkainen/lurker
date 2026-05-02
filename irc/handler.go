@@ -3,6 +3,7 @@ package irc
 import (
 	"database/sql"
 
+	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/hub"
 )
@@ -14,7 +15,7 @@ type handler struct {
 	db                  *sql.DB
 	hub                 *hub.Hub
 	previews            PreviewEnqueuer
-	networkID           int64
+	networkID           uuid.UUID
 	networkName         string
 	autojoin            []string
 	connectedHook       func(currentNick string)

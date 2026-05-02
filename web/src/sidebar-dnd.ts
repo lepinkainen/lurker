@@ -2,7 +2,7 @@ import { type Network, state } from "./app-state";
 
 export type NetworkDragDeps = {
   render: () => void;
-  reorder: (fromId: number, toId: number) => void;
+  reorder: (fromId: string, toId: string) => void;
 };
 
 export function attachNetworkDragHandlers(sec: HTMLElement, network: Network, deps: NetworkDragDeps): void {

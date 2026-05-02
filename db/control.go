@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+
+	"github.com/google/uuid"
 )
 
 // ErrNetworkNotFound indicates the requested network row does not exist.
@@ -14,13 +16,13 @@ var ErrNetworkNotFound = errors.New("db: network not found")
 var ErrInvalidNetworkReorder = errors.New("db: invalid network reorder")
 
 // GetNetwork returns a network by ID.
-func GetNetwork(ctx context.Context, d *sql.DB, id int64) (Network, error) {
+func GetNetwork(ctx context.Context, d *sql.DB, id uuid.UUID) (Network, error) {
 	var n Network
 	var tls, disabled int
 	var saslUser, saslPass sql.NullString
 	err := d.QueryRowContext(ctx,
 		`SELECT id, name, host, port, tls, nick, COALESCE(realname,''), sasl_user, sasl_pass, sort_order, disabled
-		 FROM networks WHERE id = ?`, id,
+		 FROM networks WHERE id = ?`, id[:],
 	).Scan(&n.ID, &n.Name, &n.Host, &n.Port, &tls, &n.Nick, &n.Realname, &saslUser, &saslPass, &n.SortOrder, &disabled)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -50,14 +52,11 @@ func CreateNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 		saslUser = n.SASLUser
 		saslPass = n.SASLPass
 	}
-	res, err := d.ExecContext(ctx,
-		`INSERT INTO networks(name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks), ?)`,
-		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
-	if err != nil {
-		return Network{}, err
-	}
-	id, err := res.LastInsertId()
+	id := newID()
+	_, err := d.ExecContext(ctx,
+		`INSERT INTO networks(id, name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks), ?)`,
+		id[:], n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
 	if err != nil {
 		return Network{}, err
 	}
@@ -65,7 +64,7 @@ func CreateNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 }
 
 // UpdateNetwork updates a network row and returns the stored record.
-func UpdateNetwork(ctx context.Context, d *sql.DB, id int64, n Network) (Network, error) {
+func UpdateNetwork(ctx context.Context, d *sql.DB, id uuid.UUID, n Network) (Network, error) {
 	current, err := GetNetwork(ctx, d, id)
 	if err != nil {
 		return Network{}, err
@@ -107,7 +106,7 @@ func UpdateNetwork(ctx context.Context, d *sql.DB, id int64, n Network) (Network
 		`UPDATE networks
 		 SET name = ?, name_ci = ?, host = ?, port = ?, tls = ?, nick = ?, realname = ?, sasl_user = ?, sasl_pass = ?
 		 WHERE id = ?`,
-		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, id)
+		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, id[:])
 	if err != nil {
 		return Network{}, err
 	}
@@ -122,8 +121,8 @@ func UpdateNetwork(ctx context.Context, d *sql.DB, id int64, n Network) (Network
 }
 
 // DeleteNetwork deletes a network row by ID.
-func DeleteNetwork(ctx context.Context, d *sql.DB, id int64) error {
-	res, err := d.ExecContext(ctx, `DELETE FROM networks WHERE id = ?`, id)
+func DeleteNetwork(ctx context.Context, d *sql.DB, id uuid.UUID) error {
+	res, err := d.ExecContext(ctx, `DELETE FROM networks WHERE id = ?`, id[:])
 	if err != nil {
 		return err
 	}
@@ -138,7 +137,7 @@ func DeleteNetwork(ctx context.Context, d *sql.DB, id int64) error {
 }
 
 // ReorderNetworks sets network ordering to match the given IDs.
-func ReorderNetworks(ctx context.Context, d *sql.DB, ids []int64) error {
+func ReorderNetworks(ctx context.Context, d *sql.DB, ids []uuid.UUID) error {
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -151,9 +150,9 @@ func ReorderNetworks(ctx context.Context, d *sql.DB, ids []int64) error {
 	}
 	defer func() { _ = rows.Close() }()
 
-	existing := map[int64]struct{}{}
+	existing := map[uuid.UUID]struct{}{}
 	for rows.Next() {
-		var id int64
+		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
 			return err
 		}
@@ -166,7 +165,7 @@ func ReorderNetworks(ctx context.Context, d *sql.DB, ids []int64) error {
 		return ErrInvalidNetworkReorder
 	}
 
-	seen := map[int64]struct{}{}
+	seen := map[uuid.UUID]struct{}{}
 	for order, id := range ids {
 		if _, ok := existing[id]; !ok {
 			return ErrInvalidNetworkReorder
@@ -175,7 +174,7 @@ func ReorderNetworks(ctx context.Context, d *sql.DB, ids []int64) error {
 			return ErrInvalidNetworkReorder
 		}
 		seen[id] = struct{}{}
-		if _, err := tx.ExecContext(ctx, `UPDATE networks SET sort_order = ? WHERE id = ?`, order, id); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE networks SET sort_order = ? WHERE id = ?`, order, id[:]); err != nil {
 			return err
 		}
 	}

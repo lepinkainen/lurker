@@ -54,7 +54,7 @@ func (h *handler) onKick(c *girc.Client, e girc.Event) {
 	}
 	ctx, cancel := h.eventContext()
 	defer cancel()
-	globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
+	globalBufID, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
 	if err != nil {
 		slog.Error("ensure kick buffer", "err", err, "network", h.networkName, "buffer", channel)
 	} else {
@@ -126,7 +126,7 @@ func (h *handler) onEndOfNames(c *girc.Client, e girc.Event) {
 func (h *handler) touchChannelBuffer(channel, action string) {
 	ctx, cancel := h.eventContext()
 	defer cancel()
-	if _, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel); err != nil {
+	if _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel); err != nil {
 		slog.Error(action, "err", err, "network", h.networkName, "buffer", channel)
 	}
 }
@@ -145,7 +145,7 @@ func (h *handler) markAllChannelsParted() {
 		if h.clearMemberListHook != nil {
 			h.clearMemberListHook(channel)
 		}
-		globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
+		globalBufID, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
 		if err != nil {
 			slog.Error("ensure channel buffer", "err", err, "network", h.networkName, "buffer", channel)
 			continue
@@ -160,7 +160,7 @@ func (h *handler) updateChannelJoined(channel string, joined bool, presenceState
 	}
 	ctx, cancel := h.eventContext()
 	defer cancel()
-	globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
+	globalBufID, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
 	if err != nil {
 		slog.Error("ensure channel buffer", "err", err, "network", h.networkName, "buffer", channel)
 		return
@@ -176,7 +176,7 @@ func (h *handler) updateChannelJoined(channel string, joined bool, presenceState
 func (h *handler) updateChannelTopic(channel, topic string) {
 	ctx, cancel := h.eventContext()
 	defer cancel()
-	globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
+	globalBufID, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
 	if err != nil {
 		slog.Error("ensure topic buffer", "err", err, "network", h.networkName, "buffer", channel)
 		return

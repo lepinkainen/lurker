@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 )
 
@@ -21,10 +22,10 @@ func (m *Manager) LoadFixtureRuntimeState(ctx context.Context) error {
 		return err
 	}
 
-	nicks := map[int64]string{}
-	states := map[int64]string{}
-	joined := map[int64]map[string]bool{}
-	members := map[int64]map[string][]ircdb.ChannelMember{}
+	nicks := map[uuid.UUID]string{}
+	states := map[uuid.UUID]string{}
+	joined := map[uuid.UUID]map[string]bool{}
+	members := map[uuid.UUID]map[string][]ircdb.ChannelMember{}
 	for _, n := range nets {
 		nicks[n.ID] = n.Nick
 		states[n.ID] = StateConnected.String()
@@ -56,7 +57,7 @@ func (m *Manager) LoadFixtureRuntimeState(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) fixtureMembersForChannel(ctx context.Context, bufferID int64, selfNick string) []ircdb.ChannelMember {
+func (m *Manager) fixtureMembersForChannel(ctx context.Context, bufferID uuid.UUID, selfNick string) []ircdb.ChannelMember {
 	seen := map[string]bool{}
 	if selfNick != "" {
 		seen[strings.ToLower(selfNick)] = true

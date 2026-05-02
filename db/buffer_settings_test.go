@@ -4,6 +4,8 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestBufferSettingsDefaultsAndPatch(t *testing.T) {
@@ -14,12 +16,14 @@ func TestBufferSettingsDefaultsAndPatch(t *testing.T) {
 	defer func() { _ = d.Close() }()
 
 	ctx := t.Context()
-	_, err = d.ExecContext(ctx, `INSERT INTO networks(name, name_ci, host, port, tls, nick, autoconnect, sort_order, created_at)
-		VALUES ('Libera', 'libera', 'irc.example', 6697, 1, 'tester', 1, 0, ?)`, Now())
+	netID := uuid.Must(uuid.NewV7())
+	_, err = d.ExecContext(ctx, `INSERT INTO networks(id, name, name_ci, host, port, tls, nick, autoconnect, sort_order, created_at)
+		VALUES (?, 'Libera', 'libera', 'irc.example', 6697, 1, 'tester', 1, 0, ?)`, netID[:], Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	channelID, _, _, err := UpsertBufferRegistry(ctx, d, 1, "#go", BufferChannel)
+	channelID := uuid.Must(uuid.NewV7())
+	_, err = d.ExecContext(ctx, `INSERT INTO buffer_registry(id, network_id, name, kind, created_at) VALUES (?, ?, '#go', ?, ?)`, channelID[:], netID[:], BufferChannel, Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,12 +55,14 @@ func TestBufferSettingsRejectsStatusBuffers(t *testing.T) {
 	defer func() { _ = d.Close() }()
 
 	ctx := t.Context()
-	_, err = d.ExecContext(ctx, `INSERT INTO networks(name, name_ci, host, port, tls, nick, autoconnect, sort_order, created_at)
-		VALUES ('Libera', 'libera', 'irc.example', 6697, 1, 'tester', 1, 0, ?)`, Now())
+	netID := uuid.Must(uuid.NewV7())
+	_, err = d.ExecContext(ctx, `INSERT INTO networks(id, name, name_ci, host, port, tls, nick, autoconnect, sort_order, created_at)
+		VALUES (?, 'Libera', 'libera', 'irc.example', 6697, 1, 'tester', 1, 0, ?)`, netID[:], Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	statusID, _, _, err := UpsertBufferRegistry(ctx, d, 1, "", BufferStatus)
+	statusID := uuid.Must(uuid.NewV7())
+	_, err = d.ExecContext(ctx, `INSERT INTO buffer_registry(id, network_id, name, kind, created_at) VALUES (?, ?, '*status*', ?, ?)`, statusID[:], netID[:], BufferStatus, Now())
 	if err != nil {
 		t.Fatal(err)
 	}

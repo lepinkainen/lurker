@@ -12,8 +12,8 @@ export type StateSyncDeps = {
   renderHeader: () => void;
   renderActiveView: () => void;
   renderMembers: () => void;
-  setActive: (id: number, opts?: { skipHash?: boolean; replaceHash?: boolean }) => void;
-  bufferFromHash: (hash: string) => { id: number } | null;
+  setActive: (id: string, opts?: { skipHash?: boolean; replaceHash?: boolean }) => void;
+  bufferFromHash: (hash: string) => { id: string } | null;
 };
 
 export type HydrateDeps = StateSyncDeps & {
@@ -58,16 +58,15 @@ async function syncStateFromServer(deps: StateSyncDeps) {
     });
   }
   for (const [id, msgs] of Object.entries(s.initial_messages || {})) {
-    const bufferID = Number(id);
-    const existing = state.messages.get(bufferID) || [];
+    const existing = state.messages.get(id) || [];
     const byID = new Map(existing.map((msg) => [msg.id, msg]));
     for (const msg of msgs as Message[]) byID.set(msg.id, msg);
     state.messages.set(
-      bufferID,
-      [...byID.values()].sort((a, b) => a.id - b.id),
+      id,
+      [...byID.values()].sort((a, b) => a.id.localeCompare(b.id)),
     );
   }
-  for (const [id, members] of Object.entries(s.members || {})) state.members.set(Number(id), members as Member[]);
+  for (const [id, members] of Object.entries(s.members || {})) state.members.set(id, members as Member[]);
   if (updateRes?.ok) {
     state.updateStatus = (await updateRes.json()) as UpdateStatus;
   } else {

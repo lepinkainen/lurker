@@ -5,14 +5,14 @@ export type BufferSettingsPatch = Partial<
 >;
 
 export async function patchBufferSettings(
-  id: number,
+  id: string,
   patch: BufferSettingsPatch,
-): Promise<BufferSettingsPatch & { id: number }> {
+): Promise<BufferSettingsPatch & { id: string }> {
   const res = await fetch(`/api/buffers/${id}/settings`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error(await res.text());
-  return (await res.json()) as BufferSettingsPatch & { id: number };
+  return (await res.json()) as BufferSettingsPatch & { id: string };
 }

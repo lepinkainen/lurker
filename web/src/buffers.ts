@@ -8,11 +8,11 @@ export function orderedNetworks(): Network[] {
   return [...state.networks.values()].sort((a, b) => {
     const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER;
     const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER;
-    return ao - bo || a.id - b.id;
+    return ao - bo || a.id.localeCompare(b.id);
   });
 }
 
-export function groupedBuffers(networkId: number) {
+export function groupedBuffers(networkId: string) {
   const netBufs = [...state.buffers.values()].filter((buffer) => buffer.network_id === networkId);
   const status = netBufs.find((buffer) => buffer.kind === "status") ?? null;
   const channels = netBufs.filter((buffer) => buffer.kind === "channel" && buffer.joined === true).sort(byName);
@@ -21,15 +21,15 @@ export function groupedBuffers(networkId: number) {
   return { status, channels, queries, parted };
 }
 
-function pushDedup(ids: number[], seen: Set<number>, buffer: Buffer | null | undefined) {
+function pushDedup(ids: string[], seen: Set<string>, buffer: Buffer | null | undefined) {
   if (!buffer || seen.has(buffer.id)) return;
   seen.add(buffer.id);
   ids.push(buffer.id);
 }
 
-export function getVisibleSidebarBufferIds(): number[] {
-  const ids: number[] = [];
-  const seen = new Set<number>();
+export function getVisibleSidebarBufferIds(): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
 
   for (const buffer of [...state.buffers.values()]
     .filter((buffer) => buffer.kind === "channel" && buffer.pinned)
@@ -56,9 +56,9 @@ export function getVisibleSidebarBufferIds(): number[] {
   return ids;
 }
 
-export function getAllNavigableBufferIds(): number[] {
-  const ids: number[] = [];
-  const seen = new Set<number>();
+export function getAllNavigableBufferIds(): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
   for (const network of orderedNetworks()) {
     const { status, channels, queries, parted } = groupedBuffers(network.id);
     pushDedup(ids, seen, status);
@@ -69,7 +69,7 @@ export function getAllNavigableBufferIds(): number[] {
   return ids;
 }
 
-export function currentNetworkStatusBufferId(): number | null {
+export function currentNetworkStatusBufferId(): string | null {
   const active = activeBuffer();
   if (!active) return null;
   return groupedBuffers(active.network_id).status?.id ?? null;

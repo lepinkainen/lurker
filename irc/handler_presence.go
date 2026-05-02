@@ -72,7 +72,7 @@ func (h *handler) publishRemotePresence(channel, state string, source *girc.Sour
 	}
 	ctx, cancel := h.eventContext()
 	defer cancel()
-	globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
+	globalBufID, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
 	if err != nil {
 		slog.Error("ensure presence buffer", "err", err, "network", h.networkName, "buffer", channel)
 		return
@@ -95,7 +95,7 @@ func (h *handler) publishMemberList(c *girc.Client, channel string) {
 	}
 	ctx, cancel := h.eventContext()
 	defer cancel()
-	globalBufID, _, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
+	globalBufID, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
 	if err != nil {
 		slog.Error("ensure names buffer", "err", err, "network", h.networkName, "buffer", channel)
 		return

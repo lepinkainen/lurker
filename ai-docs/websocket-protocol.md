@@ -17,13 +17,13 @@ Current client command envelope fields:
 
 - `type`
 - `req_id`
-- `buffer_id`
-- `network_id`
+- `buffer_id` — UUIDv7 string
+- `network_id` — UUIDv7 string
 - `channel`
 - `content`
-- `before`
+- `before` — UUIDv7 message ID string for history pagination
 - `limit`
-- `message_id`
+- `message_id` — UUIDv7 string
 
 Supported command types:
 

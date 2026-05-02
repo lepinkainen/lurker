@@ -5,8 +5,8 @@ import { resetAppState } from "../src/reset";
 
 function buf(overrides: Partial<Buffer> = {}): Buffer {
   return {
-    id: 1,
-    network_id: 10,
+    id: "1",
+    network_id: "10",
     name: "#chan",
     kind: "channel",
     joined: true,
@@ -35,14 +35,14 @@ describe("membersForActive", () => {
   });
 
   it("returns stored members for active buffer", () => {
-    state.activeId = 5;
+    state.activeId = "5";
     const list: Member[] = [{ nick: "alice", prefix: "@", away: false, self: false }];
-    state.members.set(5, list);
+    state.members.set("5", list);
     expect(membersForActive()).toBe(list);
   });
 
   it("returns empty array when active buffer has no members entry", () => {
-    state.activeId = 99;
+    state.activeId = "99";
     expect(membersForActive()).toEqual([]);
   });
 });
@@ -51,33 +51,33 @@ describe("active member population", () => {
   beforeEach(() => resetAppState());
 
   it("noops on non-channel buffer", () => {
-    state.activeId = 1;
-    state.buffers.set(1, buf({ kind: "query", name: "alice" }));
+    state.activeId = "1";
+    state.buffers.set("1", buf({ kind: "query", name: "alice" }));
     populateMembersForActive();
     expect(state.members.has(1)).toBe(false);
   });
 
   it("noops if members already cached", () => {
-    state.activeId = 1;
-    state.buffers.set(1, buf());
-    state.members.set(1, []);
-    state.messages.set(1, [{ id: 1, buffer_id: 1, sender: "bob", content: "hi" }]);
+    state.activeId = "1";
+    state.buffers.set("1", buf());
+    state.members.set("1", []);
+    state.messages.set("1", [{ id: "1", buffer_id: "1", sender: "bob", content: "hi" }]);
     populateMembersForActive();
-    expect(state.members.get(1)).toEqual([]);
+    expect(state.members.get("1")).toEqual([]);
   });
 
   it("derives members from message senders + me", () => {
-    state.activeId = 1;
-    state.buffers.set(1, buf());
+    state.activeId = "1";
+    state.buffers.set("1", buf());
     state.me.nick = "you";
-    state.messages.set(1, [
-      { id: 1, buffer_id: 1, sender: "alice", content: "hi" },
-      { id: 2, buffer_id: 1, sender: "bob", content: "yo" },
-      { id: 3, buffer_id: 1, sender: "alice", content: "again" },
-      { id: 4, buffer_id: 1, sender: "carol", target: "ex", kind: "kick" },
+    state.messages.set("1", [
+      { id: "1", buffer_id: "1", sender: "alice", content: "hi" },
+      { id: "2", buffer_id: "1", sender: "bob", content: "yo" },
+      { id: "3", buffer_id: "1", sender: "alice", content: "again" },
+      { id: "4", buffer_id: "1", sender: "carol", target: "ex", kind: "kick" },
     ]);
     populateMembersForActive();
-    const got = state.members.get(1) || [];
+    const got = state.members.get("1") || [];
     expect(got.map((m) => m.nick)).toEqual(["alice", "bob", "carol", "ex", "you"]);
     const me = got.find((m) => m.nick === "you");
     expect(me?.self).toBe(true);
@@ -89,8 +89,8 @@ describe("renderMembers", () => {
   beforeEach(() => resetAppState());
 
   it("hides pane on non-channel buffer", () => {
-    state.activeId = 1;
-    state.buffers.set(1, buf({ kind: "query" }));
+    state.activeId = "1";
+    state.buffers.set("1", buf({ kind: "query" }));
     const d = dom();
     renderMembers(d);
     expect(d.memberPaneEl.dataset.hidden).toBe("true");
@@ -98,9 +98,9 @@ describe("renderMembers", () => {
   });
 
   it("groups members by prefix and renders headings", () => {
-    state.activeId = 1;
-    state.buffers.set(1, buf());
-    state.members.set(1, [
+    state.activeId = "1";
+    state.buffers.set("1", buf());
+    state.members.set("1", [
       { nick: "op1", prefix: "@", away: false, self: false },
       { nick: "voice1", prefix: "+", away: false, self: false },
       { nick: "reg1", prefix: "", away: false, self: false },
@@ -116,9 +116,9 @@ describe("renderMembers", () => {
   });
 
   it("hides pane when showMemberList false", () => {
-    state.activeId = 1;
-    state.buffers.set(1, buf());
-    state.members.set(1, [{ nick: "op1", prefix: "@", away: false, self: false }]);
+    state.activeId = "1";
+    state.buffers.set("1", buf());
+    state.members.set("1", [{ nick: "op1", prefix: "@", away: false, self: false }]);
     state.showMemberList = false;
     const d = dom();
     renderMembers(d);

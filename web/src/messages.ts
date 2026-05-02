@@ -110,13 +110,13 @@ export function onMessage(
   const idx = list.findIndex((message) => message.id === msg.id);
   if (idx >= 0) list[idx] = msg;
   else list.push(msg);
-  list.sort((a, b) => a.id - b.id);
+  list.sort((a, b) => a.id.localeCompare(b.id));
   state.messages.set(msg.buffer_id, list);
   const buffer = state.buffers.get(msg.buffer_id);
   if (
     buffer &&
     msg.buffer_id !== state.activeId &&
-    msg.id > (buffer.last_seen_id || 0) &&
+    msg.id > (buffer.last_seen_id || "") &&
     countsAsUnreadActivity(msg)
   ) {
     buffer.unread = (buffer.unread || 0) + 1;
@@ -130,7 +130,7 @@ export function onMessage(
 }
 
 export function onPreview(
-  msg: { buffer_id: number; message_id: number; previews?: Message["previews"] },
+  msg: { buffer_id: string; message_id: string; previews?: Message["previews"] },
   messagesEl: HTMLElement,
 ) {
   const list = state.messages.get(msg.buffer_id);
@@ -150,10 +150,10 @@ export function onPreview(
 
 export function onBufferUpdate(
   msg: {
-    id: number;
+    id: string;
     topic?: string;
     joined?: boolean;
-    last_seen_id?: number;
+    last_seen_id?: string;
     show_embeds?: boolean;
     show_presence_events?: boolean;
     collapse_presence_events?: boolean;
@@ -165,7 +165,7 @@ export function onBufferUpdate(
   if (!buffer) return;
   if (Object.hasOwn(msg, "topic")) buffer.topic = msg.topic || "";
   if (Object.hasOwn(msg, "joined")) buffer.joined = Boolean(msg.joined);
-  if (Object.hasOwn(msg, "last_seen_id")) buffer.last_seen_id = msg.last_seen_id || 0;
+  if (Object.hasOwn(msg, "last_seen_id")) buffer.last_seen_id = msg.last_seen_id || "";
   if (Object.hasOwn(msg, "show_embeds")) buffer.show_embeds = Boolean(msg.show_embeds);
   if (Object.hasOwn(msg, "show_presence_events")) buffer.show_presence_events = Boolean(msg.show_presence_events);
   if (Object.hasOwn(msg, "collapse_presence_events")) {
@@ -178,7 +178,7 @@ export function onBufferUpdate(
 }
 
 export function onHistoryResult(
-  msg: { buffer_id: number; messages?: Message[] },
+  msg: { buffer_id: string; messages?: Message[] },
   handlers: { renderActiveView: () => void },
   messagesEl: HTMLElement,
 ) {
@@ -241,9 +241,9 @@ function statusLine(message: Message) {
 
 function renderMessages(messagesEl: HTMLElement) {
   messagesEl.innerHTML = "";
-  const list = state.messages.get(state.activeId ?? -1) || [];
+  const list = state.messages.get(state.activeId ?? "") || [];
   const buffer = activeBuffer();
-  const lastSeen = buffer?.last_seen_id || 0;
+  const lastSeen = buffer?.last_seen_id || "";
   let unreadInserted = false;
   let lastDayKey: string | null = null;
 
@@ -259,7 +259,7 @@ function renderMessages(messagesEl: HTMLElement) {
       message.id > lastSeen &&
       countsAsUnreadActivity(message) &&
       state.activeId !== null &&
-      lastSeen > 0
+      lastSeen !== ""
     ) {
       const bar = document.createElement("div");
       bar.className = "unreadbar";

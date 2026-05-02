@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lrstanley/girc"
 )
@@ -90,13 +91,13 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 	ctx, cancel := h.eventContext()
 	defer cancel()
 
-	globalBufID, localBufID, err := h.ensureBuffer(ctx, bufName, bufKind)
+	bufID, err := h.ensureBuffer(ctx, bufName, bufKind)
 	if err != nil {
 		slog.Error("ensure buffer", "err", err, "network", h.networkName, "buffer", bufName)
 		return
 	}
 	id, storedTS, inserted, err := ircdb.InsertLogMessage(ctx, h.db, ircdb.LogMessageInput{
-		BufferID:  localBufID,
+		BufferID:  bufID,
 		MsgID:     msgID,
 		Timestamp: ts,
 		Sender:    sender,
@@ -117,7 +118,7 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 		Type:      "message",
 		ID:        id,
 		NetworkID: h.networkID,
-		BufferID:  globalBufID,
+		BufferID:  bufID,
 		MsgID:     msgID,
 		TS:        storedTS,
 		Sender:    sender,
@@ -126,13 +127,13 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 		Target:    target,
 		Content:   content,
 	})
-	h.enqueuePreviews(id, globalBufID, kind, content)
+	h.enqueuePreviews(id, bufID, kind, content)
 }
 
 // enqueuePreviews schedules URL-preview fetches for user-authored content.
 // We skip synthetic kinds (joins, modes, etc.) so the preview worker never
 // wastes cycles on system noise.
-func (h *handler) enqueuePreviews(messageID, bufferID int64, kind, content string) {
+func (h *handler) enqueuePreviews(messageID, bufferID uuid.UUID, kind, content string) {
 	if h.previews == nil || content == "" {
 		return
 	}

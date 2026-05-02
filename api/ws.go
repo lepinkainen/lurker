@@ -11,6 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/google/uuid"
 
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/internal/closeutil"
@@ -20,16 +21,16 @@ import (
 // JSON into this struct and dispatch on Type; fields irrelevant to the
 // chosen verb are simply ignored.
 type clientCmd struct {
-	Type      string `json:"type"`
-	ReqID     string `json:"req_id,omitzero"`
-	BufferID  int64  `json:"buffer_id,omitzero"`
-	NetworkID int64  `json:"network_id,omitzero"`
-	Channel   string `json:"channel,omitzero"`
-	Content   string `json:"content,omitzero"`
-	Target    string `json:"target,omitzero"`
-	Before    int64  `json:"before,omitzero"`
-	Limit     int    `json:"limit,omitzero"`
-	MessageID int64  `json:"message_id,omitzero"`
+	Type      string    `json:"type"`
+	ReqID     string    `json:"req_id,omitzero"`
+	BufferID  uuid.UUID `json:"buffer_id,omitzero"`
+	NetworkID uuid.UUID `json:"network_id,omitzero"`
+	Channel   string    `json:"channel,omitzero"`
+	Content   string    `json:"content,omitzero"`
+	Target    string    `json:"target,omitzero"`
+	Before    uuid.UUID `json:"before,omitzero"`
+	Limit     int       `json:"limit,omitzero"`
+	MessageID uuid.UUID `json:"message_id,omitzero"`
 }
 
 // ack / error envelopes. We keep these separate from IRC event types so
@@ -48,30 +49,28 @@ type errorEnvelope struct {
 type historyResult struct {
 	Type     string       `json:"type"`
 	ReqID    string       `json:"req_id"`
-	BufferID int64        `json:"buffer_id"`
+	BufferID uuid.UUID    `json:"buffer_id"`
 	Messages []messageDTO `json:"messages"`
 }
 
 type bufferLastSeenEvent struct {
-	Type       string `json:"type"`
-	ID         int64  `json:"id"`
-	NetworkID  int64  `json:"network_id"`
-	LastSeenID int64  `json:"last_seen_id"`
+	Type       string    `json:"type"`
+	ID         uuid.UUID `json:"id"`
+	NetworkID  uuid.UUID `json:"network_id"`
+	LastSeenID uuid.UUID `json:"last_seen_id"`
 }
 
 type ignoreListResult struct {
-	Type      string   `json:"type"`
-	ReqID     string   `json:"req_id"`
-	NetworkID int64    `json:"network_id"`
-	Masks     []string `json:"masks"`
+	Type      string    `json:"type"`
+	ReqID     string    `json:"req_id"`
+	NetworkID uuid.UUID `json:"network_id"`
+	Masks     []string  `json:"masks"`
 }
 
 // stream is the WebSocket endpoint. It subscribes to the event hub and
 // forwards every published event as JSON; it also reads client commands
 // and dispatches them to the IRC manager or the SQLite store.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
-	// The service is expected to be reachable only via loopback or a
-	// Tailnet IP, so we don't bother with Origin checks.
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
 	})
@@ -89,8 +88,6 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	events, unsub := s.Hub.Subscribe(256)
 	defer unsub()
 
-	// writer goroutine: forwards hub events to the socket. A 10s write
-	// deadline prevents one wedged client from hanging the server.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -112,8 +109,6 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// reader loop: run in the request goroutine so we exit cleanly when
-	// the client disconnects.
 	for {
 		var cmd clientCmd
 		err := wsjson.Read(ctx, c, &cmd)
@@ -204,7 +199,7 @@ func (s *Server) handleCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd
 
 func (s *Server) cmdSend(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	content := strings.TrimSpace(cmd.Content)
-	if cmd.BufferID == 0 || content == "" {
+	if cmd.BufferID == uuid.Nil || content == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "send requires buffer_id and content")
 		return
 	}
@@ -228,7 +223,7 @@ func (s *Server) cmdSend(ctx context.Context, c *websocket.Conn, cmd clientCmd) 
 }
 
 func (s *Server) cmdHistory(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
-	if cmd.BufferID == 0 {
+	if cmd.BufferID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "history requires buffer_id")
 		return
 	}
@@ -244,7 +239,7 @@ func (s *Server) cmdHistory(ctx context.Context, c *websocket.Conn, cmd clientCm
 }
 
 func (s *Server) cmdJoin(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
-	if cmd.NetworkID == 0 || cmd.Channel == "" {
+	if cmd.NetworkID == uuid.Nil || cmd.Channel == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "join requires network_id and channel")
 		return
 	}
@@ -256,7 +251,7 @@ func (s *Server) cmdJoin(ctx context.Context, c *websocket.Conn, cmd clientCmd) 
 }
 
 func (s *Server) cmdPart(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
-	if cmd.BufferID == 0 {
+	if cmd.BufferID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "part requires buffer_id")
 		return
 	}
@@ -273,7 +268,7 @@ func (s *Server) cmdPart(ctx context.Context, c *websocket.Conn, cmd clientCmd) 
 }
 
 func (s *Server) cmdMarkRead(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
-	if cmd.BufferID == 0 || cmd.MessageID == 0 {
+	if cmd.BufferID == uuid.Nil || cmd.MessageID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "mark_read requires buffer_id and message_id")
 		return
 	}
@@ -294,7 +289,7 @@ func (s *Server) cmdMarkRead(ctx context.Context, c *websocket.Conn, cmd clientC
 
 func (s *Server) cmdNick(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	nick := strings.TrimSpace(cmd.Content)
-	if cmd.NetworkID == 0 || nick == "" {
+	if cmd.NetworkID == uuid.Nil || nick == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "nick requires network_id and content")
 		return
 	}
@@ -307,7 +302,7 @@ func (s *Server) cmdNick(ctx context.Context, c *websocket.Conn, cmd clientCmd) 
 
 func (s *Server) cmdMe(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	content := strings.TrimSpace(cmd.Content)
-	if cmd.BufferID == 0 || content == "" {
+	if cmd.BufferID == uuid.Nil || content == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "me requires buffer_id and content")
 		return
 	}
@@ -329,7 +324,7 @@ func (s *Server) cmdMe(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 func (s *Server) cmdMsg(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	target := strings.TrimSpace(cmd.Target)
 	content := strings.TrimSpace(cmd.Content)
-	if cmd.NetworkID == 0 || target == "" || content == "" {
+	if cmd.NetworkID == uuid.Nil || target == "" || content == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "msg requires network_id, target, and content")
 		return
 	}
@@ -344,7 +339,7 @@ func (s *Server) cmdMsg(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 }
 
 func (s *Server) cmdTopic(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
-	if cmd.BufferID == 0 {
+	if cmd.BufferID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "topic requires buffer_id")
 		return
 	}
@@ -362,7 +357,7 @@ func (s *Server) cmdTopic(ctx context.Context, c *websocket.Conn, cmd clientCmd)
 
 func (s *Server) cmdWhois(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	target := strings.TrimSpace(cmd.Target)
-	if cmd.NetworkID == 0 || target == "" {
+	if cmd.NetworkID == uuid.Nil || target == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "whois requires network_id and target")
 		return
 	}
@@ -376,7 +371,7 @@ func (s *Server) cmdWhois(ctx context.Context, c *websocket.Conn, cmd clientCmd)
 func (s *Server) cmdInvite(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	target := strings.TrimSpace(cmd.Target)
 	channel := strings.TrimSpace(cmd.Channel)
-	if cmd.NetworkID == 0 || target == "" || channel == "" {
+	if cmd.NetworkID == uuid.Nil || target == "" || channel == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "invite requires network_id, target, and channel")
 		return
 	}
@@ -389,7 +384,7 @@ func (s *Server) cmdInvite(ctx context.Context, c *websocket.Conn, cmd clientCmd
 
 func (s *Server) cmdKick(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	target := strings.TrimSpace(cmd.Target)
-	if cmd.BufferID == 0 || target == "" {
+	if cmd.BufferID == uuid.Nil || target == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "kick requires buffer_id and target")
 		return
 	}
@@ -407,7 +402,7 @@ func (s *Server) cmdKick(ctx context.Context, c *websocket.Conn, cmd clientCmd) 
 
 func (s *Server) cmdMode(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	content := strings.TrimSpace(cmd.Content)
-	if cmd.BufferID == 0 || content == "" {
+	if cmd.BufferID == uuid.Nil || content == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "mode requires buffer_id and content")
 		return
 	}
@@ -428,7 +423,7 @@ func (s *Server) cmdMode(ctx context.Context, c *websocket.Conn, cmd clientCmd) 
 
 func (s *Server) cmdRaw(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	content := strings.TrimSpace(cmd.Content)
-	if cmd.NetworkID == 0 || content == "" {
+	if cmd.NetworkID == uuid.Nil || content == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "raw requires network_id and content")
 		return
 	}
@@ -440,7 +435,7 @@ func (s *Server) cmdRaw(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 }
 
 func (s *Server) cmdAway(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
-	if cmd.NetworkID == 0 {
+	if cmd.NetworkID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "away requires network_id")
 		return
 	}
@@ -452,7 +447,7 @@ func (s *Server) cmdAway(ctx context.Context, c *websocket.Conn, cmd clientCmd) 
 }
 
 func (s *Server) cmdBack(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
-	if cmd.NetworkID == 0 {
+	if cmd.NetworkID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "back requires network_id")
 		return
 	}
@@ -464,7 +459,7 @@ func (s *Server) cmdBack(ctx context.Context, c *websocket.Conn, cmd clientCmd) 
 }
 
 func (s *Server) cmdQuit(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
-	if cmd.NetworkID == 0 {
+	if cmd.NetworkID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "quit requires network_id")
 		return
 	}
@@ -476,7 +471,7 @@ func (s *Server) cmdQuit(ctx context.Context, c *websocket.Conn, cmd clientCmd) 
 }
 
 func (s *Server) cmdRejoin(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
-	if cmd.BufferID == 0 {
+	if cmd.BufferID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "rejoin requires buffer_id")
 		return
 	}
@@ -495,7 +490,7 @@ func (s *Server) cmdRejoin(ctx context.Context, c *websocket.Conn, cmd clientCmd
 func (s *Server) cmdNotice(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	target := strings.TrimSpace(cmd.Target)
 	content := strings.TrimSpace(cmd.Content)
-	if cmd.NetworkID == 0 || target == "" || content == "" {
+	if cmd.NetworkID == uuid.Nil || target == "" || content == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "notice requires network_id, target, and content")
 		return
 	}
@@ -512,7 +507,7 @@ func (s *Server) cmdNotice(ctx context.Context, c *websocket.Conn, cmd clientCmd
 func (s *Server) cmdCTCP(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	target := strings.TrimSpace(cmd.Target)
 	content := strings.TrimSpace(cmd.Content)
-	if cmd.NetworkID == 0 || target == "" || content == "" {
+	if cmd.NetworkID == uuid.Nil || target == "" || content == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "ctcp requires network_id, target, and content (COMMAND [args])")
 		return
 	}
@@ -531,11 +526,11 @@ func (s *Server) cmdCTCP(ctx context.Context, c *websocket.Conn, cmd clientCmd) 
 
 func (s *Server) cmdQuery(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	target := strings.TrimSpace(cmd.Target)
-	if cmd.NetworkID == 0 || target == "" {
+	if cmd.NetworkID == uuid.Nil || target == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "query requires network_id and target")
 		return
 	}
-	if _, _, _, err := s.Stores.UpsertBufferRegistry(ctx, cmd.NetworkID, target, ircdb.BufferQuery); err != nil {
+	if _, _, _, err := s.Stores.EnsureBuffer(ctx, cmd.NetworkID, target, ircdb.BufferQuery); err != nil {
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return
 	}
@@ -543,7 +538,7 @@ func (s *Server) cmdQuery(ctx context.Context, c *websocket.Conn, cmd clientCmd)
 }
 
 func (s *Server) cmdList(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
-	if cmd.NetworkID == 0 {
+	if cmd.NetworkID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "list requires network_id")
 		return
 	}
@@ -554,10 +549,9 @@ func (s *Server) cmdList(ctx context.Context, c *websocket.Conn, cmd clientCmd) 
 	writeWSAck(ctx, c, cmd.ReqID)
 }
 
-// cmdChannelMode is the shared implementation for op/deop/voice/devoice/ban/unban.
 func (s *Server) cmdChannelMode(ctx context.Context, c *websocket.Conn, cmd clientCmd, modeStr string) {
 	target := strings.TrimSpace(cmd.Target)
-	if cmd.BufferID == 0 || target == "" {
+	if cmd.BufferID == uuid.Nil || target == "" {
 		writeWSErr(ctx, c, cmd.ReqID, cmd.Type+" requires buffer_id and target")
 		return
 	}
@@ -574,7 +568,7 @@ func (s *Server) cmdChannelMode(ctx context.Context, c *websocket.Conn, cmd clie
 }
 
 func (s *Server) cmdBanlist(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
-	if cmd.BufferID == 0 {
+	if cmd.BufferID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "banlist requires buffer_id")
 		return
 	}
@@ -592,7 +586,7 @@ func (s *Server) cmdBanlist(ctx context.Context, c *websocket.Conn, cmd clientCm
 
 func (s *Server) cmdKickban(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	target := strings.TrimSpace(cmd.Target)
-	if cmd.BufferID == 0 || target == "" {
+	if cmd.BufferID == uuid.Nil || target == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "kickban requires buffer_id and target")
 		return
 	}
@@ -615,7 +609,7 @@ func (s *Server) cmdKickban(ctx context.Context, c *websocket.Conn, cmd clientCm
 
 func (s *Server) cmdIgnore(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	mask := strings.TrimSpace(cmd.Target)
-	if cmd.NetworkID == 0 || mask == "" {
+	if cmd.NetworkID == uuid.Nil || mask == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "ignore requires network_id and target")
 		return
 	}
@@ -628,7 +622,7 @@ func (s *Server) cmdIgnore(ctx context.Context, c *websocket.Conn, cmd clientCmd
 
 func (s *Server) cmdUnignore(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	mask := strings.TrimSpace(cmd.Target)
-	if cmd.NetworkID == 0 || mask == "" {
+	if cmd.NetworkID == uuid.Nil || mask == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "unignore requires network_id and target")
 		return
 	}
@@ -640,7 +634,7 @@ func (s *Server) cmdUnignore(ctx context.Context, c *websocket.Conn, cmd clientC
 }
 
 func (s *Server) cmdIgnorelist(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
-	if cmd.NetworkID == 0 {
+	if cmd.NetworkID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "ignorelist requires network_id")
 		return
 	}
@@ -666,8 +660,6 @@ func writeWSErr(ctx context.Context, c *websocket.Conn, reqID, msg string) {
 	_ = wsjson.Write(ctx, c, errorEnvelope{Type: "error", ReqID: reqID, Message: msg})
 }
 
-// Unused but exposed so json.Marshal errors in hub events surface in
-// tests rather than silently dropping bytes on the wire.
 var _ = json.Marshal
 
 type closeFunc func() error

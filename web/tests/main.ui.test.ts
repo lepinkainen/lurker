@@ -64,7 +64,7 @@ describe("main UI", () => {
 
     __handleWSMessage({
       type: "message",
-      id: 10_000_001,
+      id: "10000001",
       buffer_id: buf.id,
       sender: "someone",
       content: `hey ${nick} look at this`,
@@ -219,7 +219,7 @@ describe("main UI", () => {
 
     __handleWSMessage({
       type: "message",
-      id: 10_000_002,
+      id: "10000002",
       buffer_id: buf.id,
       sender: "someone",
       content: "plain unread message",

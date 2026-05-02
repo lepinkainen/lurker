@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/hub"
 )
@@ -35,9 +36,9 @@ func DefaultConfig() Config {
 
 // job is a single enqueue request: a message's URLs need previews.
 type job struct {
-	NetworkID int64
-	BufferID  int64
-	MessageID int64
+	NetworkID uuid.UUID
+	BufferID  uuid.UUID
+	MessageID uuid.UUID
 	Content   string
 }
 
@@ -45,9 +46,9 @@ type job struct {
 // message. Only displayable previews are included.
 type Event struct {
 	Type      string            `json:"type"`
-	MessageID int64             `json:"message_id"`
-	NetworkID int64             `json:"network_id"`
-	BufferID  int64             `json:"buffer_id"`
+	MessageID uuid.UUID         `json:"message_id"`
+	NetworkID uuid.UUID         `json:"network_id"`
+	BufferID  uuid.UUID         `json:"buffer_id"`
 	Previews  []ResolvedPreview `json:"previews"`
 }
 
@@ -150,7 +151,7 @@ func (s *Service) Close() error {
 // Enqueue submits a message for URL-preview resolution. Non-blocking: if the
 // queue is full, the request is dropped with a warning. Matches the
 // irc.PreviewEnqueuer interface.
-func (s *Service) Enqueue(networkID, bufferID, messageID int64, content string) {
+func (s *Service) Enqueue(networkID, bufferID, messageID uuid.UUID, content string) {
 	if s == nil || !s.cfg.Enabled || content == "" {
 		return
 	}

@@ -117,11 +117,12 @@ Purpose:
 Request body:
 
 ```json
-{ "ids": [2, 1, 3] }
+{ "ids": ["0198f5f2-8f2a-7a8b-9b42-4d6e72c4d8f1", "0198f5f2-9348-7ed6-b3b4-cd8a1a6e8b20"] }
 ```
 
 Behavior:
 
+- IDs are UUIDv7 strings
 - expects a complete ordered list of all network IDs
 - updates `sort_order` transactionally
 - returns the reordered `networks` list

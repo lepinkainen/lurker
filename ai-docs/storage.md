@@ -24,12 +24,12 @@ Important tables:
 
 The `networks` table stores:
 
-- stable numeric network ID
+- stable UUIDv7 network ID, stored on disk as a 16-byte SQLite `BLOB`
 - human-facing network name
 - connection settings like host/port/tls/nick/realname/SASL
 - `sort_order` for persistent sidebar ordering
 
-The `buffer_registry` table stores the global API-facing buffer ID namespace.
+The `buffer_registry` table stores the global API-facing buffer ID namespace. Buffer IDs are UUIDv7 values stored as 16-byte SQLite `BLOB`s and serialized over JSON as strings.
 
 ### Per-network log DBs
 
@@ -42,10 +42,13 @@ Purpose:
 - messages for that network
 - per-buffer mutable state such as topic/joined/last seen
 
-Important property:
+Important properties:
 
 - message history is sharded by network DB
-- API-facing buffer IDs are global, but message rows live in each network's log DB
+- backend message logs are retained indefinitely
+- there is no automatic retention policy, max-age cleanup, or max-row cleanup for stored messages
+- buffer IDs are the same UUIDv7 values used by `control.db.buffer_registry`; there is no separate local buffer ID namespace
+- message IDs are UUIDv7 values stored as 16-byte SQLite `BLOB`s and exposed over the API as strings
 
 ### Preview cache DB
 
@@ -95,6 +98,8 @@ The preview DB handles cross-network cache data:
 
 This avoids putting all message history for all networks into one DB while still allowing one global API surface, and keeps the expensive/disposable URL cache separate from both.
 
+This project is still greenfield. On-disk databases from before the UUIDv7 storage model are intentionally not migrated; delete old `data/` directories when crossing that boundary.
+
 ## Network model
 
 A network is:
@@ -119,13 +124,15 @@ Buffer kinds:
 
 Global/API view:
 
-- each buffer has a stable ID from `buffer_registry`
-- clients use this global buffer ID for history, active buffer selection, and mark-read operations
+- each buffer has a stable UUIDv7 ID from `buffer_registry`
+- clients use this buffer ID for history, active buffer selection, and mark-read operations
 
 Per-network/log DB view:
 
-- the backend maps the global buffer ID to the network-local buffer row before querying messages or updating read state
+- the per-network `buffers.id` value is the same UUIDv7 as `control.db.buffer_registry.id`
+- `MultiStore.EnsureBuffer` is the authoritative creation path and keeps those rows in lockstep
+- history, search, and mark-read operations resolve `buffer_id -> network_id -> log DB`, then query by the same buffer UUID
 
 Important invariant:
 
-- clients should treat buffer IDs as globally unique stable identifiers
+- clients should treat buffer IDs as globally unique stable string identifiers

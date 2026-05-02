@@ -1,5 +1,5 @@
 CREATE TABLE networks (
-  id          INTEGER PRIMARY KEY,
+  id          BLOB    PRIMARY KEY CHECK (length(id) = 16),
   name        TEXT    NOT NULL,
   name_ci     TEXT    NOT NULL UNIQUE,
   host        TEXT    NOT NULL,
@@ -14,8 +14,8 @@ CREATE TABLE networks (
 );
 
 CREATE TABLE buffer_registry (
-  id         INTEGER PRIMARY KEY,
-  network_id INTEGER NOT NULL REFERENCES networks(id) ON DELETE CASCADE,
+  id         BLOB    PRIMARY KEY CHECK (length(id) = 16),
+  network_id BLOB    NOT NULL REFERENCES networks(id) ON DELETE CASCADE,
   name       TEXT    NOT NULL,
   kind       TEXT    NOT NULL CHECK (kind IN ('channel','query','status')),
   created_at TEXT    NOT NULL,

@@ -13,7 +13,7 @@ import { setDesktopSidebarHidden, setMembersDrawer, setSidebarDrawer, toggleSide
 
 export type KeyboardShortcutsDeps = {
   inputEl: HTMLInputElement;
-  setActive: (id: number) => void;
+  setActive: (id: string) => void;
 };
 
 let cleanupKeydown: (() => void) | null = null;

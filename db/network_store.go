@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"database/sql"
+
+	"github.com/google/uuid"
 )
 
 // UpsertNetwork inserts the network if missing, or updates its config fields
@@ -22,27 +24,25 @@ func UpsertNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 		saslUser = n.SASLUser
 		saslPass = n.SASLPass
 	}
+	newId := newID()
 	_, err := d.ExecContext(ctx,
-		`INSERT INTO networks(name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order)+1,0) FROM networks), ?)
+		`INSERT INTO networks(id, name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order)+1,0) FROM networks), ?)
 		 ON CONFLICT(name_ci) DO UPDATE SET
 		   name=excluded.name, host=excluded.host, port=excluded.port,
 		   tls=excluded.tls, nick=excluded.nick, realname=excluded.realname,
 		   sasl_user=excluded.sasl_user, sasl_pass=excluded.sasl_pass,
 		   disabled=0`,
-		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
+		newId[:], n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
 	if err != nil {
 		return Network{}, err
 	}
 
-	// LastInsertId is unreliable for INSERT .. ON CONFLICT DO UPDATE because
-	// SQLite leaves it at the connection's previous insert rowid, or zero on a
-	// fresh connection. Resolve the stored row explicitly so callers always get
-	// the real network ID.
-	var id int64
-	if err := d.QueryRowContext(ctx, `SELECT id FROM networks WHERE name_ci = ?`, nameCI).Scan(&id); err != nil {
+	var idBytes []byte
+	if err := d.QueryRowContext(ctx, `SELECT id FROM networks WHERE name_ci = ?`, nameCI).Scan(&idBytes); err != nil {
 		return Network{}, err
 	}
+	id := scanUUID(idBytes)
 	return GetNetwork(ctx, d, id)
 }
 
@@ -94,12 +94,12 @@ func MarkNonYAMLNetworksDisabled(ctx context.Context, d *sql.DB, yamlNames []str
 }
 
 // SetNetworkDisabled sets the disabled flag on a single network.
-func SetNetworkDisabled(ctx context.Context, d *sql.DB, id int64, disabled bool) error {
+func SetNetworkDisabled(ctx context.Context, d *sql.DB, id uuid.UUID, disabled bool) error {
 	v := 0
 	if disabled {
 		v = 1
 	}
-	res, err := d.ExecContext(ctx, `UPDATE networks SET disabled=? WHERE id=?`, v, id)
+	res, err := d.ExecContext(ctx, `UPDATE networks SET disabled=? WHERE id=?`, v, id[:])
 	if err != nil {
 		return err
 	}

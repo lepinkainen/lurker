@@ -3,6 +3,7 @@ package irc
 import (
 	"testing"
 
+	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/hub"
 )
@@ -12,13 +13,13 @@ type recordingPreviewEnqueuer struct {
 }
 
 type previewCall struct {
-	networkID int64
-	bufferID  int64
-	messageID int64
+	networkID uuid.UUID
+	bufferID  uuid.UUID
+	messageID uuid.UUID
 	content   string
 }
 
-func (r *recordingPreviewEnqueuer) Enqueue(networkID, bufferID, messageID int64, content string) {
+func (r *recordingPreviewEnqueuer) Enqueue(networkID, bufferID, messageID uuid.UUID, content string) {
 	r.calls = append(r.calls, previewCall{networkID: networkID, bufferID: bufferID, messageID: messageID, content: content})
 }
 
@@ -108,7 +109,7 @@ func TestPreviewEnqueuedOnlyForUserAuthoredMessageKinds(t *testing.T) {
 		t.Fatalf("preview calls = %d, want 3: %+v", len(previews.calls), previews.calls)
 	}
 	for _, call := range previews.calls {
-		if call.networkID != f.Network.ID || call.bufferID == 0 || call.messageID == 0 || call.content == "" {
+		if call.networkID != f.Network.ID || call.bufferID == uuid.Nil || call.messageID == uuid.Nil || call.content == "" {
 			t.Fatalf("bad preview call: %+v", call)
 		}
 	}

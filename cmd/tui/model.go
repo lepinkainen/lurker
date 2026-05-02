@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 )
 
 // layout constants
@@ -73,9 +73,9 @@ type model struct {
 
 	networks      []networkDTO
 	buffers       []bufferDTO
-	networkStates map[int64]string       // network_id -> state string
-	messages      map[int64][]messageDTO // buffer_id -> messages
-	topics        map[int64]string       // buffer_id -> topic
+	networkStates map[uuid.UUID]string       // network_id -> state string
+	messages      map[uuid.UUID][]messageDTO // buffer_id -> messages
+	topics        map[uuid.UUID]string       // buffer_id -> topic
 	sidebarItems  []sidebarItem
 	sidebarSel    int
 	activeBuffer  *bufferDTO
@@ -107,9 +107,9 @@ func newModel(cfg *Config) model {
 	return model{
 		cfg:           cfg,
 		client:        newAPIClient(cfg.BackendURL),
-		networkStates: make(map[int64]string),
-		messages:      make(map[int64][]messageDTO),
-		topics:        make(map[int64]string),
+		networkStates: make(map[uuid.UUID]string),
+		messages:      make(map[uuid.UUID][]messageDTO),
+		topics:        make(map[uuid.UUID]string),
 		input:         ta,
 		focus:         focusInput,
 		status:        "Connecting…",
@@ -326,7 +326,10 @@ func (m *model) applyState(s *stateResponse) {
 		}
 	}
 	for key, msgs := range s.InitialMessages {
-		id, _ := strconv.ParseInt(key, 10, 64)
+		id, err := uuid.Parse(key)
+		if err != nil {
+			continue
+		}
 		m.messages[id] = msgs
 	}
 	m.rebuildSidebar()
@@ -336,13 +339,13 @@ func (m *model) applyState(s *stateResponse) {
 }
 
 func (m *model) rebuildSidebar() {
-	netIndex := make(map[int64]networkDTO, len(m.networks))
+	netIndex := make(map[uuid.UUID]networkDTO, len(m.networks))
 	for _, n := range m.networks {
 		netIndex[n.ID] = n
 	}
 
 	// Group buffers by network, preserving network sort order.
-	bufsByNet := make(map[int64][]bufferDTO)
+	bufsByNet := make(map[uuid.UUID][]bufferDTO)
 	for _, b := range m.buffers {
 		bufsByNet[b.NetworkID] = append(bufsByNet[b.NetworkID], b)
 	}

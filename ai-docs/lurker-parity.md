@@ -152,8 +152,8 @@ Add a `POST /api/upload` endpoint that accepts multipart file data, stores it un
 ### 6.1 Per-network connect commands
 A list of raw IRC commands (e.g. `PRIVMSG NickServ :IDENTIFY hunter2`) executed in order after a successful connect + nick registration. Stored as an ordered list on the network record in the control DB. Useful for NickServ auth, auto-set modes, joining password-protected channels.
 
-### 6.2 Message retention / cleanup
-A configurable max age (days) and/or max row count per buffer. A periodic background job (e.g. daily at startup + cron-style ticker) deletes messages older than the threshold from each log DB. Config options: `retention_days`, `retention_max_rows_per_buffer`. Default: unlimited (current behaviour).
+### 6.2 Message log retention
+Backend message logs are retained indefinitely. Do not add automatic max-age cleanup, max-row cleanup, or periodic deletion jobs for stored messages.
 
 ### 6.3 HTTPS for the web interface
 Add optional TLS to the HTTP server itself. Config options: `tls_cert_file`, `tls_key_file`. When set, listen on HTTPS instead of HTTP. Alternatively, document the recommended nginx/Caddy reverse-proxy setup as the preferred approach (lower maintenance burden).

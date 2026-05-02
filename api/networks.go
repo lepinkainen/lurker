@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/irc"
 )
@@ -22,7 +23,7 @@ type networkRequest struct {
 }
 
 type reorderNetworksRequest struct {
-	IDs []int64 `json:"ids"`
+	IDs []uuid.UUID `json:"ids"`
 }
 
 func (r networkRequest) toDBNetwork() ircdb.Network {
@@ -84,7 +85,7 @@ func (s *Server) reorderNetworks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	states := map[int64]string{}
+	states := map[uuid.UUID]string{}
 	if s.Manager != nil {
 		states = s.Manager.StateSnapshot()
 	}

@@ -18,6 +18,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 )
 
@@ -120,7 +121,7 @@ func seed(ctx context.Context, stores *ircdb.MultiStore, networks []seedNetwork)
 	return nil
 }
 
-func seedStatus(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID int64, base time.Time) error {
+func seedStatus(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID uuid.UUID, base time.Time) error {
 	localID, err := resolveLocalBuffer(ctx, stores, log, networkID, "", ircdb.BufferStatus)
 	if err != nil {
 		return err
@@ -134,7 +135,7 @@ func seedStatus(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogSto
 	return insertLines(ctx, log, localID, lines, base)
 }
 
-func seedChannelBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID int64, c seedChannel, base time.Time) error {
+func seedChannelBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID uuid.UUID, c seedChannel, base time.Time) error {
 	localID, err := resolveLocalBuffer(ctx, stores, log, networkID, c.Name, ircdb.BufferChannel)
 	if err != nil {
 		return err
@@ -147,7 +148,7 @@ func seedChannelBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb
 	return insertLines(ctx, log, localID, c.Lines, base)
 }
 
-func seedQueryBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID int64, q seedQuery, base time.Time) error {
+func seedQueryBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID uuid.UUID, q seedQuery, base time.Time) error {
 	localID, err := resolveLocalBuffer(ctx, stores, log, networkID, q.Nick, ircdb.BufferQuery)
 	if err != nil {
 		return err
@@ -155,15 +156,12 @@ func seedQueryBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.L
 	return insertLines(ctx, log, localID, q.Lines, base)
 }
 
-func resolveLocalBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID int64, name, kind string) (localID int64, err error) {
-	if _, _, _, err = stores.UpsertBufferRegistry(ctx, networkID, name, kind); err != nil {
-		return 0, err
-	}
-	localID, _, _, err = ircdb.UpsertLogBuffer(ctx, log.DB, networkID, name, kind)
-	return localID, err
+func resolveLocalBuffer(ctx context.Context, stores *ircdb.MultiStore, _ *ircdb.LogStore, networkID uuid.UUID, name, kind string) (uuid.UUID, error) {
+	id, _, _, err := stores.EnsureBuffer(ctx, networkID, name, kind)
+	return id, err
 }
 
-func insertLines(ctx context.Context, log *ircdb.LogStore, bufferID int64, lines []seedLine, base time.Time) error {
+func insertLines(ctx context.Context, log *ircdb.LogStore, bufferID uuid.UUID, lines []seedLine, base time.Time) error {
 	for i, l := range lines {
 		ts := base.Add(l.Offset + time.Duration(i)*time.Millisecond)
 		_, _, _, err := ircdb.InsertLogMessage(ctx, log.DB, ircdb.LogMessageInput{

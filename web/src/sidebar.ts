@@ -9,7 +9,7 @@ import { prepareSidebarModel, type SidebarNetworkModel } from "./sidebar-model";
 
 export type SidebarDeps = {
   sbScrollEl: HTMLDivElement;
-  setActive: (id: number) => void;
+  setActive: (id: string) => void;
   iconEl: (symbolId: string, size: number, opts?: { className?: string; label?: string }) => SVGSVGElement;
 };
 
@@ -84,7 +84,7 @@ function networkSection(model: SidebarNetworkModel, deps: SidebarDeps) {
   return sec;
 }
 
-function networkSectionClass(networkId: number) {
+function networkSectionClass(networkId: string) {
   return [
     "sb-section",
     "netsection",
@@ -403,7 +403,7 @@ function span(cls: string, text: string) {
   return el;
 }
 
-async function reorderNetwork(fromId: number, toId: number, deps: SidebarDeps) {
+async function reorderNetwork(fromId: string, toId: string, deps: SidebarDeps) {
   const ids = orderedNetworks().map((network) => network.id);
   const fromIdx = ids.indexOf(fromId);
   const toIdx = ids.indexOf(toId);
