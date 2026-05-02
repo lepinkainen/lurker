@@ -1,4 +1,5 @@
 export type DomRefs = {
+  sidebarEl: HTMLElement;
   sbScrollEl: HTMLDivElement;
   backendStatusEl: HTMLElement;
   backendStatusTextEl: HTMLElement;
@@ -34,6 +35,7 @@ function mustEl<T extends HTMLElement>(id: string): T {
 
 export function captureDom(): DomRefs {
   return {
+    sidebarEl: mustEl<HTMLElement>("sidebar"),
     sbScrollEl: mustEl<HTMLDivElement>("sb-scroll"),
     backendStatusEl: mustEl<HTMLElement>("backend-status"),
     backendStatusTextEl: mustEl<HTMLElement>("backend-status-text"),

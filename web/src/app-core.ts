@@ -27,6 +27,7 @@ import { openHelpOverlay } from "./shortcuts-help";
 import { renderSidebar } from "./sidebar";
 import { renderSidebarStatus } from "./status";
 import { applyThemeDefaults, initThemeSelector } from "./theme-ui";
+import { initTouchGestures } from "./touch-gestures";
 import { isMobileViewport, onBackdropClick, setMembersDrawer, setSidebarDrawer } from "./ui-shell";
 
 let dom: DomRefs | null = null;
@@ -77,6 +78,7 @@ export function start() {
   d.shortcutsHelpBtnEl.addEventListener("click", () => openHelpOverlay());
   document.getElementById("settings-btn")?.addEventListener("click", () => openSettingsDialog());
   document.addEventListener("click", onBackdropClick);
+  initTouchGestures({ sidebarEl: d.sidebarEl });
   initKeyboardShortcuts({ inputEl: d.inputEl, setActive: (id: number) => setActive(id) });
   const onHash = () => onHashChange(setActive);
   window.addEventListener("hashchange", onHash);
