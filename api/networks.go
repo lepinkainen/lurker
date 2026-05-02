@@ -144,6 +144,9 @@ func (s *Server) patchNetwork(w http.ResponseWriter, r *http.Request) {
 
 	// Only update other fields if any non-disabled fields were sent.
 	dbNet := req.toDBNetwork()
+	if req.TLS == nil {
+		dbNet.TLS = before.TLS
+	}
 	var updated ircdb.Network
 	if req.ConnectCommands != nil {
 		setErr := ircdb.SetNetworkConnectCommands(r.Context(), s.Stores.Control, id, req.ConnectCommands)
@@ -153,7 +156,7 @@ func (s *Server) patchNetwork(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if dbNet.Name != "" || dbNet.Host != "" || dbNet.Port != 0 || dbNet.Nick != "" {
+	if dbNet.Name != "" || dbNet.Host != "" || dbNet.Port != 0 || dbNet.Nick != "" || req.TLS != nil {
 		updated, err = ircdb.UpdateNetwork(r.Context(), s.Stores.Control, id, dbNet)
 		if err != nil {
 			writeNetworkDBError(w, err, http.StatusBadRequest)
