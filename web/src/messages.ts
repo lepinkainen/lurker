@@ -239,18 +239,48 @@ function statusLine(message: Message) {
   return row;
 }
 
+const PRESENCE_KINDS = ["join", "part", "quit", "nick"] as const;
+const expandedPresenceGroups = new Set<string>();
+
 function renderMessages(messagesEl: HTMLElement) {
   messagesEl.innerHTML = "";
   const list = state.messages.get(state.activeId ?? "") || [];
   const buffer = activeBuffer();
   const lastSeen = buffer?.last_seen_id || "";
+  const collapsePresence = shouldCollapsePresence(buffer);
   let unreadInserted = false;
   let lastDayKey: string | null = null;
+  let presenceGroup: Message[] = [];
+
+  const flushPresenceGroup = () => {
+    if (presenceGroup.length === 0) return;
+    if (presenceGroup.length === 1) {
+      const [message] = presenceGroup;
+      if (message) messagesEl.appendChild(messageRow(message));
+    } else {
+      messagesEl.appendChild(
+        presenceSummaryRow(presenceGroup, () => {
+          const scrollTop = messagesEl.scrollTop;
+          renderMessages(messagesEl);
+          messagesEl.scrollTop = scrollTop;
+        }),
+      );
+      if (expandedPresenceGroups.has(presenceGroupKey(presenceGroup))) {
+        for (const message of presenceGroup) {
+          const row = messageRow(message);
+          row.classList.add("presence-expanded");
+          messagesEl.appendChild(row);
+        }
+      }
+    }
+    presenceGroup = [];
+  };
 
   for (const message of list) {
     if (isHiddenPresence(message, buffer)) continue;
     const dayKey = dayKeyOf(message.ts);
     if (dayKey && dayKey !== lastDayKey) {
+      flushPresenceGroup();
       messagesEl.appendChild(daySeparator(message.ts));
       lastDayKey = dayKey;
     }
@@ -261,6 +291,7 @@ function renderMessages(messagesEl: HTMLElement) {
       state.activeId !== null &&
       lastSeen !== ""
     ) {
+      flushPresenceGroup();
       const bar = document.createElement("div");
       bar.className = "unreadbar";
       const label = document.createElement("span");
@@ -269,8 +300,14 @@ function renderMessages(messagesEl: HTMLElement) {
       messagesEl.appendChild(bar);
       unreadInserted = true;
     }
+    if (collapsePresence && isPresenceEvent(message)) {
+      presenceGroup.push(message);
+      continue;
+    }
+    flushPresenceGroup();
     messagesEl.appendChild(messageRow(message));
   }
+  flushPresenceGroup();
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
@@ -322,8 +359,72 @@ function messageRow(message: Message) {
   return row;
 }
 
+function presenceSummaryRow(messages: Message[], rerender: () => void) {
+  const key = presenceGroupKey(messages);
+  const expanded = expandedPresenceGroups.has(key);
+  const row = document.createElement("div");
+  row.className = `msg sys presence-summary${expanded ? " expanded" : ""}`;
+  row.dataset.presenceCount = String(messages.length);
+  row.dataset.presenceIds = messages.map((message) => message.id).join(",");
+  row.dataset.expanded = String(expanded);
+  row.setAttribute("role", "button");
+  row.tabIndex = 0;
+  row.setAttribute("aria-expanded", String(expanded));
+
+  const ts = document.createElement("span");
+  ts.className = "ts";
+  ts.textContent = formatTime(messages[0]?.ts);
+  const gutter = document.createElement("span");
+  gutter.className = "gutter";
+  gutter.textContent = expanded ? "−" : "+";
+  const body = document.createElement("span");
+  body.className = "body";
+  body.textContent = presenceSummaryText(messages);
+
+  const toggle = () => {
+    if (expandedPresenceGroups.has(key)) expandedPresenceGroups.delete(key);
+    else expandedPresenceGroups.add(key);
+    rerender();
+  };
+  row.addEventListener("click", toggle);
+  row.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggle();
+  });
+
+  row.append(ts, gutter, body);
+  return row;
+}
+
+function presenceSummaryText(messages: Message[]) {
+  const counts = new Map<string, number>();
+  for (const message of messages) counts.set(message.kind || "event", (counts.get(message.kind || "event") || 0) + 1);
+  const parts = PRESENCE_KINDS.map((kind) => [kind, counts.get(kind) || 0] as const)
+    .filter(([, count]) => count > 0)
+    .map(([kind, count]) => `${count} ${presenceKindLabel(kind, count)}`);
+  return `${messages.length} presence events: ${parts.join(", ")}`;
+}
+
+function presenceKindLabel(kind: (typeof PRESENCE_KINDS)[number], count: number) {
+  if (kind === "nick") return count === 1 ? "nick change" : "nick changes";
+  return count === 1 ? kind : `${kind}s`;
+}
+
+function presenceGroupKey(messages: Message[]) {
+  return messages.map((message) => message.id).join("|");
+}
+
+function shouldCollapsePresence(buffer: import("./app-state").Buffer | undefined) {
+  return buffer?.show_presence_events === true && buffer.collapse_presence_events === true;
+}
+
+function isPresenceEvent(message: Message) {
+  return PRESENCE_KINDS.includes(message.kind as (typeof PRESENCE_KINDS)[number]);
+}
+
 function isHiddenPresence(message: Message, buffer: import("./app-state").Buffer | undefined) {
-  return buffer?.show_presence_events === false && ["join", "part", "quit", "nick"].includes(message.kind || "");
+  return buffer?.show_presence_events === false && isPresenceEvent(message);
 }
 
 function countsAsUnreadActivity(message: Message) {

@@ -138,6 +138,89 @@ describe("renderActiveView", () => {
     renderActiveView(d, deps);
     expect(d.messagesEl.querySelector(".unreadbar")).toBeNull();
   });
+
+  it("collapses consecutive presence events when enabled", () => {
+    state.activeId = "1";
+    state.buffers.set("1", buf({ id: "1", name: "#x", show_presence_events: true, collapse_presence_events: true }));
+    state.messages.set("1", [
+      { id: "1", buffer_id: "1", sender: "a", kind: "join", ts: "2024-05-01T10:00:00Z" },
+      { id: "2", buffer_id: "1", sender: "b", kind: "part", ts: "2024-05-01T10:01:00Z" },
+      { id: "3", buffer_id: "1", sender: "c", kind: "quit", ts: "2024-05-01T10:02:00Z" },
+      { id: "4", buffer_id: "1", sender: "d", kind: "nick", ts: "2024-05-01T10:03:00Z" },
+    ]);
+    const d = dom();
+    renderActiveView(d, deps);
+    const summary = d.messagesEl.querySelector<HTMLElement>(".presence-summary");
+    expect(summary?.dataset.presenceCount).toBe("4");
+    expect(summary?.textContent).toContain("4 presence events");
+    expect(summary?.textContent).toContain("1 join");
+    expect(summary?.textContent).toContain("1 nick change");
+    expect(d.messagesEl.querySelectorAll(".msg").length).toBe(1);
+  });
+
+  it("breaks collapsed presence groups around normal messages", () => {
+    state.activeId = "1";
+    state.buffers.set("1", buf({ id: "1", name: "#x", show_presence_events: true, collapse_presence_events: true }));
+    state.messages.set("1", [
+      { id: "1", buffer_id: "1", sender: "a", kind: "join", ts: "2024-05-01T10:00:00Z" },
+      { id: "2", buffer_id: "1", sender: "b", kind: "part", ts: "2024-05-01T10:01:00Z" },
+      { id: "3", buffer_id: "1", sender: "alice", content: "hi", kind: "message", ts: "2024-05-01T10:02:00Z" },
+      { id: "4", buffer_id: "1", sender: "c", kind: "join", ts: "2024-05-01T10:03:00Z" },
+      { id: "5", buffer_id: "1", sender: "d", kind: "quit", ts: "2024-05-01T10:04:00Z" },
+    ]);
+    const d = dom();
+    renderActiveView(d, deps);
+    expect(
+      [...d.messagesEl.querySelectorAll<HTMLElement>(".msg")].map((row) => row.dataset.presenceCount || "msg"),
+    ).toEqual(["2", "msg", "2"]);
+  });
+
+  it("renders individual presence events when collapse is disabled", () => {
+    state.activeId = "1";
+    state.buffers.set("1", buf({ id: "1", name: "#x", show_presence_events: true, collapse_presence_events: false }));
+    state.messages.set("1", [
+      { id: "1", buffer_id: "1", sender: "a", kind: "join", ts: "2024-05-01T10:00:00Z" },
+      { id: "2", buffer_id: "1", sender: "b", kind: "part", ts: "2024-05-01T10:01:00Z" },
+    ]);
+    const d = dom();
+    renderActiveView(d, deps);
+    expect(d.messagesEl.querySelector(".presence-summary")).toBeNull();
+    expect(d.messagesEl.querySelectorAll(".msg.sys").length).toBe(2);
+  });
+
+  it("hides presence events when show presence is disabled", () => {
+    state.activeId = "1";
+    state.buffers.set("1", buf({ id: "1", name: "#x", show_presence_events: false, collapse_presence_events: true }));
+    state.messages.set("1", [
+      { id: "1", buffer_id: "1", sender: "a", kind: "join", ts: "2024-05-01T10:00:00Z" },
+      { id: "2", buffer_id: "1", sender: "alice", content: "hi", kind: "message", ts: "2024-05-01T10:01:00Z" },
+    ]);
+    const d = dom();
+    renderActiveView(d, deps);
+    expect(d.messagesEl.querySelector(".presence-summary")).toBeNull();
+    expect(d.messagesEl.querySelectorAll(".msg").length).toBe(1);
+    expect(d.messagesEl.querySelector(".msg")?.textContent).toContain("hi");
+  });
+
+  it("expands collapsed presence events on click", () => {
+    state.activeId = "1";
+    state.buffers.set("1", buf({ id: "1", name: "#x", show_presence_events: true, collapse_presence_events: true }));
+    state.messages.set("1", [
+      { id: "1", buffer_id: "1", sender: "a", kind: "join", ts: "2024-05-01T10:00:00Z" },
+      { id: "2", buffer_id: "1", sender: "b", kind: "part", ts: "2024-05-01T10:01:00Z" },
+    ]);
+    const d = dom();
+    renderActiveView(d, deps);
+    d.messagesEl.querySelector<HTMLElement>(".presence-summary")?.click();
+    expect(d.messagesEl.querySelector<HTMLElement>(".presence-summary")?.dataset.expanded).toBe("true");
+    expect(d.messagesEl.querySelectorAll(".presence-expanded").length).toBe(2);
+
+    d.messagesEl
+      .querySelector<HTMLElement>(".presence-summary")
+      ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(d.messagesEl.querySelector<HTMLElement>(".presence-summary")?.dataset.expanded).toBe("false");
+    expect(d.messagesEl.querySelectorAll(".presence-expanded").length).toBe(0);
+  });
 });
 
 describe("onMessage", () => {

@@ -226,6 +226,26 @@
     font-weight: 500;
   }
 
+  .msg.presence-summary {
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .msg.presence-summary:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+  }
+
+  .msg.presence-summary .gutter {
+    color: var(--fg-2);
+    font-weight: 700;
+  }
+
+  .msg.presence-expanded {
+    padding-left: 24px;
+    background: color-mix(in srgb, var(--bg-4) 45%, transparent);
+  }
+
   .selfmention {
     background: var(--mention-soft);
     color: var(--mention);
