@@ -16,16 +16,22 @@ export type StateSyncDeps = {
   bufferFromHash: (hash: string) => { id: string } | null;
 };
 
-export type HydrateDeps = StateSyncDeps & {
+export type HydrateDeps = {
   renderSidebarStatus: () => void;
+  syncStateFromServer: () => Promise<void>;
   scheduleReconnect: (delayMs: number) => void;
   nextReconnectDelay: () => number;
 };
 
-export type WebSocketDeps = HydrateDeps & {
+export type WebSocketDeps = {
   domReady: () => boolean;
+  renderSidebarStatus: () => void;
+  renderSidebar: () => void;
   updateInputEnabled: () => void;
   maybeMarkActiveRead: () => void;
+  syncStateFromServer: () => Promise<void>;
+  scheduleReconnect: (delayMs: number) => void;
+  nextReconnectDelay: () => number;
   handleWSMessage: (msg: unknown) => void;
 };
 
@@ -40,7 +46,7 @@ type ReconnectDeps = {
   connectWS: () => void;
 };
 
-async function syncStateFromServer(deps: StateSyncDeps) {
+export async function syncStateFromServer(deps: StateSyncDeps) {
   const [stateRes, updateRes] = await Promise.all([
     fetch("/api/state"),
     fetch("/api/update-status", { headers: { Accept: "application/json" } }).catch(() => null),
@@ -91,7 +97,7 @@ export async function hydrate(deps: HydrateDeps) {
   try {
     state.backendStatus = "connecting";
     deps.renderSidebarStatus();
-    await syncStateFromServer(deps);
+    await deps.syncStateFromServer();
     state.reconnectAttempts = 0;
     deps.scheduleReconnect(0);
   } catch (err) {
@@ -146,7 +152,8 @@ export function connectWS(deps: WebSocketDeps) {
     deps.maybeMarkActiveRead();
     deps.renderSidebar();
     if (state.needsStateSyncOnConnect) {
-      syncStateFromServer(deps)
+      deps
+        .syncStateFromServer()
         .then(() => {
           state.needsStateSyncOnConnect = false;
         })

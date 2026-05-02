@@ -1,31 +1,27 @@
 import "./style.css";
 import "./mobile.css";
-import { activeBuffer, type ChannelListEntry, type Member, type Message, type Network, state } from "./app-state";
-import { renderChannelListPanel } from "./channel-list";
-import { connectWS, hydrate, nextReconnectDelay, scheduleReconnect, type WebSocketDeps } from "./connection";
+import { activeBuffer, type ChannelListEntry, type Member, type Message, state } from "./app-state";
+import { type AppView, createAppView } from "./app-view";
+import {
+  connectWS,
+  hydrate,
+  nextReconnectDelay,
+  scheduleReconnect,
+  syncStateFromServer,
+  type WebSocketDeps,
+} from "./connection";
 import { captureDom, type DomRefs } from "./dom";
-import { bindInputHandlers, updateInputEnabled } from "./input";
+import { bindInputHandlers } from "./input";
 import { updateCmdPop } from "./input-command-popup";
 import { restoreInputDraft, saveInputDraft } from "./input-history";
 import { cleanupKeyboardShortcuts, initKeyboardShortcuts } from "./keyboard-routing";
-import { populateMembersForActive, renderMembers } from "./members";
-import {
-  inferUnreadCounts,
-  onBufferUpdate,
-  onHistoryResult,
-  onMessage,
-  onPreview,
-  renderActiveView,
-  renderHeader,
-} from "./messages";
+import { populateMembersForActive } from "./members";
+import { inferUnreadCounts, onBufferUpdate, onHistoryResult, onMessage, onPreview } from "./messages";
 import { onHashChange } from "./navigation";
-import { nickAvatar } from "./nick";
 import { resetAppState } from "./reset";
 import { bufferFromHash, bufferHashFor } from "./router";
 import { openSettingsDialog } from "./settings-dialog";
 import { openHelpOverlay } from "./shortcuts-help";
-import { renderSidebar } from "./sidebar";
-import { renderSidebarStatus } from "./status";
 import { applyThemeDefaults, initThemeSelector } from "./theme-ui";
 import { initTouchGestures } from "./touch-gestures";
 import { isMobileViewport, onBackdropClick, setMembersDrawer, setSidebarDrawer } from "./ui-shell";
@@ -48,7 +44,7 @@ export function start() {
   dom = captureDom();
   domReady = true;
   const d = dom;
-  const view = createAppView(d);
+  const view = createAppView(d, { sendCmd, setActive });
   appView = view;
   view.renderStatus();
   applyThemeDefaults();
@@ -59,6 +55,7 @@ export function start() {
     uploadInputEl: d.uploadInputEl,
     uploadButtonEl: d.uploadButtonEl,
     cmdPopEl: d.cmdPopEl,
+    emojiPopEl: d.emojiPopEl,
     getActiveBuffer: activeBuffer,
     sendCmd,
   });
@@ -87,20 +84,24 @@ export function start() {
   return hydrate(connectionDeps);
 }
 
-type AppView = ReturnType<typeof createAppView>;
-
 function createConnectionDeps(view: AppView): WebSocketDeps {
   const deps: WebSocketDeps = {
     domReady: () => domReady,
     renderSidebarStatus: view.renderStatus,
-    renderPromptNick: view.renderPromptNick,
     renderSidebar: view.renderSidebar,
-    renderHeader: view.renderHeader,
-    renderActiveView: view.renderActiveView,
-    renderMembers: view.renderMembers,
     updateInputEnabled: view.updateInputEnabled,
     maybeMarkActiveRead,
-    inferUnreadCounts,
+    syncStateFromServer: () =>
+      syncStateFromServer({
+        renderPromptNick: view.renderPromptNick,
+        inferUnreadCounts,
+        renderSidebar: view.renderSidebar,
+        renderHeader: view.renderHeader,
+        renderActiveView: view.renderActiveView,
+        renderMembers: view.renderMembers,
+        setActive,
+        bufferFromHash,
+      }),
     scheduleReconnect: (delayMs: number) =>
       scheduleReconnect(
         {
@@ -111,51 +112,9 @@ function createConnectionDeps(view: AppView): WebSocketDeps {
         delayMs,
       ),
     nextReconnectDelay,
-    setActive,
-    bufferFromHash,
     handleWSMessage,
   };
   return deps;
-}
-
-function createAppView(d: DomRefs) {
-  const messageArea = {
-    messagesEl: d.messagesEl,
-    statusViewEl: d.statusViewEl,
-    bufferNameEl: d.bufferNameEl,
-    bufferTopicEl: d.bufferTopicEl,
-    inputEl: d.inputEl,
-  };
-  const view = {
-    dom: d,
-    renderStatus: () => renderSidebarStatus(d),
-    renderPromptNick: () => {
-      const nick = activePromptNick();
-      d.inputNickEl.replaceChildren(nickAvatar(nick), nick);
-    },
-    renderHeader: () => renderHeader(messageArea, { renderPromptNick: view.renderPromptNick, iconEl }),
-    renderActiveView: () => {
-      if (state.channelList?.done) {
-        d.statusViewEl.hidden = true;
-        d.messagesEl.hidden = false;
-        renderChannelListPanel(d.messagesEl, { sendCmd, renderActiveView: view.renderActiveView });
-        return;
-      }
-      renderActiveView(messageArea, { renderPromptNick: view.renderPromptNick, iconEl });
-    },
-    renderMembers: () =>
-      renderMembers({
-        memberPaneEl: d.memberPaneEl,
-        toggleMembersEl: d.toggleMembersEl,
-        memberCountEl: d.memberCountEl,
-        memberCountInlineEl: d.memberCountInlineEl,
-        bufferMemcountEl: d.bufferMemcountEl,
-        memberListEl: d.memberListEl,
-      }),
-    updateInputEnabled: () => updateInputEnabled(d.inputEl),
-    renderSidebar: () => renderSidebar({ sbScrollEl: d.sbScrollEl, setActive, iconEl }),
-  };
-  return view;
 }
 
 type WSMessage =
@@ -240,45 +199,13 @@ function handleWSMessage(msg: unknown) {
       state.channelList.entries.push(...m.entries);
       state.channelList.done = m.done;
       if (m.done && m.network_id === state.networks.get(activeBuffer()?.network_id ?? "")?.id) {
-        renderChannelListPanel(view.dom.messagesEl, { sendCmd, renderActiveView: view.renderActiveView });
+        view.renderActiveView();
       }
       break;
     case "ignorelist_result":
       console.log("ignore list:", m.masks);
       break;
   }
-}
-
-const SVG_NS = "http://www.w3.org/2000/svg";
-
-function iconEl(symbolId: string, size: number, opts: { className?: string; label?: string } = {}): SVGSVGElement {
-  const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("class", opts.className ? `icon ${opts.className}` : "icon");
-  svg.setAttribute("width", String(size));
-  svg.setAttribute("height", String(size));
-  svg.setAttribute("focusable", "false");
-  if (opts.label) {
-    svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", opts.label);
-    const title = document.createElementNS(SVG_NS, "title");
-    title.textContent = opts.label;
-    svg.appendChild(title);
-  } else {
-    svg.setAttribute("aria-hidden", "true");
-  }
-  const useEl = document.createElementNS(SVG_NS, "use");
-  useEl.setAttribute("href", `#${symbolId}`);
-  svg.appendChild(useEl);
-  return svg;
-}
-
-function activePromptNick(): string {
-  const b = activeBuffer();
-  if (b) {
-    const n = state.networks.get(b.network_id) as (Network & { nick?: string }) | undefined;
-    if (n?.nick) return n.nick;
-  }
-  return state.me.nick || "";
 }
 
 function setActive(id: string, opts: { skipHash?: boolean; replaceHash?: boolean } = {}) {
