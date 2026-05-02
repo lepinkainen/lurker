@@ -31,6 +31,127 @@ from typing import Any
 
 NETWORK_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
+CONTROL_MIGRATIONS = [
+    (
+        "0001_init.sql",
+        """CREATE TABLE networks (
+  id          BLOB    PRIMARY KEY CHECK (length(id) = 16),
+  name        TEXT    NOT NULL,
+  name_ci     TEXT    NOT NULL UNIQUE,
+  host        TEXT    NOT NULL,
+  port        INTEGER NOT NULL,
+  tls         INTEGER NOT NULL DEFAULT 1,
+  nick        TEXT    NOT NULL,
+  realname    TEXT,
+  sasl_user   TEXT,
+  sasl_pass   TEXT,
+  autoconnect INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT    NOT NULL
+);
+
+CREATE TABLE buffer_registry (
+  id         BLOB    PRIMARY KEY CHECK (length(id) = 16),
+  network_id BLOB    NOT NULL REFERENCES networks(id) ON DELETE CASCADE,
+  name       TEXT    NOT NULL,
+  kind       TEXT    NOT NULL CHECK (kind IN ('channel','query','status')),
+  created_at TEXT    NOT NULL,
+  UNIQUE (network_id, name)
+);""",
+    ),
+    ("0002_network_sort_order.sql", "ALTER TABLE networks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;"),
+    (
+        "0003_ignores.sql",
+        """CREATE TABLE ignores (
+  id         BLOB    PRIMARY KEY CHECK (length(id) = 16),
+  network_id BLOB    NOT NULL REFERENCES networks(id) ON DELETE CASCADE,
+  mask       TEXT    NOT NULL,
+  created_at TEXT    NOT NULL,
+  UNIQUE (network_id, mask)
+);""",
+    ),
+    ("0004_network_disabled.sql", "ALTER TABLE networks ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;"),
+    (
+        "0005_buffer_settings.sql",
+        """CREATE TABLE buffer_settings (
+  buffer_id BLOB PRIMARY KEY REFERENCES buffer_registry(id) ON DELETE CASCADE,
+  show_embeds INTEGER NOT NULL DEFAULT 1,
+  show_presence_events INTEGER NOT NULL DEFAULT 1,
+  collapse_presence_events INTEGER NOT NULL DEFAULT 0,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);""",
+    ),
+]
+
+LOG_MIGRATIONS = [
+    (
+        "0001_init.sql",
+        """CREATE TABLE buffers (
+  id           BLOB    PRIMARY KEY CHECK (length(id) = 16),
+  name         TEXT    NOT NULL UNIQUE,
+  kind         TEXT    NOT NULL CHECK (kind IN ('channel','query','status')),
+  topic        TEXT,
+  joined       INTEGER NOT NULL DEFAULT 0,
+  last_seen_id BLOB,
+  created_at   TEXT    NOT NULL
+);
+
+CREATE TABLE messages (
+  rowid      INTEGER PRIMARY KEY AUTOINCREMENT,
+  id         BLOB    NOT NULL UNIQUE CHECK (length(id) = 16),
+  buffer_id  BLOB    NOT NULL REFERENCES buffers(id) ON DELETE CASCADE,
+  msgid      TEXT,
+  ts         TEXT    NOT NULL,
+  sender     TEXT    NOT NULL,
+  account    TEXT,
+  kind       TEXT    NOT NULL,
+  target     TEXT,
+  content    TEXT    NOT NULL DEFAULT '',
+  raw        TEXT    NOT NULL
+);
+
+CREATE INDEX messages_buffer_id ON messages(buffer_id, id);
+CREATE INDEX messages_buffer_ts ON messages(buffer_id, ts);
+CREATE UNIQUE INDEX messages_msgid
+  ON messages(msgid) WHERE msgid IS NOT NULL;
+
+CREATE VIRTUAL TABLE messages_fts USING fts5(
+  content, sender,
+  content='messages', content_rowid='rowid',
+  tokenize = 'unicode61 remove_diacritics 2'
+);
+
+CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts(rowid, content, sender)
+    VALUES (new.rowid, new.content, new.sender);
+END;
+
+CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, content, sender)
+    VALUES('delete', old.rowid, old.content, old.sender);
+END;
+
+CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, content, sender)
+    VALUES('delete', old.rowid, old.content, old.sender);
+  INSERT INTO messages_fts(rowid, content, sender)
+    VALUES (new.rowid, new.content, new.sender);
+END;""",
+    ),
+    (
+        "0002_message_previews.sql",
+        """CREATE TABLE message_previews (
+  message_id BLOB    NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  url        TEXT    NOT NULL,
+  position   INTEGER NOT NULL,
+  PRIMARY KEY (message_id, url)
+);
+
+CREATE INDEX idx_message_previews_msg ON message_previews(message_id);""",
+    ),
+    ("0003_drop_buffer_joined.sql", "ALTER TABLE buffers DROP COLUMN joined;"),
+]
+
 
 def now_storage() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:23] + "Z"
@@ -119,16 +240,34 @@ def checkpoint(path: Path) -> None:
         conn.close()
 
 
-def apply_migrations(conn: sqlite3.Connection, migration_dir: Path) -> None:
+def find_repo_root(start: Path) -> Path | None:
+    """Find the repository root from either scripts/ or a copied script path."""
+    resolved = start.resolve()
+    search_from = resolved if resolved.is_dir() else resolved.parent
+    for candidate in (search_from, *search_from.parents):
+        if (candidate / "db" / "control_migrations" / "0001_init.sql").is_file() and (
+            candidate / "db" / "log_migrations" / "0001_init.sql"
+        ).is_file():
+            return candidate
+    return None
+
+
+def apply_migrations(conn: sqlite3.Connection, migration_dir: Path | None, embedded: list[tuple[str, str]]) -> None:
+    migrations = embedded
+    if migration_dir is not None and migration_dir.is_dir():
+        migration_paths = sorted(migration_dir.glob("*.sql"))
+        if migration_paths:
+            migrations = [(path.name, path.read_text()) for path in migration_paths]
+
     conn.execute(
         """CREATE TABLE IF NOT EXISTS schema_migrations (
             version TEXT PRIMARY KEY,
             applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         )"""
     )
-    for path in sorted(migration_dir.glob("*.sql")):
-        conn.executescript(path.read_text())
-        conn.execute("INSERT INTO schema_migrations(version) VALUES (?)", (path.name,))
+    for name, sql in migrations:
+        conn.executescript(sql)
+        conn.execute("INSERT INTO schema_migrations(version) VALUES (?)", (name,))
     conn.commit()
 
 
@@ -143,7 +282,7 @@ class NetworkRow:
 @dataclass
 class MigrationState:
     data_dir: Path
-    repo_root: Path
+    repo_root: Path | None
     temp_dir: Path
     network_ids: dict[int, bytes]
     buffer_ids: dict[tuple[int, str], bytes]
@@ -152,7 +291,7 @@ class MigrationState:
     new_log_paths: dict[Path, Path]
 
 
-def migrate_control(data_dir: Path, repo_root: Path, temp_dir: Path) -> MigrationState:
+def migrate_control(data_dir: Path, repo_root: Path | None, temp_dir: Path) -> MigrationState:
     old_path = data_dir / "control.db"
     if not old_path.exists():
         raise SystemExit(f"missing {old_path}")
@@ -165,7 +304,7 @@ def migrate_control(data_dir: Path, repo_root: Path, temp_dir: Path) -> Migratio
         new_path = temp_dir / "control.db"
         new = connect(new_path)
         try:
-            apply_migrations(new, repo_root / "db" / "control_migrations")
+            apply_migrations(new, repo_root / "db" / "control_migrations" if repo_root is not None else None, CONTROL_MIGRATIONS)
 
             network_ids: dict[int, bytes] = {}
             network_rows: list[NetworkRow] = []
@@ -284,7 +423,7 @@ def migrate_log(state: MigrationState, network: NetworkRow) -> None:
         new_path = state.temp_dir / old_path.name
         new = connect(new_path)
         try:
-            apply_migrations(new, state.repo_root / "db" / "log_migrations")
+            apply_migrations(new, state.repo_root / "db" / "log_migrations" if state.repo_root is not None else None, LOG_MIGRATIONS)
             control = connect(state.new_control_path)
             try:
                 old_buffer_to_new: dict[int, bytes] = {}
@@ -388,12 +527,17 @@ def apply_swap(state: MigrationState) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", default="data", type=Path)
-    parser.add_argument("--repo-root", default=Path(__file__).resolve().parents[1], type=Path)
+    parser.add_argument(
+        "--repo-root",
+        default=None,
+        type=Path,
+        help="optional path to the lurker checkout; embedded migrations are used when omitted or unavailable",
+    )
     parser.add_argument("--apply", action="store_true", help="swap migrated DBs into place; otherwise dry-run only")
     args = parser.parse_args()
 
     data_dir = args.data_dir.resolve()
-    repo_root = args.repo_root.resolve()
+    repo_root = find_repo_root(args.repo_root if args.repo_root is not None else Path(__file__))
     temp_dir = data_dir / (".uuidv7-migration-tmp-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
     if temp_dir.exists():
         raise SystemExit(f"temp dir already exists: {temp_dir}")
