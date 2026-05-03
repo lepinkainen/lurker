@@ -11,8 +11,7 @@ import {
   type WebSocketDeps,
 } from "./connection";
 import { captureDom, type DomRefs } from "./dom";
-import { bindInputHandlers } from "./input";
-import { updateCmdPop } from "./input-command-popup";
+import { bindInputHandlers, updateInputPopups } from "./input";
 import { restoreInputDraft, saveInputDraft } from "./input-history";
 import { cleanupKeyboardShortcuts, initKeyboardShortcuts } from "./keyboard-routing";
 import { populateMembersForActive } from "./members";
@@ -56,6 +55,7 @@ export function start() {
     uploadButtonEl: d.uploadButtonEl,
     cmdPopEl: d.cmdPopEl,
     emojiPopEl: d.emojiPopEl,
+    nickPopEl: d.nickPopEl,
     getActiveBuffer: activeBuffer,
     sendCmd,
   });
@@ -232,7 +232,7 @@ function setActive(id: string, opts: { skipHash?: boolean; replaceHash?: boolean
   view.renderMembers();
   view.updateInputEnabled();
   restoreInputDraft(view.dom.inputEl, id);
-  updateCmdPop(view.dom.inputEl, view.dom.cmdPopEl);
+  updateInputPopups(view.dom.inputEl, view.dom.cmdPopEl, view.dom.emojiPopEl, view.dom.nickPopEl, activeBuffer());
   maybeMarkActiveRead();
   view.dom.inputEl.focus();
 }

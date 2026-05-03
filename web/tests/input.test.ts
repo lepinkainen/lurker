@@ -7,10 +7,17 @@ import {
   resetEmojiAutocomplete,
   updateEmojiPop,
 } from "../src/emoji-autocomplete";
-import { bindInputHandlers, handleFormatKey, updateInputEnabled } from "../src/input";
+import { bindInputHandlers, handleFormatKey, updateInputEnabled, updateInputPopups } from "../src/input";
 import { updateCmdPop } from "../src/input-command-popup";
 import { handleHistoryKey, recordSentInput, restoreInputDraft, saveInputDraft } from "../src/input-history";
 import { insertTextAtCursor, uploadFile } from "../src/input-upload";
+import {
+  getNickAutocompleteState,
+  handleNickKey,
+  initNickPop,
+  resetNickAutocomplete,
+  updateNickPop,
+} from "../src/nick-autocomplete";
 import { resetAppState } from "../src/reset";
 import { handleSlashCommand } from "../src/slash-commands";
 
@@ -348,6 +355,176 @@ describe("handleFormatKey", () => {
   });
 });
 
+describe("nick autocomplete", () => {
+  beforeEach(() => {
+    resetAppState();
+    resetNickAutocomplete();
+  });
+  afterEach(() => {
+    resetNickAutocomplete();
+    resetAppState();
+  });
+
+  function member(nick: string, self = false) {
+    return { nick, prefix: "", away: false, self };
+  }
+
+  function setup(value: string, buffer: Buffer = makeBuffer(), caret = value.length) {
+    const input = document.createElement("input");
+    input.value = value;
+    input.setSelectionRange(caret, caret);
+    const pop = document.createElement("div");
+    pop.hidden = true;
+    state.members.set(buffer.id, [member("Alice"), member("Alicia"), member("Malice"), member("Bob")]);
+    initNickPop(input, pop, () => buffer);
+    return { input, pop, buffer };
+  }
+
+  function keyEvent(key: string) {
+    return new KeyboardEvent("keydown", { key, cancelable: true });
+  }
+
+  it("shows popup for matching nick at the start of a channel message", () => {
+    const { input, pop, buffer } = setup("ali");
+    updateNickPop(input, pop, buffer);
+    expect(pop.hidden).toBe(false);
+    const rows = pop.querySelectorAll(".ni");
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0].classList.contains("hl")).toBe(true);
+    expect(rows[0].textContent).toBe("Alice");
+  });
+
+  it("sorts prefix matches before contains matches while preserving member order", () => {
+    const { input, pop, buffer } = setup("ali");
+    updateNickPop(input, pop, buffer);
+    expect([...pop.querySelectorAll(".ni")].map((row) => row.textContent)).toEqual(["Alice", "Alicia", "Malice"]);
+  });
+
+  it("does not show popup for nick in the middle of a message", () => {
+    const { input, pop, buffer } = setup("hey ali");
+    updateNickPop(input, pop, buffer);
+    expect(pop.hidden).toBe(true);
+  });
+
+  it("does not show popup after the first whitespace/rest of message", () => {
+    const { input, pop, buffer } = setup("ali hello");
+    updateNickPop(input, pop, buffer);
+    expect(pop.hidden).toBe(true);
+  });
+
+  it("may show while caret is still at the end of the first token", () => {
+    const { input, pop, buffer } = setup("ali hello", makeBuffer(), 3);
+    updateNickPop(input, pop, buffer);
+    expect(pop.hidden).toBe(false);
+  });
+
+  it("does not show in query or status buffers", () => {
+    const query = setup("ali", makeBuffer({ kind: "query", name: "Alice" }));
+    updateNickPop(query.input, query.pop, query.buffer);
+    expect(query.pop.hidden).toBe(true);
+
+    const status = setup("ali", makeBuffer({ id: "2", kind: "status", name: "status" }));
+    state.members.set(status.buffer.id, [member("Alice")]);
+    updateNickPop(status.input, status.pop, status.buffer);
+    expect(status.pop.hidden).toBe(true);
+  });
+
+  it("does not include current user's active-network nick", () => {
+    const { input, pop, buffer } = setup("ali");
+    state.networks.set(buffer.network_id, { id: buffer.network_id, name: "libera", nick: "Alice" });
+    updateNickPop(input, pop, buffer);
+    const rows = [...pop.querySelectorAll(".ni")].map((row) => row.textContent);
+    expect(rows).toContain("Alicia");
+    expect(rows).not.toContain("Alice");
+  });
+
+  it("does not use global nick when excluding matches on another network", () => {
+    state.me.nick = "Alice";
+    const buffer = makeBuffer({ network_id: "20" });
+    state.networks.set(buffer.network_id, { id: buffer.network_id, name: "oftc", nick: "Shrike" });
+    const { input, pop } = setup("ali", buffer);
+    updateNickPop(input, pop, buffer);
+    const rows = [...pop.querySelectorAll(".ni")].map((row) => row.textContent);
+    expect(rows).toContain("Alice");
+  });
+
+  it("Tab replaces initial token with Nick colon space", () => {
+    const { input, pop, buffer } = setup("ali hello", makeBuffer(), 3);
+    updateNickPop(input, pop, buffer);
+    const ev = keyEvent("Tab");
+    handleNickKey(ev, input, pop, buffer);
+    expect(input.value).toBe("Alice: hello");
+    expect(input.selectionStart).toBe("Alice: ".length);
+    expect(pop.hidden).toBe(true);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it("navigates selection with ArrowDown and ArrowUp", () => {
+    const { input, pop, buffer } = setup("ali");
+    updateNickPop(input, pop, buffer);
+    expect(getNickAutocompleteState().selected).toBe(0);
+
+    const down = keyEvent("ArrowDown");
+    handleNickKey(down, input, pop, buffer);
+    expect(getNickAutocompleteState().selected).toBe(1);
+    expect(down.defaultPrevented).toBe(true);
+
+    const up = keyEvent("ArrowUp");
+    handleNickKey(up, input, pop, buffer);
+    expect(getNickAutocompleteState().selected).toBe(0);
+    expect(up.defaultPrevented).toBe(true);
+  });
+
+  it("Escape hides popup", () => {
+    const { input, pop, buffer } = setup("ali");
+    updateNickPop(input, pop, buffer);
+    expect(pop.hidden).toBe(false);
+    const ev = keyEvent("Escape");
+    handleNickKey(ev, input, pop, buffer);
+    expect(pop.hidden).toBe(true);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it("slash popup hides/suppresses nick popup", () => {
+    const input = document.createElement("input");
+    const cmdPop = document.createElement("div");
+    const emojiPop = document.createElement("div");
+    const nickPop = document.createElement("div");
+    const buffer = makeBuffer();
+    cmdPop.hidden = true;
+    emojiPop.hidden = true;
+    nickPop.hidden = false;
+    state.members.set(buffer.id, [member("Joiner")]);
+    input.value = "/j";
+    input.setSelectionRange(input.value.length, input.value.length);
+
+    updateInputPopups(input, cmdPop, emojiPop, nickPop, buffer);
+
+    expect(cmdPop.hidden).toBe(false);
+    expect(nickPop.hidden).toBe(true);
+  });
+
+  it("emoji popup hides/suppresses nick popup", () => {
+    const input = document.createElement("input");
+    const cmdPop = document.createElement("div");
+    const emojiPop = document.createElement("div");
+    const nickPop = document.createElement("div");
+    const buffer = makeBuffer();
+    cmdPop.hidden = true;
+    emojiPop.hidden = true;
+    nickPop.hidden = false;
+    state.members.set(buffer.id, [member("Smile")]);
+    input.value = ":sm";
+    input.setSelectionRange(input.value.length, input.value.length);
+
+    updateInputPopups(input, cmdPop, emojiPop, nickPop, buffer);
+
+    expect(emojiPop.hidden).toBe(false);
+    expect(cmdPop.hidden).toBe(true);
+    expect(nickPop.hidden).toBe(true);
+  });
+});
+
 describe("emoji autocomplete", () => {
   beforeEach(() => resetEmojiAutocomplete());
   afterEach(() => resetEmojiAutocomplete());
@@ -518,6 +695,7 @@ describe("emoji autocomplete", () => {
       uploadButtonEl: uploadButton,
       cmdPopEl: cmdPop,
       emojiPopEl: emojiPop,
+      nickPopEl: document.createElement("div"),
       getActiveBuffer: () => makeBuffer(),
       sendCmd: vi.fn(),
     });

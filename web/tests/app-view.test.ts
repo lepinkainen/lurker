@@ -54,6 +54,8 @@ function refs(): DomRefs {
     uploadButtonEl: button(),
     inputNickEl: document.createElement("span"),
     cmdPopEl: document.createElement("div"),
+    emojiPopEl: document.createElement("div"),
+    nickPopEl: document.createElement("div"),
     memberListEl: document.createElement("div"),
     memberCountEl: document.createElement("span"),
     memberPaneEl: document.createElement("aside"),

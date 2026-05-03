@@ -117,7 +117,8 @@
     color: var(--fg-3);
   }
 
-  .emojipop {
+  .emojipop,
+  .nickpop {
     position: absolute;
     left: 10px;
     right: 10px;
@@ -134,7 +135,8 @@
     z-index: 10;
   }
 
-  .emojipop[hidden] {
+  .emojipop[hidden],
+  .nickpop[hidden] {
     display: none;
   }
 
@@ -161,6 +163,25 @@
   }
 
   .emojipop .ei.hl .en {
+    color: var(--fg-0);
+  }
+
+  .nickpop .ni {
+    padding: 5px 10px;
+    color: var(--fg-1);
+  }
+
+  .nickpop .ni.hl {
+    background: var(--bg-5);
+    color: var(--fg-0);
+  }
+
+  .nickpop .ni .nn {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .nickpop .ni.hl .nn {
     color: var(--fg-0);
   }
 }
