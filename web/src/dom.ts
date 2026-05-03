@@ -22,6 +22,7 @@ export type DomRefs = {
   uploadButtonEl: HTMLButtonElement;
   inputNickEl: HTMLElement;
   cmdPopEl: HTMLElement;
+  emojiPopEl: HTMLElement;
   memberListEl: HTMLElement;
   memberCountEl: HTMLElement;
   memberPaneEl: HTMLElement;
@@ -58,6 +59,7 @@ export function captureDom(): DomRefs {
     uploadButtonEl: mustEl<HTMLButtonElement>("upload-button"),
     inputNickEl: mustEl<HTMLElement>("input-nick"),
     cmdPopEl: mustEl<HTMLElement>("cmd-pop"),
+    emojiPopEl: mustEl<HTMLElement>("emoji-pop"),
     memberListEl: mustEl<HTMLElement>("member-list"),
     memberCountEl: mustEl<HTMLElement>("member-count"),
     memberPaneEl: mustEl<HTMLElement>("member-pane"),

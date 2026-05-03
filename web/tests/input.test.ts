@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Buffer, state } from "../src/app-state";
-import { handleFormatKey, updateInputEnabled } from "../src/input";
+import {
+  getEmojiAutocompleteState,
+  handleEmojiKey,
+  initEmojiPop,
+  resetEmojiAutocomplete,
+  updateEmojiPop,
+} from "../src/emoji-autocomplete";
+import { bindInputHandlers, handleFormatKey, updateInputEnabled } from "../src/input";
 import { updateCmdPop } from "../src/input-command-popup";
 import { handleHistoryKey, recordSentInput, restoreInputDraft, saveInputDraft } from "../src/input-history";
 import { insertTextAtCursor, uploadFile } from "../src/input-upload";
@@ -338,5 +345,188 @@ describe("handleFormatKey", () => {
     expect(handleFormatKey(keyEvent("u", { ctrl: true }), i)).toBe(true);
     expect(i.value).toBe("ab\x1ff");
     expect(i.selectionStart).toBe(3);
+  });
+});
+
+describe("emoji autocomplete", () => {
+  beforeEach(() => resetEmojiAutocomplete());
+  afterEach(() => resetEmojiAutocomplete());
+
+  function setup(value: string, caret = value.length) {
+    const input = document.createElement("input");
+    input.value = value;
+    input.setSelectionRange(caret, caret);
+    const pop = document.createElement("div");
+    pop.hidden = true;
+    initEmojiPop(input, pop);
+    return { input, pop };
+  }
+
+  function keyEvent(key: string) {
+    return new KeyboardEvent("keydown", { key, cancelable: true });
+  }
+
+  it("shows popup for :sm at cursor", () => {
+    const { input, pop } = setup(":sm");
+    updateEmojiPop(input, pop);
+    expect(pop.hidden).toBe(false);
+    const rows = pop.querySelectorAll(".ei");
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0].classList.contains("hl")).toBe(true);
+  });
+
+  it("hides popup for bare colon", () => {
+    const { input, pop } = setup(":");
+    updateEmojiPop(input, pop);
+    expect(pop.hidden).toBe(true);
+  });
+
+  it("hides popup for single char after colon", () => {
+    const { input, pop } = setup(":s");
+    updateEmojiPop(input, pop);
+    expect(pop.hidden).toBe(true);
+  });
+
+  it("hides popup when no emoji matches", () => {
+    const { input, pop } = setup(":zzzzzzz");
+    updateEmojiPop(input, pop);
+    expect(pop.hidden).toBe(true);
+  });
+
+  it("shows popup for :keyword mid-text at cursor", () => {
+    const { input, pop } = setup("hello :smi world", 10);
+    updateEmojiPop(input, pop);
+    expect(pop.hidden).toBe(false);
+  });
+
+  it("hides popup when cursor not at :keyword", () => {
+    const { input, pop } = setup("hello :smile", 2);
+    updateEmojiPop(input, pop);
+    expect(pop.hidden).toBe(true);
+  });
+
+  it("hides popup when cursor is after the token and trailing text", () => {
+    const { input, pop } = setup(":sm hello");
+    updateEmojiPop(input, pop);
+    expect(pop.hidden).toBe(true);
+  });
+
+  it("does not accept a stale visible popup after cursor leaves the token", () => {
+    const { input, pop } = setup(":sm hello", 3);
+    updateEmojiPop(input, pop);
+    expect(pop.hidden).toBe(false);
+
+    input.setSelectionRange(input.value.length, input.value.length);
+    const ev = keyEvent("Enter");
+    expect(handleEmojiKey(ev, input, pop)).toBe(false);
+    expect(input.value).toBe(":sm hello");
+    expect(pop.hidden).toBe(true);
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  it("inserts emoji on Enter", () => {
+    const { input, pop } = setup(":smile");
+    updateEmojiPop(input, pop);
+    const ev = keyEvent("Enter");
+    handleEmojiKey(ev, input, pop);
+    expect(input.value).not.toContain(":");
+    expect(input.value.length).toBeGreaterThan(0);
+    expect(pop.hidden).toBe(true);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it("inserts emoji on Tab", () => {
+    const { input, pop } = setup(":smile");
+    updateEmojiPop(input, pop);
+    const ev = keyEvent("Tab");
+    handleEmojiKey(ev, input, pop);
+    expect(input.value).not.toContain(":");
+    expect(pop.hidden).toBe(true);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it("dismisses popup on Escape", () => {
+    const { input, pop } = setup(":smile");
+    updateEmojiPop(input, pop);
+    expect(pop.hidden).toBe(false);
+    const ev = keyEvent("Escape");
+    handleEmojiKey(ev, input, pop);
+    expect(pop.hidden).toBe(true);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it("navigates selection with ArrowDown and ArrowUp", () => {
+    const { input, pop } = setup(":sm");
+    updateEmojiPop(input, pop);
+    const state0 = getEmojiAutocompleteState();
+    expect(state0.selected).toBe(0);
+
+    const down = keyEvent("ArrowDown");
+    handleEmojiKey(down, input, pop);
+    expect(getEmojiAutocompleteState().selected).toBe(1);
+    expect(down.defaultPrevented).toBe(true);
+
+    const up = keyEvent("ArrowUp");
+    handleEmojiKey(up, input, pop);
+    expect(getEmojiAutocompleteState().selected).toBe(0);
+    expect(up.defaultPrevented).toBe(true);
+  });
+
+  it("replaces token in middle of text preserving surrounding text", () => {
+    const { input, pop } = setup("before :smile after", 13);
+    updateEmojiPop(input, pop);
+    const ev = keyEvent("Enter");
+    handleEmojiKey(ev, input, pop);
+    // :smile maps to 😄 (U+1F604), a 2-code-unit surrogate pair
+    expect(input.value).not.toContain(":smile");
+    expect(input.value.length).toBeGreaterThan(12);
+    expect(input.value.startsWith("before ")).toBe(true);
+  });
+
+  it("replaces the full emoji token when caret is inside the token", () => {
+    const { input, pop } = setup("before :smile after", 10);
+    updateEmojiPop(input, pop);
+    const ev = keyEvent("Enter");
+    handleEmojiKey(ev, input, pop);
+    expect(input.value.startsWith("before ")).toBe(true);
+    expect(input.value.endsWith(" after")).toBe(true);
+    expect(input.value).not.toContain(":smile");
+    expect(input.value).not.toContain("ile after");
+  });
+
+  it("does not handle keys when popup hidden", () => {
+    const { input, pop } = setup("hello");
+    updateEmojiPop(input, pop);
+    expect(pop.hidden).toBe(true);
+    expect(handleEmojiKey(keyEvent("Enter"), input, pop)).toBe(false);
+    expect(handleEmojiKey(keyEvent("ArrowDown"), input, pop)).toBe(false);
+  });
+
+  it("hides slash command popup when emoji popup is active", () => {
+    const input = document.createElement("input");
+    const form = document.createElement("form");
+    const uploadInput = document.createElement("input");
+    const uploadButton = document.createElement("button");
+    const cmdPop = document.createElement("div");
+    const emojiPop = document.createElement("div");
+    cmdPop.hidden = true;
+    emojiPop.hidden = true;
+    bindInputHandlers({
+      inputEl: input,
+      inputForm: form,
+      uploadInputEl: uploadInput,
+      uploadButtonEl: uploadButton,
+      cmdPopEl: cmdPop,
+      emojiPopEl: emojiPop,
+      getActiveBuffer: () => makeBuffer(),
+      sendCmd: vi.fn(),
+    });
+
+    input.value = "/me :sm";
+    input.setSelectionRange(input.value.length, input.value.length);
+    input.dispatchEvent(new Event("input"));
+
+    expect(emojiPop.hidden).toBe(false);
+    expect(cmdPop.hidden).toBe(true);
   });
 });

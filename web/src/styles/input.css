@@ -116,4 +116,51 @@
   .cmdpop .ci .d {
     color: var(--fg-3);
   }
+
+  .emojipop {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 100%;
+    margin-bottom: 4px;
+    background: var(--bg-input);
+    border: 1px solid var(--hair-strong);
+    border-radius: 5px;
+    box-shadow: 0 10px 30px #0006;
+    max-width: 320px;
+    overflow: hidden;
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    z-index: 10;
+  }
+
+  .emojipop[hidden] {
+    display: none;
+  }
+
+  .emojipop .ei {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+    padding: 4px 10px;
+    color: var(--fg-1);
+    align-items: center;
+  }
+
+  .emojipop .ei.hl {
+    background: var(--bg-5);
+    color: var(--fg-0);
+  }
+
+  .emojipop .ei .ec {
+    font-size: 1.15rem;
+  }
+
+  .emojipop .ei .en {
+    color: var(--fg-2);
+  }
+
+  .emojipop .ei.hl .en {
+    color: var(--fg-0);
+  }
 }

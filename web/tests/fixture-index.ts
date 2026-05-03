@@ -56,6 +56,7 @@ export const fixtureIndexHTML = `<!doctype html>
 
         <form id="input-form" class="inputbar">
           <div id="cmd-pop" class="cmdpop" hidden></div>
+          <div id="emoji-pop" class="emojipop" hidden></div>
           <input id="upload-input" class="upload-input" type="file" hidden />
           <div class="row">
             <span class="prompt"><span id="input-nick" class="you">—</span></span>
