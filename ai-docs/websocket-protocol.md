@@ -20,26 +20,64 @@ Current client command envelope fields:
 - `buffer_id` — UUIDv7 string
 - `network_id` — UUIDv7 string
 - `channel`
+- `target` — nick or channel for commands that target a user (`msg`, `whois`, `invite`, `kick`, `notice`, `ctcp`, `query`, `op`, `deop`, `voice`, `devoice`, `ban`, `unban`, `kickban`, `ignore`, `unignore`)
 - `content`
 - `before` — UUIDv7 message ID string for history pagination
 - `limit`
 - `message_id` — UUIDv7 string
 
-Supported command types:
+### Supported command types
 
-- `send`
-- `history`
-- `join`
-- `part`
-- `mark_read`
+#### Core messaging
 
-Command semantics:
+- `send` — send a PRIVMSG to a non-status buffer (uses `buffer_id` + `content`)
+- `msg` — send a PRIVMSG to a specific nick (uses `network_id` + `target` + `content`)
+- `me` — send a CTCP ACTION to a buffer (uses `buffer_id` + `content`)
+- `notice` — send a NOTICE to a nick (uses `network_id` + `target` + `content`)
+- `ctcp` — send a raw CTCP request (`network_id` + `target`, `content` = `COMMAND [args]`)
 
-- `send`: send message to a non-status buffer
-- `history`: fetch recent or older messages for a buffer
-- `join`: join a channel on a network
-- `part`: part the channel identified by buffer ID
-- `mark_read`: persist last seen message for a buffer
+#### Channel management
+
+- `join` — join a channel on a network (uses `network_id` + `channel`)
+- `part` — part the channel identified by buffer ID (uses `buffer_id`, optional `content` for part reason)
+- `rejoin` — rejoin a previously parted channel (uses `buffer_id`)
+- `topic` — set channel topic (uses `buffer_id` + `content`)
+- `invite` — invite a nick to a channel (uses `network_id` + `target` + `channel`)
+- `kick` — kick a nick from a channel (uses `buffer_id` + `target`, optional `content` for reason)
+- `kickban` — ban and kick a nick (uses `buffer_id` + `target`, optional `content` for reason)
+
+#### Channel modes
+
+- `mode` — set arbitrary channel modes (uses `buffer_id` + `content` = `[+/-]modes [params...]`)
+- `op` / `deop` — grant/revoke op on a channel (uses `buffer_id` + `target`)
+- `voice` / `devoice` — grant/revoke voice on a channel (uses `buffer_id` + `target`)
+- `ban` / `unban` — set/remove a ban mask on a channel (uses `buffer_id` + `target`)
+- `banlist` — list bans on a channel (uses `buffer_id`)
+
+#### User-level IRC commands
+
+- `nick` — change nick on a network (uses `network_id` + `content`)
+- `whois` — query WHOIS for a nick (uses `network_id` + `target`)
+- `away` — mark self as away (uses `network_id`, optional `content` for away message)
+- `back` — mark self as back from away (uses `network_id`)
+- `quit` — disconnect from IRC with optional quit message (uses `network_id`, optional `content`)
+- `raw` — send a raw IRC line (uses `network_id` + `content`)
+- `list` — request channel LIST from server (uses `network_id`, optional `content` for filter)
+
+#### Query management
+
+- `query` — open a new query buffer for a nick (uses `network_id` + `target`)
+
+#### History and state
+
+- `history` — fetch recent or older messages for a buffer
+- `mark_read` — persist last seen message for a buffer
+
+#### Ignore management
+
+- `ignore` — add an ignore mask to a network (uses `network_id` + `target`)
+- `unignore` — remove an ignore mask from a network (uses `network_id` + `target`)
+- `ignorelist` — list all ignore masks for a network (uses `network_id`)
 
 ## Generic command responses
 
@@ -55,19 +93,45 @@ Error envelope:
 { "type": "error", "req_id": "r1", "message": "..." }
 ```
 
+## Command-specific response types
+
+`history_result` — response to `history` command:
+
+```json
+{
+  "type": "history_result",
+  "req_id": "r1",
+  "buffer_id": "...",
+  "messages": [ /* messageDTO[] */ ]
+}
+```
+
+`ignorelist_result` — response to `ignorelist` command:
+
+```json
+{
+  "type": "ignorelist_result",
+  "req_id": "r1",
+  "network_id": "...",
+  "masks": ["*!*@spam.example.com"]
+}
+```
+
 ## Stream event types
 
-Currently published events include:
+Currently published events:
 
-- `message`
-- `buffer_created`
-- `buffer_update`
-- `network_state`
-- `member_list`
-- `preview`
-- lightweight presence-style events may also be published
+- `message` — inbound or locally-logged outbound message
+- `buffer_created` — first-time buffer registration
+- `buffer_update` — topic, joined state, or last-seen-ID changes
+- `network_state` — connection state transitions
+- `member_list` — full channel member list snapshot
+- `preview` — URL previews ready for a message
+- `presence` — lightweight join/part/quit/kick/nick-change events
+- `buffer_settings` — per-buffer display preferences changed
+- `channel_list` — streaming /LIST results
 
-Important event shapes from `irc/handler.go`:
+Important event shapes:
 
 `message`
 
@@ -101,14 +165,14 @@ Important event shapes from `irc/handler.go`:
 `network_state`
 
 - `network_id`
-- `state`
+- `state` — `"connecting"`, `"connected"`, or `"disconnected"`
 
 `member_list`
 
 - `network_id`
 - `buffer_id`
 - `channel`
-- `members`
+- `members` — array of `{nick, prefix?, away, self}`
 
 `preview`
 
@@ -118,3 +182,25 @@ Important event shapes from `irc/handler.go`:
 - `previews` — array of resolved preview objects (`url`, `kind`, `title?`, `description?`, `image_url?`, `site_name?`, `width?`, `height?`, `mime?`)
 
 Only previews with `kind` = `image` or `opengraph` are published. Negative results (`none`, `error`) are cached server-side but never pushed to clients. `/api/state` and history responses attach the same preview shape inline on each `message` under a `previews` field so reloads don't need a follow-up event.
+
+`presence`
+
+- `network_id`
+- `buffer_id` — present for channel-scoped events (join, part, quit, kick)
+- `nick` — affected nick
+- `state` — `"join"`, `"part"`, `"quit"`, `"kick"`, or `"nick"`
+- `target` — new nick when `state` = `"nick"`
+
+`buffer_settings`
+
+- `id` — buffer UUID
+- `show_embeds`
+- `show_presence_events`
+- `collapse_presence_events`
+- `pinned`
+
+`channel_list`
+
+- `network_id`
+- `entries` — array of `{name, count, topic?}`
+- `done` — `true` on the final event, closing the LIST stream

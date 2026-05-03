@@ -13,9 +13,10 @@ Current characteristics:
 
 Server-backed state:
 
-- networks
+- networks (including `disabled` flag)
 - network ordering via `sort_order`
 - buffers
+- buffer settings (`show_embeds`, `show_presence_events`, `collapse_presence_events`, `pinned`)
 - messages
 - read state
 - member lists
@@ -23,21 +24,27 @@ Server-backed state:
 Client-only persisted layout state:
 
 - collapsed sections
-- pinned buffers
+- sidebar visibility
+- members drawer state
 
-Important invariant:
+Important invariants:
 
 - network ordering is no longer a frontend-only preference; it is shared persistent state stored in the control DB
+- `pinned` is stored server-side in `buffer_settings` so it follows the user across browsers/devices
+- other buffer settings (`show_embeds`, `show_presence_events`, `collapse_presence_events`) are also server-persisted
 
 ## Hydration model
 
 On load:
 
 1. fetch `/api/state`
-2. populate maps for networks, buffers, messages, and members
+2. populate maps for networks, buffers (including settings fields), messages, and members
 3. infer unread counts client-side from `last_seen_id`
-4. connect WebSocket stream
-5. apply incoming events incrementally
+4. restore sidebar visibility from localStorage
+5. connect WebSocket stream
+6. apply incoming events incrementally (including `buffer_settings` for live settings sync)
+
+Buffer settings are mutated via `PATCH /api/buffers/{id}/settings` and the server publishes a `buffer_settings` hub event so all open clients stay in sync.
 
 See [rest-api.md](rest-api.md) for `/api/state` and [websocket-protocol.md](websocket-protocol.md) for incremental events.
 

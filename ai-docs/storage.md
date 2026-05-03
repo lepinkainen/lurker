@@ -20,6 +20,8 @@ Important tables:
 
 - `networks`
 - `buffer_registry`
+- `buffer_settings`
+- `ignores`
 - `network_connect_commands`
 - `schema_migrations`
 
@@ -29,8 +31,13 @@ The `networks` table stores:
 - human-facing network name
 - connection settings like host/port/tls/nick/realname/SASL
 - `sort_order` for persistent sidebar ordering
+- `disabled` flag (default `0`) that prevents auto-connection on startup
 
 `network_connect_commands` stores an ordered raw IRC command list per network, keyed by `(network_id, position)` with `ON DELETE CASCADE`. Commands may contain secrets and are only exposed through the explicit connect-command API, not `/api/state`.
+
+`buffer_settings` stores per-buffer display preferences keyed by buffer ID with `ON DELETE CASCADE`. Columns: `buffer_id` (PK, FK to `buffer_registry`), `show_embeds` (default 1), `show_presence_events` (default 1), `collapse_presence_events` (default 0), `pinned` (default 0), `updated_at`. Only channel buffers are eligible for settings.
+
+`ignores` stores per-network IRC ignore masks. Columns: `id` (PK, UUIDv7 BLOB), `network_id` (FK to `networks` with `ON DELETE CASCADE`), `mask` (TEXT), `created_at`. Unique on `(network_id, mask)`.
 
 The `buffer_registry` table stores the global API-facing buffer ID namespace. Buffer IDs are UUIDv7 values stored as 16-byte SQLite `BLOB`s and serialized over JSON as strings.
 
@@ -43,7 +50,8 @@ Path pattern:
 Purpose:
 
 - messages for that network
-- per-buffer mutable state such as topic/joined/last seen
+- per-buffer mutable state such as topic and last-seen ID
+- full-text search index
 
 Important properties:
 
@@ -52,6 +60,8 @@ Important properties:
 - there is no automatic retention policy, max-age cleanup, or max-row cleanup for stored messages
 - buffer IDs are the same UUIDv7 values used by `control.db.buffer_registry`; there is no separate local buffer ID namespace
 - message IDs are UUIDv7 values stored as 16-byte SQLite `BLOB`s and exposed over the API as strings
+- the `buffers.joined` column was dropped (migration `0003_drop_buffer_joined.sql`); joined state is now tracked in the IRC runtime only
+- each log DB has a `messages_fts` FTS5 virtual table for full-text search, kept in sync via triggers
 
 ### Preview cache DB
 
@@ -76,7 +86,7 @@ Important tables:
 
 The `kind` column is one of `image`, `opengraph`, `none`, `error`. The last two are negative-result rows that prevent retry storms on URLs that don't preview usefully.
 
-Per-message associations live in the per-network log DB (not here), in a `message_previews(message_id, url, position)` table added by log migration `0002_message_previews.sql`. The API joins the two halves in Go rather than in SQL: group messages by network → read `message_previews` from each log DB → batch-load URL rows from `previews.db`.
+Per-message associations live in the per-network log DB (not here), in a `message_previews(message_id BLOB, url TEXT, position INTEGER)` table added by log migration `0002_message_previews.sql`. The `message_id` references the message row, `url` is the extracted URL, and `position` preserves the order URLs appeared in the message content. The API joins the two halves in Go rather than in SQL: group messages by network → read `message_previews` from each log DB → batch-load URL rows from `previews.db`.
 
 Migrations for this DB live in `db/preview_migrations/*.sql` and are applied by `db.OpenPreviews`. The store is owned by `MultiStore.Previews` alongside `Control` and the per-network `logs` map; closing `MultiStore` closes all three.
 

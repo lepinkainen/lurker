@@ -1,6 +1,6 @@
 # IRC runtime and preview pipeline
 
-This document covers the IRC client runtime, event persistence, and the URL preview pipeline that hooks off the message flow. See [ARCHITECTURE.md](ARCHITECTURE.md) for the overview, [storage.md](storage.md) for the DB layout, and [websocket-protocol.md](websocket-protocol.md) for the events published downstream.
+This document covers the IRC client runtime, event persistence, the URL preview pipeline that hooks off the message flow, the presence event model, channel list handling, and the ignore system. See [ARCHITECTURE.md](ARCHITECTURE.md) for the overview, [storage.md](storage.md) for the DB layout, and [websocket-protocol.md](websocket-protocol.md) for the events published downstream.
 
 ## IRC runtime architecture
 
@@ -107,5 +107,32 @@ Backend producers include:
 - buffer state changes
 - network state changes
 - member list publication
+- presence events (joins, parts, quits, kicks, nick changes)
+- channel list results
+- buffer settings changes
+- preview results
 
 The WebSocket endpoint subscribes to the hub and forwards events as JSON. See [websocket-protocol.md](websocket-protocol.md) for the wire format.
+
+## Presence events
+
+`irc/handler_presence.go` and `irc/handler_channel.go` publish `PresenceEvent` (`type: "presence"`) for user-visible state changes:
+
+- **join/part**: channel-scoped, emitted per channel the user joins or leaves. `state` = `"join"` or `"part"`, carries `buffer_id`.
+- **quit**: for other users, fanned out to every channel the departing user was known to be in before removal. Self-quits do not fan out per-channel.
+- **kick**: emitted on the kicked channel, `state` = `"kick"`, `nick` = kicked nick.
+- **nick change**: network-scoped (no `buffer_id`), `state` = `"nick"`, `target` = new nick.
+
+Frontend uses these events for per-buffer presence display when `show_presence_events` is enabled.
+
+## Channel list events
+
+`irc/handler_list.go` handles server `/LIST` responses and publishes streaming `ChannelListEvent` (`type: "channel_list"`):
+
+- each event carries a batch of `{name, count, topic?}` entries
+- `done: false` for intermediate batches, `done: true` on the final event
+- the handler accumulates entries in the runtime and flushes when `RPL_LISTEND` is received
+
+## Ignore system
+
+Persistent per-network ignore masks are stored in `control.db.ignores` (see [storage.md](storage.md)). The `irc.Manager` loads ignores on connect and passes them to `girc.Client.SetIgnoreMask`. The WebSocket `ignore`/`unignore`/`ignorelist` commands mutate the backing table and update the live mask set on the active connection.

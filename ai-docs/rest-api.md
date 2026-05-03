@@ -5,9 +5,13 @@ Base routes currently exposed:
 - `GET /health`
 - `GET /healthz`
 - `GET /whoami`
+- `GET /api/themes`
 - `GET /api/state`
+- `GET /api/update-status`
 - `GET /api/buffers/{id}/history`
+- `PATCH /api/buffers/{id}/settings`
 - `GET /api/search?q=...`
+- `GET /api/stream`
 - `POST /api/upload`
 - `POST /api/networks`
 - `POST /api/networks/reorder`
@@ -17,6 +21,9 @@ Base routes currently exposed:
 - `PUT /api/networks/{id}/connect-commands`
 - `POST /api/networks/{id}/connect`
 - `POST /api/networks/{id}/disconnect`
+- `GET /api/config/yaml/preview`
+- `POST /api/config/yaml/save`
+- `GET /uploads/{name}`
 
 See [websocket-protocol.md](websocket-protocol.md) for the live-event channel that complements these endpoints.
 
@@ -30,6 +37,28 @@ Returns service metadata such as:
 - build time
 
 Useful for identifying the running instance.
+
+## `GET /api/themes`
+
+Purpose:
+
+- list available CSS themes for the web UI
+
+Response:
+
+```json
+{ "themes": ["default", "dark", "solarized"] }
+```
+
+Returns an empty array if no themes are configured.
+
+## `GET /api/update-status`
+
+Purpose:
+
+- expose the update checker's cached comparison of local vs remote container image
+
+See [operations.md](operations.md) for the full response shape and configuration.
 
 ## `GET /api/state`
 
@@ -49,6 +78,66 @@ Current behavior:
 - includes recent messages for each buffer
 - includes network `sort_order`
 - network list order is the server-side canonical order
+
+### `networkDTO` shape
+
+```json
+{
+  "id": "...",
+  "name": "libera",
+  "host": "irc.libera.chat",
+  "port": 6697,
+  "tls": true,
+  "nick": "mynick",
+  "realname": "",
+  "status": "connected",
+  "sort_order": 0,
+  "disabled": false
+}
+```
+
+SASL credentials are never shipped to clients. The `disabled` field indicates whether the network is paused; disabled networks do not auto-connect on startup.
+
+### `bufferDTO` shape
+
+```json
+{
+  "id": "...",
+  "network_id": "...",
+  "name": "#channel",
+  "kind": "channel",
+  "topic": "...",
+  "joined": true,
+  "last_seen_id": "...",
+  "created_at": "2026-01-01T00:00:00Z",
+  "show_embeds": true,
+  "show_presence_events": true,
+  "collapse_presence_events": false,
+  "pinned": false
+}
+```
+
+The settings fields (`show_embeds`, `show_presence_events`, `collapse_presence_events`, `pinned`) are persisted server-side in the control DB and included in `/api/state` and streamed `buffer_settings` events.
+
+### `messageDTO` shape
+
+```json
+{
+  "id": "...",
+  "network_id": "...",
+  "buffer_id": "...",
+  "msgid": "...",
+  "ts": "2026-01-01T00:00:00.000Z",
+  "sender": "nick",
+  "account": "nick!user@host",
+  "kind": "privmsg",
+  "target": "#channel",
+  "content": "hello",
+  "previews": []
+}
+```
+
+The `target` field records the IRC target (channel or nick) the message was addressed to. The `previews` array is populated by `attachPreviews` (see Preview attachment section below).
 
 ## `GET /api/buffers/{id}/history`
 
@@ -170,6 +259,76 @@ Behavior:
 - `POST /api/networks/{id}/disconnect`
 
 These control IRC runtime state independently of the bootstrap YAML.
+
+## `PATCH /api/buffers/{id}/settings`
+
+Purpose:
+
+- partially update per-buffer display preferences persisted server-side
+
+Request body (all fields optional):
+
+```json
+{
+  "show_embeds": true,
+  "show_presence_events": true,
+  "collapse_presence_events": false,
+  "pinned": false
+}
+```
+
+Response is the full `buffer_settings` event shape:
+
+```json
+{
+  "type": "buffer_settings",
+  "id": "...",
+  "show_embeds": true,
+  "show_presence_events": true,
+  "collapse_presence_events": false,
+  "pinned": false
+}
+```
+
+The same event is published to the hub so other connected WebSocket clients stay in sync. Settings are only supported for channel buffers (`kind = "channel"`).
+
+## Config YAML endpoints
+
+- `GET /api/config/yaml/preview` — returns the current and proposed `config.yaml` content for review before saving.
+- `POST /api/config/yaml/save` — writes a new `config.yaml` to disk.
+
+These endpoints are only available when the config exporter is configured at startup. If not configured they return `501 Not Implemented`.
+
+### `GET /api/config/yaml/preview`
+
+Response:
+
+```json
+{
+  "current": "...",
+  "proposed": "..."
+}
+```
+
+### `POST /api/config/yaml/save`
+
+Request body:
+
+```json
+{ "content": "# new config.yaml content" }
+```
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+## `GET /uploads/{name}`
+
+Serves previously uploaded files by their generated filename. Valid names are alphanumeric hex strings with an optional lowercase extension.
+
+Note: `POST /api/upload` returns the full URL path (e.g. `/uploads/0123456789abcdef.png`) which is served by this route.
 
 ## Preview attachment on reads
 

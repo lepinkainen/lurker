@@ -16,6 +16,7 @@ In scope for v1:
 - a keyboard shortcuts help overlay
 - buffer-to-buffer navigation shortcuts
 - unread and mention navigation shortcuts
+- first-unread-channel shortcut
 - sidebar toggle shortcut
 - input focus shortcut
 
@@ -48,9 +49,10 @@ Out of scope for v1:
 
 - `Alt+ArrowUp` — go to previous visible buffer
 - `Alt+ArrowDown` — go to next visible buffer
-- `Alt+Shift+ArrowUp` — go to previous unread buffer
-- `Alt+Shift+ArrowDown` — go to next unread buffer
-- `Alt+M` — go to next buffer with a mention/highlight
+- `Alt+Shift+ArrowUp` — go to previous unread channel buffer
+- `Alt+Shift+ArrowDown` — go to next unread channel buffer
+- `Alt+A` — jump to first unread channel buffer
+- `Alt+M` — go to next channel buffer with a mention/highlight
 - `Alt+S` — go to the current network's status buffer
 
 ### Layout and input
@@ -183,22 +185,21 @@ If the sidebar supports collapsed sections, navigation still uses the logical vi
 
 ### Previous/next unread buffer
 
-Unread navigation uses buffers with unread messages, excluding the currently active buffer if it is already selected and visible.
+Unread navigation (`Alt+Shift+ArrowUp` / `Alt+Shift+ArrowDown`) navigates through channel-kind buffers (`kind = "channel"`) with unread messages, excluding the currently active buffer.
 
-If no unread buffer exists in the requested direction, behavior may either:
+If no unread channel buffer exists in the requested direction, wrapping around once is preferred.
 
-- wrap around once, or
-- do nothing
+### First unread buffer
 
-Pick one behavior and keep it consistent. Wrapping is preferred.
+`Alt+A` jumps to the first channel buffer with unread messages, following sidebar order. If the active buffer already is that buffer, or no unread channel exists, do nothing.
 
 ### Next mention buffer
 
-`Alt+M` navigates to the next buffer with a mention/highlight state.
+`Alt+M` navigates to the next channel buffer (`kind = "channel"`) with a mention/highlight state.
 
 Mention navigation should prefer:
 
-- buffers with unread mentions/highlights
+- channel buffers with unread mentions/highlights
 - sidebar order for tie-breaking and wraparound
 
 If no mention buffer exists, do nothing.
@@ -243,6 +244,7 @@ Suggested rows:
 - `Alt+ArrowDown` — Next buffer
 - `Alt+Shift+ArrowUp` — Previous unread buffer
 - `Alt+Shift+ArrowDown` — Next unread buffer
+- `Alt+A` — First unread buffer
 - `Alt+M` — Next mention buffer
 - `Alt+S` — Jump to status buffer
 - `Ctrl+B` / `Cmd+B` — Toggle sidebar
