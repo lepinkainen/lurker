@@ -75,6 +75,11 @@ export type UpdateStatus = {
   remote_version?: string;
 };
 
+export type TailscaleStatus = {
+  status: "tailscale" | "local" | "external" | "unknown";
+  remote_ip: string;
+};
+
 export type ChannelListEntry = { name: string; count: number; topic?: string };
 
 export type BufferInputState = {
@@ -108,6 +113,7 @@ export type AppState = {
   layout: LayoutSettings;
   drag: { id: string | null; over: string | null };
   updateStatus: UpdateStatus | null;
+  tailscaleStatus: TailscaleStatus | null;
   channelList: { network_id: string; entries: ChannelListEntry[]; done: boolean } | null;
 };
 
@@ -158,6 +164,7 @@ export const state: AppState = {
   layout: loadLayout(),
   drag: { id: null, over: null },
   updateStatus: null,
+  tailscaleStatus: null,
   channelList: null,
 };
 

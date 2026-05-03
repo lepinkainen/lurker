@@ -1,4 +1,11 @@
-import { type Member, type Message, type StateResponse, state, type UpdateStatus } from "./app-state";
+import {
+  type Member,
+  type Message,
+  type StateResponse,
+  state,
+  type TailscaleStatus,
+  type UpdateStatus,
+} from "./app-state";
 
 export const RECONNECT_BASE_MS = 1000;
 export const RECONNECT_MAX_MS = 30_000;
@@ -47,9 +54,10 @@ type ReconnectDeps = {
 };
 
 export async function syncStateFromServer(deps: StateSyncDeps) {
-  const [stateRes, updateRes] = await Promise.all([
+  const [stateRes, updateRes, tailscaleRes] = await Promise.all([
     fetch("/api/state"),
     fetch("/api/update-status", { headers: { Accept: "application/json" } }).catch(() => null),
+    fetch("/api/tailscale-status", { headers: { Accept: "application/json" } }).catch(() => null),
   ]);
   if (!stateRes.ok) throw new Error(`state ${stateRes.status}`);
   const s: StateResponse = await stateRes.json();
@@ -77,6 +85,11 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
     state.updateStatus = (await updateRes.json()) as UpdateStatus;
   } else {
     state.updateStatus = null;
+  }
+  if (tailscaleRes?.ok) {
+    state.tailscaleStatus = (await tailscaleRes.json()) as TailscaleStatus;
+  } else {
+    state.tailscaleStatus = null;
   }
   deps.inferUnreadCounts();
   deps.renderSidebar();

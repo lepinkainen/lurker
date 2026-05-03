@@ -16,8 +16,33 @@ export function renderSidebarStatus(dom: DomRefs) {
 
   dom.backendStatusEl.className = `sb-status-item ${backend.cls}`;
   dom.backendStatusTextEl.textContent = backend.text;
-  dom.tailscaleStatusEl.className = "sb-status-item good";
-  dom.tailscaleStatusTextEl.textContent = "Connected";
+  const ts = state.tailscaleStatus;
+  let tsClass = "warn";
+  let tsText = "Unknown";
+  let tsTitle = "Tailscale connectivity status";
+  if (ts) {
+    tsTitle = `Connected from ${ts.remote_ip}`;
+    switch (ts.status) {
+      case "tailscale":
+        tsClass = "good";
+        tsText = "Tailscale";
+        break;
+      case "local":
+        tsClass = "good";
+        tsText = "Local";
+        break;
+      case "external":
+        tsClass = "bad";
+        tsText = "Public";
+        break;
+      default:
+        tsClass = "warn";
+        tsText = "Unknown";
+    }
+  }
+  dom.tailscaleStatusEl.className = `sb-status-item ${tsClass}`;
+  dom.tailscaleStatusEl.title = tsTitle;
+  dom.tailscaleStatusTextEl.textContent = tsText;
 
   const showUpdate = state.updateStatus?.enabled === true && state.updateStatus.update_available === true;
   dom.updateStatusEl.hidden = !showUpdate;

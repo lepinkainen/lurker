@@ -63,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/themes", s.listThemes)
 	mux.HandleFunc("GET /api/state", s.state)
 	mux.HandleFunc("GET /api/update-status", s.updateStatus)
+	mux.HandleFunc("GET /api/tailscale-status", s.tailscaleStatus)
 	mux.HandleFunc("GET /api/buffers/{id}/history", s.history)
 	mux.HandleFunc("PATCH /api/buffers/{id}/settings", s.patchBufferSettings)
 	mux.HandleFunc("GET /api/search", s.search)
