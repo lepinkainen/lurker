@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,7 @@ networks:
       - host: irc.ircnet.com
         port: 6697
         tls: true
+        tls_max_version: "1.3"
       - host: open.ircnet.net
         tls: false
   - network: Libera
@@ -60,6 +62,9 @@ networks:
 	}
 	if !nets[0].Servers[0].TLSInsecure {
 		t.Fatal("expected first server tls_insecure=true")
+	}
+	if nets[0].Servers[0].TLSMaxVersion != tls.VersionTLS13 {
+		t.Fatalf("tls max version = %x, want TLS 1.3", nets[0].Servers[0].TLSMaxVersion)
 	}
 	if nets[0].Servers[1].Port != 6667 {
 		t.Fatalf("port = %d, want 6667", nets[0].Servers[1].Port)

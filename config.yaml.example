@@ -26,6 +26,8 @@ networks:
       - host: irc.ircnet.com
         port: 6697
         tls: true
+        # Optional: cap TLS when a server is known to be picky. By default Lurker tries Go's default TLS first, then retries TLS 1.2 with legacy RSA AES-GCM ciphers on connect error.
+        # tls_max_version: "1.2"
       - host: open.ircnet.net
         port: 6697
         tls: true

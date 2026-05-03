@@ -25,6 +25,8 @@ Observed connection states include:
 
 After successful IRC registration, the handler sends saved per-network connect commands with `SendRaw` in stored order, logs send failures as warnings, then joins configured autojoin channels. Commands are reloaded from storage before each reconnect. Connect commands may contain secrets and are loaded from config/API storage rather than exposed in `/api/state`.
 
+TLS connections use Go's default maximum TLS version on the first attempt. If that attempt fails and TLS was not already capped to TLS 1.2, the manager immediately retries the same server with `MaxVersion = TLS 1.2` plus legacy RSA AES-GCM cipher suites before applying reconnect backoff. YAML servers may set `tls_max_version: "1.2"` to skip the first attempt for known legacy IRC TLS stacks, or `"1.3"` to cap at TLS 1.3.
+
 ## Event persistence model
 
 Inbound IRC events are handled in `irc/handler.go`.

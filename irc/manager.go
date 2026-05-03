@@ -30,10 +30,11 @@ func debugWriter() io.Writer {
 
 // ServerConfig describes one IRC server endpoint.
 type ServerConfig struct {
-	Host        string // hostname of the IRC server
-	Port        int    // TCP port
-	TLS         bool   // use TLS
-	TLSInsecure bool   // skip TLS certificate verification
+	Host          string // hostname of the IRC server
+	Port          int    // TCP port
+	TLS           bool   // use TLS
+	TLSInsecure   bool   // skip TLS certificate verification
+	TLSMaxVersion uint16 // max TLS version; zero uses Go default, then falls back to TLS 1.2 legacy compatibility on connect error
 }
 
 // NetworkConfig is the runtime configuration for a single logical IRC network.
@@ -610,8 +611,19 @@ func (m *Manager) runNetwork(ctx context.Context, networkID uuid.UUID, nc Networ
 			m.hub.Publish(&NetworkStateEvent{Type: "network_state", NetworkID: networkID, State: StateConnecting.String()})
 		}
 
-		log.Info("connecting", "host", server.Host, "port", server.Port, "tls", server.TLS)
+		log.Info("connecting", "host", server.Host, "port", server.Port, "tls", server.TLS, "tls_max_version", tlsMaxVersionLabel(server))
 		err := m.connector(ctx, client, server)
+		if err != nil && ctx.Err() == nil && shouldFallbackToTLS12(server) {
+			fallbackServer := server
+			fallbackServer.TLSMaxVersion = tls.VersionTLS12
+			fallbackClient := m.buildClient(ctx, networkID, nc, fallbackServer)
+			m.mu.Lock()
+			m.conn[networkID] = fallbackClient
+			m.mu.Unlock()
+			log.Warn("connection failed, retrying with TLS 1.2 compatibility", "err", err)
+			log.Info("connecting", "host", fallbackServer.Host, "port", fallbackServer.Port, "tls", fallbackServer.TLS, "tls_max_version", tlsMaxVersionLabel(fallbackServer))
+			err = m.connector(ctx, fallbackClient, fallbackServer)
+		}
 
 		m.mu.Lock()
 		delete(m.conn, networkID)
@@ -653,6 +665,41 @@ func defaultConnector(_ context.Context, client *girc.Client, _ ServerConfig) er
 	return client.Connect()
 }
 
+func shouldFallbackToTLS12(server ServerConfig) bool {
+	return server.TLS && server.TLSMaxVersion != tls.VersionTLS12
+}
+
+func tls12CompatibilityCipherSuites() []uint16 {
+	return []uint16{
+		// Modern TLS 1.2 suites first.
+		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+		// Legacy IRCd stacks may only support RSA key exchange with AES-GCM.
+		tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+	}
+}
+
+func tlsMaxVersionLabel(server ServerConfig) string {
+	if !server.TLS {
+		return ""
+	}
+	switch server.TLSMaxVersion {
+	case 0:
+		return "default"
+	case tls.VersionTLS12:
+		return "1.2"
+	case tls.VersionTLS13:
+		return "1.3"
+	default:
+		return "custom"
+	}
+}
+
 func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc NetworkConfig, server ServerConfig) *girc.Client {
 	user := nc.User
 	if user == "" {
@@ -679,7 +726,11 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 		cfg.TLSConfig = &tls.Config{
 			ServerName:         server.Host,
 			MinVersion:         tls.VersionTLS12,
+			MaxVersion:         server.TLSMaxVersion,
 			InsecureSkipVerify: server.TLSInsecure,
+		}
+		if server.TLSMaxVersion == tls.VersionTLS12 {
+			cfg.TLSConfig.CipherSuites = tls12CompatibilityCipherSuites()
 		}
 	}
 	if nc.SASLUser != "" {

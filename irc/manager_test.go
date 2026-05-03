@@ -2,8 +2,10 @@ package irc
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -436,6 +438,50 @@ func TestYAMLStyleNetworkUsesOneLogicalConnectionConfigWithMultipleServers(t *te
 	}
 }
 
+func TestManagerFallsBackToTLS12AfterTLSError(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
+		}
+	}()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	m := NewManager(stores, nil)
+	f := &fakeConnector{returnErr: errors.New("tls handshake failed")}
+	m.connector = f.connect
+
+	err = m.Start(ctx, []NetworkConfig{{
+		Name: "SlashNET",
+		Servers: []ServerConfig{{
+			Host: "irc.slashnet.org",
+			Port: 6697,
+			TLS:  true,
+		}},
+		Nick: "tester", User: "tester", Realname: "tester",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, time.Second, func() bool {
+		return f.callCount() >= 2
+	}, "manager never retried with TLS 1.2")
+	cancel()
+	m.Wait()
+
+	calls := f.callsSnapshot()
+	if calls[0].TLSMaxVersion != 0 {
+		t.Fatalf("first TLS max version = %x, want Go default", calls[0].TLSMaxVersion)
+	}
+	if calls[1].TLSMaxVersion != tls.VersionTLS12 {
+		t.Fatalf("fallback TLS max version = %x, want TLS 1.2", calls[1].TLSMaxVersion)
+	}
+}
+
 func TestBuildClientConfiguresTLSInsecureSkipVerify(t *testing.T) {
 	stores, err := ircdb.OpenMultiStore(t.TempDir())
 	if err != nil {
@@ -463,6 +509,19 @@ func TestBuildClientConfiguresTLSInsecureSkipVerify(t *testing.T) {
 	}
 	if client.Config.TLSConfig.ServerName != "irc.example" {
 		t.Fatalf("server name = %q, want irc.example", client.Config.TLSConfig.ServerName)
+	}
+	if client.Config.TLSConfig.MaxVersion != 0 {
+		t.Fatalf("max TLS version = %x, want Go default", client.Config.TLSConfig.MaxVersion)
+	}
+
+	explicit := m.buildClient(ctx, netrow.ID, NetworkConfig{Name: "ircnet", Nick: "tester", User: "tester", Realname: "tester"}, ServerConfig{Host: "irc.example", Port: 6697, TLS: true, TLSMaxVersion: tls.VersionTLS13})
+	if explicit.Config.TLSConfig.MaxVersion != tls.VersionTLS13 {
+		t.Fatalf("explicit max TLS version = %x, want TLS 1.3", explicit.Config.TLSConfig.MaxVersion)
+	}
+
+	fallback := m.buildClient(ctx, netrow.ID, NetworkConfig{Name: "ircnet", Nick: "tester", User: "tester", Realname: "tester"}, ServerConfig{Host: "irc.example", Port: 6697, TLS: true, TLSMaxVersion: tls.VersionTLS12})
+	if !slices.Contains(fallback.Config.TLSConfig.CipherSuites, tls.TLS_RSA_WITH_AES_128_GCM_SHA256) {
+		t.Fatalf("TLS 1.2 fallback ciphers = %#v, want RSA AES-128-GCM", fallback.Config.TLSConfig.CipherSuites)
 	}
 }
 
@@ -521,6 +580,12 @@ func (f *fakeConnector) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.calls)
+}
+
+func (f *fakeConnector) callsSnapshot() []ServerConfig {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.calls)
 }
 
 var _ = sql.ErrNoRows

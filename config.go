@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"os"
 	"strconv"
@@ -70,9 +71,10 @@ type NetworkFileConfig struct {
 }
 
 type ServerFileConfig struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port,omitempty"`
-	TLS  *bool  `yaml:"tls,omitempty"`
+	Host          string `yaml:"host"`
+	Port          int    `yaml:"port,omitempty"`
+	TLS           *bool  `yaml:"tls,omitempty"`
+	TLSMaxVersion string `yaml:"tls_max_version,omitempty"`
 }
 
 func loadConfig() Config {
@@ -149,6 +151,19 @@ func loadNetworksFromYAML(path string) ([]irc.NetworkConfig, error) {
 	return nets, err
 }
 
+func parseTLSMaxVersion(v string) (uint16, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "":
+		return 0, nil
+	case "1.2", "tls1.2", "tlsv1.2", "tls12", "tlsv12":
+		return tls.VersionTLS12, nil
+	case "1.3", "tls1.3", "tlsv1.3", "tls13", "tlsv13":
+		return tls.VersionTLS13, nil
+	default:
+		return 0, fmt.Errorf("unsupported tls_max_version %q", v)
+	}
+}
+
 func buildNetworks(fc FileConfig) ([]irc.NetworkConfig, error) {
 	var out []irc.NetworkConfig
 	for _, n := range fc.Networks {
@@ -182,6 +197,10 @@ func buildNetworks(fc FileConfig) ([]irc.NetworkConfig, error) {
 
 		servers := make([]irc.ServerConfig, 0, len(n.Servers))
 		for _, s := range n.Servers {
+			tlsMaxVersion, err := parseTLSMaxVersion(s.TLSMaxVersion)
+			if err != nil {
+				return nil, fmt.Errorf("network %q server %q: %w", n.Network, s.Host, err)
+			}
 			useTLS := true
 			if s.TLS != nil {
 				useTLS = *s.TLS
@@ -195,10 +214,11 @@ func buildNetworks(fc FileConfig) ([]irc.NetworkConfig, error) {
 				}
 			}
 			servers = append(servers, irc.ServerConfig{
-				Host:        s.Host,
-				Port:        port,
-				TLS:         useTLS,
-				TLSInsecure: true,
+				Host:          s.Host,
+				Port:          port,
+				TLS:           useTLS,
+				TLSInsecure:   true,
+				TLSMaxVersion: tlsMaxVersion,
 			})
 		}
 		out = append(out, irc.NetworkConfig{
@@ -279,11 +299,12 @@ func previewConfigYAML(configPath string, networks []ircdb.Network) (current, pr
 		entry.ConnectCommands = n.ConnectCommands
 		entry.SASLUser = n.SASLUser
 		entry.SASLPass = n.SASLPass
-		tls := n.TLS
+		useTLS := n.TLS
 		if len(entry.Servers) > 0 {
-			entry.Servers[0] = ServerFileConfig{Host: n.Host, Port: n.Port, TLS: &tls}
+			tlsMaxVersion := entry.Servers[0].TLSMaxVersion
+			entry.Servers[0] = ServerFileConfig{Host: n.Host, Port: n.Port, TLS: &useTLS, TLSMaxVersion: tlsMaxVersion}
 		} else {
-			entry.Servers = []ServerFileConfig{{Host: n.Host, Port: n.Port, TLS: &tls}}
+			entry.Servers = []ServerFileConfig{{Host: n.Host, Port: n.Port, TLS: &useTLS}}
 		}
 		merged = append(merged, entry)
 	}
