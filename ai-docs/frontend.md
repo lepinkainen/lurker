@@ -48,6 +48,23 @@ Buffer settings are mutated via `PATCH /api/buffers/{id}/settings` and the serve
 
 See [rest-api.md](rest-api.md) for `/api/state` and [websocket-protocol.md](websocket-protocol.md) for incremental events.
 
+## Rendering model
+
+WebSocket events route through one named view helper per event in `app-core.ts` `handleWSMessage`. The view helper lives on the object returned by `createAppView` (`web/src/app-view.ts`) and owns DOM dispatch, scroll preservation, and `mark_read` follow-ups. State mutators stay in `messages.ts` / `channel-list.ts` and are called only from inside the view helper.
+
+| Event | View helper | DOM strategy |
+| --- | --- | --- |
+| `message` | `view.appendMessage(msg)` | full rerender of active buffer (drives day separators, presence collapse, unread bar) |
+| `history_result` | `view.prependHistory(msg)` | full rerender of active buffer with scroll-offset preservation |
+| `preview` | `view.patchPreview(msg)` | targeted DOM patch on the matching row; no rerender |
+| `buffer_update` / `buffer_settings` | `view.updateBuffer(msg, { rerenderActive })` | header + sidebar refresh; full rerender only on settings change |
+| `member_list` | `view.setMembers(bufferId, members)` | header + member pane rerender when buffer is active |
+| `channel_list` | `view.renderChannelList()` | full rerender; `renderActiveView` dispatches to the channel-list panel branch when `state.channelList?.done` is set |
+
+`renderActiveView` is the single entry point for full rerenders. It picks one of three branches by state: status pane, channel-list panel, or message list. The channel-list panel is not a special case in `app-core.ts` — it lives inside `renderActiveView` like any other active-buffer view.
+
+The only DOM patch path is `patchPreview`. New strategies must either add a named view helper or fall through `renderActiveView`; do not call `messagesEl` mutations from `app-core.ts`.
+
 ## Interaction specs
 
 - [keyboard-shortcuts.md](keyboard-shortcuts.md) defines the v1 keyboard shortcut set and channel switcher behavior.

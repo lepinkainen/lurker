@@ -1,21 +1,15 @@
 import "./style.css";
 import "./mobile.css";
-import { activeBuffer, type ChannelListEntry, type Member, type Message, state } from "./app-state";
+import { activeBuffer, type Member, type Message, state } from "./app-state";
 import { type AppView, createAppView } from "./app-view";
-import {
-  connectWS,
-  hydrate,
-  nextReconnectDelay,
-  scheduleReconnect,
-  syncStateFromServer,
-  type WebSocketDeps,
-} from "./connection";
+import { applyChannelListUpdate, type ChannelListUpdate } from "./channel-list";
+import { createConnection, type StateSyncDeps, syncStateFromServer } from "./connection";
 import { captureDom, type DomRefs } from "./dom";
 import { bindInputHandlers, updateInputPopups } from "./input";
 import { restoreInputDraft, saveInputDraft } from "./input-history";
 import { cleanupKeyboardShortcuts, initKeyboardShortcuts } from "./keyboard-routing";
 import { populateMembersForActive } from "./members";
-import { inferUnreadCounts, onBufferUpdate, onHistoryResult, onMessage, onPreview } from "./messages";
+import { inferUnreadCounts } from "./messages";
 import { onHashChange } from "./navigation";
 import { resetAppState } from "./reset";
 import { bufferFromHash, bufferHashFor } from "./router";
@@ -43,7 +37,7 @@ export function start() {
   dom = captureDom();
   domReady = true;
   const d = dom;
-  const view = createAppView(d, { sendCmd, setActive });
+  const view = createAppView(d, { sendCmd, setActive, maybeMarkActiveRead });
   appView = view;
   view.renderStatus();
   applyThemeDefaults();
@@ -80,41 +74,26 @@ export function start() {
   const onHash = () => onHashChange(setActive);
   window.addEventListener("hashchange", onHash);
   window.addEventListener("popstate", onHash);
-  const connectionDeps = createConnectionDeps(view);
-  return hydrate(connectionDeps);
-}
-
-function createConnectionDeps(view: AppView): WebSocketDeps {
-  const deps: WebSocketDeps = {
+  const syncStateDeps: StateSyncDeps = {
+    renderPromptNick: view.renderPromptNick,
+    inferUnreadCounts,
+    renderSidebar: view.renderSidebar,
+    renderHeader: view.renderHeader,
+    renderActiveView: view.renderActiveView,
+    renderMembers: view.renderMembers,
+    setActive,
+    bufferFromHash,
+  };
+  const connection = createConnection({
     domReady: () => domReady,
-    renderSidebarStatus: view.renderStatus,
+    renderStatus: view.renderStatus,
     renderSidebar: view.renderSidebar,
     updateInputEnabled: view.updateInputEnabled,
     maybeMarkActiveRead,
-    syncStateFromServer: () =>
-      syncStateFromServer({
-        renderPromptNick: view.renderPromptNick,
-        inferUnreadCounts,
-        renderSidebar: view.renderSidebar,
-        renderHeader: view.renderHeader,
-        renderActiveView: view.renderActiveView,
-        renderMembers: view.renderMembers,
-        setActive,
-        bufferFromHash,
-      }),
-    scheduleReconnect: (delayMs: number) =>
-      scheduleReconnect(
-        {
-          domReady: () => domReady,
-          renderSidebarStatus: view.renderStatus,
-          connectWS: () => connectWS(deps),
-        },
-        delayMs,
-      ),
-    nextReconnectDelay,
-    handleWSMessage,
-  };
-  return deps;
+    syncState: () => syncStateFromServer(syncStateDeps),
+    handleMessage: handleWSMessage,
+  });
+  return connection.hydrate();
 }
 
 type WSMessage =
@@ -133,7 +112,7 @@ type WSMessage =
   | { type: "history_result"; buffer_id: string; messages?: Message[] }
   | { type: "preview"; buffer_id: string; message_id: string; previews?: Message["previews"] }
   | { type: "member_list"; buffer_id: string; members?: Member[] }
-  | { type: "channel_list"; network_id: string; entries: ChannelListEntry[]; done: boolean }
+  | ({ type: "channel_list" } & ChannelListUpdate)
   | { type: "ignorelist_result"; req_id: string; network_id: string; masks: string[] };
 
 function handleWSMessage(msg: unknown) {
@@ -141,11 +120,7 @@ function handleWSMessage(msg: unknown) {
   const view = mustView();
   switch (m.type) {
     case "message":
-      onMessage(m, {
-        renderActiveView: view.renderActiveView,
-        maybeMarkActiveRead,
-        renderSidebar: view.renderSidebar,
-      });
+      view.appendMessage(m);
       break;
     case "buffer_created":
       state.buffers.set(m.id, {
@@ -167,8 +142,7 @@ function handleWSMessage(msg: unknown) {
       break;
     case "buffer_update":
     case "buffer_settings":
-      onBufferUpdate(m, { inferUnreadCounts, renderHeader: view.renderHeader, renderSidebar: view.renderSidebar });
-      if (m.type === "buffer_settings") view.renderActiveView();
+      view.updateBuffer(m, { rerenderActive: m.type === "buffer_settings" });
       break;
     case "network_state": {
       const n = state.networks.get(m.network_id);
@@ -180,27 +154,16 @@ function handleWSMessage(msg: unknown) {
       break;
     }
     case "history_result":
-      onHistoryResult(m, { renderActiveView: view.renderActiveView }, view.dom.messagesEl);
+      view.prependHistory(m);
       break;
     case "preview":
-      onPreview(m, view.dom.messagesEl);
+      view.patchPreview(m);
       break;
     case "member_list":
-      state.members.set(m.buffer_id, m.members || []);
-      if (m.buffer_id === state.activeId) {
-        view.renderHeader();
-        view.renderMembers();
-      }
+      view.setMembers(m.buffer_id, m.members || []);
       break;
     case "channel_list":
-      if (!state.channelList || state.channelList.network_id !== m.network_id) {
-        state.channelList = { network_id: m.network_id, entries: [], done: false };
-      }
-      state.channelList.entries.push(...m.entries);
-      state.channelList.done = m.done;
-      if (m.done && m.network_id === state.networks.get(activeBuffer()?.network_id ?? "")?.id) {
-        view.renderActiveView();
-      }
+      if (applyChannelListUpdate(m)) view.renderChannelList();
       break;
     case "ignorelist_result":
       console.log("ignore list:", m.masks);
