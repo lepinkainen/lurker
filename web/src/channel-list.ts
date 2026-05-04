@@ -1,9 +1,25 @@
-import { state } from "./app-state";
+import { activeBuffer, type ChannelListEntry, state } from "./app-state";
+
+export type ChannelListUpdate = {
+  network_id: string;
+  entries: ChannelListEntry[];
+  done: boolean;
+};
 
 export type ChannelListPanelDeps = {
   sendCmd: (cmd: Record<string, unknown>) => void;
   renderActiveView: () => void;
 };
+
+export function applyChannelListUpdate(update: ChannelListUpdate): boolean {
+  if (!state.channelList || state.channelList.network_id !== update.network_id) {
+    state.channelList = { network_id: update.network_id, entries: [], done: false };
+  }
+  state.channelList.entries.push(...update.entries);
+  state.channelList.done = update.done;
+  const active = activeBuffer();
+  return update.done && active?.network_id === update.network_id;
+}
 
 function closeChannelList(deps: ChannelListPanelDeps) {
   state.channelList = null;
