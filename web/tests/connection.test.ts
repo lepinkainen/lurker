@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { state } from "../src/app-state";
-import { checkWebSocketHealth, connectWS, syncStateFromServer } from "../src/connection";
+import { checkWebSocketHealth, createConnection, syncStateFromServer } from "../src/connection";
 import { resetAppState } from "../src/reset";
 
 class FakeWebSocket extends EventTarget {
@@ -35,7 +35,7 @@ class FakeWebSocket extends EventTarget {
 const deps = () => {
   const d = {
     domReady: () => true,
-    renderSidebarStatus: vi.fn(),
+    renderStatus: vi.fn(),
     renderPromptNick: vi.fn(),
     renderSidebar: vi.fn(),
     renderHeader: vi.fn(),
@@ -44,14 +44,12 @@ const deps = () => {
     updateInputEnabled: vi.fn(),
     maybeMarkActiveRead: vi.fn(),
     inferUnreadCounts: vi.fn(),
-    scheduleReconnect: vi.fn(),
-    nextReconnectDelay: vi.fn(() => 1000),
     setActive: vi.fn(),
     bufferFromHash: vi.fn(() => null),
-    handleWSMessage: vi.fn(),
-    syncStateFromServer: vi.fn<() => Promise<void>>(),
+    handleMessage: vi.fn(),
+    syncState: vi.fn<() => Promise<void>>(),
   };
-  d.syncStateFromServer.mockImplementation(() => syncStateFromServer(d));
+  d.syncState.mockImplementation(() => syncStateFromServer(d));
   return d;
 };
 
@@ -100,41 +98,44 @@ describe("connection recovery", () => {
 
   it("closes and immediately reconnects a stale websocket that still appears open", () => {
     const d = deps();
-    connectWS(d);
+    const connection = createConnection(d);
+    connection.connect();
     const ws = FakeWebSocket.instances[0];
     ws.open();
     state.lastWSActivityAt = Date.now() - 120_000;
 
     checkWebSocketHealth({
       domReady: d.domReady,
-      renderSidebarStatus: d.renderSidebarStatus,
+      renderStatus: d.renderStatus,
       updateInputEnabled: d.updateInputEnabled,
       renderSidebar: d.renderSidebar,
-      scheduleReconnect: d.scheduleReconnect,
+      scheduleReconnect: connection.scheduleReconnect,
     });
 
     expect(ws.close).toHaveBeenCalledOnce();
     expect(state.ws).toBeNull();
     expect(state.wsReady).toBe(false);
     expect(state.needsStateSyncOnConnect).toBe(true);
-    expect(d.scheduleReconnect).toHaveBeenCalledWith(0);
+    expect(state.reconnectTimer).not.toBeNull();
+    vi.advanceTimersByTime(0);
+    expect(FakeWebSocket.instances).toHaveLength(2);
   });
 
   it("skips state refresh on first websocket open when no sync is pending", () => {
     const d = deps();
     state.needsStateSyncOnConnect = false;
 
-    connectWS(d);
+    createConnection(d).connect();
     FakeWebSocket.instances[0].open();
 
-    expect(d.syncStateFromServer).not.toHaveBeenCalled();
+    expect(d.syncState).not.toHaveBeenCalled();
   });
 
   it("refreshes state on reconnect so missed messages are backfilled", async () => {
     const d = deps();
     state.needsStateSyncOnConnect = true;
 
-    connectWS(d);
+    createConnection(d).connect();
     FakeWebSocket.instances[0].open();
     await vi.waitFor(() => {
       expect(state.messages.get("10")).toEqual([{ id: "99", buffer_id: "10", content: "missed while asleep" }]);
@@ -151,10 +152,10 @@ describe("connection recovery", () => {
     const d = deps();
     const error = new Error("state down");
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    d.syncStateFromServer.mockRejectedValueOnce(error);
+    d.syncState.mockRejectedValueOnce(error);
     state.needsStateSyncOnConnect = true;
 
-    connectWS(d);
+    createConnection(d).connect();
     FakeWebSocket.instances[0].open();
 
     await vi.waitFor(() => {

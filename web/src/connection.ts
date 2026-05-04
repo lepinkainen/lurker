@@ -24,32 +24,39 @@ export type StateSyncDeps = {
 };
 
 export type HydrateDeps = {
-  renderSidebarStatus: () => void;
-  syncStateFromServer: () => Promise<void>;
+  renderStatus: () => void;
+  syncState: () => Promise<void>;
   scheduleReconnect: (delayMs: number) => void;
-  nextReconnectDelay: () => number;
 };
 
-export type WebSocketDeps = {
+export type ConnectionDeps = {
   domReady: () => boolean;
-  renderSidebarStatus: () => void;
+  renderStatus: () => void;
   renderSidebar: () => void;
   updateInputEnabled: () => void;
   maybeMarkActiveRead: () => void;
-  syncStateFromServer: () => Promise<void>;
+  syncState: () => Promise<void>;
+  handleMessage: (msg: unknown) => void;
+};
+
+export type Connection = {
+  hydrate: () => Promise<void>;
+  connect: () => void;
   scheduleReconnect: (delayMs: number) => void;
-  nextReconnectDelay: () => number;
-  handleWSMessage: (msg: unknown) => void;
+};
+
+type WebSocketRuntimeDeps = ConnectionDeps & {
+  scheduleReconnect: (delayMs: number) => void;
 };
 
 type HealthCheckDeps = Pick<
-  WebSocketDeps,
-  "domReady" | "renderSidebarStatus" | "updateInputEnabled" | "renderSidebar" | "scheduleReconnect"
+  WebSocketRuntimeDeps,
+  "domReady" | "renderStatus" | "updateInputEnabled" | "renderSidebar" | "scheduleReconnect"
 >;
 
 type ReconnectDeps = {
   domReady: () => boolean;
-  renderSidebarStatus: () => void;
+  renderStatus: () => void;
   connectWS: () => void;
 };
 
@@ -109,16 +116,41 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
 export async function hydrate(deps: HydrateDeps) {
   try {
     state.backendStatus = "connecting";
-    deps.renderSidebarStatus();
-    await deps.syncStateFromServer();
+    deps.renderStatus();
+    await deps.syncState();
     state.reconnectAttempts = 0;
     deps.scheduleReconnect(0);
   } catch (err) {
     state.backendStatus = "offline";
-    deps.renderSidebarStatus();
+    deps.renderStatus();
     console.error("hydrate failed", err);
-    deps.scheduleReconnect(deps.nextReconnectDelay());
+    deps.scheduleReconnect(nextReconnectDelay());
   }
+}
+
+export function createConnection(deps: ConnectionDeps): Connection {
+  const runtimeDeps: WebSocketRuntimeDeps = { ...deps, scheduleReconnect };
+
+  function connect() {
+    connectWS(runtimeDeps);
+  }
+
+  function scheduleReconnect(delayMs: number) {
+    scheduleReconnectTimer(
+      {
+        domReady: deps.domReady,
+        renderStatus: deps.renderStatus,
+        connectWS: connect,
+      },
+      delayMs,
+    );
+  }
+
+  return {
+    hydrate: () => hydrate({ renderStatus: deps.renderStatus, syncState: deps.syncState, scheduleReconnect }),
+    connect,
+    scheduleReconnect,
+  };
 }
 
 function startWSHealthCheck(deps: HealthCheckDeps) {
@@ -141,16 +173,16 @@ export function checkWebSocketHealth(deps: HealthCheckDeps) {
   state.backendStatus = "offline";
   state.needsStateSyncOnConnect = true;
   if (!deps.domReady()) return;
-  deps.renderSidebarStatus();
+  deps.renderStatus();
   deps.updateInputEnabled();
   deps.renderSidebar();
   deps.scheduleReconnect(0);
 }
 
-export function connectWS(deps: WebSocketDeps) {
+function connectWS(deps: WebSocketRuntimeDeps) {
   if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
   state.backendStatus = "connecting";
-  deps.renderSidebarStatus();
+  deps.renderStatus();
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${proto}//${location.host}/api/stream`);
   state.ws = ws;
@@ -160,13 +192,13 @@ export function connectWS(deps: WebSocketDeps) {
     state.lastWSActivityAt = Date.now();
     state.backendStatus = "connected";
     state.reconnectAttempts = 0;
-    deps.renderSidebarStatus();
+    deps.renderStatus();
     deps.updateInputEnabled();
     deps.maybeMarkActiveRead();
     deps.renderSidebar();
     if (state.needsStateSyncOnConnect) {
       deps
-        .syncStateFromServer()
+        .syncState()
         .then(() => {
           state.needsStateSyncOnConnect = false;
         })
@@ -176,7 +208,7 @@ export function connectWS(deps: WebSocketDeps) {
   ws.addEventListener("message", (ev) => {
     state.lastWSActivityAt = Date.now();
     try {
-      deps.handleWSMessage(JSON.parse(ev.data));
+      deps.handleMessage(JSON.parse(ev.data));
     } catch {
       console.warn("non-json ws frame", ev.data);
     }
@@ -187,10 +219,10 @@ export function connectWS(deps: WebSocketDeps) {
     state.backendStatus = "offline";
     state.needsStateSyncOnConnect = true;
     if (!deps.domReady()) return;
-    deps.renderSidebarStatus();
+    deps.renderStatus();
     deps.updateInputEnabled();
     deps.renderSidebar();
-    deps.scheduleReconnect(deps.nextReconnectDelay());
+    deps.scheduleReconnect(nextReconnectDelay());
   });
   ws.addEventListener("error", () => ws.close());
 }
@@ -213,15 +245,15 @@ export function nextReconnectDelay(): number {
   return delay;
 }
 
-export function scheduleReconnect(deps: ReconnectDeps, delayMs: number) {
+function scheduleReconnectTimer(deps: ReconnectDeps, delayMs: number) {
   clearReconnectTimer();
   state.backendStatus = "reconnecting";
   state.reconnectAt = Date.now() + delayMs;
-  deps.renderSidebarStatus();
+  deps.renderStatus();
   if (delayMs > 0) {
     state.reconnectTicker = window.setInterval(() => {
       if (!deps.domReady() || state.backendStatus !== "reconnecting") return;
-      deps.renderSidebarStatus();
+      deps.renderStatus();
     }, 250);
   }
   state.reconnectTimer = window.setTimeout(() => {
