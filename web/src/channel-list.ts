@@ -21,6 +21,18 @@ export function applyChannelListUpdate(update: ChannelListUpdate): boolean {
   return update.done && active?.network_id === update.network_id;
 }
 
+export function tryRenderActiveChannelList(
+  messagesEl: HTMLElement,
+  statusViewEl: HTMLElement,
+  deps: ChannelListPanelDeps,
+): boolean {
+  if (!state.channelList?.done) return false;
+  statusViewEl.hidden = true;
+  messagesEl.hidden = false;
+  renderChannelListPanel(messagesEl, deps);
+  return true;
+}
+
 function closeChannelList(deps: ChannelListPanelDeps) {
   state.channelList = null;
   deps.renderActiveView();

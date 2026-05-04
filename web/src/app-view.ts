@@ -1,5 +1,5 @@
 import { activeBuffer, type Member, type Message, type Network, state } from "./app-state";
-import { renderChannelListPanel } from "./channel-list";
+import { tryRenderActiveChannelList } from "./channel-list";
 import type { DomRefs } from "./dom";
 import { updateInputEnabled } from "./input";
 import { renderMembers } from "./members";
@@ -42,12 +42,13 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
     },
     renderHeader: () => renderHeader(messageArea, { renderPromptNick: view.renderPromptNick, iconEl }),
     renderActiveView: () => {
-      if (state.channelList?.done) {
-        d.statusViewEl.hidden = true;
-        d.messagesEl.hidden = false;
-        renderChannelListPanel(d.messagesEl, { sendCmd: deps.sendCmd, renderActiveView: view.renderActiveView });
+      if (
+        tryRenderActiveChannelList(d.messagesEl, d.statusViewEl, {
+          sendCmd: deps.sendCmd,
+          renderActiveView: view.renderActiveView,
+        })
+      )
         return;
-      }
       renderMessagesView(messageArea, { renderPromptNick: view.renderPromptNick, iconEl });
     },
     renderMembers: () =>
@@ -88,7 +89,6 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
       view.renderHeader();
       view.renderMembers();
     },
-    renderChannelList: () => view.renderActiveView(),
   };
   return view;
 }
