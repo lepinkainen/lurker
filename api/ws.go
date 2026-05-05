@@ -58,6 +58,8 @@ type bufferLastSeenEvent struct {
 	ID         uuid.UUID `json:"id"`
 	NetworkID  uuid.UUID `json:"network_id"`
 	LastSeenID uuid.UUID `json:"last_seen_id"`
+	Unread     int       `json:"unread"`
+	Mentions   int       `json:"mentions"`
 }
 
 type ignoreListResult struct {
@@ -149,6 +151,8 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	switch cmd.Type {
+	case "input":
+		s.cmdInput(ctx, c, cmd)
 	case "send":
 		s.cmdSend(ctx, c, cmd)
 	case "history":
@@ -218,6 +222,28 @@ func (s *Server) handleCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd
 	default:
 		writeWSErr(ctx, c, cmd.ReqID, "unknown command: "+cmd.Type)
 	}
+}
+
+// cmdInput is the unified input verb: a free-form line ("/join #foo" or
+// plain text) is parsed server-side and dispatched to the existing
+// command handlers. Buffer context is resolved from cmd.BufferID.
+func (s *Server) cmdInput(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	if cmd.BufferID == uuid.Nil || strings.TrimSpace(cmd.Content) == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "input requires buffer_id and content")
+		return
+	}
+	networkID, name, _, err := s.Stores.LookupBuffer(ctx, cmd.BufferID)
+	if err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, "unknown buffer")
+		return
+	}
+	parsed, err := parseInput(cmd.Content, inputBuffer{ID: cmd.BufferID, NetworkID: networkID, Name: name})
+	if err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	parsed.ReqID = cmd.ReqID
+	s.handleCmd(ctx, c, parsed)
 }
 
 func (s *Server) cmdSend(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
@@ -305,7 +331,15 @@ func (s *Server) cmdMarkRead(ctx context.Context, c *websocket.Conn, cmd clientC
 		return
 	}
 	if s.Hub != nil {
-		s.Hub.Publish(bufferLastSeenEvent{Type: "buffer_update", ID: cmd.BufferID, NetworkID: networkID, LastSeenID: cmd.MessageID})
+		nick := ""
+		if s.Manager != nil {
+			nick = s.Manager.Nick(networkID)
+		}
+		unread, mentions := s.computeUnreadCounts(ctx, networkID, cmd.BufferID, cmd.MessageID, nick)
+		s.Hub.Publish(bufferLastSeenEvent{
+			Type: "buffer_update", ID: cmd.BufferID, NetworkID: networkID,
+			LastSeenID: cmd.MessageID, Unread: unread, Mentions: mentions,
+		})
 	}
 	writeWSAck(ctx, c, cmd.ReqID)
 }

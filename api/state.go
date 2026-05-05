@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/irc"
 	"github.com/lepinkainen/lurker/preview"
 )
 
@@ -39,20 +40,26 @@ type bufferDTO struct {
 	ShowPresenceEvents     bool      `json:"show_presence_events"`
 	CollapsePresenceEvents bool      `json:"collapse_presence_events"`
 	Pinned                 bool      `json:"pinned"`
+	Unread                 int       `json:"unread"`
+	Mentions               int       `json:"mentions"`
 }
 
 type messageDTO struct {
-	ID        uuid.UUID                 `json:"id"`
-	NetworkID uuid.UUID                 `json:"network_id"`
-	BufferID  uuid.UUID                 `json:"buffer_id"`
-	MsgID     string                    `json:"msgid,omitzero"`
-	TS        string                    `json:"ts"`
-	Sender    string                    `json:"sender"`
-	Account   string                    `json:"account,omitzero"`
-	Kind      string                    `json:"kind"`
-	Target    string                    `json:"target,omitzero"`
-	Content   string                    `json:"content"`
-	Previews  []preview.ResolvedPreview `json:"previews,omitzero"`
+	ID             uuid.UUID                 `json:"id"`
+	NetworkID      uuid.UUID                 `json:"network_id"`
+	BufferID       uuid.UUID                 `json:"buffer_id"`
+	MsgID          string                    `json:"msgid,omitzero"`
+	TS             string                    `json:"ts"`
+	Sender         string                    `json:"sender"`
+	Account        string                    `json:"account,omitzero"`
+	Kind           string                    `json:"kind"`
+	Target         string                    `json:"target,omitzero"`
+	Content        string                    `json:"content"`
+	Previews       []preview.ResolvedPreview `json:"previews,omitzero"`
+	DisplayKind    string                    `json:"display_kind"`
+	IsSelf         bool                      `json:"is_self,omitzero"`
+	MentionsMe     bool                      `json:"mentions_me,omitzero"`
+	CountsAsUnread bool                      `json:"counts_as_unread,omitzero"`
 }
 
 type channelMemberDTO struct {
@@ -74,6 +81,7 @@ type stateManager interface {
 	StateSnapshot() map[uuid.UUID]string
 	IsJoined(networkID uuid.UUID, channel string) bool
 	ChannelMembers(networkID uuid.UUID, channel string) []ircdb.ChannelMember
+	Nick(networkID uuid.UUID) string
 }
 
 // state serves the full snapshot a client needs to render from scratch:
@@ -108,11 +116,17 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		if b.Kind == ircdb.BufferChannel && s.Manager != nil {
 			joined = s.Manager.IsJoined(b.NetworkID, b.Name)
 		}
+		nick := ""
+		if s.Manager != nil {
+			nick = s.Manager.Nick(b.NetworkID)
+		}
+		unread, mentions := s.computeUnreadCounts(ctx, b.NetworkID, b.ID, b.LastSeenID, nick)
 		out.Buffers = append(out.Buffers, bufferDTO{
 			ID: b.ID, NetworkID: b.NetworkID, Name: b.Name, Kind: b.Kind,
 			Topic: b.Topic, Joined: joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
 			ShowEmbeds: b.ShowEmbeds, ShowPresenceEvents: b.ShowPresenceEvents,
 			CollapsePresenceEvents: b.CollapsePresenceEvents, Pinned: b.Pinned,
+			Unread: unread, Mentions: mentions,
 		})
 		if b.Kind == ircdb.BufferChannel && s.Manager != nil {
 			if members := s.Manager.ChannelMembers(b.NetworkID, b.Name); members != nil {
@@ -171,11 +185,24 @@ func (s *Server) loadHistory(ctx context.Context, bufferID, before uuid.UUID, li
 
 func (s *Server) toMessageDTOs(ctx context.Context, in []ircdb.StoredMessage) []messageDTO {
 	out := make([]messageDTO, 0, len(in))
+	nicks := map[uuid.UUID]string{}
 	for _, m := range in {
+		nick, ok := nicks[m.NetworkID]
+		if !ok {
+			if s.Manager != nil {
+				nick = s.Manager.Nick(m.NetworkID)
+			}
+			nicks[m.NetworkID] = nick
+		}
+		sem := irc.ComputeMessageSemantics(m.Kind, m.Sender, m.Content, nick)
 		out = append(out, messageDTO{
 			ID: m.ID, NetworkID: m.NetworkID, BufferID: m.BufferID,
 			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Account: m.Account,
 			Kind: m.Kind, Target: m.Target, Content: m.Content,
+			DisplayKind:    sem.DisplayKind,
+			IsSelf:         sem.IsSelf,
+			MentionsMe:     sem.MentionsMe,
+			CountsAsUnread: sem.CountsAsUnread,
 		})
 	}
 	s.attachPreviews(ctx, out)
@@ -247,6 +274,42 @@ func (s *Server) attachPreviews(ctx context.Context, msgs []messageDTO) {
 		}
 		msgs[l.msgIdx].Previews = append(msgs[l.msgIdx].Previews, preview.ToResolvedPreview(p))
 	}
+}
+
+// unreadCountsCap caps how many candidate rows we scan per buffer when
+// computing unread/mention counts. The UI typically renders "999+" beyond
+// this anyway, so we keep the query bounded.
+const unreadCountsCap = 1000
+
+// computeUnreadCounts queries the per-network log DB for messages newer
+// than lastSeenID, then folds each through ComputeMessageSemantics to
+// derive unread + mention counts. Failures degrade silently to (0, 0):
+// stale counts are better than a broken /api/state response.
+func (s *Server) computeUnreadCounts(ctx context.Context, networkID, bufferID, lastSeenID uuid.UUID, nick string) (unread, mentions int) {
+	if s.Stores == nil {
+		return 0, 0
+	}
+	logStore, err := s.Stores.LogStore(networkID)
+	if err != nil {
+		slog.Warn("unread log store", "err", err, "network_id", networkID)
+		return 0, 0
+	}
+	cands, err := ircdb.UnreadCandidates(ctx, logStore.DB, bufferID, lastSeenID, unreadCountsCap)
+	if err != nil {
+		slog.Warn("unread candidates", "err", err, "buffer_id", bufferID)
+		return 0, 0
+	}
+	for _, c := range cands {
+		sem := irc.ComputeMessageSemantics(c.Kind, c.Sender, c.Content, nick)
+		if !sem.CountsAsUnread {
+			continue
+		}
+		unread++
+		if sem.MentionsMe {
+			mentions++
+		}
+	}
+	return unread, mentions
 }
 
 func toChannelMemberDTOs(in []ircdb.ChannelMember) []channelMemberDTO {

@@ -185,6 +185,11 @@ func (m *mockManager) ChannelMembers(networkID uuid.UUID, channel string) []ircd
 	return nil
 }
 
+func (m *mockManager) Nick(networkID uuid.UUID) string {
+	m.record("Nick")
+	return ""
+}
+
 func (m *mockManager) StopNetwork(networkID uuid.UUID) error {
 	m.record("StopNetwork")
 	return nil
@@ -388,6 +393,66 @@ func TestMarkReadBroadcastsBufferUpdate(t *testing.T) {
 		}
 		if got.Type != "buffer_update" || got.ID != bufID || got.NetworkID != nID || got.LastSeenID != lastSeenID {
 			t.Fatalf("unexpected event: %+v", got)
+		}
+		if got.Unread != 0 || got.Mentions != 0 {
+			t.Fatalf("expected unread=0 mentions=0 on empty buffer, got %+v", got)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+}
+
+// TestMarkReadComputesResidualUnread verifies that mark_read against an
+// older message-id leaves a non-zero unread/mentions count derived from the
+// stored history (issue #54). Backend is the source of truth so all
+// connected clients converge on the same numbers.
+func TestMarkReadComputesResidualUnread(t *testing.T) {
+	ctx := t.Context()
+	ts := newTestWSServer(t)
+	nID, bufID := ts.defaultNetwork(t)
+
+	logStore, err := ts.stores.LogStore(nID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "hi",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "ping tester",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+		BufferID: bufID, Sender: "alice", Kind: "join", Content: "",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	events, unsub := ts.hub.Subscribe(8)
+	defer unsub()
+
+	c := ts.dial(t)
+	sendCmd(t, ctx, c, clientCmd{Type: "mark_read", ReqID: "r1", BufferID: bufID, MessageID: first})
+	_ = recvAck(t, ctx, c)
+
+	select {
+	case ev := <-events:
+		got, ok := ev.(bufferLastSeenEvent)
+		if !ok {
+			t.Fatalf("event type = %T", ev)
+		}
+		// One privmsg ("ping tester") past last_seen; "join" does not count.
+		// mockManager.Nick is "" in this server, so mentions_me cannot fire,
+		// expect 0 mentions even though content contains the network nick.
+		if got.Unread != 1 {
+			t.Fatalf("unread = %d, want 1", got.Unread)
+		}
+		if got.Mentions != 0 {
+			t.Fatalf("mentions = %d, want 0 (no Manager wired -> nick lookup empty)", got.Mentions)
 		}
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
