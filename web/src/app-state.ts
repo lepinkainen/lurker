@@ -46,6 +46,10 @@ export type Message = {
   kind?: string;
   ts?: string;
   previews?: Preview[];
+  display_kind?: string;
+  is_self?: boolean;
+  mentions_me?: boolean;
+  counts_as_unread?: boolean;
 };
 
 export type Member = {
@@ -60,7 +64,7 @@ export type StateResponse = {
   nick?: string;
   user?: { nick: string };
   networks?: (Network & { nick?: string })[];
-  buffers?: Omit<Buffer, "unread" | "mentions">[];
+  buffers?: Buffer[];
   initial_messages?: Record<string, Message[]>;
   members?: Record<string, Member[]>;
 };

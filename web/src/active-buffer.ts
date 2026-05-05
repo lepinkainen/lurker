@@ -4,7 +4,6 @@ import type { DomRefs } from "./dom";
 import { updateInputPopups } from "./input";
 import { restoreInputDraft, saveInputDraft } from "./input-history";
 import { populateMembersForActive } from "./members";
-import { inferUnreadCounts } from "./messages";
 import { bufferHashFor } from "./router";
 import { setSidebarDrawer } from "./ui-shell";
 
@@ -36,7 +35,12 @@ export function createSetActive(deps: SetActiveDeps): SetActive {
     }
     const view = deps.getView();
     if (!view) throw new Error("app view not initialized");
-    inferUnreadCounts();
+    // Optimistic; server's mark_read broadcast will overwrite shortly.
+    const activeBuf = state.buffers.get(id);
+    if (activeBuf) {
+      activeBuf.unread = 0;
+      activeBuf.mentions = 0;
+    }
     populateMembersForActive();
     view.renderSidebar();
     view.renderHeader();

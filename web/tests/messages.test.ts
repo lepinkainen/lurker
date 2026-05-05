@@ -1,13 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type Buffer, type Message, type Network, state } from "../src/app-state";
-import {
-  inferUnreadCounts,
-  type MessagesDom,
-  onBufferUpdate,
-  onMessage,
-  renderActiveView,
-  renderHeader,
-} from "../src/messages";
+import { type MessagesDom, onBufferUpdate, onMessage, renderActiveView, renderHeader } from "../src/messages";
 import { resetAppState } from "../src/reset";
 
 function buf(overrides: Partial<Buffer> & { id: string }): Buffer {
@@ -277,63 +270,42 @@ describe("onMessage", () => {
   });
 });
 
-describe("inferUnreadCounts", () => {
-  beforeEach(() => resetAppState());
-
-  it("counts messages past last_seen and zeros active buffer", () => {
-    state.activeId = "1";
-    state.me.nick = "you";
-    state.buffers.set("1", buf({ id: "1", last_seen_id: "0" }));
-    state.buffers.set("2", buf({ id: "2", last_seen_id: "5" }));
-    state.messages.set("1", [
-      { id: "1", buffer_id: "1", sender: "a", content: "hi" },
-      { id: "2", buffer_id: "1", sender: "a", content: "you?" },
-    ]);
-    state.messages.set("2", [
-      { id: "4", buffer_id: "2", sender: "a", content: "old" },
-      { id: "6", buffer_id: "2", sender: "a", content: "ping you" },
-      { id: "7", buffer_id: "2", sender: "a", content: "more" },
-    ]);
-    inferUnreadCounts();
-    expect(state.buffers.get("1")?.unread).toBe(0);
-    expect(state.buffers.get("2")?.unread).toBe(2);
-    expect(state.buffers.get("2")?.mentions).toBe(1);
-  });
-
-  it("excludes state-change noise but counts topic changes as unread activity", () => {
-    state.activeId = "99";
-    state.me.nick = "you";
-    state.buffers.set("1", buf({ id: "1", last_seen_id: "5", show_presence_events: true }));
-    state.messages.set("1", [
-      { id: "6", buffer_id: "1", sender: "a", content: "you joined", kind: "join" },
-      { id: "7", buffer_id: "1", sender: "a", content: "you parted", kind: "part" },
-      { id: "8", buffer_id: "1", sender: "a", content: "new topic", kind: "topic" },
-    ]);
-    inferUnreadCounts();
-    expect(state.buffers.get("1")?.unread).toBe(1);
-    expect(state.buffers.get("1")?.mentions).toBe(0);
-  });
-});
-
 describe("onBufferUpdate", () => {
   beforeEach(() => resetAppState());
 
   it("applies topic/joined/last_seen and triggers handlers", () => {
     state.buffers.set("1", buf({ id: "1", topic: "old", joined: false, last_seen_id: "0" }));
-    const handlers = { inferUnreadCounts: vi.fn(), renderHeader: vi.fn(), renderSidebar: vi.fn() };
+    const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
     onBufferUpdate({ id: "1", topic: "new topic", joined: true, last_seen_id: "42" }, handlers);
     const b = state.buffers.get("1");
     expect(b?.topic).toBe("new topic");
     expect(b?.joined).toBe(true);
     expect(b?.last_seen_id).toBe("42");
-    expect(handlers.inferUnreadCounts).toHaveBeenCalled();
     expect(handlers.renderHeader).toHaveBeenCalled();
     expect(handlers.renderSidebar).toHaveBeenCalled();
   });
 
+  it("applies server-authoritative unread/mentions when present", () => {
+    state.buffers.set("1", buf({ id: "1", unread: 9, mentions: 3 }));
+    const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
+    onBufferUpdate({ id: "1", last_seen_id: "42", unread: 0, mentions: 0 }, handlers);
+    const b = state.buffers.get("1");
+    expect(b?.unread).toBe(0);
+    expect(b?.mentions).toBe(0);
+  });
+
+  it("preserves existing counts when buffer_update omits them", () => {
+    state.buffers.set("1", buf({ id: "1", unread: 4, mentions: 1 }));
+    const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
+    onBufferUpdate({ id: "1", topic: "x" }, handlers);
+    const b = state.buffers.get("1");
+    expect(b?.unread).toBe(4);
+    expect(b?.mentions).toBe(1);
+  });
+
   it("ignores unknown buffer", () => {
-    const handlers = { inferUnreadCounts: vi.fn(), renderHeader: vi.fn(), renderSidebar: vi.fn() };
+    const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
     onBufferUpdate({ id: "999", topic: "x" }, handlers);
-    expect(handlers.inferUnreadCounts).not.toHaveBeenCalled();
+    expect(handlers.renderHeader).not.toHaveBeenCalled();
   });
 });

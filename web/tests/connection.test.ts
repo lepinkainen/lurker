@@ -43,7 +43,6 @@ const deps = () => {
     renderMembers: vi.fn(),
     updateInputEnabled: vi.fn(),
     maybeMarkActiveRead: vi.fn(),
-    inferUnreadCounts: vi.fn(),
     setActive: vi.fn(),
     bufferFromHash: vi.fn(() => null),
     handleMessage: vi.fn(),
@@ -142,7 +141,6 @@ describe("connection recovery", () => {
     });
 
     expect(fetch).toHaveBeenCalledWith("/api/state");
-    expect(d.inferUnreadCounts).toHaveBeenCalled();
     expect(d.renderSidebar).toHaveBeenCalled();
     expect(d.renderActiveView).toHaveBeenCalled();
     expect(state.needsStateSyncOnConnect).toBe(false);

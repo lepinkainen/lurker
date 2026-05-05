@@ -7,7 +7,6 @@ import { createConnection, type StateSyncDeps, syncStateFromServer } from "./con
 import { captureDom, type DomRefs } from "./dom";
 import { bindInputHandlers } from "./input";
 import { cleanupKeyboardShortcuts, initKeyboardShortcuts } from "./keyboard-routing";
-import { inferUnreadCounts } from "./messages";
 import { onHashChange } from "./navigation";
 import { createReadTracker } from "./read-tracker";
 import { resetAppState } from "./reset";
@@ -80,7 +79,6 @@ export function start() {
   window.addEventListener("popstate", onHash);
   const syncStateDeps: StateSyncDeps = {
     renderPromptNick: view.renderPromptNick,
-    inferUnreadCounts,
     renderSidebar: view.renderSidebar,
     renderHeader: view.renderHeader,
     renderActiveView: view.renderActiveView,

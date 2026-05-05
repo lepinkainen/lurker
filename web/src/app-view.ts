@@ -4,7 +4,6 @@ import type { DomRefs } from "./dom";
 import { updateInputEnabled } from "./input";
 import { renderMembers } from "./members";
 import {
-  inferUnreadCounts,
   onBufferUpdate,
   onHistoryResult,
   onMessage,
@@ -77,7 +76,6 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
     },
     updateBuffer: (msg: Parameters<typeof onBufferUpdate>[0], opts: { rerenderActive?: boolean } = {}) => {
       onBufferUpdate(msg, {
-        inferUnreadCounts,
         renderHeader: view.renderHeader,
         renderSidebar: view.renderSidebar,
       });

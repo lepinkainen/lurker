@@ -14,6 +14,16 @@ import { mircFormat } from "./mirc";
 import { nickEl, sysBodyDOM } from "./nick";
 import { renderPreviews } from "./preview";
 
+function msgCountsAsUnread(message: Message): boolean {
+  if (typeof message.counts_as_unread === "boolean") return message.counts_as_unread;
+  return countsAsUnreadActivity(message);
+}
+
+function msgMentionsMe(message: Message): boolean {
+  if (typeof message.mentions_me === "boolean") return message.mentions_me;
+  return mentionsMe(message, state.me.nick);
+}
+
 export type MessagesDom = {
   messagesEl: HTMLElement;
   statusViewEl: HTMLElement;
@@ -91,17 +101,6 @@ export function renderActiveView(dom: MessagesDom, _deps: MessageDeps) {
   }
 }
 
-export function inferUnreadCounts() {
-  for (const buffer of state.buffers.values()) {
-    const list = state.messages.get(buffer.id) || [];
-    const lastSeen = buffer.last_seen_id || 0;
-    const unreadActivity = list.filter((message) => message.id > lastSeen && countsAsUnreadActivity(message));
-    const mentions = unreadActivity.filter((message) => mentionsMe(message, state.me.nick)).length;
-    buffer.unread = buffer.id === state.activeId ? 0 : unreadActivity.length;
-    buffer.mentions = buffer.id === state.activeId ? 0 : mentions;
-  }
-}
-
 export function onMessage(
   msg: Message,
   handlers: { renderActiveView: () => void; maybeMarkActiveRead: () => void; renderSidebar: () => void },
@@ -113,14 +112,11 @@ export function onMessage(
   list.sort((a, b) => a.id.localeCompare(b.id));
   state.messages.set(msg.buffer_id, list);
   const buffer = state.buffers.get(msg.buffer_id);
-  if (
-    buffer &&
-    msg.buffer_id !== state.activeId &&
-    msg.id > (buffer.last_seen_id || "") &&
-    countsAsUnreadActivity(msg)
-  ) {
+  // Per-client because activeId is not server state. Server's mark_read
+  // broadcast resyncs counts so any drift here self-corrects.
+  if (buffer && msg.buffer_id !== state.activeId && msg.id > (buffer.last_seen_id || "") && msgCountsAsUnread(msg)) {
     buffer.unread = (buffer.unread || 0) + 1;
-    if (mentionsMe(msg, state.me.nick)) buffer.mentions = (buffer.mentions || 0) + 1;
+    if (msgMentionsMe(msg)) buffer.mentions = (buffer.mentions || 0) + 1;
   }
   if (msg.buffer_id === state.activeId) {
     handlers.renderActiveView();
@@ -158,8 +154,10 @@ export function onBufferUpdate(
     show_presence_events?: boolean;
     collapse_presence_events?: boolean;
     pinned?: boolean;
+    unread?: number;
+    mentions?: number;
   },
-  handlers: { inferUnreadCounts: () => void; renderHeader: () => void; renderSidebar: () => void },
+  handlers: { renderHeader: () => void; renderSidebar: () => void },
 ) {
   const buffer = state.buffers.get(msg.id);
   if (!buffer) return;
@@ -172,7 +170,8 @@ export function onBufferUpdate(
     buffer.collapse_presence_events = Boolean(msg.collapse_presence_events);
   }
   if (Object.hasOwn(msg, "pinned")) buffer.pinned = Boolean(msg.pinned);
-  handlers.inferUnreadCounts();
+  if (typeof msg.unread === "number") buffer.unread = msg.unread;
+  if (typeof msg.mentions === "number") buffer.mentions = msg.mentions;
   handlers.renderHeader();
   handlers.renderSidebar();
 }

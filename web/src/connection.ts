@@ -14,7 +14,6 @@ export const WS_HEALTHCHECK_MS = 10_000;
 
 export type StateSyncDeps = {
   renderPromptNick: () => void;
-  inferUnreadCounts: () => void;
   renderSidebar: () => void;
   renderHeader: () => void;
   renderActiveView: () => void;
@@ -73,9 +72,9 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
   deps.renderPromptNick();
   for (const buffer of s.buffers || []) {
     state.buffers.set(buffer.id, {
-      unread: 0,
-      mentions: 0,
       ...buffer,
+      unread: buffer.unread ?? 0,
+      mentions: buffer.mentions ?? 0,
     });
   }
   for (const [id, msgs] of Object.entries(s.initial_messages || {})) {
@@ -98,7 +97,6 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
   } else {
     state.tailscaleStatus = null;
   }
-  deps.inferUnreadCounts();
   deps.renderSidebar();
   deps.renderHeader();
   deps.renderActiveView();
