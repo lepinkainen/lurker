@@ -13,13 +13,12 @@ func (h *handler) onJoin(c *girc.Client, e girc.Event) {
 	if !ok {
 		return
 	}
-	nick := ""
-	if e.Source != nil {
-		nick = e.Source.Name
+	isSelf := c != nil && e.Source != nil && strings.EqualFold(e.Source.Name, c.GetNick())
+	if isSelf {
+		slog.Info("irc join", "network", h.networkName, "channel", channel, "nick", e.Source.Name)
 	}
-	slog.Info("irc join", "network", h.networkName, "channel", channel, "nick", nick)
 	h.updateChannelJoined(channel, true, "join", e.Source)
-	if c != nil && e.Source != nil && strings.EqualFold(e.Source.Name, c.GetNick()) {
+	if isSelf {
 		return
 	}
 	h.storeEvent(e, channel, ircdb.BufferChannel, "join", "", "")
