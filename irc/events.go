@@ -16,6 +16,24 @@ type MessageEvent struct {
 	Kind      string    `json:"kind"`
 	Target    string    `json:"target,omitzero"`
 	Content   string    `json:"content"`
+	// Server-computed semantic flags so every connected client renders
+	// identical mention/unread state without re-deriving from raw fields.
+	DisplayKind    string `json:"display_kind"`
+	IsSelf         bool   `json:"is_self,omitzero"`
+	MentionsMe     bool   `json:"mentions_me,omitzero"`
+	CountsAsUnread bool   `json:"counts_as_unread,omitzero"`
+}
+
+// WithSemantics fills the four semantic flag fields based on the event's
+// kind/sender/content and the network's current nick. Returns the receiver
+// for fluent use at the publish site.
+func (e *MessageEvent) WithSemantics(nick string) *MessageEvent {
+	sem := ComputeMessageSemantics(e.Kind, e.Sender, e.Content, nick)
+	e.DisplayKind = sem.DisplayKind
+	e.IsSelf = sem.IsSelf
+	e.MentionsMe = sem.MentionsMe
+	e.CountsAsUnread = sem.CountsAsUnread
+	return e
 }
 
 // BufferCreatedEvent is published the first time we see activity in a

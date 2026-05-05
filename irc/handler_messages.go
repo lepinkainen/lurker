@@ -114,7 +114,11 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 	if !inserted || h.hub == nil {
 		return
 	}
-	h.hub.Publish(&MessageEvent{
+	nick := ""
+	if h.nickFn != nil {
+		nick = h.nickFn()
+	}
+	h.hub.Publish((&MessageEvent{
 		Type:      "message",
 		ID:        id,
 		NetworkID: h.networkID,
@@ -126,7 +130,7 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 		Kind:      kind,
 		Target:    target,
 		Content:   content,
-	})
+	}).WithSemantics(nick))
 	h.enqueuePreviews(id, bufID, kind, content)
 }
 

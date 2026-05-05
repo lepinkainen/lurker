@@ -1,0 +1,97 @@
+package irc
+
+import (
+	"regexp"
+	"strings"
+	"sync"
+)
+
+// MessageSemantics is the IRC-level classification of a stored message,
+// derived from kind/sender/content plus the network's current nick. It is
+// the single source of truth for cross-client display semantics.
+type MessageSemantics struct {
+	DisplayKind    string `json:"display_kind"`
+	IsSelf         bool   `json:"is_self"`
+	MentionsMe     bool   `json:"mentions_me"`
+	CountsAsUnread bool   `json:"counts_as_unread"`
+}
+
+var sysKinds = map[string]struct{}{
+	"join": {}, "part": {}, "quit": {}, "nick": {}, "kick": {}, "mode": {},
+	"topic": {}, "connected": {}, "disconnected": {},
+}
+
+// kinds that should NOT count as unread activity. Mirrors the historical
+// frontend list in messages.ts so behavior is consistent.
+var nonUnreadKinds = map[string]struct{}{
+	"join": {}, "part": {}, "quit": {}, "nick": {}, "mode": {}, "kick": {},
+	"connected": {}, "disconnected": {}, "error": {}, "away": {}, "back": {},
+	"account": {}, "chghost": {}, "status": {},
+}
+
+// classifyKind maps an IRC event kind to a coarse display category.
+func classifyKind(kind string) string {
+	if _, ok := sysKinds[kind]; ok {
+		return "sys"
+	}
+	switch kind {
+	case "notice":
+		return "notice"
+	case "action":
+		return "action"
+	case "ctcp":
+		return "ctcp"
+	}
+	return "message"
+}
+
+// countsAsUnread returns whether a kind contributes to a buffer's unread
+// activity counter. Synthetic events (joins/parts/etc.) do not.
+func countsAsUnread(kind string) bool {
+	_, blocked := nonUnreadKinds[kind]
+	return !blocked
+}
+
+var (
+	mentionCacheMu sync.RWMutex
+	mentionCache   = map[string]*regexp.Regexp{}
+)
+
+func mentionRegexp(nick string) *regexp.Regexp {
+	mentionCacheMu.RLock()
+	re := mentionCache[nick]
+	mentionCacheMu.RUnlock()
+	if re != nil {
+		return re
+	}
+	pattern := `(?i)\b` + regexp.QuoteMeta(nick) + `\b`
+	compiled, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil
+	}
+	mentionCacheMu.Lock()
+	mentionCache[nick] = compiled
+	mentionCacheMu.Unlock()
+	return compiled
+}
+
+// ComputeMessageSemantics derives display flags for a stored message. nick
+// is the network's current nickname; pass "" when unknown (mention/self
+// detection are then both false). countsAsUnread is suppressed for
+// self-authored messages and for the active buffer in the caller; this
+// function returns the raw "would count" value.
+func ComputeMessageSemantics(kind, sender, content, nick string) MessageSemantics {
+	out := MessageSemantics{
+		DisplayKind:    classifyKind(kind),
+		CountsAsUnread: countsAsUnread(kind),
+	}
+	if nick != "" && sender != "" && strings.EqualFold(sender, nick) {
+		out.IsSelf = true
+	}
+	if nick != "" && content != "" {
+		if re := mentionRegexp(nick); re != nil && re.MatchString(content) {
+			out.MentionsMe = true
+		}
+	}
+	return out
+}

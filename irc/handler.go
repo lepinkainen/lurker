@@ -20,6 +20,7 @@ type handler struct {
 	autojoin            []string
 	connectCommands     []string
 	connectedHook       func(currentNick string)
+	nickFn              func() string
 	memberListHook      func(channel string)
 	clearMemberListHook func(channel string)
 	setJoinedHook       func(channel string, joined bool)

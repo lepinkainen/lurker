@@ -234,7 +234,7 @@ func (m *Manager) LogOutbound(ctx context.Context, networkID uuid.UUID, target, 
 	if !inserted || m.hub == nil {
 		return nil
 	}
-	m.hub.Publish(&MessageEvent{
+	m.hub.Publish((&MessageEvent{
 		Type:      "message",
 		ID:        id,
 		NetworkID: networkID,
@@ -243,7 +243,7 @@ func (m *Manager) LogOutbound(ctx context.Context, networkID uuid.UUID, target, 
 		Sender:    nick,
 		Kind:      kind,
 		Content:   content,
-	})
+	}).WithSemantics(nick))
 	if m.previews != nil && (kind == "privmsg" || kind == "notice" || kind == "action") {
 		m.previews.Enqueue(networkID, bufID, id, content)
 	}
@@ -743,7 +743,7 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 		slog.Error("log store", "err", err, "network_id", networkID)
 		return client
 	}
-	h := &handler{stores: m.stores, db: logStore.DB, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectCommands: nc.ConnectCommands, connectedHook: func(currentNick string) {
+	h := &handler{stores: m.stores, db: logStore.DB, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectCommands: nc.ConnectCommands, nickFn: func() string { return m.Nick(networkID) }, connectedHook: func(currentNick string) {
 		m.mu.Lock()
 		m.state[networkID] = StateConnected.String()
 		if _, ok := m.membersLoaded[networkID]; !ok {
