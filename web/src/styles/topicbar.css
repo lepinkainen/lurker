@@ -15,6 +15,10 @@
   .topicbar {
     height: 36px;
     padding: 0 12px;
+    padding-top: env(safe-area-inset-top);
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    box-sizing: content-box;
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: center;

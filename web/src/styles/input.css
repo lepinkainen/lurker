@@ -3,6 +3,9 @@
     border-top: 1px solid var(--hair);
     background: var(--bg-2);
     padding: 6px 10px;
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
     position: relative;
   }
 
