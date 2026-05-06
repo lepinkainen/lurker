@@ -6,6 +6,7 @@ import (
 	"flag"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -28,6 +29,9 @@ func main() {
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	if err := mime.AddExtensionType(".webmanifest", "application/manifest+json"); err != nil {
+		slog.Warn("register webmanifest mime", "err", err)
+	}
 	cfg := loadConfig()
 
 	stores, err := db.OpenMultiStore(cfg.DataDir)
