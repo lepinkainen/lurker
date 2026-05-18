@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/lepinkainen/lurker/api"
+	"github.com/lepinkainen/lurker/datasource"
+	"github.com/lepinkainen/lurker/datasource/bluesky"
 	"github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/hub"
 	"github.com/lepinkainen/lurker/internal/closeutil"
@@ -66,6 +68,19 @@ func main() {
 		}
 		slog.Info("test fixture runtime state loaded")
 	}
+	dsMgr := datasource.NewManager(datasource.Deps{
+		Stores:   stores,
+		Hub:      evHub,
+		Previews: previewSvc,
+	})
+	for _, bs := range cfg.DataSources.Bluesky {
+		dsMgr.Register(bluesky.NewSource(bs))
+	}
+	if err := dsMgr.Start(ctx); err != nil {
+		slog.Error("start data sources", "err", err)
+		os.Exit(1)
+	}
+
 	if nets := cfg.Networks; len(nets) > 0 {
 		startErr := mgr.Start(ctx, nets)
 		if startErr != nil {
@@ -73,17 +88,23 @@ func main() {
 			os.Exit(1)
 		}
 		slog.Info("irc bootstrap networks started", "count", len(nets))
-		// Mark DB networks absent from config.yaml as disabled so they don't
-		// auto-connect and are visually distinguished in the UI.
-		yamlNames := make([]string, len(nets))
-		for i, n := range nets {
-			yamlNames[i] = n.Name
-		}
+	} else {
+		slog.Info("no bootstrap networks configured; add networks to config.yaml to seed control.db on startup")
+	}
+
+	// Mark DB networks absent from config.yaml + parsed data_sources as
+	// disabled so they don't auto-connect and are visually distinguished in
+	// the UI. Datasource network names must be included so a Bluesky source
+	// is not auto-disabled on the very startup that brought it up.
+	yamlNames := make([]string, 0, len(cfg.Networks)+len(cfg.DataSources.Bluesky))
+	for _, n := range cfg.Networks {
+		yamlNames = append(yamlNames, n.Name)
+	}
+	yamlNames = append(yamlNames, dsMgr.Names()...)
+	if len(yamlNames) > 0 {
 		if err := db.MarkNonYAMLNetworksDisabled(ctx, stores.Control, yamlNames); err != nil {
 			slog.Error("mark non-yaml networks disabled", "err", err)
 		}
-	} else {
-		slog.Info("no bootstrap networks configured; add networks to config.yaml to seed control.db on startup")
 	}
 
 	var webSub fs.FS
@@ -173,5 +194,6 @@ func main() {
 		slog.Error("http shutdown", "err", err)
 	}
 	mgr.Wait()
+	dsMgr.Wait()
 	slog.Info("bye")
 }
