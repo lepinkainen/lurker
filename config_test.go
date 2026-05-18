@@ -83,6 +83,79 @@ networks:
 	}
 }
 
+func TestBuildBlueskyConfigEnvExpansion(t *testing.T) {
+	t.Setenv("LURKER_TEST_BSKY_PASS", "s3cret-app-pass")
+	cfg, err := buildBlueskyConfig(BlueskyFileConfig{
+		Network:     "bluesky",
+		Identifier:  "alice.bsky.social",
+		AppPassword: "${LURKER_TEST_BSKY_PASS}",
+		Channels:    []BlueskyChannelFileConfig{{Kind: "timeline"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AppPassword != "s3cret-app-pass" {
+		t.Fatalf("password not expanded: %q", cfg.AppPassword)
+	}
+	if cfg.Network != "bluesky" || cfg.Identifier != "alice.bsky.social" {
+		t.Fatalf("unexpected cfg: %+v", cfg)
+	}
+	if len(cfg.Channels) != 1 || cfg.Channels[0].Kind != "timeline" {
+		t.Fatalf("channels = %+v", cfg.Channels)
+	}
+}
+
+func TestBuildBlueskyConfigRequiresFields(t *testing.T) {
+	cases := []struct {
+		name string
+		in   BlueskyFileConfig
+		want string
+	}{
+		{"missing network", BlueskyFileConfig{Identifier: "x", AppPassword: "y"}, "network"},
+		{"missing identifier", BlueskyFileConfig{Network: "bsky", AppPassword: "y"}, "identifier"},
+		{"missing password", BlueskyFileConfig{Network: "bsky", Identifier: "x"}, "app_password"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := buildBlueskyConfig(tc.in)
+			if err == nil {
+				t.Fatalf("expected error containing %q", tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want substring %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildBlueskyConfigDefaultsToTimelineChannel(t *testing.T) {
+	cfg, err := buildBlueskyConfig(BlueskyFileConfig{
+		Network:     "bsky",
+		Identifier:  "alice.bsky.social",
+		AppPassword: "literal",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Channels) != 1 || cfg.Channels[0].Kind != "timeline" {
+		t.Fatalf("default channels = %+v", cfg.Channels)
+	}
+}
+
+func TestBuildBlueskyConfigRejectsReservedKinds(t *testing.T) {
+	for _, kind := range []string{"search", "list", "feed", "notifications"} {
+		_, err := buildBlueskyConfig(BlueskyFileConfig{
+			Network:     "bsky",
+			Identifier:  "alice.bsky.social",
+			AppPassword: "literal",
+			Channels:    []BlueskyChannelFileConfig{{Kind: kind}},
+		})
+		if err == nil {
+			t.Fatalf("kind %q should be rejected", kind)
+		}
+	}
+}
+
 func TestPreviewConfigYAMLIncludesConnectCommands(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

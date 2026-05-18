@@ -4,12 +4,14 @@ import (
 	"crypto/tls"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/lepinkainen/lurker/datasource/bluesky"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/irc"
 )
@@ -21,9 +23,16 @@ type Config struct {
 	ConfigPath    string
 	ThemesDir     string
 	Networks      []irc.NetworkConfig
+	DataSources   DataSourcesConfig
 	Previews      PreviewConfig
 	Updates       UpdateConfig
 	Uploads       UploadConfig
+}
+
+// DataSourcesConfig holds parsed datasource configurations. Each adapter
+// gets its own slice; main wires them into datasource.Manager.
+type DataSourcesConfig struct {
+	Bluesky []bluesky.Config
 }
 
 // PreviewConfig mirrors the YAML `previews:` block.
@@ -51,11 +60,35 @@ type UploadConfig struct {
 }
 
 type FileConfig struct {
-	Nick     string              `yaml:"nick,omitempty"`
-	User     string              `yaml:"user,omitempty"`
-	Realname string              `yaml:"realname,omitempty"`
-	Previews *PreviewConfig      `yaml:"previews,omitempty"`
-	Networks []NetworkFileConfig `yaml:"networks"`
+	Nick        string                 `yaml:"nick,omitempty"`
+	User        string                 `yaml:"user,omitempty"`
+	Realname    string                 `yaml:"realname,omitempty"`
+	Previews    *PreviewConfig         `yaml:"previews,omitempty"`
+	Networks    []NetworkFileConfig    `yaml:"networks"`
+	DataSources *DataSourcesFileConfig `yaml:"data_sources,omitempty"`
+}
+
+// DataSourcesFileConfig mirrors the YAML `data_sources:` block.
+type DataSourcesFileConfig struct {
+	Bluesky []BlueskyFileConfig `yaml:"bluesky,omitempty"`
+}
+
+// BlueskyFileConfig is one entry under `data_sources.bluesky[]`.
+type BlueskyFileConfig struct {
+	Network     string                     `yaml:"network"`
+	Identifier  string                     `yaml:"identifier"`
+	AppPassword string                     `yaml:"app_password"`
+	PDS         string                     `yaml:"pds,omitempty"`
+	Channels    []BlueskyChannelFileConfig `yaml:"channels,omitempty"`
+}
+
+// BlueskyChannelFileConfig is one channel under a Bluesky account. Today
+// only `kind: timeline` is implemented; other kinds parse but are deferred.
+type BlueskyChannelFileConfig struct {
+	Kind  string `yaml:"kind"`
+	Name  string `yaml:"name,omitempty"`
+	URI   string `yaml:"uri,omitempty"`
+	Query string `yaml:"query,omitempty"`
 }
 
 type NetworkFileConfig struct {
@@ -106,8 +139,9 @@ func loadConfig() Config {
 			BaseURL:  strings.TrimSpace(os.Getenv("UPLOAD_BASE_URL")),
 		},
 	}
-	if nets, pv, err := parseYAMLConfig(cfg.ConfigPath); err == nil {
+	if nets, pv, ds, err := parseYAMLConfig(cfg.ConfigPath); err == nil {
 		cfg.Networks = nets
+		cfg.DataSources = ds
 		if pv != nil {
 			if pv.MaxBytes > 0 {
 				cfg.Previews.MaxBytes = pv.MaxBytes
@@ -127,28 +161,107 @@ func loadConfig() Config {
 	return cfg
 }
 
-func parseYAMLConfig(path string) ([]irc.NetworkConfig, *PreviewConfig, error) {
+func parseYAMLConfig(path string) ([]irc.NetworkConfig, *PreviewConfig, DataSourcesConfig, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil, nil
+			return nil, nil, DataSourcesConfig{}, nil
 		}
-		return nil, nil, err
+		return nil, nil, DataSourcesConfig{}, err
 	}
 	var fc FileConfig
 	if yerr := yaml.Unmarshal(b, &fc); yerr != nil {
-		return nil, nil, fmt.Errorf("parse yaml %s: %w", path, yerr)
+		return nil, nil, DataSourcesConfig{}, fmt.Errorf("parse yaml %s: %w", path, yerr)
 	}
 	nets, err := buildNetworks(fc)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, DataSourcesConfig{}, err
 	}
-	return nets, fc.Previews, nil
+	ds, err := buildDataSources(fc)
+	if err != nil {
+		return nil, nil, DataSourcesConfig{}, err
+	}
+	return nets, fc.Previews, ds, nil
 }
 
 func loadNetworksFromYAML(path string) ([]irc.NetworkConfig, error) {
-	nets, _, err := parseYAMLConfig(path)
+	nets, _, _, err := parseYAMLConfig(path)
 	return nets, err
+}
+
+// envVarRE matches `${VAR}` exactly — no shell features, no defaults.
+var envVarRE = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
+
+// expandEnvSecret returns os.Getenv(VAR) when v looks exactly like ${VAR},
+// otherwise returns v unchanged. The strict form avoids accidentally
+// expanding values that happen to contain "$" characters.
+func expandEnvSecret(v string) string {
+	m := envVarRE.FindStringSubmatch(v)
+	if len(m) != 2 {
+		return v
+	}
+	return os.Getenv(m[1])
+}
+
+func buildDataSources(fc FileConfig) (DataSourcesConfig, error) {
+	var out DataSourcesConfig
+	if fc.DataSources == nil {
+		return out, nil
+	}
+	for _, bs := range fc.DataSources.Bluesky {
+		cfg, err := buildBlueskyConfig(bs)
+		if err != nil {
+			return DataSourcesConfig{}, err
+		}
+		out.Bluesky = append(out.Bluesky, cfg)
+	}
+	return out, nil
+}
+
+func buildBlueskyConfig(b BlueskyFileConfig) (bluesky.Config, error) {
+	name := strings.TrimSpace(b.Network)
+	if name == "" {
+		return bluesky.Config{}, fmt.Errorf("bluesky data source: network is required")
+	}
+	if strings.TrimSpace(b.Identifier) == "" {
+		return bluesky.Config{}, fmt.Errorf("bluesky data source %q: identifier is required", name)
+	}
+	password := expandEnvSecret(strings.TrimSpace(b.AppPassword))
+	if password == "" {
+		return bluesky.Config{}, fmt.Errorf("bluesky data source %q: app_password is required (got empty after env expansion)", name)
+	}
+
+	channels := b.Channels
+	if len(channels) == 0 {
+		channels = []BlueskyChannelFileConfig{{Kind: string(bluesky.ChannelTimeline)}}
+	}
+
+	parsed := make([]bluesky.ChannelConfig, 0, len(channels))
+	for _, ch := range channels {
+		kind := bluesky.ChannelKind(strings.ToLower(strings.TrimSpace(ch.Kind)))
+		if kind == "" {
+			kind = bluesky.ChannelTimeline
+		}
+		switch kind {
+		case bluesky.ChannelTimeline:
+			parsed = append(parsed, bluesky.ChannelConfig{Kind: kind, Name: strings.TrimSpace(ch.Name)})
+		case bluesky.ChannelSearch, bluesky.ChannelList, bluesky.ChannelFeed, bluesky.ChannelNotifications:
+			// Reserved kinds parse but are not yet wired in fetchPage. Refuse
+			// here so a misconfigured YAML fails loud instead of silently
+			// idling.
+			return bluesky.Config{}, fmt.Errorf("bluesky data source %q: channel kind %q is reserved for future use", name, kind)
+		default:
+			return bluesky.Config{}, fmt.Errorf("bluesky data source %q: unknown channel kind %q", name, kind)
+		}
+	}
+
+	return bluesky.Config{
+		Network:     name,
+		Identifier:  strings.TrimSpace(b.Identifier),
+		AppPassword: password,
+		PDS:         strings.TrimSpace(b.PDS),
+		Channels:    parsed,
+	}, nil
 }
 
 func parseTLSMaxVersion(v string) (uint16, error) {

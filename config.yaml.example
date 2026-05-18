@@ -31,3 +31,16 @@ networks:
       - host: open.ircnet.net
         port: 6697
         tls: true
+
+# Non-IRC data sources. Each entry becomes a separate "network" in the UI.
+# Read-only; mutating commands against these buffers are rejected server-side.
+data_sources:
+  bluesky:
+    - network: bluesky
+      identifier: alice.bsky.social
+      app_password: ${BLUESKY_APP_PASSWORD}   # ${VAR} is expanded from env
+      pds: https://bsky.social                # optional; default shown
+      # Channels list is optional. If omitted, an implicit
+      # `kind: timeline` channel named "<handle>-feed" is created.
+      channels:
+        - kind: timeline
