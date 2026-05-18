@@ -6,6 +6,7 @@ import "github.com/google/uuid"
 type Network struct {
 	ID              uuid.UUID
 	Name            string
+	Kind            string
 	Host            string
 	Port            int
 	TLS             bool
@@ -17,6 +18,13 @@ type Network struct {
 	SortOrder       int
 	Disabled        bool
 }
+
+// NetworkKind enumerates the rows allowed in networks.kind. New kinds are
+// added via the datasource package (e.g. "bluesky").
+const (
+	NetworkKindIRC     = "irc"
+	NetworkKindBluesky = "bluesky"
+)
 
 // BufferKind enumerates the rows allowed in buffers.kind.
 const (

@@ -1,0 +1,1 @@
+ALTER TABLE networks ADD COLUMN kind TEXT NOT NULL DEFAULT 'irc';

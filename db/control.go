@@ -21,9 +21,9 @@ func GetNetwork(ctx context.Context, d *sql.DB, id uuid.UUID) (Network, error) {
 	var tls, disabled int
 	var saslUser, saslPass sql.NullString
 	err := d.QueryRowContext(ctx,
-		`SELECT id, name, host, port, tls, nick, COALESCE(realname,''), sasl_user, sasl_pass, sort_order, disabled
+		`SELECT id, name, kind, host, port, tls, nick, COALESCE(realname,''), sasl_user, sasl_pass, sort_order, disabled
 		 FROM networks WHERE id = ?`, id[:],
-	).Scan(&n.ID, &n.Name, &n.Host, &n.Port, &tls, &n.Nick, &n.Realname, &saslUser, &saslPass, &n.SortOrder, &disabled)
+	).Scan(&n.ID, &n.Name, &n.Kind, &n.Host, &n.Port, &tls, &n.Nick, &n.Realname, &saslUser, &saslPass, &n.SortOrder, &disabled)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Network{}, ErrNetworkNotFound
@@ -53,10 +53,14 @@ func CreateNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 		saslPass = n.SASLPass
 	}
 	id := newID()
+	kind := n.Kind
+	if kind == "" {
+		kind = NetworkKindIRC
+	}
 	_, err := d.ExecContext(ctx,
-		`INSERT INTO networks(id, name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks), ?)`,
-		id[:], n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
+		`INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks), ?)`,
+		id[:], n.Name, nameCI, kind, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
 	if err != nil {
 		return Network{}, err
 	}
