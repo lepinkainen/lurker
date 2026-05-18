@@ -17,6 +17,7 @@ import (
 type networkDTO struct {
 	ID        uuid.UUID `json:"id"`
 	Name      string    `json:"name"`
+	Kind      string    `json:"kind"`
 	Host      string    `json:"host"`
 	Port      int       `json:"port"`
 	TLS       bool      `json:"tls"`

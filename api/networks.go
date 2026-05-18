@@ -124,6 +124,10 @@ func (s *Server) patchNetwork(w http.ResponseWriter, r *http.Request) {
 		writeNetworkDBError(w, err, http.StatusInternalServerError)
 		return
 	}
+	if isNonIRCNetwork(before.Kind) {
+		http.Error(w, "patching "+before.Kind+" networks is not supported", http.StatusBadRequest)
+		return
+	}
 	var req networkRequest
 	decodeErr := json.NewDecoder(r.Body).Decode(&req)
 	if decodeErr != nil {
@@ -257,6 +261,10 @@ func (s *Server) connectNetwork(w http.ResponseWriter, r *http.Request) {
 		writeNetworkDBError(w, err, http.StatusInternalServerError)
 		return
 	}
+	if isNonIRCNetwork(n.Kind) {
+		http.Error(w, "connect is only supported on IRC networks", http.StatusBadRequest)
+		return
+	}
 	nc := irc.NetworkConfig{
 		Name: n.Name,
 		Servers: []irc.ServerConfig{{
@@ -286,6 +294,13 @@ func (s *Server) connectNetwork(w http.ResponseWriter, r *http.Request) {
 func (s *Server) disconnectNetwork(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseNetworkID(w, r)
 	if !ok {
+		return
+	}
+	// Disconnect is a tolerant no-op for unknown network IDs (matches prior
+	// behaviour). For known rows we still gate on kind so a Bluesky source
+	// can't be torn down through the IRC connect/disconnect plumbing.
+	if n, err := ircdb.GetNetwork(r.Context(), s.Stores.Control, id); err == nil && isNonIRCNetwork(n.Kind) {
+		http.Error(w, "disconnect is only supported on IRC networks", http.StatusBadRequest)
 		return
 	}
 	if err := s.Manager.StopNetwork(id); err != nil {

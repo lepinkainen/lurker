@@ -60,11 +60,21 @@ func writeNetworkDBError(w http.ResponseWriter, err error, fallbackStatus int) {
 }
 
 func toNetworkDTO(n ircdb.Network, status string) networkDTO {
+	kind := n.Kind
+	if kind == "" {
+		kind = ircdb.NetworkKindIRC
+	}
 	return networkDTO{
-		ID: n.ID, Name: n.Name, Host: n.Host, Port: n.Port,
+		ID: n.ID, Name: n.Name, Kind: kind, Host: n.Host, Port: n.Port,
 		TLS: n.TLS, Nick: n.Nick, Realname: n.Realname, Status: status, SortOrder: n.SortOrder,
 		Disabled: n.Disabled,
 	}
+}
+
+// isNonIRCNetwork reports whether kind is a non-IRC network kind such as
+// "bluesky". Treats empty as IRC (legacy rows before the kind column).
+func isNonIRCNetwork(kind string) bool {
+	return kind != "" && kind != ircdb.NetworkKindIRC
 }
 
 func stateString(s irc.NetworkState) string {

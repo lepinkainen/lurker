@@ -10,6 +10,9 @@ export type LayoutSettings = {
 export type Network = {
   id: string;
   name: string;
+  // "irc" or a datasource kind such as "bluesky". Frontend should gate
+  // IRC-only actions (send, join, mode, …) on kind === "irc".
+  kind?: string;
   host?: string;
   port?: number;
   tls?: boolean;

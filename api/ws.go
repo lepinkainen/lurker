@@ -31,6 +31,11 @@ type clientCmd struct {
 	Before    uuid.UUID `json:"before,omitzero"`
 	Limit     int       `json:"limit,omitzero"`
 	MessageID uuid.UUID `json:"message_id,omitzero"`
+	// internal is true when handleCmd was re-entered from cmdInput after
+	// parseInput already resolved the buffer/network. Skips the kind gate
+	// so the input → send/join/… hot path pays one buffer lookup, not two.
+	// Unexported so encoding/json never touches it.
+	internal bool `json:"-"`
 }
 
 // ack / error envelopes. We keep these separate from IRC event types so
@@ -149,7 +154,25 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// commandsAllowedForNonIRC enumerates the WS command types permitted when
+// the target network is not an IRC network. Everything else is an IRC-only
+// mutation (PRIVMSG, JOIN, MODE, …) and is rejected for datasource networks
+// such as Bluesky.
+var commandsAllowedForNonIRC = map[string]struct{}{
+	"input":     {},
+	"history":   {},
+	"mark_read": {},
+}
+
 func (s *Server) handleCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	if !cmd.internal {
+		if _, ok := commandsAllowedForNonIRC[cmd.Type]; !ok {
+			if kind, resolved := s.resolveTargetNetworkKind(ctx, cmd); resolved && isNonIRCNetwork(kind) {
+				writeWSErr(ctx, c, cmd.ReqID, "command not supported on "+kind+" networks")
+				return
+			}
+		}
+	}
 	switch cmd.Type {
 	case "input":
 		s.cmdInput(ctx, c, cmd)
@@ -243,6 +266,16 @@ func (s *Server) cmdInput(ctx context.Context, c *websocket.Conn, cmd clientCmd)
 		return
 	}
 	parsed.ReqID = cmd.ReqID
+	// Re-dispatch bypasses handleCmd's gate (internal=true), so apply it
+	// here once using the network row we resolve directly. Saves one buffer
+	// lookup compared to letting handleCmd re-resolve from scratch.
+	if _, allowed := commandsAllowedForNonIRC[parsed.Type]; !allowed {
+		if n, gerr := ircdb.GetNetwork(ctx, s.Stores.Control, networkID); gerr == nil && isNonIRCNetwork(n.Kind) {
+			writeWSErr(ctx, c, cmd.ReqID, "command not supported on "+n.Kind+" networks")
+			return
+		}
+	}
+	parsed.internal = true
 	s.handleCmd(ctx, c, parsed)
 }
 
@@ -707,6 +740,38 @@ func (s *Server) cmdIgnorelist(ctx context.Context, c *websocket.Conn, cmd clien
 		Type: "ignorelist_result", ReqID: cmd.ReqID,
 		NetworkID: cmd.NetworkID, Masks: masks,
 	})
+}
+
+// resolveTargetNetworkKind tries to resolve the kind of the network this
+// command targets, by inspecting cmd.NetworkID first then cmd.BufferID. The
+// boolean return distinguishes "resolved to <kind>" from "could not resolve"
+// (in which case the caller should not gate, and the inner handler will fail
+// with a domain-specific error).
+func (s *Server) resolveTargetNetworkKind(ctx context.Context, cmd clientCmd) (string, bool) {
+	if s.Stores == nil {
+		return "", false
+	}
+	var networkID uuid.UUID
+	switch {
+	case cmd.NetworkID != uuid.Nil:
+		networkID = cmd.NetworkID
+	case cmd.BufferID != uuid.Nil:
+		nid, _, _, err := s.Stores.LookupBuffer(ctx, cmd.BufferID)
+		if err != nil {
+			return "", false
+		}
+		networkID = nid
+	default:
+		return "", false
+	}
+	n, err := ircdb.GetNetwork(ctx, s.Stores.Control, networkID)
+	if err != nil {
+		return "", false
+	}
+	if n.Kind == "" {
+		return ircdb.NetworkKindIRC, true
+	}
+	return n.Kind, true
 }
 
 func writeWSAck(ctx context.Context, c *websocket.Conn, reqID string) {
