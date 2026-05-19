@@ -1,0 +1,36 @@
+name: Flexoki Light
+color_scheme: light
+colors:
+  bg-0: "#FFFCF0"
+  bg-1: "#F2F0E5"
+  bg-2: "#E6E4D9"
+  bg-3: "#DAD8CE"
+  bg-4: "#CECDC3"
+  bg-5: "#B7B5AC"
+  bg-input: "#FFFCF0"
+  fg-0: "#100F0F"
+  fg-1: "#403E3C"
+  fg-2: "#575653"
+  fg-3: "#878580"
+  hair: "#E6E4D9"
+  hair-strong: "#CECDC3"
+  accent: "#205EA6"
+  accent-strong: "#1A4F8C"
+  accent-soft: "rgba(32, 94, 166, 0.12)"
+  green: "#66800B"
+  yellow: "#AD8301"
+  orange: "#BC5215"
+  red: "#AF3029"
+  magenta: "#A02F6F"
+  cyan: "#24837B"
+  mention: "#AD8301"
+  mention-soft: "rgba(173, 131, 1, 0.12)"
+  mention-soft-hover: "rgba(173, 131, 1, 0.18)"
+  surface-contrast-fg: "#FFFCF0"
+  topicbar-rule: "rgba(206, 205, 195, 0.5)"
+fonts:
+  sans: '"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+  mono: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+nicks:
+  oklch_l: 50
+  oklch_c: 0.12

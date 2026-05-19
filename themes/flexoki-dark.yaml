@@ -1,0 +1,35 @@
+name: Flexoki Dark
+colors:
+  bg-0: "#100F0F"
+  bg-1: "#1C1B1A"
+  bg-2: "#282726"
+  bg-3: "#343331"
+  bg-4: "#403E3C"
+  bg-5: "#575653"
+  bg-input: "#100F0F"
+  fg-0: "#CECDC3"
+  fg-1: "#B7B5AC"
+  fg-2: "#878580"
+  fg-3: "#6F6E69"
+  hair: "#282726"
+  hair-strong: "#403E3C"
+  accent: "#4385BE"
+  accent-strong: "#66A0C8"
+  accent-soft: "rgba(67, 133, 190, 0.14)"
+  green: "#879A39"
+  yellow: "#D0A215"
+  orange: "#DA702C"
+  red: "#D14D41"
+  magenta: "#CE5D97"
+  cyan: "#3AA99F"
+  mention: "#D0A215"
+  mention-soft: "rgba(208, 162, 21, 0.10)"
+  mention-soft-hover: "rgba(208, 162, 21, 0.15)"
+  surface-contrast-fg: "#343331"
+  topicbar-rule: "rgba(64, 62, 60, 0.5)"
+fonts:
+  sans: '"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+  mono: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+nicks:
+  oklch_l: 72
+  oklch_c: 0.10
