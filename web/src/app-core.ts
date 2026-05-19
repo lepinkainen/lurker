@@ -11,6 +11,7 @@ import { onHashChange } from "./navigation";
 import { createReadTracker } from "./read-tracker";
 import { resetAppState } from "./reset";
 import { bufferFromHash } from "./router";
+import { createScrollStick } from "./scroll-stick";
 import { openSettingsDialog } from "./settings-dialog";
 import { openHelpOverlay } from "./shortcuts-help";
 import { applyThemeDefaults, initThemeSelector } from "./theme-ui";
@@ -36,7 +37,8 @@ export function start() {
     getView: () => appView,
     maybeMarkActiveRead,
   });
-  const view = createAppView(d, { sendCmd, setActive, maybeMarkActiveRead });
+  const stick = createScrollStick(d.messagesEl);
+  const view = createAppView(d, { sendCmd, setActive, maybeMarkActiveRead, stick });
   appView = view;
   routeWSMessage = createWSRouter(view);
   view.renderStatus();

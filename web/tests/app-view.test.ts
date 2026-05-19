@@ -3,6 +3,7 @@ import { type Buffer, type Network, state } from "../src/app-state";
 import { createAppView } from "../src/app-view";
 import type { DomRefs } from "../src/dom";
 import { resetAppState } from "../src/reset";
+import { createScrollStick } from "../src/scroll-stick";
 
 function buf(overrides: Partial<Buffer> & { id: string }): Buffer {
   return {
@@ -73,7 +74,7 @@ describe("createAppView", () => {
     state.networks.set("1", net({ id: "1", nick: "tester" }));
     state.buffers.set("10", buf({ id: "10", network_id: "1" }));
     const d = refs();
-    const view = createAppView(d, { sendCmd: vi.fn(), setActive: vi.fn() });
+    const view = createAppView(d, { sendCmd: vi.fn(), setActive: vi.fn(), stick: createScrollStick(d.messagesEl) });
 
     view.renderPromptNick();
 
@@ -91,7 +92,7 @@ describe("createAppView", () => {
     };
     const d = refs();
     const sendCmd = vi.fn();
-    const view = createAppView(d, { sendCmd, setActive: vi.fn() });
+    const view = createAppView(d, { sendCmd, setActive: vi.fn(), stick: createScrollStick(d.messagesEl) });
 
     view.renderActiveView();
 
@@ -112,7 +113,7 @@ describe("createAppView", () => {
     state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#go" }));
     const d = refs();
     const setActive = vi.fn();
-    const view = createAppView(d, { sendCmd: vi.fn(), setActive });
+    const view = createAppView(d, { sendCmd: vi.fn(), setActive, stick: createScrollStick(d.messagesEl) });
 
     view.renderSidebar();
     d.sbScrollEl.querySelector<HTMLButtonElement>(".sbrow.chan")?.click();

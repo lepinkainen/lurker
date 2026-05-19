@@ -13,6 +13,7 @@ import {
 import { mircFormat } from "./mirc";
 import { nickEl, sysBodyDOM } from "./nick";
 import { renderPreviews } from "./preview";
+import type { ScrollStick } from "./scroll-stick";
 
 function msgCountsAsUnread(message: Message): boolean {
   if (typeof message.counts_as_unread === "boolean") return message.counts_as_unread;
@@ -35,6 +36,7 @@ export type MessagesDom = {
 type MessageDeps = {
   renderPromptNick: () => void;
   iconEl: (symbolId: string, size: number, opts?: { className?: string; label?: string }) => SVGSVGElement;
+  stick: ScrollStick;
 };
 
 const LEADING_HASH_RE = /^#/u;
@@ -87,7 +89,7 @@ export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
   dom.inputEl.placeholder = "";
 }
 
-export function renderActiveView(dom: MessagesDom, _deps: MessageDeps) {
+export function renderActiveView(dom: MessagesDom, deps: MessageDeps) {
   const buffer = activeBuffer();
   if (!buffer) return;
   if (buffer.kind === "status") {
@@ -97,7 +99,7 @@ export function renderActiveView(dom: MessagesDom, _deps: MessageDeps) {
   } else {
     dom.statusViewEl.hidden = true;
     dom.messagesEl.hidden = false;
-    renderMessages(dom.messagesEl);
+    renderMessages(dom.messagesEl, deps.stick);
   }
 }
 
@@ -128,6 +130,7 @@ export function onMessage(
 export function onPreview(
   msg: { buffer_id: string; message_id: string; previews?: Message["previews"] },
   messagesEl: HTMLElement,
+  stick: ScrollStick,
 ) {
   const list = state.messages.get(msg.buffer_id);
   if (!list) return;
@@ -138,10 +141,13 @@ export function onPreview(
   if (state.buffers.get(msg.buffer_id)?.show_embeds === false) return;
   const row = messagesEl.querySelector(`[data-id="${msg.message_id}"]`);
   if (!row) return;
+  const wasPinned = stick.isPinned();
   const existing = row.querySelector(".previews");
   if (existing) existing.remove();
   const previewsEl = renderPreviews(message.previews);
   if (previewsEl) row.appendChild(previewsEl);
+  if (wasPinned) stick.snap();
+  if (previewsEl) stick.watch(previewsEl);
 }
 
 export function onBufferUpdate(
@@ -241,8 +247,8 @@ function statusLine(message: Message) {
 const PRESENCE_KINDS = ["join", "part", "quit", "nick"] as const;
 const expandedPresenceGroups = new Set<string>();
 
-function renderMessages(messagesEl: HTMLElement) {
-  messagesEl.innerHTML = "";
+function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
+  messagesEl.replaceChildren();
   const list = state.messages.get(state.activeId ?? "") || [];
   const buffer = activeBuffer();
   const lastSeen = buffer?.last_seen_id || "";
@@ -260,7 +266,7 @@ function renderMessages(messagesEl: HTMLElement) {
       messagesEl.appendChild(
         presenceSummaryRow(presenceGroup, () => {
           const scrollTop = messagesEl.scrollTop;
-          renderMessages(messagesEl);
+          renderMessages(messagesEl, stick);
           messagesEl.scrollTop = scrollTop;
         }),
       );
@@ -307,7 +313,8 @@ function renderMessages(messagesEl: HTMLElement) {
     messagesEl.appendChild(messageRow(message));
   }
   flushPresenceGroup();
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  stick.snap();
+  stick.watch(messagesEl);
 }
 
 function messageRow(message: Message) {

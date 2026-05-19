@@ -12,6 +12,7 @@ import {
   renderActiveView as renderMessagesView,
 } from "./messages";
 import { nickAvatar } from "./nick";
+import type { ScrollStick } from "./scroll-stick";
 import { renderSidebar } from "./sidebar";
 import { renderSidebarStatus } from "./status";
 
@@ -19,6 +20,7 @@ export type AppViewDeps = {
   sendCmd: (cmd: Record<string, unknown>) => void;
   setActive: (id: string) => void;
   maybeMarkActiveRead?: () => void;
+  stick: ScrollStick;
 };
 
 export type AppView = ReturnType<typeof createAppView>;
@@ -39,7 +41,8 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
       const nick = activePromptNick();
       d.inputNickEl.replaceChildren(nickAvatar(nick), nick);
     },
-    renderHeader: () => renderHeader(messageArea, { renderPromptNick: view.renderPromptNick, iconEl }),
+    renderHeader: () =>
+      renderHeader(messageArea, { renderPromptNick: view.renderPromptNick, iconEl, stick: deps.stick }),
     renderActiveView: () => {
       if (
         tryRenderActiveChannelList(d.messagesEl, d.statusViewEl, {
@@ -48,7 +51,7 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
         })
       )
         return;
-      renderMessagesView(messageArea, { renderPromptNick: view.renderPromptNick, iconEl });
+      renderMessagesView(messageArea, { renderPromptNick: view.renderPromptNick, iconEl, stick: deps.stick });
     },
     renderMembers: () =>
       renderMembers({
@@ -72,7 +75,7 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
       onHistoryResult(msg, { renderActiveView: view.renderActiveView }, d.messagesEl);
     },
     patchPreview: (msg: { buffer_id: string; message_id: string; previews?: Message["previews"] }) => {
-      onPreview(msg, d.messagesEl);
+      onPreview(msg, d.messagesEl, deps.stick);
     },
     updateBuffer: (msg: Parameters<typeof onBufferUpdate>[0], opts: { rerenderActive?: boolean } = {}) => {
       onBufferUpdate(msg, {

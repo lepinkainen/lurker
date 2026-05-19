@@ -42,6 +42,10 @@ function renderImagePreview(p: Preview): HTMLElement {
   img.loading = "lazy";
   img.decoding = "async";
   img.alt = "";
+  if (p.width && p.height) {
+    img.width = p.width;
+    img.height = p.height;
+  }
   a.appendChild(img);
   return a;
 }
