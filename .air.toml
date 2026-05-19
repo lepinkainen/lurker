@@ -3,7 +3,8 @@ tmp_dir = "tmp"
 
 [build]
 cmd = "go build -o ./tmp/lurker ."
-entrypoint = ["./tmp/lurker", "--web-dir", "./web/dist"]
+bin = "./tmp/lurker"
+args_bin = ["--web-dir", "./web/dist"]
 include_ext = ["go"]
 exclude_dir = ["web", "build", "data", "data-test", "tmp", "llm-shared"]
 delay = 5000
