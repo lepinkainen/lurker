@@ -28,13 +28,15 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
       case "message":
         view.appendMessage(m);
         break;
-      case "buffer_created":
+      case "buffer_created": {
+        const net = state.networks.get(m.network_id);
+        const isDatasource = net?.kind !== undefined && net.kind !== "irc";
         state.buffers.set(m.id, {
           id: m.id,
           network_id: m.network_id,
           name: m.name,
           kind: m.kind,
-          joined: false,
+          joined: m.kind === "channel" && isDatasource,
           topic: "",
           unread: 0,
           mentions: 0,
@@ -46,6 +48,7 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
         });
         view.renderSidebar();
         break;
+      }
       case "buffer_update":
       case "buffer_settings":
         view.updateBuffer(m, { rerenderActive: m.type === "buffer_settings" });

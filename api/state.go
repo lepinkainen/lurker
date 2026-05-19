@@ -109,13 +109,19 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	if s.Manager != nil {
 		states = s.Manager.StateSnapshot()
 	}
+	kinds := make(map[uuid.UUID]string, len(nets))
 	for _, n := range nets {
+		kinds[n.ID] = n.Kind
 		out.Networks = append(out.Networks, toNetworkDTO(n, states[n.ID]))
 	}
 	for _, b := range bufs {
 		joined := false
-		if b.Kind == ircdb.BufferChannel && s.Manager != nil {
-			joined = s.Manager.IsJoined(b.NetworkID, b.Name)
+		if b.Kind == ircdb.BufferChannel {
+			if isNonIRCNetwork(kinds[b.NetworkID]) {
+				joined = true
+			} else if s.Manager != nil {
+				joined = s.Manager.IsJoined(b.NetworkID, b.Name)
+			}
 		}
 		nick := ""
 		if s.Manager != nil {
