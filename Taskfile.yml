@@ -132,6 +132,7 @@ tasks:
     cmds:
       - goimports -w $(find . -path ./llm-shared -prune -o -name '*.go' -print)
       - golangci-lint run ./...
+      - task: cognit-go
 
   vuln-go:
     desc: Scan import graph against the Go vulnerability DB (advisory, not gated on lint)
@@ -144,11 +145,16 @@ tasks:
       - deadcode {{.GO_PACKAGES}}
 
   cognit-go:
-    desc: Report Go funcs with cognitive complexity > 20 (advisory, requires jq)
+    desc: Fail if any Go func has cognitive complexity > 20 (requires jq)
     cmds:
       - |
-        gocognit -over 20 -json $(find . \( -path ./llm-shared -o -path ./web/node_modules \) -prune -o -name '*.go' -print) \
-          | jq -r '.[] | "\(.Pos.Filename):\(.Pos.Line): \(.FuncName) cognit=\(.Complexity)"'
+        out=$(gocognit -over 20 -json $(find . \( -path ./llm-shared -o -path ./web/node_modules \) -prune -o -name '*.go' -print) \
+          | jq -r '(. // []) | .[] | "\(.Pos.Filename):\(.Pos.Line): \(.FuncName) cognit=\(.Complexity)"')
+        if [ -n "$out" ]; then
+          echo "$out"
+          echo "cognit-go: functions above complexity 20" >&2
+          exit 1
+        fi
 
   lint-web:
     desc: Type-check and lint the frontend
