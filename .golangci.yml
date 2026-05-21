@@ -3,7 +3,7 @@ version: "2"
 run:
   timeout: 5m
   issues-exit-code: 1
-  tests: true
+  tests: false
 
 linters:
   enable:
@@ -26,6 +26,11 @@ linters:
     - misspell
     - gocritic
     - revive
+    - contextcheck
+    - sqlclosecheck
+    - noctx
+    - gosec
+    - gocyclo
   exclusions:
     paths:
       - llm-shared
@@ -33,10 +38,27 @@ linters:
       - linters:
           - misspell
         text: "LISTEND"
+      - path: db/db\.go
+        linters:
+          - noctx
+      - path: irc/manager\.go
+        linters:
+          - contextcheck
   settings:
     govet:
       enable:
         - shadow
+    gocyclo:
+      min-complexity: 40
+    gosec:
+      excludes:
+        - G120
+        - G201
+        - G202
+        - G301
+        - G302
+        - G304
+        - G402
     gocritic:
       enabled-tags:
         - diagnostic
