@@ -19,11 +19,24 @@ vars:
 
 tasks:
   build:
-    desc: Run lint, tests, frontend build, then build the local binary
-    deps: [lint, test, test-web, web-build, build-tui]
+    desc: Run lint, tests, frontend build, then build the local binary (quiet on success)
+    silent: true
     cmds:
-      - mkdir -p {{.BUILD_DIR}}
-      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
+      - |
+        LOG=$(mktemp); trap 'rm -f "$LOG"' EXIT
+        step() {
+          label=$1; shift
+          printf "  %-12s" "$label"
+          if "$@" >"$LOG" 2>&1; then echo "ok"; else echo "FAIL"; cat "$LOG"; exit 1; fi
+        }
+        step lint      task lint
+        step test-go   task test
+        step test-web  task test-web
+        step web-build task web-build
+        step build-tui task build-tui
+        mkdir -p {{.BUILD_DIR}}
+        step binary    go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
+        echo "Build OK — lint, Go + web tests, web build, TUI + server binaries"
 
   build-linux:
     desc: Build the Linux binary into build/
