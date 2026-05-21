@@ -33,6 +33,11 @@ function dom(): MessagesDom {
 const deps = {
   renderPromptNick: vi.fn(),
   iconEl: () => document.createElementNS("http://www.w3.org/2000/svg", "svg") as SVGSVGElement,
+  stick: {
+    isPinned: vi.fn(() => true),
+    snap: vi.fn(),
+    watch: vi.fn(),
+  },
 };
 
 describe("renderHeader", () => {
