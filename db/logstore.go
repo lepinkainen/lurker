@@ -212,15 +212,14 @@ func InsertMessagePreviewLinks(ctx context.Context, d *sql.DB, links []MessagePr
 		_ = tx.Rollback()
 		return err
 	}
+	defer func() { _ = stmt.Close() }()
 	for _, l := range links {
 		mid := l.MessageID
 		if _, err := stmt.ExecContext(ctx, mid[:], l.URL, l.Position); err != nil {
-			_ = stmt.Close()
 			_ = tx.Rollback()
 			return err
 		}
 	}
-	_ = stmt.Close()
 	return tx.Commit()
 }
 

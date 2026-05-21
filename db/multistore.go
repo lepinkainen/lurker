@@ -333,41 +333,47 @@ func (ms *MultiStore) ListAllBuffers(ctx context.Context) ([]Buffer, error) {
 		if err != nil {
 			return nil, err
 		}
-		registryRows, err := ms.Control.QueryContext(ctx,
-			`SELECT id, name, kind, created_at FROM buffer_registry WHERE network_id = ? ORDER BY id`, n.ID[:])
+		bs, err := ms.networkBuffers(ctx, n, logStore, settings)
 		if err != nil {
 			return nil, err
 		}
-		for registryRows.Next() {
-			var b Buffer
-			scanErr := registryRows.Scan(&b.ID, &b.Name, &b.Kind, &b.CreatedAt)
-			if scanErr != nil {
-				_ = registryRows.Close()
-				return nil, scanErr
-			}
-			b.NetworkID = n.ID
-			if s, ok := settings[b.ID]; ok {
-				b.ShowEmbeds = s.ShowEmbeds
-				b.ShowPresenceEvents = s.ShowPresenceEvents
-				b.CollapsePresenceEvents = s.CollapsePresenceEvents
-				b.Pinned = s.Pinned
-			} else {
-				b.ShowEmbeds = true
-				b.ShowPresenceEvents = true
-			}
-			var lastSeenBytes []byte
-			if err := logStore.DB.QueryRowContext(ctx,
-				`SELECT COALESCE(topic,''), last_seen_id FROM buffers WHERE name = ?`, b.Name,
-			).Scan(&b.Topic, &lastSeenBytes); err == nil {
-				b.LastSeenID = scanUUID(lastSeenBytes)
-			}
-			out = append(out, b)
-		}
-		if err := registryRows.Close(); err != nil {
-			return nil, err
-		}
+		out = append(out, bs...)
 	}
 	return out, nil
+}
+
+func (ms *MultiStore) networkBuffers(ctx context.Context, n Network, logStore *LogStore, settings map[uuid.UUID]BufferSettings) ([]Buffer, error) {
+	registryRows, err := ms.Control.QueryContext(ctx,
+		`SELECT id, name, kind, created_at FROM buffer_registry WHERE network_id = ? ORDER BY id`, n.ID[:])
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = registryRows.Close() }()
+	var out []Buffer
+	for registryRows.Next() {
+		var b Buffer
+		if err := registryRows.Scan(&b.ID, &b.Name, &b.Kind, &b.CreatedAt); err != nil {
+			return nil, err
+		}
+		b.NetworkID = n.ID
+		if s, ok := settings[b.ID]; ok {
+			b.ShowEmbeds = s.ShowEmbeds
+			b.ShowPresenceEvents = s.ShowPresenceEvents
+			b.CollapsePresenceEvents = s.CollapsePresenceEvents
+			b.Pinned = s.Pinned
+		} else {
+			b.ShowEmbeds = true
+			b.ShowPresenceEvents = true
+		}
+		var lastSeenBytes []byte
+		if err := logStore.DB.QueryRowContext(ctx,
+			`SELECT COALESCE(topic,''), last_seen_id FROM buffers WHERE name = ?`, b.Name,
+		).Scan(&b.Topic, &lastSeenBytes); err == nil {
+			b.LastSeenID = scanUUID(lastSeenBytes)
+		}
+		out = append(out, b)
+	}
+	return out, registryRows.Err()
 }
 
 // RecentMessages returns recent messages for a global buffer ID.

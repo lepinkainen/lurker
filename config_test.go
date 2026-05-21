@@ -41,7 +41,7 @@ networks:
 		t.Fatal(err)
 	}
 
-	nets, err := loadNetworksFromYAML(path)
+	nets, _, _, err := parseYAMLConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -184,11 +184,6 @@ func parseYAMLConfig(path string) ([]irc.NetworkConfig, *PreviewConfig, DataSour
 	return nets, fc.Previews, ds, nil
 }
 
-func loadNetworksFromYAML(path string) ([]irc.NetworkConfig, error) {
-	nets, _, _, err := parseYAMLConfig(path)
-	return nets, err
-}
-
 // envVarRE matches `${VAR}` exactly — no shell features, no defaults.
 var envVarRE = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
 
