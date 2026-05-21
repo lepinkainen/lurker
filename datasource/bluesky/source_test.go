@@ -114,6 +114,62 @@ func TestSanitiseHandle(t *testing.T) {
 	}
 }
 
+func TestValidateConfig(t *testing.T) {
+	cases := []struct {
+		name    string
+		cfg     Config
+		wantSub string // substring expected in err; "" means no error
+	}{
+		{
+			name: "ok",
+			cfg: Config{
+				Network:     "bsky",
+				Identifier:  "alice",
+				AppPassword: "p",
+				Channels:    []ChannelConfig{{Kind: ChannelTimeline}},
+			},
+		},
+		{
+			name:    "missing network",
+			cfg:     Config{Identifier: "alice", AppPassword: "p", Channels: []ChannelConfig{{Kind: ChannelTimeline}}},
+			wantSub: "empty Network",
+		},
+		{
+			name:    "missing identifier",
+			cfg:     Config{Network: "bsky", AppPassword: "p", Channels: []ChannelConfig{{Kind: ChannelTimeline}}},
+			wantSub: "credentials",
+		},
+		{
+			name:    "missing password",
+			cfg:     Config{Network: "bsky", Identifier: "alice", Channels: []ChannelConfig{{Kind: ChannelTimeline}}},
+			wantSub: "credentials",
+		},
+		{
+			name:    "no channels",
+			cfg:     Config{Network: "bsky", Identifier: "alice", AppPassword: "p"},
+			wantSub: "no channels",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Source{cfg: tc.cfg}
+			err := s.validateConfig()
+			if tc.wantSub == "" {
+				if err != nil {
+					t.Fatalf("unexpected err: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q", tc.wantSub)
+			}
+			if !strings.Contains(err.Error(), tc.wantSub) {
+				t.Fatalf("err = %v, want substring %q", err, tc.wantSub)
+			}
+		})
+	}
+}
+
 func TestPDSHost(t *testing.T) {
 	if got := pdsHost("https://bsky.social/"); got != "bsky.social" {
 		t.Fatalf("got %q", got)

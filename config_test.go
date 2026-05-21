@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	ircdb "github.com/lepinkainen/lurker/db"
 )
@@ -152,6 +153,235 @@ func TestBuildBlueskyConfigRejectsReservedKinds(t *testing.T) {
 		})
 		if err == nil {
 			t.Fatalf("kind %q should be rejected", kind)
+		}
+	}
+}
+
+func TestFirstNonEmpty(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want string
+	}{
+		{"first wins", []string{"a", "b"}, "a"},
+		{"skips empty", []string{"", "", "c"}, "c"},
+		{"all empty", []string{"", "", ""}, ""},
+		{"no values", nil, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := firstNonEmpty(tc.in...); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDefaultServerPort(t *testing.T) {
+	cases := []struct {
+		name   string
+		port   int
+		useTLS bool
+		want   int
+	}{
+		{"explicit port wins", 6697, true, 6697},
+		{"zero port + tls -> 6697", 0, true, 6697},
+		{"zero port + no tls -> 6667", 0, false, 6667},
+		{"explicit port no tls", 6667, false, 6667},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := defaultServerPort(tc.port, tc.useTLS); got != tc.want {
+				t.Fatalf("got %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestOverrideIfDifferent(t *testing.T) {
+	if got := overrideIfDifferent("same", "same"); got != "" {
+		t.Fatalf("equal values should return empty, got %q", got)
+	}
+	if got := overrideIfDifferent("custom", "default"); got != "custom" {
+		t.Fatalf("different values should return value, got %q", got)
+	}
+}
+
+func TestResolveIdentity(t *testing.T) {
+	cases := []struct {
+		name                             string
+		fc                               FileConfig
+		n                                NetworkFileConfig
+		wantNick, wantUser, wantRealname string
+	}{
+		{
+			name:         "all defaults",
+			wantNick:     "ircsvc",
+			wantUser:     "ircsvc",
+			wantRealname: "ircsvc",
+		},
+		{
+			name:         "network overrides global",
+			fc:           FileConfig{Nick: "g", User: "gu", Realname: "GR"},
+			n:            NetworkFileConfig{Nick: "n", User: "nu", Realname: "NR"},
+			wantNick:     "n",
+			wantUser:     "nu",
+			wantRealname: "NR",
+		},
+		{
+			name:         "user falls back to nick",
+			n:            NetworkFileConfig{Nick: "n"},
+			wantNick:     "n",
+			wantUser:     "n",
+			wantRealname: "n",
+		},
+		{
+			name:         "globals fill gaps",
+			fc:           FileConfig{Nick: "g", Realname: "GR"},
+			wantNick:     "g",
+			wantUser:     "g",
+			wantRealname: "GR",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nick, user, realname := resolveIdentity(tc.fc, tc.n)
+			if nick != tc.wantNick || user != tc.wantUser || realname != tc.wantRealname {
+				t.Fatalf("got (%q, %q, %q), want (%q, %q, %q)",
+					nick, user, realname, tc.wantNick, tc.wantUser, tc.wantRealname)
+			}
+		})
+	}
+}
+
+func TestParseTLSMaxVersion(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    uint16
+		wantErr bool
+	}{
+		{"", 0, false},
+		{"1.2", tls.VersionTLS12, false},
+		{"TLSv1.2", tls.VersionTLS12, false},
+		{"tls12", tls.VersionTLS12, false},
+		{"1.3", tls.VersionTLS13, false},
+		{"tls13", tls.VersionTLS13, false},
+		{"1.1", 0, true},
+		{"garbage", 0, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			got, err := parseTLSMaxVersion(tc.in)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr = %v", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Fatalf("got %x, want %x", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEnvOr(t *testing.T) {
+	t.Setenv("LURKER_TEST_ENVOR", "from-env")
+	if got := envOr("LURKER_TEST_ENVOR", "fallback"); got != "from-env" {
+		t.Fatalf("got %q", got)
+	}
+	if got := envOr("LURKER_TEST_ENVOR_UNSET", "fallback"); got != "fallback" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestEnvBoolOr(t *testing.T) {
+	cases := []struct {
+		raw  string
+		def  bool
+		want bool
+	}{
+		{"true", false, true},
+		{"false", true, false},
+		{"1", false, true},
+		{"0", true, false},
+		{"garbage", true, true},
+		{"garbage", false, false},
+		{"", true, true},
+		{"", false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.raw, func(t *testing.T) {
+			t.Setenv("LURKER_TEST_BOOL", tc.raw)
+			key := "LURKER_TEST_BOOL"
+			if tc.raw == "" {
+				key = "LURKER_TEST_BOOL_UNSET"
+			}
+			if got := envBoolOr(key, tc.def); got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEnvDurationOr(t *testing.T) {
+	t.Setenv("LURKER_TEST_DUR", "1h30m")
+	if got := envDurationOr("LURKER_TEST_DUR", time.Second); got != 90*time.Minute {
+		t.Fatalf("got %v", got)
+	}
+	t.Setenv("LURKER_TEST_DUR_BAD", "garbage")
+	if got := envDurationOr("LURKER_TEST_DUR_BAD", 7*time.Second); got != 7*time.Second {
+		t.Fatalf("got %v", got)
+	}
+	if got := envDurationOr("LURKER_TEST_DUR_UNSET", 5*time.Second); got != 5*time.Second {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestEnvInt64Or(t *testing.T) {
+	t.Setenv("LURKER_TEST_INT", "42")
+	if got := envInt64Or("LURKER_TEST_INT", 7); got != 42 {
+		t.Fatalf("got %d", got)
+	}
+	t.Setenv("LURKER_TEST_INT_NEG", "-5")
+	if got := envInt64Or("LURKER_TEST_INT_NEG", 7); got != 7 {
+		t.Fatalf("negatives should fall back, got %d", got)
+	}
+	t.Setenv("LURKER_TEST_INT_BAD", "abc")
+	if got := envInt64Or("LURKER_TEST_INT_BAD", 7); got != 7 {
+		t.Fatalf("got %d", got)
+	}
+	if got := envInt64Or("LURKER_TEST_INT_UNSET", 3); got != 3 {
+		t.Fatalf("got %d", got)
+	}
+}
+
+func TestClampUpdateInterval(t *testing.T) {
+	cases := []struct {
+		in, want time.Duration
+	}{
+		{0, 24 * time.Hour},
+		{-1, 24 * time.Hour},
+		{10 * time.Minute, time.Hour},
+		{time.Hour, time.Hour},
+		{6 * time.Hour, 6 * time.Hour},
+	}
+	for _, tc := range cases {
+		if got := clampUpdateInterval(tc.in); got != tc.want {
+			t.Fatalf("clamp(%v) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestExpandEnvSecret(t *testing.T) {
+	t.Setenv("LURKER_TEST_SECRET", "hunter2")
+	cases := []struct{ in, want string }{
+		{"${LURKER_TEST_SECRET}", "hunter2"},
+		{"literal", "literal"},
+		{"$LURKER_TEST_SECRET", "$LURKER_TEST_SECRET"}, // no braces -> literal
+		{"${UNSET_VAR_xyz}", ""},
+		{"prefix${LURKER_TEST_SECRET}", "prefix${LURKER_TEST_SECRET}"}, // strict match only
+	}
+	for _, tc := range cases {
+		if got := expandEnvSecret(tc.in); got != tc.want {
+			t.Fatalf("expandEnvSecret(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
