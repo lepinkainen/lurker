@@ -109,6 +109,7 @@
   .messages {
     padding-left: max(8px, env(safe-area-inset-left));
     padding-right: max(8px, env(safe-area-inset-right));
+    font-family: var(--sans);
     font-size: 0.875rem;
   }
 
