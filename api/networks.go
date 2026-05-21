@@ -129,61 +129,29 @@ func (s *Server) patchNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req networkRequest
-	decodeErr := json.NewDecoder(r.Body).Decode(&req)
-	if decodeErr != nil {
+	if decodeErr := json.NewDecoder(r.Body).Decode(&req); decodeErr != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
 
-	// Handle disabled toggle separately before the config update.
-	if req.Disabled != nil && *req.Disabled != before.Disabled {
-		if *req.Disabled && s.Manager != nil {
-			_ = s.Manager.StopNetwork(id)
-		}
-		if setErr := ircdb.SetNetworkDisabled(r.Context(), s.Stores.Control, id, *req.Disabled); setErr != nil {
-			writeNetworkDBError(w, setErr, http.StatusInternalServerError)
-			return
-		}
+	if !s.applyDisabledToggle(w, r, id, before, req) {
+		return
 	}
 
-	// Only update other fields if any non-disabled fields were sent.
 	dbNet := req.toDBNetwork()
 	if req.TLS == nil {
 		dbNet.TLS = before.TLS
 	}
-	var updated ircdb.Network
 	if req.ConnectCommands != nil {
-		setErr := ircdb.SetNetworkConnectCommands(r.Context(), s.Stores.Control, id, req.ConnectCommands)
-		if setErr != nil {
+		if setErr := ircdb.SetNetworkConnectCommands(r.Context(), s.Stores.Control, id, req.ConnectCommands); setErr != nil {
 			http.Error(w, setErr.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 
-	if dbNet.Name != "" || dbNet.Host != "" || dbNet.Port != 0 || dbNet.Nick != "" || req.TLS != nil {
-		updated, err = ircdb.UpdateNetwork(r.Context(), s.Stores.Control, id, dbNet)
-		if err != nil {
-			writeNetworkDBError(w, err, http.StatusBadRequest)
-			return
-		}
-		if before.Name != updated.Name {
-			_ = s.Manager.StopNetwork(id)
-			_ = s.Stores.CloseNetwork(id)
-			if renameErr := s.Stores.RenameNetworkLogDB(before.Name, updated.Name); renameErr != nil {
-				http.Error(w, renameErr.Error(), http.StatusConflict)
-				return
-			}
-			if _, openErr := s.Stores.OpenNetwork(r.Context(), updated); openErr != nil {
-				http.Error(w, openErr.Error(), http.StatusInternalServerError)
-				return
-			}
-		}
-	} else {
-		updated, err = ircdb.GetNetwork(r.Context(), s.Stores.Control, id)
-		if err != nil {
-			writeNetworkDBError(w, err, http.StatusInternalServerError)
-			return
-		}
+	updated, ok := s.applyNetworkUpdate(w, r, id, before, dbNet, req)
+	if !ok {
+		return
 	}
 
 	status := ""
@@ -191,6 +159,66 @@ func (s *Server) patchNetwork(w http.ResponseWriter, r *http.Request) {
 		status = s.Manager.StateSnapshot()[id]
 	}
 	writeJSON(w, http.StatusOK, toNetworkDTO(updated, status))
+}
+
+// applyDisabledToggle persists a disabled change when the request includes one.
+// Returns false when an error response was already written.
+func (s *Server) applyDisabledToggle(w http.ResponseWriter, r *http.Request, id uuid.UUID, before ircdb.Network, req networkRequest) bool {
+	if req.Disabled == nil || *req.Disabled == before.Disabled {
+		return true
+	}
+	if *req.Disabled && s.Manager != nil {
+		_ = s.Manager.StopNetwork(id)
+	}
+	if setErr := ircdb.SetNetworkDisabled(r.Context(), s.Stores.Control, id, *req.Disabled); setErr != nil {
+		writeNetworkDBError(w, setErr, http.StatusInternalServerError)
+		return false
+	}
+	return true
+}
+
+// applyNetworkUpdate writes the network record when any connection field
+// changed, otherwise reloads the row. Handles renames by reopening the
+// per-network log DB. Returns the latest record and false when an error
+// response was already written.
+func (s *Server) applyNetworkUpdate(w http.ResponseWriter, r *http.Request, id uuid.UUID, before ircdb.Network, dbNet ircdb.Network, req networkRequest) (ircdb.Network, bool) {
+	if !networkFieldsChanged(dbNet, req) {
+		updated, err := ircdb.GetNetwork(r.Context(), s.Stores.Control, id)
+		if err != nil {
+			writeNetworkDBError(w, err, http.StatusInternalServerError)
+			return ircdb.Network{}, false
+		}
+		return updated, true
+	}
+	updated, err := ircdb.UpdateNetwork(r.Context(), s.Stores.Control, id, dbNet)
+	if err != nil {
+		writeNetworkDBError(w, err, http.StatusBadRequest)
+		return ircdb.Network{}, false
+	}
+	if before.Name != updated.Name {
+		if !s.reopenRenamedNetworkLog(w, r, id, before.Name, updated) {
+			return ircdb.Network{}, false
+		}
+	}
+	return updated, true
+}
+
+func networkFieldsChanged(dbNet ircdb.Network, req networkRequest) bool {
+	return dbNet.Name != "" || dbNet.Host != "" || dbNet.Port != 0 || dbNet.Nick != "" || req.TLS != nil
+}
+
+func (s *Server) reopenRenamedNetworkLog(w http.ResponseWriter, r *http.Request, id uuid.UUID, oldName string, updated ircdb.Network) bool {
+	_ = s.Manager.StopNetwork(id)
+	_ = s.Stores.CloseNetwork(id)
+	if renameErr := s.Stores.RenameNetworkLogDB(oldName, updated.Name); renameErr != nil {
+		http.Error(w, renameErr.Error(), http.StatusConflict)
+		return false
+	}
+	if _, openErr := s.Stores.OpenNetwork(r.Context(), updated); openErr != nil {
+		http.Error(w, openErr.Error(), http.StatusInternalServerError)
+		return false
+	}
+	return true
 }
 
 func (s *Server) deleteNetwork(w http.ResponseWriter, r *http.Request) {

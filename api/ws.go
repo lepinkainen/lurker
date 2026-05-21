@@ -119,26 +119,34 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	defer unsub()
 
 	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			select {
-			case <-ctx.Done():
+	go runStreamWriter(ctx, c, events, done)
+	s.runStreamReader(ctx, c, cancel, done)
+}
+
+// runStreamWriter forwards every event published on the hub channel to the
+// WebSocket. The 10s write timeout is per-message; a stalled client tears
+// down the connection rather than backing up the hub.
+func runStreamWriter(ctx context.Context, c *websocket.Conn, events <-chan any, done chan<- struct{}) {
+	defer close(done)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-events:
+			if !ok {
 				return
-			case ev, ok := <-events:
-				if !ok {
-					return
-				}
-				wctx, wcancel := context.WithTimeout(ctx, 10*time.Second)
-				err := wsjson.Write(wctx, c, ev)
-				wcancel()
-				if err != nil {
-					return
-				}
+			}
+			wctx, wcancel := context.WithTimeout(ctx, 10*time.Second)
+			err := wsjson.Write(wctx, c, ev)
+			wcancel()
+			if err != nil {
+				return
 			}
 		}
-	}()
+	}
+}
 
+func (s *Server) runStreamReader(ctx context.Context, c *websocket.Conn, cancel context.CancelFunc, done <-chan struct{}) {
 	for {
 		var cmd clientCmd
 		err := wsjson.Read(ctx, c, &cmd)

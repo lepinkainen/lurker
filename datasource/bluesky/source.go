@@ -75,14 +75,8 @@ func (s *Source) Wait() { s.wg.Wait() }
 // launches the polling goroutines. The Start error path leaves the source
 // in a clean, never-started state.
 func (s *Source) Start(parent context.Context, deps datasource.Deps) error {
-	if s.cfg.Network == "" {
-		return errors.New("bluesky: empty Network")
-	}
-	if s.cfg.Identifier == "" || s.cfg.AppPassword == "" {
-		return errors.New("bluesky: missing credentials")
-	}
-	if len(s.cfg.Channels) == 0 {
-		return errors.New("bluesky: no channels configured")
+	if err := s.validateConfig(); err != nil {
+		return err
 	}
 
 	loginCtx, cancel := context.WithTimeout(parent, 30*time.Second)
@@ -92,11 +86,10 @@ func (s *Source) Start(parent context.Context, deps datasource.Deps) error {
 	}
 	handle := s.client.Handle()
 
-	host := pdsHost(s.client.PDS())
 	nrow, err := deps.Stores.UpsertNetwork(parent, ircdb.Network{
 		Name: s.cfg.Network,
 		Kind: ircdb.NetworkKindBluesky,
-		Host: host,
+		Host: pdsHost(s.client.PDS()),
 		Port: 0,
 		TLS:  false,
 		Nick: handle,
@@ -106,35 +99,9 @@ func (s *Source) Start(parent context.Context, deps datasource.Deps) error {
 	}
 	s.networkID = nrow.ID
 
-	// Resolve configured channels to buffer IDs. Channel names default to
-	// "<handle>-feed" for the timeline kind so the UI labels the buffer with
-	// the authenticated user.
-	resolved := make([]runtimeChannel, 0, len(s.cfg.Channels))
-	for _, ch := range s.cfg.Channels {
-		if ch.Name == "" && ch.Kind == ChannelTimeline {
-			ch.Name = sanitiseHandle(handle) + "-feed"
-		}
-		if ch.Name == "" {
-			return fmt.Errorf("bluesky: channel kind %q requires a name", ch.Kind)
-		}
-		if ch.Interval == 0 {
-			ch.Interval = defaultInterval(ch.Kind)
-		}
-		bufID, created, buf, berr := deps.Stores.EnsureBuffer(parent, nrow.ID, ch.Name, ircdb.BufferChannel)
-		if berr != nil {
-			return fmt.Errorf("ensure buffer %q: %w", ch.Name, berr)
-		}
-		if created && deps.Hub != nil {
-			deps.Hub.Publish(&irc.BufferCreatedEvent{
-				Type:      "buffer_created",
-				ID:        buf.ID,
-				NetworkID: nrow.ID,
-				Name:      buf.Name,
-				Kind:      buf.Kind,
-				CreatedAt: buf.CreatedAt,
-			})
-		}
-		resolved = append(resolved, runtimeChannel{cfg: ch, bufferID: bufID})
+	resolved, err := s.resolveChannels(parent, deps, nrow, handle)
+	if err != nil {
+		return err
 	}
 
 	statusID, err := ircdb.EnsureStatusBuffer(parent, deps.Stores, nrow.ID)
@@ -158,6 +125,54 @@ func (s *Source) Start(parent context.Context, deps datasource.Deps) error {
 		})
 	}
 	return nil
+}
+
+func (s *Source) validateConfig() error {
+	if s.cfg.Network == "" {
+		return errors.New("bluesky: empty Network")
+	}
+	if s.cfg.Identifier == "" || s.cfg.AppPassword == "" {
+		return errors.New("bluesky: missing credentials")
+	}
+	if len(s.cfg.Channels) == 0 {
+		return errors.New("bluesky: no channels configured")
+	}
+	return nil
+}
+
+// resolveChannels assigns names and intervals to configured channels and
+// ensures a buffer exists for each. Channel names default to "<handle>-feed"
+// for the timeline kind so the UI labels the buffer with the authenticated
+// user.
+func (s *Source) resolveChannels(parent context.Context, deps datasource.Deps, nrow ircdb.Network, handle string) ([]runtimeChannel, error) {
+	resolved := make([]runtimeChannel, 0, len(s.cfg.Channels))
+	for _, ch := range s.cfg.Channels {
+		if ch.Name == "" && ch.Kind == ChannelTimeline {
+			ch.Name = sanitiseHandle(handle) + "-feed"
+		}
+		if ch.Name == "" {
+			return nil, fmt.Errorf("bluesky: channel kind %q requires a name", ch.Kind)
+		}
+		if ch.Interval == 0 {
+			ch.Interval = defaultInterval(ch.Kind)
+		}
+		bufID, created, buf, berr := deps.Stores.EnsureBuffer(parent, nrow.ID, ch.Name, ircdb.BufferChannel)
+		if berr != nil {
+			return nil, fmt.Errorf("ensure buffer %q: %w", ch.Name, berr)
+		}
+		if created && deps.Hub != nil {
+			deps.Hub.Publish(&irc.BufferCreatedEvent{
+				Type:      "buffer_created",
+				ID:        buf.ID,
+				NetworkID: nrow.ID,
+				Name:      buf.Name,
+				Kind:      buf.Kind,
+				CreatedAt: buf.CreatedAt,
+			})
+		}
+		resolved = append(resolved, runtimeChannel{cfg: ch, bufferID: bufID})
+	}
+	return resolved, nil
 }
 
 func (s *Source) runChannel(ctx context.Context, deps datasource.Deps, rc runtimeChannel) {

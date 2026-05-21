@@ -596,46 +596,8 @@ func (m *Manager) runNetwork(ctx context.Context, networkID uuid.UUID, nc Networ
 			return
 		}
 		server := nc.serverAt(serverIndex)
-		if commands, err := ircdb.ListNetworkConnectCommands(ctx, m.stores.Control, networkID); err != nil {
-			log.Warn("load connect commands", "err", err)
-		} else {
-			nc.ConnectCommands = commands
-		}
-		client := m.buildClient(ctx, networkID, nc, server)
-
-		m.mu.Lock()
-		m.conn[networkID] = client
-		m.state[networkID] = StateConnecting.String()
-		m.mu.Unlock()
-		if m.hub != nil {
-			m.hub.Publish(&NetworkStateEvent{Type: "network_state", NetworkID: networkID, State: StateConnecting.String()})
-		}
-
-		log.Info("connecting", "host", server.Host, "port", server.Port, "tls", server.TLS, "tls_max_version", tlsMaxVersionLabel(server))
-		err := m.connector(ctx, client, server)
-		if err != nil && ctx.Err() == nil && shouldFallbackToTLS12(server) {
-			fallbackServer := server
-			fallbackServer.TLSMaxVersion = tls.VersionTLS12
-			fallbackClient := m.buildClient(ctx, networkID, nc, fallbackServer)
-			m.mu.Lock()
-			m.conn[networkID] = fallbackClient
-			m.mu.Unlock()
-			log.Warn("connection failed, retrying with TLS 1.2 compatibility", "err", err)
-			log.Info("connecting", "host", fallbackServer.Host, "port", fallbackServer.Port, "tls", fallbackServer.TLS, "tls_max_version", tlsMaxVersionLabel(fallbackServer))
-			err = m.connector(ctx, fallbackClient, fallbackServer)
-		}
-
-		m.mu.Lock()
-		delete(m.conn, networkID)
-		delete(m.membersLoaded, networkID)
-		if _, ok := m.runtime[networkID]; ok {
-			m.state[networkID] = StateDisconnected.String()
-		}
-		m.mu.Unlock()
-		if m.hub != nil {
-			m.hub.Publish(&NetworkStateEvent{Type: "network_state", NetworkID: networkID, State: StateDisconnected.String()})
-		}
-
+		m.refreshConnectCommands(ctx, log, networkID, &nc)
+		err := m.attemptConnect(ctx, log, networkID, nc, server)
 		if ctx.Err() != nil {
 			log.Info("connection closed on shutdown")
 			return
@@ -645,7 +607,6 @@ func (m *Manager) runNetwork(ctx context.Context, networkID uuid.UUID, nc Networ
 		} else {
 			log.Info("connection ended, reconnecting", "backoff", backoff)
 		}
-
 		select {
 		case <-ctx.Done():
 			return
@@ -658,6 +619,66 @@ func (m *Manager) runNetwork(ctx context.Context, networkID uuid.UUID, nc Networ
 		if backoff > maxBackoff {
 			backoff = maxBackoff
 		}
+	}
+}
+
+func (m *Manager) refreshConnectCommands(ctx context.Context, log *slog.Logger, networkID uuid.UUID, nc *NetworkConfig) {
+	commands, err := ircdb.ListNetworkConnectCommands(ctx, m.stores.Control, networkID)
+	if err != nil {
+		log.Warn("load connect commands", "err", err)
+		return
+	}
+	nc.ConnectCommands = commands
+}
+
+// attemptConnect builds and dials the IRC client, transparently retrying once
+// with TLS 1.2 forced when the initial dial fails and TLS downgrade is
+// possible. Tracks connection state in the manager and publishes hub events.
+func (m *Manager) attemptConnect(ctx context.Context, log *slog.Logger, networkID uuid.UUID, nc NetworkConfig, server ServerConfig) error {
+	client := m.buildClient(ctx, networkID, nc, server)
+	m.setConnectingState(networkID, client)
+
+	log.Info("connecting", "host", server.Host, "port", server.Port, "tls", server.TLS, "tls_max_version", tlsMaxVersionLabel(server))
+	err := m.connector(ctx, client, server)
+	if err != nil && ctx.Err() == nil && shouldFallbackToTLS12(server) {
+		err = m.connectWithTLS12Fallback(ctx, log, networkID, nc, server, err)
+	}
+	m.markDisconnected(networkID)
+	return err
+}
+
+func (m *Manager) setConnectingState(networkID uuid.UUID, client *girc.Client) {
+	m.mu.Lock()
+	m.conn[networkID] = client
+	m.state[networkID] = StateConnecting.String()
+	m.mu.Unlock()
+	if m.hub != nil {
+		m.hub.Publish(&NetworkStateEvent{Type: "network_state", NetworkID: networkID, State: StateConnecting.String()})
+	}
+}
+
+func (m *Manager) connectWithTLS12Fallback(ctx context.Context, log *slog.Logger, networkID uuid.UUID, nc NetworkConfig, server ServerConfig, firstErr error) error {
+	fallbackServer := server
+	fallbackServer.TLSMaxVersion = tls.VersionTLS12
+	fallbackClient := m.buildClient(ctx, networkID, nc, fallbackServer)
+	m.mu.Lock()
+	m.conn[networkID] = fallbackClient
+	m.mu.Unlock()
+	log.Warn("connection failed, retrying with TLS 1.2 compatibility", "err", firstErr)
+	log.Info("connecting", "host", fallbackServer.Host, "port", fallbackServer.Port, "tls", fallbackServer.TLS, "tls_max_version", tlsMaxVersionLabel(fallbackServer))
+	return m.connector(ctx, fallbackClient, fallbackServer)
+}
+
+func (m *Manager) markDisconnected(networkID uuid.UUID) {
+	m.mu.Lock()
+	delete(m.conn, networkID)
+	delete(m.membersLoaded, networkID)
+	if _, ok := m.runtime[networkID]; ok {
+		m.state[networkID] = StateDisconnected.String()
+	}
+	m.mu.Unlock()
+	if m.hub != nil {
+		m.hub.Publish(&NetworkStateEvent{Type: "network_state", NetworkID: networkID, State: StateDisconnected.String()})
 	}
 }
 

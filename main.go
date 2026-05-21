@@ -61,63 +61,13 @@ func main() {
 	defer closeutil.Ignore(previewSvc, "component", "preview")
 	mgr := irc.NewManager(stores, evHub)
 	mgr.SetPreviewEnqueuer(previewSvc)
-	if os.Getenv("LURKER_TEST_FIXTURE_RUNTIME") != "" {
-		if err := mgr.LoadFixtureRuntimeState(ctx); err != nil {
-			slog.Error("load fixture runtime state", "err", err)
-			os.Exit(1)
-		}
-		slog.Info("test fixture runtime state loaded")
-	}
-	dsMgr := datasource.NewManager(datasource.Deps{
-		Stores:   stores,
-		Hub:      evHub,
-		Previews: previewSvc,
-	})
-	for _, bs := range cfg.DataSources.Bluesky {
-		dsMgr.Register(bluesky.NewSource(bs))
-	}
-	if err := dsMgr.Start(ctx); err != nil {
-		slog.Error("start data sources", "err", err)
-		os.Exit(1)
-	}
+	loadFixtureRuntimeState(ctx, mgr)
 
-	if nets := cfg.Networks; len(nets) > 0 {
-		startErr := mgr.Start(ctx, nets)
-		if startErr != nil {
-			slog.Error("start bootstrap networks", "err", startErr)
-			os.Exit(1)
-		}
-		slog.Info("irc bootstrap networks started", "count", len(nets))
-	} else {
-		slog.Info("no bootstrap networks configured; add networks to config.yaml to seed control.db on startup")
-	}
+	dsMgr := buildDataSourceManager(ctx, cfg, stores, evHub, previewSvc)
+	startBootstrapNetworks(ctx, mgr, cfg.Networks)
+	markNonYAMLNetworksDisabled(ctx, stores, cfg, dsMgr)
 
-	// Mark DB networks absent from config.yaml + parsed data_sources as
-	// disabled so they don't auto-connect and are visually distinguished in
-	// the UI. Datasource network names must be included so a Bluesky source
-	// is not auto-disabled on the very startup that brought it up.
-	yamlNames := make([]string, 0, len(cfg.Networks)+len(cfg.DataSources.Bluesky))
-	for _, n := range cfg.Networks {
-		yamlNames = append(yamlNames, n.Name)
-	}
-	yamlNames = append(yamlNames, dsMgr.Names()...)
-	if len(yamlNames) > 0 {
-		if err := db.MarkNonYAMLNetworksDisabled(ctx, stores.Control, yamlNames); err != nil {
-			slog.Error("mark non-yaml networks disabled", "err", err)
-		}
-	}
-
-	var webSub fs.FS
-	if *webDir != "" {
-		webSub = os.DirFS(*webDir)
-		if _, statErr := fs.Stat(webSub, "index.html"); statErr != nil {
-			slog.Error("web dir missing index.html", "dir", *webDir, "err", statErr)
-			os.Exit(1)
-		}
-		slog.Info("web UI served from disk", "dir", *webDir)
-	} else {
-		slog.Warn("web UI disabled", "hint", "pass --web-dir ./web/dist or run container image")
-	}
+	webSub := resolveWebFS(*webDir)
 
 	resolvedThemesDir := *themesDir
 	if resolvedThemesDir == "" {
@@ -196,4 +146,75 @@ func main() {
 	mgr.Wait()
 	dsMgr.Wait()
 	slog.Info("bye")
+}
+
+func loadFixtureRuntimeState(ctx context.Context, mgr *irc.Manager) {
+	if os.Getenv("LURKER_TEST_FIXTURE_RUNTIME") == "" {
+		return
+	}
+	if err := mgr.LoadFixtureRuntimeState(ctx); err != nil {
+		slog.Error("load fixture runtime state", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("test fixture runtime state loaded")
+}
+
+func buildDataSourceManager(ctx context.Context, cfg Config, stores *db.MultiStore, evHub *hub.Hub, previewSvc *preview.Service) *datasource.Manager {
+	dsMgr := datasource.NewManager(datasource.Deps{
+		Stores:   stores,
+		Hub:      evHub,
+		Previews: previewSvc,
+	})
+	for _, bs := range cfg.DataSources.Bluesky {
+		dsMgr.Register(bluesky.NewSource(bs))
+	}
+	if err := dsMgr.Start(ctx); err != nil {
+		slog.Error("start data sources", "err", err)
+		os.Exit(1)
+	}
+	return dsMgr
+}
+
+func startBootstrapNetworks(ctx context.Context, mgr *irc.Manager, nets []irc.NetworkConfig) {
+	if len(nets) == 0 {
+		slog.Info("no bootstrap networks configured; add networks to config.yaml to seed control.db on startup")
+		return
+	}
+	if err := mgr.Start(ctx, nets); err != nil {
+		slog.Error("start bootstrap networks", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("irc bootstrap networks started", "count", len(nets))
+}
+
+// markNonYAMLNetworksDisabled disables DB networks absent from config.yaml +
+// parsed data_sources, so they don't auto-connect and are visually
+// distinguished in the UI. Datasource network names must be included so a
+// Bluesky source is not auto-disabled on the very startup that brought it up.
+func markNonYAMLNetworksDisabled(ctx context.Context, stores *db.MultiStore, cfg Config, dsMgr *datasource.Manager) {
+	yamlNames := make([]string, 0, len(cfg.Networks)+len(cfg.DataSources.Bluesky))
+	for _, n := range cfg.Networks {
+		yamlNames = append(yamlNames, n.Name)
+	}
+	yamlNames = append(yamlNames, dsMgr.Names()...)
+	if len(yamlNames) == 0 {
+		return
+	}
+	if err := db.MarkNonYAMLNetworksDisabled(ctx, stores.Control, yamlNames); err != nil {
+		slog.Error("mark non-yaml networks disabled", "err", err)
+	}
+}
+
+func resolveWebFS(webDir string) fs.FS {
+	if webDir == "" {
+		slog.Warn("web UI disabled", "hint", "pass --web-dir ./web/dist or run container image")
+		return nil
+	}
+	webSub := os.DirFS(webDir)
+	if _, statErr := fs.Stat(webSub, "index.html"); statErr != nil {
+		slog.Error("web dir missing index.html", "dir", webDir, "err", statErr)
+		os.Exit(1)
+	}
+	slog.Info("web UI served from disk", "dir", webDir)
+	return webSub
 }

@@ -93,33 +93,40 @@ func migrate(d *sql.DB, migrationFS fs.FS, migrationDir string) error {
 	sort.Strings(names)
 
 	for _, name := range names {
-		var exists int
-		if err := d.QueryRow(`SELECT COUNT(1) FROM schema_migrations WHERE version=?`, name).Scan(&exists); err != nil {
+		if err := applyMigration(d, migrationFS, migrationDir, name); err != nil {
 			return err
 		}
-		if exists == 1 {
-			continue
-		}
-		sqlBytes, err := fs.ReadFile(migrationFS, filepath.ToSlash(filepath.Join(migrationDir, name)))
-		if err != nil {
-			return err
-		}
-		tx, err := d.Begin()
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(string(sqlBytes)); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("apply %s: %w", name, err)
-		}
-		if _, err := tx.Exec(`INSERT INTO schema_migrations(version) VALUES (?)`, name); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-		slog.Info("migration applied", "version", name, "dir", migrationDir)
 	}
+	return nil
+}
+
+func applyMigration(d *sql.DB, migrationFS fs.FS, migrationDir, name string) error {
+	var exists int
+	if err := d.QueryRow(`SELECT COUNT(1) FROM schema_migrations WHERE version=?`, name).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 1 {
+		return nil
+	}
+	sqlBytes, err := fs.ReadFile(migrationFS, filepath.ToSlash(filepath.Join(migrationDir, name)))
+	if err != nil {
+		return err
+	}
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(string(sqlBytes)); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("apply %s: %w", name, err)
+	}
+	if _, err := tx.Exec(`INSERT INTO schema_migrations(version) VALUES (?)`, name); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	slog.Info("migration applied", "version", name, "dir", migrationDir)
 	return nil
 }

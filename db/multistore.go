@@ -236,80 +236,108 @@ func (ms *MultiStore) EnsureBuffer(ctx context.Context, networkID uuid.UUID, nam
 		return uuid.Nil, false, Buffer{}, err
 	}
 
-	// Resolve registry row by its canonical key. If absent, create a fresh
-	// UUIDv7; if another writer wins the race, re-select the row it created.
 	now := Now()
 	buf = Buffer{NetworkID: networkID, Name: name, Kind: kind, CreatedAt: now}
+	if created, err = ms.ensureBufferRegistryRow(ctx, networkID, name, kind, now, &buf); err != nil {
+		return uuid.Nil, false, Buffer{}, err
+	}
+	if err := ms.ensureBufferLogRow(ctx, logStore, name, &buf); err != nil {
+		return uuid.Nil, false, Buffer{}, err
+	}
+
+	applyBufferSettings(ctx, ms.Control, &buf)
+	return buf.ID, created, buf, nil
+}
+
+// ensureBufferRegistryRow looks up the registry row by (network_id, name) and
+// inserts a fresh UUIDv7 row when absent. If another writer wins the insert
+// race, it re-selects to adopt the winning ID.
+func (ms *MultiStore) ensureBufferRegistryRow(ctx context.Context, networkID uuid.UUID, name, kind, now string, buf *Buffer) (bool, error) {
 	switch err := ms.Control.QueryRowContext(ctx,
 		`SELECT id, kind, created_at FROM buffer_registry WHERE network_id = ? AND name = ?`,
 		networkID[:], name,
 	).Scan(&buf.ID, &buf.Kind, &buf.CreatedAt); {
 	case err == nil:
-		// Existing registry row.
+		return false, nil
 	case errors.Is(err, sql.ErrNoRows):
 		buf.ID = newID()
-		if _, ierr := ms.Control.ExecContext(ctx,
+		_, ierr := ms.Control.ExecContext(ctx,
 			`INSERT INTO buffer_registry(id, network_id, name, kind, created_at) VALUES (?, ?, ?, ?, ?)`,
 			buf.ID[:], networkID[:], name, kind, now,
-		); ierr != nil {
-			if rerr := ms.Control.QueryRowContext(ctx,
-				`SELECT id, kind, created_at FROM buffer_registry WHERE network_id = ? AND name = ?`,
-				networkID[:], name,
-			).Scan(&buf.ID, &buf.Kind, &buf.CreatedAt); rerr != nil {
-				return uuid.Nil, false, Buffer{}, ierr
-			}
-		} else {
-			created = true
+		)
+		if ierr == nil {
+			return true, nil
 		}
+		if rerr := ms.Control.QueryRowContext(ctx,
+			`SELECT id, kind, created_at FROM buffer_registry WHERE network_id = ? AND name = ?`,
+			networkID[:], name,
+		).Scan(&buf.ID, &buf.Kind, &buf.CreatedAt); rerr != nil {
+			return false, ierr
+		}
+		return false, nil
 	default:
-		return uuid.Nil, false, Buffer{}, err
+		return false, err
 	}
+}
 
-	// Verify or self-heal the per-network log buffer row. Same name with a
-	// different UUID is corruption: never silently preserve divergent IDs.
+// ensureBufferLogRow verifies or inserts the per-network log row, matching
+// the registry ID. Same name with a different UUID is corruption: never
+// silently preserve divergent IDs.
+func (ms *MultiStore) ensureBufferLogRow(ctx context.Context, logStore *LogStore, name string, buf *Buffer) error {
 	var logID uuid.UUID
 	var lastSeen []byte
-	switch err := logStore.DB.QueryRowContext(ctx,
+	err := logStore.DB.QueryRowContext(ctx,
 		`SELECT id, COALESCE(topic,''), last_seen_id, created_at FROM buffers WHERE name = ?`, name,
-	).Scan(&logID, &buf.Topic, &lastSeen, &buf.CreatedAt); {
+	).Scan(&logID, &buf.Topic, &lastSeen, &buf.CreatedAt)
+	switch {
 	case err == nil:
 		if logID != buf.ID {
-			return uuid.Nil, false, Buffer{}, fmt.Errorf("%w: name=%q registry=%s log=%s",
+			return fmt.Errorf("%w: name=%q registry=%s log=%s",
 				ErrBufferIDMismatch, name, buf.ID, logID)
 		}
 		buf.LastSeenID = scanUUID(lastSeen)
+		return nil
 	case errors.Is(err, sql.ErrNoRows):
-		if _, ierr := logStore.DB.ExecContext(ctx,
-			`INSERT INTO buffers(id, name, kind, created_at) VALUES (?, ?, ?, ?)`,
-			buf.ID[:], name, buf.Kind, buf.CreatedAt,
-		); ierr != nil {
-			// Possible race: re-select and verify instead of silently diverging.
-			if rerr := logStore.DB.QueryRowContext(ctx,
-				`SELECT id, COALESCE(topic,''), last_seen_id, created_at FROM buffers WHERE name = ?`, name,
-			).Scan(&logID, &buf.Topic, &lastSeen, &buf.CreatedAt); rerr != nil {
-				return uuid.Nil, false, Buffer{}, ierr
-			}
-			if logID != buf.ID {
-				return uuid.Nil, false, Buffer{}, fmt.Errorf("%w: name=%q registry=%s log=%s",
-					ErrBufferIDMismatch, name, buf.ID, logID)
-			}
-			buf.LastSeenID = scanUUID(lastSeen)
-		}
-	case err != nil:
-		return uuid.Nil, false, Buffer{}, err
+		return ms.insertBufferLogRow(ctx, logStore, name, buf)
+	default:
+		return err
 	}
+}
 
-	settings, serr := GetBufferSettings(ctx, ms.Control, buf.ID)
-	if serr == nil {
-		buf.ShowEmbeds = settings.ShowEmbeds
-		buf.ShowPresenceEvents = settings.ShowPresenceEvents
-		buf.CollapsePresenceEvents = settings.CollapsePresenceEvents
-		buf.Pinned = settings.Pinned
-	} else {
+func (ms *MultiStore) insertBufferLogRow(ctx context.Context, logStore *LogStore, name string, buf *Buffer) error {
+	_, ierr := logStore.DB.ExecContext(ctx,
+		`INSERT INTO buffers(id, name, kind, created_at) VALUES (?, ?, ?, ?)`,
+		buf.ID[:], name, buf.Kind, buf.CreatedAt,
+	)
+	if ierr == nil {
+		return nil
+	}
+	var logID uuid.UUID
+	var lastSeen []byte
+	if rerr := logStore.DB.QueryRowContext(ctx,
+		`SELECT id, COALESCE(topic,''), last_seen_id, created_at FROM buffers WHERE name = ?`, name,
+	).Scan(&logID, &buf.Topic, &lastSeen, &buf.CreatedAt); rerr != nil {
+		return ierr
+	}
+	if logID != buf.ID {
+		return fmt.Errorf("%w: name=%q registry=%s log=%s",
+			ErrBufferIDMismatch, name, buf.ID, logID)
+	}
+	buf.LastSeenID = scanUUID(lastSeen)
+	return nil
+}
+
+func applyBufferSettings(ctx context.Context, control *sql.DB, buf *Buffer) {
+	settings, err := GetBufferSettings(ctx, control, buf.ID)
+	if err != nil {
 		buf.ShowEmbeds = true
 		buf.ShowPresenceEvents = true
+		return
 	}
-	return buf.ID, created, buf, nil
+	buf.ShowEmbeds = settings.ShowEmbeds
+	buf.ShowPresenceEvents = settings.ShowPresenceEvents
+	buf.CollapsePresenceEvents = settings.CollapsePresenceEvents
+	buf.Pinned = settings.Pinned
 }
 
 // LookupBuffer resolves a global buffer ID to network/name/kind.

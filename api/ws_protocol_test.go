@@ -638,17 +638,7 @@ func TestWSCmdSend(t *testing.T) {
 			mm.setError("LogOutbound", nil)
 			c := ts.dial(t)
 			sendCmd(t, ctx, c, tt.cmd)
-			if tt.wantErr != "" {
-				errEnv := recvErr(t, ctx, c)
-				if errEnv.Type != "error" || errEnv.ReqID != tt.cmd.ReqID || !strings.Contains(errEnv.Message, tt.wantErr) {
-					t.Fatalf("got error=%+v, want message containing %q", errEnv, tt.wantErr)
-				}
-			} else {
-				ack := recvAck(t, ctx, c)
-				if ack.Type != "ack" || ack.ReqID != tt.cmd.ReqID {
-					t.Fatalf("got ack=%+v, want ack/%s", ack, tt.cmd.ReqID)
-				}
-			}
+			checkAckOrErr(t, ctx, c, tt.cmd.ReqID, tt.wantErr)
 			if tt.wantCalled != "" && !mm.called(tt.wantCalled) {
 				t.Fatalf("expected mock method %q to be called, calls=%v", tt.wantCalled, mm.calls)
 			}
@@ -656,6 +646,21 @@ func TestWSCmdSend(t *testing.T) {
 				t.Fatal("expected LogOutbound to be called after successful Send")
 			}
 		})
+	}
+}
+
+func checkAckOrErr(t *testing.T, ctx context.Context, c *websocket.Conn, reqID, wantErr string) {
+	t.Helper()
+	if wantErr != "" {
+		errEnv := recvErr(t, ctx, c)
+		if errEnv.Type != "error" || errEnv.ReqID != reqID || !strings.Contains(errEnv.Message, wantErr) {
+			t.Fatalf("got error=%+v, want message containing %q", errEnv, wantErr)
+		}
+		return
+	}
+	ack := recvAck(t, ctx, c)
+	if ack.Type != "ack" || ack.ReqID != reqID {
+		t.Fatalf("got ack=%+v, want ack/%s", ack, reqID)
 	}
 }
 

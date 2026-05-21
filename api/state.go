@@ -115,40 +115,50 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		out.Networks = append(out.Networks, toNetworkDTO(n, states[n.ID]))
 	}
 	for _, b := range bufs {
-		joined := false
-		if b.Kind == ircdb.BufferChannel {
-			if isNonIRCNetwork(kinds[b.NetworkID]) {
-				joined = true
-			} else if s.Manager != nil {
-				joined = s.Manager.IsJoined(b.NetworkID, b.Name)
-			}
-		}
-		nick := ""
-		if s.Manager != nil {
-			nick = s.Manager.Nick(b.NetworkID)
-		}
-		unread, mentions := s.computeUnreadCounts(ctx, b.NetworkID, b.ID, b.LastSeenID, nick)
-		out.Buffers = append(out.Buffers, bufferDTO{
-			ID: b.ID, NetworkID: b.NetworkID, Name: b.Name, Kind: b.Kind,
-			Topic: b.Topic, Joined: joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
-			ShowEmbeds: b.ShowEmbeds, ShowPresenceEvents: b.ShowPresenceEvents,
-			CollapsePresenceEvents: b.CollapsePresenceEvents, Pinned: b.Pinned,
-			Unread: unread, Mentions: mentions,
-		})
-		if b.Kind == ircdb.BufferChannel && s.Manager != nil {
-			if members := s.Manager.ChannelMembers(b.NetworkID, b.Name); members != nil {
-				out.Members[b.ID.String()] = toChannelMemberDTOs(members)
-			}
-		}
-		msgs, err := s.Stores.RecentMessages(ctx, b.ID, 100)
-		if err != nil {
-			slog.Error("recent messages", "err", err, "buffer_id", b.ID)
-			continue
-		}
-		out.InitialMessages[b.ID.String()] = s.toMessageDTOs(ctx, msgs)
+		s.appendBufferToState(ctx, &out, b, kinds)
 	}
 
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb.Buffer, kinds map[uuid.UUID]string) {
+	joined := s.bufferJoined(b, kinds)
+	nick := ""
+	if s.Manager != nil {
+		nick = s.Manager.Nick(b.NetworkID)
+	}
+	unread, mentions := s.computeUnreadCounts(ctx, b.NetworkID, b.ID, b.LastSeenID, nick)
+	out.Buffers = append(out.Buffers, bufferDTO{
+		ID: b.ID, NetworkID: b.NetworkID, Name: b.Name, Kind: b.Kind,
+		Topic: b.Topic, Joined: joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
+		ShowEmbeds: b.ShowEmbeds, ShowPresenceEvents: b.ShowPresenceEvents,
+		CollapsePresenceEvents: b.CollapsePresenceEvents, Pinned: b.Pinned,
+		Unread: unread, Mentions: mentions,
+	})
+	if b.Kind == ircdb.BufferChannel && s.Manager != nil {
+		if members := s.Manager.ChannelMembers(b.NetworkID, b.Name); members != nil {
+			out.Members[b.ID.String()] = toChannelMemberDTOs(members)
+		}
+	}
+	msgs, err := s.Stores.RecentMessages(ctx, b.ID, 100)
+	if err != nil {
+		slog.Error("recent messages", "err", err, "buffer_id", b.ID)
+		return
+	}
+	out.InitialMessages[b.ID.String()] = s.toMessageDTOs(ctx, msgs)
+}
+
+func (s *Server) bufferJoined(b ircdb.Buffer, kinds map[uuid.UUID]string) bool {
+	if b.Kind != ircdb.BufferChannel {
+		return false
+	}
+	if isNonIRCNetwork(kinds[b.NetworkID]) {
+		return true
+	}
+	if s.Manager == nil {
+		return false
+	}
+	return s.Manager.IsJoined(b.NetworkID, b.Name)
 }
 
 // history serves older-than-cursor messages for a buffer.
@@ -224,44 +234,8 @@ func (s *Server) attachPreviews(ctx context.Context, msgs []messageDTO) {
 		return
 	}
 
-	// Group message IDs by network so we hit each log DB once.
-	byNetwork := map[uuid.UUID][]uuid.UUID{}
-	indexByMsg := map[uuid.UUID]map[uuid.UUID]int{}
-	for i, m := range msgs {
-		byNetwork[m.NetworkID] = append(byNetwork[m.NetworkID], m.ID)
-		if indexByMsg[m.NetworkID] == nil {
-			indexByMsg[m.NetworkID] = map[uuid.UUID]int{}
-		}
-		indexByMsg[m.NetworkID][m.ID] = i
-	}
-
-	urlSet := map[string]struct{}{}
-	type linkRef struct {
-		msgIdx   int
-		url      string
-		position int
-	}
-	var links []linkRef
-	for networkID, ids := range byNetwork {
-		logStore, err := s.Stores.LogStore(networkID)
-		if err != nil {
-			slog.Warn("preview log store", "err", err, "network_id", networkID)
-			continue
-		}
-		rows, err := ircdb.ListMessagePreviewLinks(ctx, logStore.DB, ids)
-		if err != nil {
-			slog.Warn("preview links", "err", err, "network_id", networkID)
-			continue
-		}
-		for _, r := range rows {
-			idx, ok := indexByMsg[networkID][r.MessageID]
-			if !ok {
-				continue
-			}
-			urlSet[r.URL] = struct{}{}
-			links = append(links, linkRef{msgIdx: idx, url: r.URL, position: r.Position})
-		}
-	}
+	byNetwork, indexByMsg := indexMessagesByNetwork(msgs)
+	urlSet, links := s.collectPreviewLinks(ctx, byNetwork, indexByMsg)
 	if len(links) == 0 {
 		return
 	}
@@ -281,6 +255,54 @@ func (s *Server) attachPreviews(ctx context.Context, msgs []messageDTO) {
 		}
 		msgs[l.msgIdx].Previews = append(msgs[l.msgIdx].Previews, preview.ToResolvedPreview(p))
 	}
+}
+
+type previewLinkRef struct {
+	msgIdx   int
+	url      string
+	position int
+}
+
+// indexMessagesByNetwork groups message IDs by network so each log DB is
+// queried once, and builds a reverse index from (network, message) to the
+// original slice position.
+func indexMessagesByNetwork(msgs []messageDTO) (byNetwork map[uuid.UUID][]uuid.UUID, indexByMsg map[uuid.UUID]map[uuid.UUID]int) {
+	byNetwork = map[uuid.UUID][]uuid.UUID{}
+	indexByMsg = map[uuid.UUID]map[uuid.UUID]int{}
+	for i, m := range msgs {
+		byNetwork[m.NetworkID] = append(byNetwork[m.NetworkID], m.ID)
+		if indexByMsg[m.NetworkID] == nil {
+			indexByMsg[m.NetworkID] = map[uuid.UUID]int{}
+		}
+		indexByMsg[m.NetworkID][m.ID] = i
+	}
+	return byNetwork, indexByMsg
+}
+
+func (s *Server) collectPreviewLinks(ctx context.Context, byNetwork map[uuid.UUID][]uuid.UUID, indexByMsg map[uuid.UUID]map[uuid.UUID]int) (map[string]struct{}, []previewLinkRef) {
+	urlSet := map[string]struct{}{}
+	var links []previewLinkRef
+	for networkID, ids := range byNetwork {
+		logStore, err := s.Stores.LogStore(networkID)
+		if err != nil {
+			slog.Warn("preview log store", "err", err, "network_id", networkID)
+			continue
+		}
+		rows, err := ircdb.ListMessagePreviewLinks(ctx, logStore.DB, ids)
+		if err != nil {
+			slog.Warn("preview links", "err", err, "network_id", networkID)
+			continue
+		}
+		for _, r := range rows {
+			idx, ok := indexByMsg[networkID][r.MessageID]
+			if !ok {
+				continue
+			}
+			urlSet[r.URL] = struct{}{}
+			links = append(links, previewLinkRef{msgIdx: idx, url: r.URL, position: r.Position})
+		}
+	}
+	return urlSet, links
 }
 
 // unreadCountsCap caps how many candidate rows we scan per buffer when

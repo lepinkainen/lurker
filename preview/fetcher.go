@@ -79,34 +79,14 @@ func (f *Fetcher) Fetch(ctx context.Context, target string) ircdb.URLPreview {
 		return out
 	}
 
-	// Site-specific shortcuts that bypass HTML scraping when a richer
-	// metadata endpoint is available.
-	if parsed, perr := url.Parse(target); perr == nil && IsYouTube(parsed) {
-		if yt, ok := f.fetchYouTube(ctx, target); ok {
-			yt.FetchedAt = out.FetchedAt
-			return yt
-		}
+	if yt, ok := f.tryYouTube(ctx, target, out.FetchedAt); ok {
+		return yt
 	}
 
-	// HEAD first to classify cheaply. Some hosts reject HEAD; fall back to a
-	// bounded GET in that case.
-	head, err := f.doRequest(ctx, http.MethodHead, target)
-	if err == nil {
-		defer func() { _ = head.Body.Close() }()
-		ct := contentType(head.Header.Get("Content-Type"))
-		if strings.HasPrefix(ct, "image/") {
-			out.Kind = ircdb.PreviewKindImage
-			out.Mime = ct
-			return out
-		}
-		if !strings.HasPrefix(ct, "text/html") {
-			out.Kind = ircdb.PreviewKindNone
-			out.Mime = ct
-			return out
-		}
+	if classified, ok := f.classifyHead(ctx, target); ok {
+		return classified
 	}
 
-	// HTML: bounded GET + OpenGraph parse.
 	resp, err := f.doRequest(ctx, http.MethodGet, target)
 	if err != nil {
 		out.Kind = ircdb.PreviewKindError
@@ -115,13 +95,8 @@ func (f *Fetcher) Fetch(ctx context.Context, target string) ircdb.URLPreview {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	ct := contentType(resp.Header.Get("Content-Type"))
-	if strings.HasPrefix(ct, "image/") {
-		out.Kind = ircdb.PreviewKindImage
-		out.Mime = ct
-		return out
-	}
-	if !strings.HasPrefix(ct, "text/html") {
-		out.Kind = ircdb.PreviewKindNone
+	if kind, ok := classifyContentType(ct); ok {
+		out.Kind = kind
 		out.Mime = ct
 		return out
 	}
@@ -131,20 +106,7 @@ func (f *Fetcher) Fetch(ctx context.Context, target string) ircdb.URLPreview {
 		out.Error = err.Error()
 		return out
 	}
-
-	// Fediverse enrichment: if the page advertises an ActivityPub alternate
-	// link, fetch the AP JSON for the full post body. Mastodon's og:description
-	// is heavily truncated; AP `content` carries the whole post.
-	if og.apURL != "" {
-		if ap, ok := f.fetchActivityPub(ctx, og.apURL); ok {
-			if ap.content != "" {
-				og.description = ap.content
-			}
-			if og.image == "" && ap.image != "" {
-				og.image = ap.image
-			}
-		}
-	}
+	f.enrichFromActivityPub(ctx, &og)
 
 	if og.empty() {
 		out.Kind = ircdb.PreviewKindNone
@@ -158,6 +120,68 @@ func (f *Fetcher) Fetch(ctx context.Context, target string) ircdb.URLPreview {
 	out.ImageURL = og.image
 	out.SiteName = og.siteName
 	return out
+}
+
+// tryYouTube short-circuits HTML scraping when target points at YouTube and a
+// richer metadata endpoint is available.
+func (f *Fetcher) tryYouTube(ctx context.Context, target string, fetchedAt time.Time) (ircdb.URLPreview, bool) {
+	parsed, perr := url.Parse(target)
+	if perr != nil || !IsYouTube(parsed) {
+		return ircdb.URLPreview{}, false
+	}
+	yt, ok := f.fetchYouTube(ctx, target)
+	if !ok {
+		return ircdb.URLPreview{}, false
+	}
+	yt.FetchedAt = fetchedAt
+	return yt, true
+}
+
+// classifyHead probes the URL with HEAD to skip the bounded GET for images and
+// non-HTML content. Hosts that reject HEAD fall through to GET.
+func (f *Fetcher) classifyHead(ctx context.Context, target string) (ircdb.URLPreview, bool) {
+	head, err := f.doRequest(ctx, http.MethodHead, target)
+	if err != nil {
+		return ircdb.URLPreview{}, false
+	}
+	defer func() { _ = head.Body.Close() }()
+	ct := contentType(head.Header.Get("Content-Type"))
+	kind, ok := classifyContentType(ct)
+	if !ok {
+		return ircdb.URLPreview{}, false
+	}
+	return ircdb.URLPreview{URL: target, Kind: kind, Mime: ct, FetchedAt: time.Now().UTC()}, true
+}
+
+// classifyContentType returns a non-HTML preview kind for image and unknown
+// content. Returns ok=false when ct is text/html and HTML scraping should run.
+func classifyContentType(ct string) (string, bool) {
+	if strings.HasPrefix(ct, "image/") {
+		return ircdb.PreviewKindImage, true
+	}
+	if !strings.HasPrefix(ct, "text/html") {
+		return ircdb.PreviewKindNone, true
+	}
+	return "", false
+}
+
+// enrichFromActivityPub augments og with full ActivityPub content when the
+// page advertises an AP alternate link. Mastodon's og:description is heavily
+// truncated; AP `content` carries the whole post.
+func (f *Fetcher) enrichFromActivityPub(ctx context.Context, og *openGraph) {
+	if og.apURL == "" {
+		return
+	}
+	ap, ok := f.fetchActivityPub(ctx, og.apURL)
+	if !ok {
+		return
+	}
+	if ap.content != "" {
+		og.description = ap.content
+	}
+	if og.image == "" && ap.image != "" {
+		og.image = ap.image
+	}
 }
 
 func (f *Fetcher) doRequest(ctx context.Context, method, target string) (*http.Response, error) {
@@ -210,84 +234,22 @@ func parseOpenGraph(r io.Reader) (openGraph, error) {
 	z := html.NewTokenizer(r)
 	var inTitle bool
 	for {
-		tt := z.Next()
-		switch tt {
+		switch z.Next() {
 		case html.ErrorToken:
 			err := z.Err()
 			if errors.Is(err, io.EOF) {
-				if out.title == "" && out.htmlTitle != "" {
-					out.title = out.htmlTitle
-				}
+				out.finalize()
 				return out, nil
 			}
 			return out, err
 		case html.StartTagToken, html.SelfClosingTagToken:
-			name, hasAttr := z.TagName()
-			tag := string(name)
-			if tag == "title" {
-				inTitle = true
-				continue
-			}
-			if tag == "link" && hasAttr {
-				var rel, typ, href string
-				for {
-					k, v, more := z.TagAttr()
-					switch strings.ToLower(string(k)) {
-					case "rel":
-						rel = strings.ToLower(string(v))
-					case "type":
-						typ = strings.ToLower(string(v))
-					case "href":
-						href = string(v)
-					}
-					if !more {
-						break
-					}
-				}
-				if out.apURL == "" && href != "" &&
-					strings.Contains(rel, "alternate") &&
-					typ == "application/activity+json" {
-					out.apURL = href
-				}
-				continue
-			}
-			if tag == "body" {
-				// Past the head; stop scanning.
-				if out.title == "" && out.htmlTitle != "" {
-					out.title = out.htmlTitle
-				}
+			if handleStartTag(z, &out, &inTitle) {
+				out.finalize()
 				return out, nil
 			}
-			if tag != "meta" || !hasAttr {
-				continue
-			}
-			var prop, name2, content string
-			for {
-				k, v, more := z.TagAttr()
-				key := strings.ToLower(string(k))
-				val := string(v)
-				switch key {
-				case "property":
-					prop = strings.ToLower(val)
-				case "name":
-					name2 = strings.ToLower(val)
-				case "content":
-					content = val
-				}
-				if !more {
-					break
-				}
-			}
-			assignMeta(&out, prop, name2, content)
 		case html.EndTagToken:
-			name, _ := z.TagName()
-			if string(name) == "title" {
-				inTitle = false
-			}
-			if string(name) == "head" {
-				if out.title == "" && out.htmlTitle != "" {
-					out.title = out.htmlTitle
-				}
+			if handleEndTag(z, &inTitle) {
+				out.finalize()
 				return out, nil
 			}
 		case html.TextToken:
@@ -296,6 +258,87 @@ func parseOpenGraph(r io.Reader) (openGraph, error) {
 			}
 		}
 	}
+}
+
+func (o *openGraph) finalize() {
+	if o.title == "" && o.htmlTitle != "" {
+		o.title = o.htmlTitle
+	}
+}
+
+// handleStartTag returns true when scanning should stop (entered <body>).
+func handleStartTag(z *html.Tokenizer, out *openGraph, inTitle *bool) bool {
+	name, hasAttr := z.TagName()
+	switch string(name) {
+	case "title":
+		*inTitle = true
+	case "link":
+		if hasAttr {
+			handleLinkTag(z, out)
+		}
+	case "body":
+		return true
+	case "meta":
+		if hasAttr {
+			prop, n, content := readMetaAttrs(z)
+			assignMeta(out, prop, n, content)
+		}
+	}
+	return false
+}
+
+// handleEndTag returns true when scanning should stop (closed </head>).
+func handleEndTag(z *html.Tokenizer, inTitle *bool) bool {
+	name, _ := z.TagName()
+	switch string(name) {
+	case "title":
+		*inTitle = false
+	case "head":
+		return true
+	}
+	return false
+}
+
+func handleLinkTag(z *html.Tokenizer, out *openGraph) {
+	var rel, typ, href string
+	for {
+		k, v, more := z.TagAttr()
+		switch strings.ToLower(string(k)) {
+		case "rel":
+			rel = strings.ToLower(string(v))
+		case "type":
+			typ = strings.ToLower(string(v))
+		case "href":
+			href = string(v)
+		}
+		if !more {
+			break
+		}
+	}
+	if out.apURL != "" || href == "" {
+		return
+	}
+	if strings.Contains(rel, "alternate") && typ == "application/activity+json" {
+		out.apURL = href
+	}
+}
+
+func readMetaAttrs(z *html.Tokenizer) (prop, name, content string) {
+	for {
+		k, v, more := z.TagAttr()
+		switch strings.ToLower(string(k)) {
+		case "property":
+			prop = strings.ToLower(string(v))
+		case "name":
+			name = strings.ToLower(string(v))
+		case "content":
+			content = string(v)
+		}
+		if !more {
+			break
+		}
+	}
+	return
 }
 
 func assignMeta(o *openGraph, prop, name, content string) {

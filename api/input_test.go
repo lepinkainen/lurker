@@ -120,24 +120,29 @@ func TestParseInput(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := parseInput(tt.content, buf)
-			if tt.wantErr != nil {
-				if !errors.Is(err, tt.wantErr) {
-					t.Fatalf("err = %v, want %v", err, tt.wantErr)
-				}
-				return
-			}
-			if tt.errCheck != nil {
-				if !tt.errCheck(err) {
-					t.Fatalf("err = %v, did not match check", err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected err: %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("got %+v, want %+v", got, tt.want)
-			}
+			checkParseInputResult(t, got, err, tt.want, tt.wantErr, tt.errCheck)
 		})
+	}
+}
+
+func checkParseInputResult(t *testing.T, got clientCmd, err error, want clientCmd, wantErr error, errCheck func(error) bool) {
+	t.Helper()
+	if wantErr != nil {
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("err = %v, want %v", err, wantErr)
+		}
+		return
+	}
+	if errCheck != nil {
+		if !errCheck(err) {
+			t.Fatalf("err = %v, did not match check", err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }

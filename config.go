@@ -281,53 +281,10 @@ func buildNetworks(fc FileConfig) ([]irc.NetworkConfig, error) {
 		if len(n.Servers) == 0 {
 			return nil, fmt.Errorf("network %q must define at least one server", n.Network)
 		}
-		nick := n.Nick
-		if nick == "" {
-			nick = fc.Nick
-		}
-		if nick == "" {
-			nick = "ircsvc"
-		}
-		user := n.User
-		if user == "" {
-			user = fc.User
-		}
-		if user == "" {
-			user = nick
-		}
-		realname := n.Realname
-		if realname == "" {
-			realname = fc.Realname
-		}
-		if realname == "" {
-			realname = nick
-		}
-
-		servers := make([]irc.ServerConfig, 0, len(n.Servers))
-		for _, s := range n.Servers {
-			tlsMaxVersion, err := parseTLSMaxVersion(s.TLSMaxVersion)
-			if err != nil {
-				return nil, fmt.Errorf("network %q server %q: %w", n.Network, s.Host, err)
-			}
-			useTLS := true
-			if s.TLS != nil {
-				useTLS = *s.TLS
-			}
-			port := s.Port
-			if port == 0 {
-				if useTLS {
-					port = 6697
-				} else {
-					port = 6667
-				}
-			}
-			servers = append(servers, irc.ServerConfig{
-				Host:          s.Host,
-				Port:          port,
-				TLS:           useTLS,
-				TLSInsecure:   true,
-				TLSMaxVersion: tlsMaxVersion,
-			})
+		nick, user, realname := resolveIdentity(fc, n)
+		servers, err := buildServers(n)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, irc.NetworkConfig{
 			Name:            n.Network,
@@ -342,6 +299,54 @@ func buildNetworks(fc FileConfig) ([]irc.NetworkConfig, error) {
 		})
 	}
 	return out, nil
+}
+
+func resolveIdentity(fc FileConfig, n NetworkFileConfig) (nick, user, realname string) {
+	nick = firstNonEmpty(n.Nick, fc.Nick, "ircsvc")
+	user = firstNonEmpty(n.User, fc.User, nick)
+	realname = firstNonEmpty(n.Realname, fc.Realname, nick)
+	return
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func buildServers(n NetworkFileConfig) ([]irc.ServerConfig, error) {
+	servers := make([]irc.ServerConfig, 0, len(n.Servers))
+	for _, s := range n.Servers {
+		tlsMaxVersion, err := parseTLSMaxVersion(s.TLSMaxVersion)
+		if err != nil {
+			return nil, fmt.Errorf("network %q server %q: %w", n.Network, s.Host, err)
+		}
+		useTLS := true
+		if s.TLS != nil {
+			useTLS = *s.TLS
+		}
+		servers = append(servers, irc.ServerConfig{
+			Host:          s.Host,
+			Port:          defaultServerPort(s.Port, useTLS),
+			TLS:           useTLS,
+			TLSInsecure:   true,
+			TLSMaxVersion: tlsMaxVersion,
+		})
+	}
+	return servers, nil
+}
+
+func defaultServerPort(port int, useTLS bool) int {
+	if port != 0 {
+		return port
+	}
+	if useTLS {
+		return 6697
+	}
+	return 6667
 }
 
 // previewConfigYAML returns the current raw config file content and a proposed
@@ -363,57 +368,17 @@ func previewConfigYAML(configPath string, networks []ircdb.Network) (current, pr
 		}
 	}
 
-	// Compute effective global defaults (same logic as buildNetworks).
-	globalNick := fc.Nick
-	if globalNick == "" {
-		globalNick = "ircsvc"
-	}
-	globalRealname := fc.Realname
-	if globalRealname == "" {
-		globalRealname = globalNick
-	}
+	globalNick := firstNonEmpty(fc.Nick, "ircsvc")
+	globalRealname := firstNonEmpty(fc.Realname, globalNick)
 
-	// Index existing YAML networks by normalised name.
 	existingByName := make(map[string]NetworkFileConfig, len(fc.Networks))
 	for _, n := range fc.Networks {
 		existingByName[strings.ToLower(strings.TrimSpace(n.Network))] = n
 	}
 
-	// Build new list in DB sort order. Disabled networks are excluded from the
-	// export (ListNetworksWithSASL already filters them). Networks in DB but
-	// not in the existing YAML get a minimal new entry; networks in YAML but
-	// not in DB are dropped.
 	merged := make([]NetworkFileConfig, 0, len(networks))
 	for _, n := range networks {
-		key := strings.ToLower(strings.TrimSpace(n.Name))
-		entry, found := existingByName[key]
-		if !found {
-			entry = NetworkFileConfig{Network: n.Name}
-		}
-		entry.Network = n.Name
-		// Only write per-network nick/realname when they differ from the global
-		// default; otherwise leave empty so the global applies.
-		if n.Nick == globalNick {
-			entry.Nick = ""
-		} else {
-			entry.Nick = n.Nick
-		}
-		if n.Realname == globalRealname {
-			entry.Realname = ""
-		} else {
-			entry.Realname = n.Realname
-		}
-		// user (ident) is not stored in DB — preserve from original YAML entry.
-		entry.ConnectCommands = n.ConnectCommands
-		entry.SASLUser = n.SASLUser
-		entry.SASLPass = n.SASLPass
-		useTLS := n.TLS
-		if len(entry.Servers) > 0 {
-			tlsMaxVersion := entry.Servers[0].TLSMaxVersion
-			entry.Servers[0] = ServerFileConfig{Host: n.Host, Port: n.Port, TLS: &useTLS, TLSMaxVersion: tlsMaxVersion}
-		} else {
-			entry.Servers = []ServerFileConfig{{Host: n.Host, Port: n.Port, TLS: &useTLS}}
-		}
+		entry := mergeNetworkEntry(existingByName, n, globalNick, globalRealname)
 		merged = append(merged, entry)
 	}
 	fc.Networks = merged
@@ -425,6 +390,37 @@ func previewConfigYAML(configPath string, networks []ircdb.Network) (current, pr
 		return "", "", fmt.Errorf("marshal yaml: %w", yerr)
 	}
 	return current, buf.String(), nil
+}
+
+// mergeNetworkEntry returns the YAML entry for a DB network n, preserving
+// channels/extra servers from the existing YAML index when present.
+func mergeNetworkEntry(existing map[string]NetworkFileConfig, n ircdb.Network, globalNick, globalRealname string) NetworkFileConfig {
+	key := strings.ToLower(strings.TrimSpace(n.Name))
+	entry, found := existing[key]
+	if !found {
+		entry = NetworkFileConfig{Network: n.Name}
+	}
+	entry.Network = n.Name
+	entry.Nick = overrideIfDifferent(n.Nick, globalNick)
+	entry.Realname = overrideIfDifferent(n.Realname, globalRealname)
+	entry.ConnectCommands = n.ConnectCommands
+	entry.SASLUser = n.SASLUser
+	entry.SASLPass = n.SASLPass
+	useTLS := n.TLS
+	if len(entry.Servers) > 0 {
+		tlsMaxVersion := entry.Servers[0].TLSMaxVersion
+		entry.Servers[0] = ServerFileConfig{Host: n.Host, Port: n.Port, TLS: &useTLS, TLSMaxVersion: tlsMaxVersion}
+	} else {
+		entry.Servers = []ServerFileConfig{{Host: n.Host, Port: n.Port, TLS: &useTLS}}
+	}
+	return entry
+}
+
+func overrideIfDifferent(value, globalDefault string) string {
+	if value == globalDefault {
+		return ""
+	}
+	return value
 }
 
 // saveConfigYAML atomically writes content to configPath by writing to a temp
