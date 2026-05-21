@@ -1,10 +1,11 @@
 import { searchBuffers } from "./buffers";
-import { buildDialog, canOpenModal } from "./keyboard-dialogs";
+import { buildDialog, canOpenModal, detachedRef } from "./keyboard-dialogs";
 import type { KeyboardShortcutsDeps } from "./keyboard-routing";
 
 let switcherDialog: HTMLDialogElement | null = null;
 
 export function isChannelSwitcherOpen() {
+  switcherDialog = detachedRef(switcherDialog);
   return switcherDialog !== null;
 }
 
@@ -96,6 +97,7 @@ function renderSwitcherResults(
 }
 
 export function openChannelSwitcher(deps: KeyboardShortcutsDeps, beforeOpen?: () => void) {
+  switcherDialog = detachedRef(switcherDialog);
   if (switcherDialog) {
     const input = switcherDialog.querySelector<HTMLInputElement>(".ks-input");
     input?.focus();

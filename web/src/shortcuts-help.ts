@@ -1,5 +1,5 @@
 import { closeChannelSwitcher } from "./channel-switcher";
-import { buildDialog, canOpenModal } from "./keyboard-dialogs";
+import { buildDialog, canOpenModal, detachedRef } from "./keyboard-dialogs";
 
 let helpDialog: HTMLDialogElement | null = null;
 
@@ -15,6 +15,7 @@ function macLabels() {
 }
 
 export function isHelpOverlayOpen() {
+  helpDialog = detachedRef(helpDialog);
   return helpDialog !== null;
 }
 
@@ -48,6 +49,7 @@ function helpSection(titleText: string, rows: Array<[string, string]>) {
 }
 
 export function openHelpOverlay() {
+  helpDialog = detachedRef(helpDialog);
   if (helpDialog) {
     helpDialog.focus();
     return;

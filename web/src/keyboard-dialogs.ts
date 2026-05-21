@@ -16,3 +16,7 @@ export function canOpenModal() {
   const open = document.querySelector("dialog[open]");
   return !open;
 }
+
+export function detachedRef<T extends Element>(ref: T | null): T | null {
+  return ref && document.body.contains(ref) ? ref : null;
+}
