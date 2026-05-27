@@ -74,27 +74,50 @@ type ignoreListResult struct {
 	Masks     []string  `json:"masks"`
 }
 
-// wsManager is the IRC manager surface used by WebSocket command handlers.
-type wsManager interface {
+// messageSender covers outbound IRC messages to channels and users plus
+// the local-echo log write that pairs with every send.
+type messageSender interface {
 	Send(networkID uuid.UUID, target, content string) error
+	Me(networkID uuid.UUID, target, message string) error
+	Notice(networkID uuid.UUID, target, content string) error
+	CTCP(networkID uuid.UUID, nick, command, args string) error
 	LogOutbound(ctx context.Context, networkID uuid.UUID, target, kind, content string) error
+}
+
+// channelOps covers channel-membership and channel-state mutations.
+type channelOps interface {
 	Join(networkID uuid.UUID, channel string) error
 	Part(networkID uuid.UUID, channel, reason string) error
-	ChangeNick(networkID uuid.UUID, nick string) error
-	Me(networkID uuid.UUID, target, message string) error
+	Rejoin(networkID uuid.UUID, channel string) error
 	Topic(networkID uuid.UUID, channel, topic string) error
-	Whois(networkID uuid.UUID, nick string) error
 	Invite(networkID uuid.UUID, nick, channel string) error
 	Kick(networkID uuid.UUID, channel, nick, reason string) error
-	Mode(networkID uuid.UUID, target, modes string, params ...string) error
-	Raw(networkID uuid.UUID, line string) error
+	ListChannels(networkID uuid.UUID, filter string) error
+}
+
+// presenceOps covers nickname/identity and away-status mutations.
+type presenceOps interface {
+	ChangeNick(networkID uuid.UUID, nick string) error
+	Whois(networkID uuid.UUID, nick string) error
 	Away(networkID uuid.UUID, message string) error
 	Back(networkID uuid.UUID) error
 	Quit(networkID uuid.UUID, message string) error
-	Rejoin(networkID uuid.UUID, channel string) error
-	Notice(networkID uuid.UUID, target, content string) error
-	CTCP(networkID uuid.UUID, nick, command, args string) error
-	ListChannels(networkID uuid.UUID, filter string) error
+}
+
+// modeOps covers privileged IRC commands: mode changes and raw escapes.
+type modeOps interface {
+	Mode(networkID uuid.UUID, target, modes string, params ...string) error
+	Raw(networkID uuid.UUID, line string) error
+}
+
+// wsManager is the IRC manager surface used by WebSocket command handlers.
+// It is the composition of four cohesive sub-interfaces; handlers depend on
+// this composed view, but tests can mock a single sub-interface in isolation.
+type wsManager interface {
+	messageSender
+	channelOps
+	presenceOps
+	modeOps
 }
 
 // stream is the WebSocket endpoint. It subscribes to the event hub and
