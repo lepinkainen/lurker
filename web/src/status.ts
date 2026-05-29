@@ -48,8 +48,6 @@ export function renderSidebarStatus(dom: DomRefs) {
   dom.updateStatusEl.hidden = !showUpdate;
   if (showUpdate) {
     dom.updateStatusEl.className = "sb-status-item warn";
-    dom.updateStatusTextEl.textContent = state.updateStatus?.remote_version
-      ? `Update available (${state.updateStatus.remote_version})`
-      : "Update available";
+    dom.updateStatusTextEl.textContent = state.updateStatus?.remote_version ?? "available";
   }
 }
