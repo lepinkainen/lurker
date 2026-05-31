@@ -9,6 +9,7 @@ import {
   isSelf,
   linkify,
   mentionsMe,
+  type MessageKind,
 } from "./format";
 import { mircFormat } from "./mirc";
 import { nickEl, sysBodyDOM } from "./nick";
@@ -247,6 +248,10 @@ function statusLine(message: Message) {
 const PRESENCE_KINDS = ["join", "part", "quit", "nick"] as const;
 const expandedPresenceGroups = new Set<string>();
 
+// Consecutive plain messages from the same sender within this window
+// render as one author group: only the first row shows the nick.
+const GROUP_WINDOW_MS = 5 * 60 * 1000;
+
 function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
   messagesEl.replaceChildren();
   const list = state.messages.get(state.activeId ?? "") || [];
@@ -256,12 +261,20 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
   let unreadInserted = false;
   let lastDayKey: string | null = null;
   let presenceGroup: Message[] = [];
+  // Author-grouping state: the sender/time of the last plain message row
+  // rendered, or null when the run was broken by a separator or other row.
+  let groupSender: string | null = null;
+  let groupTsMs = 0;
+  const breakGroup = () => {
+    groupSender = null;
+  };
 
   const flushPresenceGroup = () => {
     if (presenceGroup.length === 0) return;
+    breakGroup();
     if (presenceGroup.length === 1) {
       const [message] = presenceGroup;
-      if (message) messagesEl.appendChild(messageRow(message));
+      if (message) messagesEl.appendChild(messageRow(message, classifyKind(message.kind)));
     } else {
       messagesEl.appendChild(
         presenceSummaryRow(presenceGroup, () => {
@@ -272,7 +285,7 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
       );
       if (expandedPresenceGroups.has(presenceGroupKey(presenceGroup))) {
         for (const message of presenceGroup) {
-          const row = messageRow(message);
+          const row = messageRow(message, classifyKind(message.kind));
           row.classList.add("presence-expanded");
           messagesEl.appendChild(row);
         }
@@ -288,6 +301,7 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
       flushPresenceGroup();
       messagesEl.appendChild(daySeparator(message.ts));
       lastDayKey = dayKey;
+      breakGroup();
     }
     if (
       !unreadInserted &&
@@ -304,26 +318,37 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
       bar.appendChild(label);
       messagesEl.appendChild(bar);
       unreadInserted = true;
+      breakGroup();
     }
     if (collapsePresence && isPresenceEvent(message)) {
       presenceGroup.push(message);
       continue;
     }
     flushPresenceGroup();
-    messagesEl.appendChild(messageRow(message));
+    const kind = classifyKind(message.kind);
+    const sender = message.sender || "";
+    const tsMs = Date.parse(message.ts || "") || 0;
+    const continued =
+      kind === "message" && groupSender !== null && sender === groupSender && tsMs - groupTsMs <= GROUP_WINDOW_MS;
+    messagesEl.appendChild(messageRow(message, kind, continued));
+    if (kind === "message") {
+      groupSender = sender;
+      groupTsMs = tsMs;
+    } else {
+      breakGroup();
+    }
   }
   flushPresenceGroup();
   stick.snap();
   stick.watch(messagesEl);
 }
 
-function messageRow(message: Message) {
+function messageRow(message: Message, kind: MessageKind, continued = false) {
   const row = document.createElement("div");
   row.dataset.id = String(message.id);
-  const kind = classifyKind(message.kind);
   const isMention = mentionsMe(message, state.me.nick);
   const self = isSelf(message, state.me.nick);
-  row.className = `msg ${kind === "message" ? "flat" : kind}${isMention ? " mention" : ""}${self ? " self" : ""}`;
+  row.className = `msg ${kind === "message" ? "flat" : kind}${continued ? " cont" : ""}${isMention ? " mention" : ""}${self ? " self" : ""}`;
 
   const ts = document.createElement("span");
   ts.className = "ts";

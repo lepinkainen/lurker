@@ -169,6 +169,21 @@
     font-weight: 600;
   }
 
+  /* Author grouping: separate each new author run, tighten continuation
+     rows under it, and blank the repeated nick while keeping its column
+     width so message bodies stay aligned within the group. */
+  .msg.flat:not(.cont) {
+    margin-top: 5px;
+  }
+
+  .msg.flat.cont {
+    padding-top: 0;
+  }
+
+  .msg.flat.cont .nick {
+    visibility: hidden;
+  }
+
   .msg.self .gutter {
     color: var(--accent);
   }
