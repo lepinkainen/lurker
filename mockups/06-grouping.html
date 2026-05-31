@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>lurker · author grouping options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  /* ============================================================
+     Author-grouping options, on the Green Phosphor Terminal base.
+     Same conversation, 4 layouts. Compare side by side.
+     ============================================================ */
+  :root {
+    --bg:#07090a; --bg-alt:#0b0f10; --panel:#0a0d0e; --line:#16201b;
+    --fg:#c8f7d8; --fg-dim:#5f8f72; --fg-faint:#3c5e4a;
+    --green:#41ff8a; --amber:#ffd166; --cyan:#5fe3ff; --mag:#d59bff; --red:#ff6b81;
+    --mono:"IBM Plex Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--mono);
+    font-size: 13px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+    padding: 28px 24px 70px;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:50;
+    background: repeating-linear-gradient(180deg, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.16) 2px 3px),
+                radial-gradient(120% 120% at 50% 0%, transparent 60%, rgba(0,0,0,.45));
+    mix-blend-mode: multiply;
+  }
+  .page-h { max-width: 1100px; margin: 0 auto 22px; }
+  .page-h h1 { font-size: 22px; margin: 0 0 6px; color: var(--green); text-shadow: 0 0 8px rgba(65,255,138,.4); }
+  .page-h p { margin: 0; color: var(--fg-dim); font-size: 12.5px; max-width: 78ch; }
+  .page-h code { color: var(--cyan); }
+
+  .cols { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 920px) { .cols { grid-template-columns: 1fr; } }
+  .card { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; overflow: hidden; }
+  .card > h2 { margin: 0; padding: 11px 16px; font-size: 13px; color: var(--green); border-bottom: 1px solid var(--line); display:flex; align-items:baseline; gap:10px; }
+  .card > h2 .tag { color: var(--fg-faint); font-size: 11px; font-weight: 400; }
+  .note { padding: 9px 16px; color: var(--fg-dim); font-size: 11.5px; border-bottom: 1px solid var(--line); background: var(--bg-alt); }
+  .note b { color: var(--fg); } .note .pro { color: var(--green); } .note .con { color: var(--amber); }
+  .log { padding: 12px 16px; }
+
+  /* shared message atoms */
+  .n-green{color:var(--green)} .n-cyan{color:var(--cyan)} .n-amber{color:var(--amber)} .n-mag{color:var(--mag)} .n-red{color:var(--red)}
+  .ts { color: var(--fg-faint); }
+  a { color: var(--cyan); text-decoration: none; } a:hover { text-decoration: underline; }
+  .me { color: var(--green); }
+  .sys { color: var(--fg-faint); }
+
+  /* ---------- A: ditto / nick-once column ---------- */
+  .a .row { display: grid; grid-template-columns: 46px 96px 1fr; gap: 10px; padding: 1px 0; }
+  .a .row:hover { background: rgba(255,255,255,.02); }
+  .a .nk { text-align: right; white-space: nowrap; }
+  .a .grp + .grp { margin-top: 7px; }   /* gap only between authors */
+  .a .cont .nk { color: transparent; }   /* repeated nick hidden */
+  .a .sys.row { grid-template-columns: 46px 1fr; }
+
+  /* ---------- B: stacked header block ---------- */
+  .b .grp { padding: 5px 0 3px; }
+  .b .head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 1px; }
+  .b .head .nk { font-weight: 600; }
+  .b .head .ts { font-size: 11px; }
+  .b .line { padding-left: 14px; }       /* indent body under header */
+  .b .sys { padding: 2px 0; }
+
+  /* ---------- C: colored gutter rail ---------- */
+  .c .grp { display: grid; grid-template-columns: 3px 1fr; gap: 11px; padding: 4px 0; }
+  .c .rail { border-radius: 2px; }
+  .c .head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 1px; }
+  .c .head .nk { font-weight: 600; }
+  .c .head .ts { font-size: 11px; }
+  .c .body .line { padding: 0; }
+  .c .sys { color: var(--fg-faint); padding: 3px 0 3px 14px; }
+
+  /* ---------- D: classic <nick> + ditto glyph ---------- */
+  .d .row { display: flex; gap: 8px; padding: 1px 0; }
+  .d .row:hover { background: rgba(255,255,255,.02); }
+  .d .nk { white-space: nowrap; }
+  .d .nk .br { color: var(--fg-faint); }
+  .d .cont .nk { color: var(--fg-faint); }   /* ditto arrow dim */
+  .d .grp + .grp { margin-top: 5px; }
+  .d .sys { color: var(--fg-faint); }
+</style>
+</head>
+<body>
+<div class="page-h">
+  <h1>author-grouped messages — 4 options</h1>
+  <p>Same <code>#archlinux</code> snippet, four ways to collapse consecutive same-author lines. Grouping rule for all: same nick, within ~5&nbsp;min, uninterrupted by a system line or another author. All built on the terminal base — swappable into any of the other styles.</p>
+</div>
+
+<div class="cols">
+
+  <!-- ============ OPTION A ============ -->
+  <section class="card a">
+    <h2>A · Nick-once column <span class="tag">ditto / IRCCloud-ish</span></h2>
+    <div class="note">Keep the fixed <b>ts | nick | msg</b> grid. First line of a run shows the nick; repeats blank it out. Timestamp stays on every line. <span class="pro">Most IRC-faithful, scannable nick column.</span> <span class="con">Repeated nicks leave whitespace.</span></div>
+    <div class="log">
+      <div class="grp">
+        <div class="row"><span class="ts">14:02</span><span class="nk n-cyan">jdoe</span><span class="msg">anyone else seeing kernel 6.9 break nvidia dkms?</span></div>
+      </div>
+      <div class="grp">
+        <div class="row"><span class="ts">14:02</span><span class="nk n-amber">@grub</span><span class="msg">yep — <span class="me">downgrade linux</span> until 6.9.1 lands</span></div>
+        <div class="row cont"><span class="ts">14:03</span><span class="nk n-amber">@grub</span><span class="msg">tracking bug is on the forums btw</span></div>
+        <div class="row cont"><span class="ts">14:03</span><span class="nk n-amber">@grub</span><span class="msg">not just you</span></div>
+      </div>
+      <div class="grp"><div class="row sys"><span class="ts">14:03</span><span class="msg">→ napkin joined</span></div></div>
+      <div class="grp">
+        <div class="row"><span class="ts">14:04</span><span class="nk n-mag">napkin</span><span class="msg">o/ wiki down? <a href="#">wiki.archlinux.org</a> timing out</span></div>
+      </div>
+      <div class="grp">
+        <div class="row"><span class="ts">14:06</span><span class="nk n-green">you</span><span class="msg me">thanks grub, downgrade worked</span></div>
+        <div class="row cont"><span class="ts">14:06</span><span class="nk n-green">you</span><span class="msg me">back on 6.8.9 now</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION B ============ -->
+  <section class="card b">
+    <h2>B · Stacked header block <span class="tag">Slack / Discord</span></h2>
+    <div class="note">Author + time on their own line, messages indented underneath. Most vertical breathing room. <span class="pro">Cleanest for chatty bursts, easy to add avatars later.</span> <span class="con">Loses the aligned nick column; per-line timestamps gone (hover to reveal).</span></div>
+    <div class="log">
+      <div class="grp">
+        <div class="head"><span class="nk n-cyan">jdoe</span><span class="ts">14:02</span></div>
+        <div class="line">anyone else seeing kernel 6.9 break nvidia dkms?</div>
+      </div>
+      <div class="grp">
+        <div class="head"><span class="nk n-amber">@grub</span><span class="ts">14:02</span></div>
+        <div class="line">yep — <span class="me">downgrade linux</span> until 6.9.1 lands</div>
+        <div class="line">tracking bug is on the forums btw</div>
+        <div class="line">not just you</div>
+      </div>
+      <div class="sys">→ napkin joined</div>
+      <div class="grp">
+        <div class="head"><span class="nk n-mag">napkin</span><span class="ts">14:04</span></div>
+        <div class="line">o/ wiki down? <a href="#">wiki.archlinux.org</a> timing out</div>
+      </div>
+      <div class="grp">
+        <div class="head"><span class="nk n-green">you</span><span class="ts">14:06</span></div>
+        <div class="line me">thanks grub, downgrade worked</div>
+        <div class="line me">back on 6.8.9 now</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION C ============ -->
+  <section class="card c">
+    <h2>C · Colored gutter rail <span class="tag">nick-color spine</span></h2>
+    <div class="note">A vertical bar in the author's nick color spans the whole group, header on top. <span class="pro">Strong visual author separation, color does double duty, scales to bubbles.</span> <span class="con">Eats a few px of width; rail color must track the nick palette.</span></div>
+    <div class="log">
+      <div class="grp">
+        <div class="rail" style="background:var(--cyan)"></div>
+        <div class="body"><div class="head"><span class="nk n-cyan">jdoe</span><span class="ts">14:02</span></div>
+          <div class="line">anyone else seeing kernel 6.9 break nvidia dkms?</div></div>
+      </div>
+      <div class="grp">
+        <div class="rail" style="background:var(--amber)"></div>
+        <div class="body"><div class="head"><span class="nk n-amber">@grub</span><span class="ts">14:02</span></div>
+          <div class="line">yep — <span class="me">downgrade linux</span> until 6.9.1 lands</div>
+          <div class="line">tracking bug is on the forums btw</div>
+          <div class="line">not just you</div></div>
+      </div>
+      <div class="sys">→ napkin joined</div>
+      <div class="grp">
+        <div class="rail" style="background:var(--mag)"></div>
+        <div class="body"><div class="head"><span class="nk n-mag">napkin</span><span class="ts">14:04</span></div>
+          <div class="line">o/ wiki down? <a href="#">wiki.archlinux.org</a> timing out</div></div>
+      </div>
+      <div class="grp">
+        <div class="rail" style="background:var(--green)"></div>
+        <div class="body"><div class="head"><span class="nk n-green">you</span><span class="ts">14:06</span></div>
+          <div class="line me">thanks grub, downgrade worked</div>
+          <div class="line me">back on 6.8.9 now</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION D ============ -->
+  <section class="card d">
+    <h2>D · Classic &lt;nick&gt; + ditto <span class="tag">minimal, pure IRC</span></h2>
+    <div class="note">Keep the literal <b>&lt;nick&gt;</b> bracket style. Repeats collapse to a dim <code>”</code> ditto so the run reads as one speaker. Densest option, zero layout change. <span class="pro">Feels exactly like a real client log.</span> <span class="con">Subtlest grouping — easy to miss.</span></div>
+    <div class="log">
+      <div class="grp">
+        <div class="row"><span class="nk"><span class="br">&lt;</span><span class="n-cyan">jdoe</span><span class="br">&gt;</span></span><span class="msg">anyone else seeing kernel 6.9 break nvidia dkms?</span></div>
+      </div>
+      <div class="grp">
+        <div class="row"><span class="nk"><span class="br">&lt;</span><span class="n-amber">@grub</span><span class="br">&gt;</span></span><span class="msg">yep — <span class="me">downgrade linux</span> until 6.9.1 lands</span></div>
+        <div class="row cont"><span class="nk">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;”</span><span class="msg">tracking bug is on the forums btw</span></div>
+        <div class="row cont"><span class="nk">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;”</span><span class="msg">not just you</span></div>
+      </div>
+      <div class="grp"><div class="row sys"><span class="nk">→</span><span class="msg">napkin joined</span></div></div>
+      <div class="grp">
+        <div class="row"><span class="nk"><span class="br">&lt;</span><span class="n-mag">napkin</span><span class="br">&gt;</span></span><span class="msg">o/ wiki down? <a href="#">wiki.archlinux.org</a> timing out</span></div>
+      </div>
+      <div class="grp">
+        <div class="row"><span class="nk"><span class="br">&lt;</span><span class="n-green">you</span><span class="br">&gt;</span></span><span class="msg me">thanks grub, downgrade worked</span></div>
+        <div class="row cont"><span class="nk">&nbsp;&nbsp;&nbsp;&nbsp;”</span><span class="msg me">back on 6.8.9 now</span></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

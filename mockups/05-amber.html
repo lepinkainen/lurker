@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>lurker · amber</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Major+Mono+Display&family=Sometype+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  /* ============================================================
+     MOCKUP 5 — "Amber Monochrome CRT"
+     Single amber hue on black. Sometype Mono body,
+     Major Mono Display for the wordmark. Boxed ASCII chrome,
+     uppercase labels, status-line at the bottom like a TUI.
+     ============================================================ */
+  :root {
+    --bg:    #0a0700;
+    --bg-2:  #120c00;
+    --amber: #ffb000;
+    --amber-d: #b87c08;
+    --amber-dd: #6e4c08;
+    --amber-bg: rgba(255,176,0,.10);
+    --line:  #3a2900;
+    --mono: "Sometype Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--amber); font-family: var(--mono); font-size: 13px;
+    line-height: 1.5; overflow: hidden; text-shadow: 0 0 2px rgba(255,176,0,.35);
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50;
+    background: repeating-linear-gradient(180deg, transparent 0 2px, rgba(0,0,0,.22) 2px 4px);
+  }
+  .app { height: 100vh; display: grid; grid-template-rows: 1fr 24px; }
+  .body { display: grid; grid-template-columns: 240px 1fr 200px; min-height: 0; }
+
+  .sidebar { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .brand { padding: 16px 14px; border-bottom: 1px solid var(--line); }
+  .brand b { font-family: "Major Mono Display", var(--mono); font-size: 22px; display: block; letter-spacing: 1px; }
+  .brand span { font-size: 10px; color: var(--amber-d); letter-spacing: .2em; }
+  .status { padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--amber-d); }
+  .status div { display: flex; justify-content: space-between; }
+  .nets { flex: 1; overflow: auto; padding: 6px 0; min-height: 0; }
+  .net-h { padding: 10px 14px 4px; color: var(--amber-d); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+  .net-h::before { content: "[+] "; }
+  .chan { padding: 3px 14px 3px 24px; color: var(--amber-d); cursor: pointer; display: flex; justify-content: space-between; }
+  .chan:hover { color: var(--amber); background: var(--bg-2); }
+  .chan.active { color: var(--bg); background: var(--amber); text-shadow: none; }
+  .chan .b { font-weight: 700; }
+  .chan.active .b { color: var(--bg); }
+
+  .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .topic { padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  .topic .name { font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+  .topic .txt { color: var(--amber-d); font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log { flex: 1; overflow: auto; padding: 8px 16px; min-height: 0; }
+  .row { display: flex; gap: 10px; padding: 1px 0; }
+  .row:hover { background: var(--amber-bg); }
+  .ts { color: var(--amber-dd); flex: 0 0 auto; }
+  .nk { flex: 0 0 96px; text-align: right; color: var(--amber-d); }
+  .nk.hot { color: var(--amber); font-weight: 700; }
+  .msg { flex: 1; min-width: 0; color: var(--amber); }
+  .me { color: var(--bg); background: var(--amber); padding: 0 3px; text-shadow: none; }
+  .sys { color: var(--amber-dd); }
+  .sys .nk { color: var(--amber-dd); }
+  a { color: var(--amber); text-decoration: underline; }
+  .sep { color: var(--amber-dd); text-align: center; padding: 6px 0; font-size: 11px; }
+
+  .input { border-top: 1px solid var(--line); padding: 9px 16px; display: flex; gap: 8px; align-items: center; }
+  .input .you { color: var(--amber); font-weight: 700; }
+  .input input { flex: 1; background: none; border: none; outline: none; color: var(--amber); font: inherit; text-shadow: inherit; caret-color: var(--amber); }
+  .cur { animation: b 1s steps(1) infinite; } @keyframes b { 50% { opacity: 0; } }
+
+  .members { border-left: 1px solid var(--line); overflow: auto; min-height: 0; }
+  .m-h { padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--amber-d); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+  .m { padding: 2px 14px; color: var(--amber-d); cursor: pointer; }
+  .m:hover { color: var(--amber); background: var(--bg-2); }
+  .m .r { color: var(--amber); font-weight: 700; }
+
+  /* TUI status bar */
+  .bar { background: var(--amber); color: var(--bg); display: flex; align-items: center; gap: 0; font-size: 11px; font-weight: 700; text-shadow: none; letter-spacing: .04em; }
+  .bar .seg { padding: 0 12px; height: 100%; display: flex; align-items: center; }
+  .bar .seg.inv { background: var(--bg); color: var(--amber); text-shadow: 0 0 2px rgba(255,176,0,.4); }
+  .bar .sp { flex: 1; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="body">
+    <aside class="sidebar">
+      <div class="brand"><b>lurker</b><span>BNC v1 // CONNECTED</span></div>
+      <div class="status">
+        <div>BACKEND <span style="color:var(--amber)">●ONLINE</span></div>
+        <div>TAILSCALE <span style="color:var(--amber)">100.118.x</span></div>
+      </div>
+      <div class="nets">
+        <div class="net-h">LIBERA.CHAT</div>
+        <div class="chan active">#archlinux <span class="b">*</span></div>
+        <div class="chan">#python <span class="b">3</span></div>
+        <div class="chan">#neovim <span class="b">12</span></div>
+        <div class="net-h">OFTC</div>
+        <div class="chan">#debian</div>
+        <div class="chan">#tor</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topic">
+        <div class="name">#archlinux · 248 users</div>
+        <div class="txt">Arch Linux support | on-topic only | use a pastebin, do not paste in channel</div>
+      </div>
+      <div class="log">
+        <div class="sep">─── Tuesday, May 28 ───</div>
+        <div class="row"><span class="ts">14:02</span><span class="nk">jdoe</span><span class="msg">anyone else seeing kernel 6.9 break nvidia dkms?</span></div>
+        <div class="row"><span class="ts">14:02</span><span class="nk hot">@grub</span><span class="msg">yep — <span class="me">downgrade linux</span> until 6.9.1 lands. tracking bug on the forums.</span></div>
+        <div class="row sys"><span class="ts">14:03</span><span class="nk">--></span><span class="msg">napkin (~napkin@100.64.2.11) joined</span></div>
+        <div class="row"><span class="ts">14:04</span><span class="nk">napkin</span><span class="msg">o/ wiki down? <a href="#">wiki.archlinux.org</a> timing out</span></div>
+        <div class="row"><span class="ts">14:06</span><span class="nk hot">you</span><span class="msg me" style="display:inline">thanks grub, downgrade worked — back on 6.8.9 now</span></div>
+        <div class="row sys"><span class="ts">14:08</span><span class="nk"><--</span><span class="msg">t_user quit (Ping timeout: 240 seconds)</span></div>
+      </div>
+      <div class="input">
+        <span class="you">you&gt;</span>
+        <input value="dkms status shows the module is built now" />
+        <span class="cur">_</span>
+      </div>
+    </main>
+
+    <aside class="members">
+      <div class="m-h">NAMES · 248</div>
+      <div class="m"><span class="r">@</span>grub</div>
+      <div class="m"><span class="r">@</span>archbot</div>
+      <div class="m"><span class="r">+</span>jdoe</div>
+      <div class="m"><span class="r">+</span>napkin</div>
+      <div class="m">&nbsp;&nbsp;tinkerer</div>
+      <div class="m">&nbsp;&nbsp;vimgod</div>
+      <div class="m">&nbsp;&nbsp;you</div>
+    </aside>
+  </div>
+
+  <div class="bar">
+    <span class="seg inv">NORMAL</span>
+    <span class="seg">libera/#archlinux</span>
+    <span class="sp"></span>
+    <span class="seg">3 mentions</span>
+    <span class="seg inv">14:06 · 28 MAY</span>
+  </div>
+</div>
+</body>
+</html>

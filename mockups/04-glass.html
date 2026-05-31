@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>lurker · glass</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  /* ============================================================
+     MOCKUP 4 — "Aurora Glass"
+     Outfit rounded sans for chrome, Fira Code for messages.
+     Frosted translucent panels floating over an aurora gradient.
+     Soft, ambient, modern. Still dark + light text.
+     ============================================================ */
+  :root {
+    --fg-0:  #eef0ff;
+    --fg-1:  #c2c6e8;
+    --fg-2:  #8a8fb8;
+    --glass: rgba(22, 24, 42, .55);
+    --glass-2: rgba(33, 36, 60, .55);
+    --line:  rgba(255,255,255,.08);
+    --line-2: rgba(255,255,255,.14);
+    --vio:   #b69bff;
+    --teal:  #6ce0d0;
+    --pink:  #ff9ecb;
+    --gold:  #ffd58a;
+    --blue:  #8fb8ff;
+    --ui: "Outfit", system-ui, sans-serif;
+    --mono: "Fira Code", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: var(--ui); color: var(--fg-0); overflow: hidden;
+    background:
+      radial-gradient(60% 80% at 12% 8%, rgba(120,90,220,.45), transparent 60%),
+      radial-gradient(55% 70% at 92% 18%, rgba(60,180,200,.40), transparent 55%),
+      radial-gradient(70% 90% at 70% 100%, rgba(220,90,170,.35), transparent 60%),
+      #07080f;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { height: 100vh; display: grid; grid-template-columns: 248px 1fr 206px; gap: 12px; padding: 12px; }
+  .panel { background: var(--glass); backdrop-filter: blur(22px) saturate(140%); -webkit-backdrop-filter: blur(22px) saturate(140%); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+
+  /* sidebar */
+  .sidebar { display: flex; flex-direction: column; }
+  .brand { padding: 18px 18px 12px; display: flex; align-items: center; gap: 10px; }
+  .orb { width: 28px; height: 28px; border-radius: 50%; background: conic-gradient(from 200deg, var(--vio), var(--teal), var(--pink), var(--vio)); box-shadow: 0 0 18px rgba(182,155,255,.6); }
+  .brand b { font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+  .status { margin: 0 12px 10px; padding: 10px 12px; background: var(--glass-2); border: 1px solid var(--line); border-radius: 14px; font-size: 12px; color: var(--fg-1); display: grid; gap: 7px; }
+  .status div { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 10px var(--teal); }
+  .status .v { margin-left: auto; color: var(--fg-2); }
+  .nets { flex: 1; overflow: auto; padding: 4px 10px 10px; }
+  .net-h { padding: 12px 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--fg-2); font-weight: 600; }
+  .chan { display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin: 2px 0; border-radius: 12px; color: var(--fg-1); cursor: pointer; }
+  .chan:hover { background: rgba(255,255,255,.06); color: #fff; }
+  .chan.active { background: rgba(182,155,255,.18); border: 1px solid var(--line-2); color: #fff; }
+  .chan .h { color: var(--fg-2); }
+  .chan .badge { margin-left: auto; font-size: 11px; background: rgba(255,255,255,.12); padding: 1px 8px; border-radius: 999px; }
+  .chan .badge.m { background: var(--pink); color: #1a0a14; font-weight: 600; }
+
+  /* main */
+  .main { display: flex; flex-direction: column; min-width: 0; }
+  .topic { padding: 16px 22px; border-bottom: 1px solid var(--line); }
+  .topic .name { font-size: 18px; font-weight: 700; }
+  .topic .txt { font-size: 13px; color: var(--fg-2); margin-top: 2px; }
+  .log { flex: 1; overflow: auto; padding: 12px 22px; display: flex; flex-direction: column; gap: 9px; }
+  .bubble { max-width: 78%; }
+  .bubble .head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
+  .bubble .nk { font-weight: 600; font-size: 13px; }
+  .bubble .ts { font-size: 11px; color: var(--fg-2); }
+  .bubble .body { font-family: var(--mono); font-size: 13px; line-height: 1.55; background: var(--glass-2); border: 1px solid var(--line); padding: 9px 13px; border-radius: 4px 14px 14px 14px; }
+  .bubble.me { align-self: flex-end; }
+  .bubble.me .head { justify-content: flex-end; }
+  .bubble.me .body { background: rgba(182,155,255,.22); border-color: var(--line-2); border-radius: 14px 4px 14px 14px; }
+  .n-vio { color: var(--vio); } .n-teal { color: var(--teal); } .n-pink { color: var(--pink); } .n-gold { color: var(--gold); } .n-blue { color: var(--blue); }
+  .sys { align-self: center; font-size: 12px; color: var(--fg-2); background: rgba(255,255,255,.05); padding: 3px 12px; border-radius: 999px; }
+  a { color: var(--blue); text-decoration: none; } a:hover { text-decoration: underline; }
+  .sep { align-self: center; font-size: 11px; color: var(--fg-2); letter-spacing: .05em; margin: 4px 0; }
+
+  .input { padding: 12px 18px 16px; }
+  .box { display: flex; align-items: center; gap: 12px; background: var(--glass-2); border: 1px solid var(--line-2); border-radius: 16px; padding: 11px 16px; }
+  .box:focus-within { box-shadow: 0 0 0 3px rgba(182,155,255,.2); }
+  .box .you { font-weight: 600; color: var(--vio); font-family: var(--mono); font-size: 13px; }
+  .box input { flex: 1; background: none; border: none; outline: none; color: var(--fg-0); font-family: var(--mono); font-size: 13px; }
+  .box .send { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, var(--vio), var(--pink)); display: grid; place-items: center; color: #1a0a14; font-weight: 700; }
+
+  /* members */
+  .members { overflow: auto; padding: 16px 0; }
+  .m-h { padding: 0 16px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--fg-2); font-weight: 600; }
+  .m { display: flex; align-items: center; gap: 9px; padding: 6px 14px; color: var(--fg-1); cursor: pointer; border-radius: 10px; margin: 0 6px; }
+  .m:hover { background: rgba(255,255,255,.06); }
+  .av { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #11101a; }
+  .role { margin-left: auto; font-size: 10px; color: var(--fg-2); }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel sidebar">
+    <div class="brand"><div class="orb"></div><b>lurker</b></div>
+    <div class="status">
+      <div><span class="dot"></span> Backend <span class="v">connected</span></div>
+      <div><span class="dot"></span> Tailscale <span class="v">100.118.x</span></div>
+    </div>
+    <div class="nets">
+      <div class="net-h">Libera.Chat</div>
+      <div class="chan active"><span class="h">#</span>archlinux</div>
+      <div class="chan"><span class="h">#</span>python <span class="badge m">3</span></div>
+      <div class="chan"><span class="h">#</span>neovim <span class="badge">12</span></div>
+      <div class="net-h">OFTC</div>
+      <div class="chan"><span class="h">#</span>debian</div>
+      <div class="chan"><span class="h">#</span>tor</div>
+    </div>
+  </aside>
+
+  <main class="panel main">
+    <div class="topic">
+      <div class="name"># archlinux</div>
+      <div class="txt">Arch Linux support · on-topic only · use a pastebin</div>
+    </div>
+    <div class="log">
+      <div class="sep">— Tuesday, May 28 —</div>
+      <div class="bubble">
+        <div class="head"><span class="nk n-blue">jdoe</span><span class="ts">14:02</span></div>
+        <div class="body">anyone else seeing kernel 6.9 break nvidia dkms?</div>
+      </div>
+      <div class="bubble">
+        <div class="head"><span class="nk n-gold">grub</span><span class="ts">14:02 · op</span></div>
+        <div class="body">yep — downgrade with <span class="n-teal">downgrade linux</span> until 6.9.1 lands. there's a tracking bug on the forums.</div>
+      </div>
+      <div class="sys">→ napkin joined</div>
+      <div class="bubble">
+        <div class="head"><span class="nk n-pink">napkin</span><span class="ts">14:04</span></div>
+        <div class="body">o/ wiki down for anyone? <a href="#">wiki.archlinux.org</a> timing out</div>
+      </div>
+      <div class="bubble me">
+        <div class="head"><span class="nk n-vio">you</span><span class="ts">14:06</span></div>
+        <div class="body">thanks grub, downgrade worked — back on 6.8.9 now</div>
+      </div>
+      <div class="sys">⇐ t_user quit (ping timeout)</div>
+    </div>
+    <div class="input">
+      <div class="box">
+        <span class="you">you</span>
+        <input value="dkms status shows the module is built now" />
+        <div class="send">↑</div>
+      </div>
+    </div>
+  </main>
+
+  <aside class="panel members">
+    <div class="m-h">Members · 248</div>
+    <div class="m"><span class="av" style="background:var(--gold)">G</span> grub <span class="role">op</span></div>
+    <div class="m"><span class="av" style="background:var(--gold)">A</span> archbot <span class="role">op</span></div>
+    <div class="m"><span class="av" style="background:var(--blue)">J</span> jdoe <span class="role">+</span></div>
+    <div class="m"><span class="av" style="background:var(--pink)">N</span> napkin <span class="role">+</span></div>
+    <div class="m"><span class="av" style="background:#5a5f85">T</span> tinkerer</div>
+    <div class="m"><span class="av" style="background:#5a5f85">V</span> vimgod</div>
+    <div class="m"><span class="av" style="background:var(--vio)">Y</span> you</div>
+  </aside>
+</div>
+</body>
+</html>
