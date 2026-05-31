@@ -221,6 +221,75 @@ describe("renderActiveView", () => {
   });
 });
 
+describe("author grouping", () => {
+  beforeEach(() => resetAppState());
+
+  function render(messages: Message[], bufferOverrides: Partial<Buffer> = {}) {
+    state.activeId = "1";
+    state.me.nick = "you";
+    state.buffers.set("1", buf({ id: "1", name: "#x", ...bufferOverrides }));
+    state.messages.set("1", messages);
+    const d = dom();
+    renderActiveView(d, deps);
+    return d.messagesEl;
+  }
+
+  function contFlags(el: HTMLElement): boolean[] {
+    return [...el.querySelectorAll<HTMLElement>(".msg.flat")].map((row) => row.classList.contains("cont"));
+  }
+
+  it("marks consecutive same-sender messages as continuation, first stays full", () => {
+    const el = render([
+      { id: "1", buffer_id: "1", sender: "alice", content: "one", kind: "message", ts: "2024-05-01T10:00:00Z" },
+      { id: "2", buffer_id: "1", sender: "alice", content: "two", kind: "message", ts: "2024-05-01T10:01:00Z" },
+      { id: "3", buffer_id: "1", sender: "alice", content: "three", kind: "message", ts: "2024-05-01T10:02:00Z" },
+    ]);
+    expect(contFlags(el)).toEqual([false, true, true]);
+    // repeated nick is still in the DOM (hidden via CSS), so bodies stay aligned
+    const contRow = el.querySelector<HTMLElement>(".msg.flat.cont");
+    expect(contRow?.querySelector(".nick")).not.toBeNull();
+  });
+
+  it("starts a new group when the sender changes", () => {
+    const el = render([
+      { id: "1", buffer_id: "1", sender: "alice", content: "a1", kind: "message", ts: "2024-05-01T10:00:00Z" },
+      { id: "2", buffer_id: "1", sender: "alice", content: "a2", kind: "message", ts: "2024-05-01T10:01:00Z" },
+      { id: "3", buffer_id: "1", sender: "bob", content: "b1", kind: "message", ts: "2024-05-01T10:02:00Z" },
+    ]);
+    expect(contFlags(el)).toEqual([false, true, false]);
+  });
+
+  it("breaks the group after the grouping window lapses", () => {
+    const el = render([
+      { id: "1", buffer_id: "1", sender: "alice", content: "a1", kind: "message", ts: "2024-05-01T10:00:00Z" },
+      { id: "2", buffer_id: "1", sender: "alice", content: "a2", kind: "message", ts: "2024-05-01T10:06:00Z" },
+    ]);
+    expect(contFlags(el)).toEqual([false, false]);
+  });
+
+  it("breaks the group across an interleaved system line", () => {
+    const el = render(
+      [
+        { id: "1", buffer_id: "1", sender: "alice", content: "a1", kind: "message", ts: "2024-05-01T10:00:00Z" },
+        { id: "2", buffer_id: "1", sender: "carol", kind: "join", ts: "2024-05-01T10:01:00Z" },
+        { id: "3", buffer_id: "1", sender: "alice", content: "a2", kind: "message", ts: "2024-05-01T10:02:00Z" },
+      ],
+      { show_presence_events: true, collapse_presence_events: false },
+    );
+    expect(contFlags(el)).toEqual([false, false]);
+    expect(el.querySelector(".msg.sys")).not.toBeNull();
+  });
+
+  it("breaks the group across a day separator", () => {
+    const el = render([
+      { id: "1", buffer_id: "1", sender: "alice", content: "day one", kind: "message", ts: "2024-05-01T12:00:00Z" },
+      { id: "2", buffer_id: "1", sender: "alice", content: "day two", kind: "message", ts: "2024-05-02T12:00:00Z" },
+    ]);
+    expect(el.querySelectorAll(".daysep").length).toBeGreaterThanOrEqual(2);
+    expect(contFlags(el)).toEqual([false, false]);
+  });
+});
+
 describe("onMessage", () => {
   beforeEach(() => resetAppState());
 

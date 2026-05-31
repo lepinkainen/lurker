@@ -199,6 +199,57 @@ describe("main UI", () => {
     expect(after).toBeTruthy();
   });
 
+  it("groups consecutive messages from the same author in the open channel", async () => {
+    await __initForTests();
+
+    // open a channel buffer so the message pane is active
+    const row = await waitFor(() => {
+      const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan:not(.archives)");
+      return rows.length > 0 ? rows[0] : null;
+    });
+    row.click();
+    const name = await waitFor(() => {
+      const active = document.querySelector<HTMLButtonElement>("#sb-scroll .sbrow.chan.active");
+      return active?.querySelector(".name")?.textContent || null;
+    });
+
+    const stateRes = await (await fetch("/api/state")).json();
+    const buf = stateRes.buffers.find(
+      (b: { name: string; kind: string }) => b.name === name && b.kind === "channel",
+    );
+    expect(buf).toBeTruthy();
+
+    const base = Date.now();
+    const send = (id: string, sender: string, offsetMs: number) =>
+      __handleWSMessage({
+        type: "message",
+        id,
+        buffer_id: buf.id,
+        sender,
+        content: `grouping probe ${id}`,
+        kind: "message",
+        ts: new Date(base + offsetMs).toISOString(),
+      });
+
+    // three from one author within the window, then one from another author
+    send("90000001", "groupie", 0);
+    send("90000002", "groupie", 1000);
+    send("90000003", "groupie", 2000);
+    send("90000004", "loner", 3000);
+
+    const last = await waitFor(() => document.querySelector<HTMLElement>('#messages [data-id="90000004"]'));
+    const cls = (id: string) => document.querySelector<HTMLElement>(`#messages [data-id="${id}"]`)?.classList;
+    expect(cls("90000001")?.contains("cont")).toBe(false); // first of the run keeps its nick
+    expect(cls("90000002")?.contains("cont")).toBe(true);
+    expect(cls("90000003")?.contains("cont")).toBe(true);
+    expect(last.classList.contains("cont")).toBe(false); // different author starts a new group
+
+    // the continuation row's nick is blanked by CSS but remains in the DOM
+    const contNick = document.querySelector<HTMLElement>('#messages [data-id="90000002"] .nick');
+    expect(contNick).not.toBeNull();
+    expect(getComputedStyle(contNick as HTMLElement).visibility).toBe("hidden");
+  });
+
   it("jumps to the first unread buffer with alt+a", async () => {
     await __initForTests();
 
