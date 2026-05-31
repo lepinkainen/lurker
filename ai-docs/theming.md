@@ -108,10 +108,17 @@ Themes dir resolution (`main.go`, `config.go`), highest priority first:
    confirm `data-theme="solarized-dark"` on `<html>` and the overridden vars on
    `:root`.
 
-> Note: theme files are operator data, not source. They live in the configured
-> themes dir (default `./themes`, which is gitignored-style runtime data), not in
-> the web bundle. To ship default themes with a deployment, mount/copy YAMLs into
-> that directory.
+### Shipped themes
+
+The repo checks in default themes under `themes/` (default dir): `tokyo-night`,
+`flexoki-dark`, `flexoki-light`, `irccloud-midnight`, `solarized-light`,
+`terminal-green`. `tokyo-night.yaml` mirrors the `:root` defaults in
+`style.css`. Use these as templates.
+
+> Gotcha: the loader keys off the `.yaml`/`.yml` extension only. A file like
+> `tokyo-night.yaml.disabled.yaml` is **still loaded** (id `tokyo-night-disabled`)
+> — the `.disabled` infix does nothing. To disable a theme, move it out of the
+> dir or rename it to a non-`.yaml`/`.yml` extension.
 
 ## Nick colors are separate
 
@@ -130,4 +137,4 @@ hues. Themes only tune their **lightness/chroma** via `nicks.oklch_l`/`oklch_c`
 | `web/src/theme.ts` | fetch, `applyTheme`, `THEME_VARS`, persistence, fallback |
 | `web/src/theme-ui.ts` | theme picker dropdown wiring |
 | `web/src/style.css` | `:root` default tokens (fallback look) |
-| `themes/*.yaml` | the themes themselves (operator-provided runtime data) |
+| `themes/*.yaml` | shipped themes (checked in; also the operator drop-in dir) |
