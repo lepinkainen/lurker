@@ -1,0 +1,36 @@
+name: Terminal (Green Phosphor)
+colors:
+  bg-0: "#07090a"
+  bg-1: "#0a0d0e"
+  bg-2: "#0b0f10"
+  bg-3: "#0d1211"
+  bg-4: "#11201a"
+  bg-5: "#15281f"
+  bg-input: "#05080a"
+  fg-0: "#c8f7d8"
+  fg-1: "#a5e0bd"
+  fg-2: "#5f8f72"
+  fg-3: "#3c5e4a"
+  hair: "#16201b"
+  hair-strong: "#24332a"
+  accent: "#41ff8a"
+  accent-strong: "#6effa5"
+  accent-soft: "rgba(65, 255, 138, 0.14)"
+  green: "#41ff8a"
+  yellow: "#ffd166"
+  orange: "#ff9e64"
+  red: "#ff6b81"
+  magenta: "#d59bff"
+  cyan: "#5fe3ff"
+  mention: "#ffd166"
+  mention-soft: "rgba(255, 209, 102, 0.12)"
+  mention-soft-hover: "rgba(255, 209, 102, 0.18)"
+  surface-contrast-fg: "#07090a"
+  topicbar-rule: "#24332a80"
+fonts:
+  sans: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+  mono: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+nicks:
+  oklch_l: 80
+  oklch_c: 0.12
+color_scheme: dark
