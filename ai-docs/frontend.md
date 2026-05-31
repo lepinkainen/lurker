@@ -65,6 +65,11 @@ WebSocket events route through one named view helper per event in `app-core.ts` 
 
 The only DOM patch path is `patchPreview`. New strategies must either add a named view helper or fall through `renderActiveView`; do not call `messagesEl` mutations from `app-core.ts`.
 
+## Theming
+
+UI themes are YAML files loaded by the backend and applied client-side via CSS
+custom properties. See [theming.md](theming.md) for the model and how to add one.
+
 ## Interaction specs
 
 - [keyboard-shortcuts.md](keyboard-shortcuts.md) defines the v1 keyboard shortcut set and channel switcher behavior.
