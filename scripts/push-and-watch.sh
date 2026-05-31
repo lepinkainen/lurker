@@ -65,11 +65,48 @@ def is_remote_at_head(remote_ref: str, sha: str) -> bool:
     return verify.stdout.strip() == sha
 
 
+def push_urls(remote: str) -> list[str]:
+    result = subprocess.run(
+        ["git", "config", "--get-all", f"remote.{remote}.pushurl"],
+        text=True,
+        capture_output=True,
+    )
+    urls = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if urls:
+        return urls
+    fetch_url = subprocess.run(
+        ["git", "config", "--get", f"remote.{remote}.url"],
+        text=True,
+        capture_output=True,
+    )
+    url = fetch_url.stdout.strip()
+    return [url] if url else []
+
+
 def push_current_branch(branch: str, sha: str) -> None:
     print(f"Pushing {branch} @ {sha}")
-    result = subprocess.run(["git", "push"], text=True)
-    if result.returncode != 0:
-        raise SystemExit(result.returncode)
+    urls = push_urls("origin")
+    if not urls:
+        result = subprocess.run(["git", "push", "origin", branch], text=True)
+        if result.returncode != 0:
+            raise SystemExit(result.returncode)
+        return
+
+    primary, mirrors = urls[0], urls[1:]
+    primary_result = subprocess.run(
+        ["git", "push", primary, branch],
+        text=True,
+    )
+    if primary_result.returncode != 0:
+        raise SystemExit(primary_result.returncode)
+
+    for url in mirrors:
+        mirror_result = subprocess.run(
+            ["git", "push", url, branch],
+            text=True,
+        )
+        if mirror_result.returncode != 0:
+            print(f"warning: push to mirror {url} failed (exit {mirror_result.returncode})", file=sys.stderr)
 
 
 def list_runs(limit: int = 100) -> list[Run]:
