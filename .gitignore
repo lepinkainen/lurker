@@ -19,3 +19,6 @@ web/.vitest-attachments/
 web/coverage/
 web/tests/__screenshots__/
 .pi/todos/
+
+# Internal frontend prototypes, kept locally only
+/mockups/
