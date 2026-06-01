@@ -58,6 +58,7 @@ type StoredMessage struct {
 	MsgID     string
 	TS        string
 	Sender    string
+	Userhost  string
 	Account   string
 	Kind      string
 	Target    string

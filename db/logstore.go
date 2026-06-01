@@ -45,6 +45,7 @@ type LogMessageInput struct {
 	MsgID     string
 	Timestamp time.Time
 	Sender    string
+	Userhost  string
 	Account   string
 	Kind      string
 	Target    string
@@ -62,6 +63,7 @@ func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id uui
 		MsgID:    m.MsgID,
 		TS:       ts,
 		Sender:   m.Sender,
+		Userhost: m.Userhost,
 		Account:  m.Account,
 		Kind:     m.Kind,
 		Target:   m.Target,
@@ -70,9 +72,9 @@ func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id uui
 	}
 	return insertMessageRow(ctx, d,
 		`INSERT OR IGNORE INTO messages
-		   (id, buffer_id, msgid, ts, sender, account, kind, target, content, raw)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		[]any{insert.ID[:], insert.BufferID[:], nullableString(insert.MsgID), insert.TS, insert.Sender, nullableString(insert.Account), insert.Kind, nullableString(insert.Target), insert.Content, insert.Raw},
+		   (id, buffer_id, msgid, ts, sender, userhost, account, kind, target, content, raw)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		[]any{insert.ID[:], insert.BufferID[:], nullableString(insert.MsgID), insert.TS, insert.Sender, insert.Userhost, nullableString(insert.Account), insert.Kind, nullableString(insert.Target), insert.Content, insert.Raw},
 		ts,
 		newId,
 	)
@@ -103,7 +105,7 @@ func ListLogBuffers(ctx context.Context, d *sql.DB) ([]LogBufferRow, error) {
 // RecentLogMessages returns recent messages for a buffer in ascending order.
 func RecentLogMessages(ctx context.Context, d *sql.DB, bufferID uuid.UUID, limit int) ([]LogMessageRow, error) {
 	return logMessagesQuery(ctx, d,
-		`SELECT id, buffer_id, COALESCE(msgid,''), ts, sender,
+		`SELECT id, buffer_id, COALESCE(msgid,''), ts, sender, COALESCE(userhost,''),
 		        COALESCE(account,''), kind, COALESCE(target,''), content
 		 FROM (
 		   SELECT * FROM messages WHERE buffer_id = ? ORDER BY id DESC LIMIT ?
@@ -114,7 +116,7 @@ func RecentLogMessages(ctx context.Context, d *sql.DB, bufferID uuid.UUID, limit
 // LogMessagesBefore returns messages before a given message ID.
 func LogMessagesBefore(ctx context.Context, d *sql.DB, bufferID, before uuid.UUID, limit int) ([]LogMessageRow, error) {
 	return logMessagesQuery(ctx, d,
-		`SELECT id, buffer_id, COALESCE(msgid,''), ts, sender,
+		`SELECT id, buffer_id, COALESCE(msgid,''), ts, sender, COALESCE(userhost,''),
 		        COALESCE(account,''), kind, COALESCE(target,''), content
 		 FROM (
 		   SELECT * FROM messages WHERE buffer_id = ? AND id < ?
@@ -138,7 +140,7 @@ func logMessagesQuery(ctx context.Context, d *sql.DB, q string, args ...any) ([]
 	}
 	return scanLogMessageRows(rows, func(m *logMessageRow) error {
 		return rows.Scan(&m.ID, &m.BufferID, &m.MsgID, &m.TS,
-			&m.Sender, &m.Account, &m.Kind, &m.Target, &m.Content)
+			&m.Sender, &m.Userhost, &m.Account, &m.Kind, &m.Target, &m.Content)
 	})
 }
 
@@ -169,7 +171,7 @@ func SearchLogMessages(ctx context.Context, d *sql.DB, query string, bufferID uu
 	if limit <= 0 {
 		limit = 100
 	}
-	q := `SELECT m.id, m.buffer_id, COALESCE(m.msgid,''), m.ts, m.sender,
+	q := `SELECT m.id, m.buffer_id, COALESCE(m.msgid,''), m.ts, m.sender, COALESCE(m.userhost,''),
 		     COALESCE(m.account,''), m.kind, COALESCE(m.target,''), m.content
 	      FROM messages_fts f
 	      JOIN messages m ON m.rowid = f.rowid`

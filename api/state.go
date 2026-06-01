@@ -52,6 +52,7 @@ type messageDTO struct {
 	MsgID          string                    `json:"msgid,omitzero"`
 	TS             string                    `json:"ts"`
 	Sender         string                    `json:"sender"`
+	Userhost       string                    `json:"userhost,omitzero"`
 	Account        string                    `json:"account,omitzero"`
 	Kind           string                    `json:"kind"`
 	Target         string                    `json:"target,omitzero"`
@@ -214,7 +215,7 @@ func (s *Server) toMessageDTOs(ctx context.Context, in []ircdb.StoredMessage) []
 		sem := irc.ComputeMessageSemantics(m.Kind, m.Sender, m.Content, nick)
 		out = append(out, messageDTO{
 			ID: m.ID, NetworkID: m.NetworkID, BufferID: m.BufferID,
-			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Account: m.Account,
+			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Userhost: m.Userhost, Account: m.Account,
 			Kind: m.Kind, Target: m.Target, Content: m.Content,
 			DisplayKind:    sem.DisplayKind,
 			IsSelf:         sem.IsSelf,

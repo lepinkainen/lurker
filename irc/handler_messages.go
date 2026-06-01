@@ -74,8 +74,12 @@ func (h *handler) isIgnored(nick string) bool {
 func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, content string) {
 	content = ensureUTF8(content)
 	sender := ""
+	userhost := ""
 	if e.Source != nil {
 		sender = e.Source.Name
+		if e.Source.Ident != "" {
+			userhost = e.Source.Ident + "@" + e.Source.Host
+		}
 	}
 	if sender != "" && sender != "*" && h.isIgnored(sender) {
 		return
@@ -101,6 +105,7 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 		MsgID:     msgID,
 		Timestamp: ts,
 		Sender:    sender,
+		Userhost:  userhost,
 		Account:   account,
 		Kind:      kind,
 		Target:    target,
@@ -126,6 +131,7 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 		MsgID:     msgID,
 		TS:        storedTS,
 		Sender:    sender,
+		Userhost:  userhost,
 		Account:   account,
 		Kind:      kind,
 		Target:    target,

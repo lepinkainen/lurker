@@ -53,23 +53,24 @@ export function nickEl(nick: string, className = "nickref", label?: string): HTM
 export function sysBodyDOM(m: SysMessage): Node[] {
   const t = (s: string) => document.createTextNode(s);
   const extra = m.content ? ` (${m.content})` : "";
+  const uh = m.userhost ? ` (${m.userhost})` : "";
   switch (m.kind) {
     case "join":
-      return [nickEl(m.sender || ""), t(" joined")];
+      return [nickEl(m.sender || ""), t(` joined${uh}`)];
     case "part":
-      return [nickEl(m.sender || ""), t(` left${extra}`)];
+      return [nickEl(m.sender || ""), t(` left${uh}${extra}`)];
     case "quit":
-      return [nickEl(m.sender || ""), t(` quit${extra}`)];
+      return [nickEl(m.sender || ""), t(` quit${uh}${extra}`)];
     case "nick":
       return m.target
-        ? [nickEl(m.sender || ""), t(" is now known as "), nickEl(m.target)]
+        ? [nickEl(m.sender || ""), t(`${uh} is now known as `), nickEl(m.target)]
         : [t(m.content || "nick change")];
     case "kick":
-      return [nickEl(m.target || ""), t(" was kicked by "), nickEl(m.sender || ""), t(extra)];
+      return [nickEl(m.target || ""), t(" was kicked by "), nickEl(m.sender || ""), t(`${uh}${extra}`)];
     case "mode":
-      return [nickEl(m.sender || ""), t(` set mode ${m.content || ""}${m.target ? ` on ${m.target}` : ""}`)];
+      return [nickEl(m.sender || ""), t(`${uh} set mode ${m.content || ""}${m.target ? ` on ${m.target}` : ""}`)];
     case "topic":
-      return [nickEl(m.sender || ""), t(` set topic: ${m.content || ""}`)];
+      return [nickEl(m.sender || ""), t(`${uh} set topic: ${m.content || ""}`)];
     case "connected":
       return [t("connected")];
     case "disconnected":

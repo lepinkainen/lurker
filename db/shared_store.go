@@ -22,6 +22,7 @@ type logMessageRow struct {
 	MsgID    string
 	TS       string
 	Sender   string
+	Userhost string
 	Account  string
 	Kind     string
 	Target   string
@@ -34,6 +35,7 @@ type logMessageInsert struct {
 	MsgID    string
 	TS       string
 	Sender   string
+	Userhost string
 	Account  string
 	Kind     string
 	Target   string

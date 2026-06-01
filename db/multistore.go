@@ -481,7 +481,7 @@ func (ms *MultiStore) searchNetwork(ctx context.Context, networkID uuid.UUID, qu
 	for _, m := range msgs {
 		out = append(out, StoredMessage{
 			ID: m.ID, NetworkID: networkID, BufferID: m.BufferID,
-			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Account: m.Account,
+			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Userhost: m.Userhost, Account: m.Account,
 			Kind: m.Kind, Target: m.Target, Content: m.Content,
 		})
 	}
@@ -505,7 +505,7 @@ func toStoredMessages(networkID, globalBufferID uuid.UUID, in []LogMessageRow) [
 	for _, m := range in {
 		out = append(out, StoredMessage{
 			ID: m.ID, NetworkID: networkID, BufferID: globalBufferID,
-			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Account: m.Account,
+			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Userhost: m.Userhost, Account: m.Account,
 			Kind: m.Kind, Target: m.Target, Content: m.Content,
 		})
 	}

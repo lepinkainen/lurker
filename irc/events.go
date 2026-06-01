@@ -12,6 +12,7 @@ type MessageEvent struct {
 	MsgID     string    `json:"msgid,omitzero"`
 	TS        string    `json:"ts"`
 	Sender    string    `json:"sender"`
+	Userhost  string    `json:"userhost,omitzero"`
 	Account   string    `json:"account,omitzero"`
 	Kind      string    `json:"kind"`
 	Target    string    `json:"target,omitzero"`

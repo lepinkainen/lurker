@@ -5,6 +5,7 @@ export type SysMessage = {
   target?: string;
   content?: string;
   kind?: string;
+  userhost?: string;
 };
 
 export function escapeHTML(s: unknown): string {

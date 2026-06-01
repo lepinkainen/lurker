@@ -1,0 +1,1 @@
+ALTER TABLE messages ADD COLUMN userhost TEXT NOT NULL DEFAULT '';

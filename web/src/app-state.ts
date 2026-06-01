@@ -44,6 +44,7 @@ export type Message = {
   id: string;
   buffer_id: string;
   sender?: string;
+  userhost?: string;
   target?: string;
   content?: string;
   kind?: string;
