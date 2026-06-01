@@ -65,10 +65,11 @@ type messageDTO struct {
 }
 
 type channelMemberDTO struct {
-	Nick   string `json:"nick"`
-	Prefix string `json:"prefix,omitzero"`
-	Away   bool   `json:"away"`
-	Self   bool   `json:"self"`
+	Nick     string `json:"nick"`
+	Prefix   string `json:"prefix,omitzero"`
+	Realname string `json:"realname,omitzero"`
+	Away     bool   `json:"away"`
+	Self     bool   `json:"self"`
 }
 
 type stateDTO struct {
@@ -345,7 +346,7 @@ func (s *Server) computeUnreadCounts(ctx context.Context, networkID, bufferID, l
 func toChannelMemberDTOs(in []ircdb.ChannelMember) []channelMemberDTO {
 	out := make([]channelMemberDTO, 0, len(in))
 	for _, m := range in {
-		out = append(out, channelMemberDTO{Nick: m.Nick, Prefix: m.Prefix, Away: m.Away, Self: m.Self})
+		out = append(out, channelMemberDTO{Nick: m.Nick, Prefix: m.Prefix, Realname: m.Realname, Away: m.Away, Self: m.Self})
 	}
 	return out
 }

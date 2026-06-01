@@ -21,6 +21,7 @@ func (h *handler) register(c *girc.Client) {
 	c.Handlers.Add(girc.CAP_ACCOUNT, h.onAccount)
 	c.Handlers.Add(girc.CAP_CHGHOST, h.onChghost)
 	c.Handlers.Add(girc.RPL_ENDOFNAMES, h.onEndOfNames)
+	c.Handlers.Add(girc.RPL_ENDOFWHO, h.onEndOfWho)
 	c.Handlers.Add(girc.RPL_LIST, h.onRPLList)
 	c.Handlers.Add(girc.RPL_LISTEND, h.onRPLListEnd)
 	// echo-message: girc routes our own PRIVMSG/NOTICE echoes only through
@@ -63,7 +64,12 @@ func isExplicitlyHandledEvent(command string) bool {
 		girc.CAP_CHGHOST,
 		girc.RPL_ENDOFNAMES,
 		girc.RPL_LIST,
-		girc.RPL_LISTEND:
+		girc.RPL_LISTEND,
+		girc.RPL_NAMREPLY,
+		girc.RPL_WHOREPLY,
+		girc.RPL_ENDOFWHO,
+		girc.PING,
+		girc.PONG:
 		return true
 	default:
 		return false

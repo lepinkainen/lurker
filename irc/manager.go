@@ -512,10 +512,11 @@ func (m *Manager) ChannelMembers(networkID uuid.UUID, channel string) []ircdb.Ch
 	out := make([]ircdb.ChannelMember, 0, len(members))
 	for _, member := range members {
 		out = append(out, ircdb.ChannelMember{
-			Nick:   member.Nick,
-			Prefix: member.Prefix,
-			Away:   member.Away,
-			Self:   member.Self,
+			Nick:     member.Nick,
+			Prefix:   member.Prefix,
+			Realname: member.Realname,
+			Away:     member.Away,
+			Self:     member.Self,
 		})
 	}
 	return out

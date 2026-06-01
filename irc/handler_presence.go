@@ -1,6 +1,7 @@
 package irc
 
 import (
+	"hash/fnv"
 	"log/slog"
 	"strings"
 
@@ -104,5 +105,45 @@ func (h *handler) publishMemberList(c *girc.Client, channel string) {
 	for _, member := range members {
 		out = append(out, ChannelUser(member))
 	}
+	if h.memberListUnchanged(channel, out) {
+		return
+	}
 	h.hub.Publish(&MemberListEvent{Type: "member_list", NetworkID: h.networkID, BufferID: globalBufID, Channel: channel, Members: out})
+}
+
+func (h *handler) memberListUnchanged(channel string, members []ChannelUser) bool {
+	hash := hashMemberList(members)
+	if h.lastMemberListHash == nil {
+		h.lastMemberListHash = map[string]uint64{}
+	}
+	if prev, ok := h.lastMemberListHash[channel]; ok && prev == hash {
+		return true
+	}
+	h.lastMemberListHash[channel] = hash
+	return false
+}
+
+func hashMemberList(members []ChannelUser) uint64 {
+	h := fnv.New64a()
+	var sep = []byte{0}
+	for _, m := range members {
+		_, _ = h.Write([]byte(m.Nick))
+		_, _ = h.Write(sep)
+		_, _ = h.Write([]byte(m.Prefix))
+		_, _ = h.Write(sep)
+		_, _ = h.Write([]byte(m.Realname))
+		_, _ = h.Write(sep)
+		if m.Away {
+			_, _ = h.Write([]byte{1})
+		} else {
+			_, _ = h.Write([]byte{0})
+		}
+		if m.Self {
+			_, _ = h.Write([]byte{1})
+		} else {
+			_, _ = h.Write([]byte{0})
+		}
+		_, _ = h.Write(sep)
+	}
+	return h.Sum64()
 }

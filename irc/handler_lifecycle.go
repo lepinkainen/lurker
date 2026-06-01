@@ -27,6 +27,7 @@ func (h *handler) onConnected(c *girc.Client, e girc.Event) {
 func (h *handler) onDisconnected(_ *girc.Client, e girc.Event) {
 	h.logStatus(StateDisconnected.String(), e.Last())
 	h.markAllChannelsParted()
+	h.lastMemberListHash = nil
 }
 
 // logStatus writes a synthetic message (connect/disconnect) to the

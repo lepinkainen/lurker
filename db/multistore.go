@@ -25,10 +25,11 @@ type resolvedGlobalBuffer struct {
 
 // ChannelMember is runtime member state for a channel user.
 type ChannelMember struct {
-	Nick   string
-	Prefix string
-	Away   bool
-	Self   bool
+	Nick     string
+	Prefix   string
+	Realname string
+	Away     bool
+	Self     bool
 }
 
 // MultiStore owns the control DB plus zero or more per-network log DB handles.

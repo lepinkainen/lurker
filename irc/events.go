@@ -79,10 +79,11 @@ type MemberListEvent struct {
 
 // ChannelUser is one user in a channel member list.
 type ChannelUser struct {
-	Nick   string `json:"nick"`
-	Prefix string `json:"prefix,omitzero"`
-	Away   bool   `json:"away"`
-	Self   bool   `json:"self"`
+	Nick     string `json:"nick"`
+	Prefix   string `json:"prefix,omitzero"`
+	Realname string `json:"realname,omitzero"`
+	Away     bool   `json:"away"`
+	Self     bool   `json:"self"`
 }
 
 // NetworkStateEvent announces connection state transitions.

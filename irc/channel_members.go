@@ -8,10 +8,11 @@ import (
 )
 
 type channelMember struct {
-	Nick   string
-	Prefix string
-	Away   bool
-	Self   bool
+	Nick     string
+	Prefix   string
+	Realname string
+	Away     bool
+	Self     bool
 }
 
 func buildChannelMembers(c *girc.Client, channel string) []channelMember {
@@ -30,11 +31,16 @@ func buildChannelMembers(c *girc.Client, channel string) []channelMember {
 		if user != nil && user.Nick != "" {
 			displayNick = user.Nick
 		}
+		realname := ""
+		if user != nil {
+			realname = user.Extras.Name
+		}
 		members = append(members, channelMember{
-			Nick:   displayNick,
-			Prefix: channelMemberPrefix(user, channel),
-			Away:   user != nil && user.Extras.Away != "",
-			Self:   strings.EqualFold(displayNick, selfNick),
+			Nick:     displayNick,
+			Prefix:   channelMemberPrefix(user, channel),
+			Realname: realname,
+			Away:     user != nil && user.Extras.Away != "",
+			Self:     strings.EqualFold(displayNick, selfNick),
 		})
 	}
 	sort.Slice(members, func(i, j int) bool { return strings.ToLower(members[i].Nick) < strings.ToLower(members[j].Nick) })

@@ -64,6 +64,7 @@ func (h *handler) onKick(c *girc.Client, e girc.Event) {
 			if h.clearMemberListHook != nil {
 				h.clearMemberListHook(channel)
 			}
+			delete(h.lastMemberListHash, channel)
 			if h.setJoinedHook != nil {
 				h.setJoinedHook(channel, false)
 			}
@@ -122,6 +123,32 @@ func (h *handler) onEndOfNames(c *girc.Client, e girc.Event) {
 	channel := e.Params[1]
 	h.publishMemberList(c, channel)
 }
+
+// onEndOfWho fires after girc's auto-WHO on join completes. At this point
+// user.Extras.Name (realname) is populated, so republish the member list to
+// backfill realnames that weren't yet available at RPL_ENDOFNAMES time.
+// girc auto-WHOs channels on self-join (target=channel) and individual users
+// on remote join (target=nick) — handle both.
+func (h *handler) onEndOfWho(c *girc.Client, e girc.Event) {
+	if len(e.Params) < 2 {
+		return
+	}
+	target := e.Params[1]
+	if girc.IsValidChannel(target) {
+		h.publishMemberList(c, target)
+		return
+	}
+	if c == nil {
+		return
+	}
+	user := c.LookupUser(target)
+	if user == nil {
+		return
+	}
+	for _, channel := range user.ChannelList {
+		h.publishMemberList(c, channel)
+	}
+}
 func (h *handler) touchChannelBuffer(channel, action string) {
 	ctx, cancel := h.eventContext()
 	defer cancel()
@@ -144,6 +171,7 @@ func (h *handler) markAllChannelsParted() {
 		if h.clearMemberListHook != nil {
 			h.clearMemberListHook(channel)
 		}
+		delete(h.lastMemberListHash, channel)
 		globalBufID, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
 		if err != nil {
 			slog.Error("ensure channel buffer", "err", err, "network", h.networkName, "buffer", channel)
@@ -156,6 +184,9 @@ func (h *handler) markAllChannelsParted() {
 func (h *handler) updateChannelJoined(channel string, joined bool, presenceState string, source *girc.Source) {
 	if !joined && h.clearMemberListHook != nil {
 		h.clearMemberListHook(channel)
+	}
+	if !joined {
+		delete(h.lastMemberListHash, channel)
 	}
 	ctx, cancel := h.eventContext()
 	defer cancel()

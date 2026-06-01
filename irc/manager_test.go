@@ -336,6 +336,138 @@ func TestMemberListUsesDisplayNickCaseFromUser(t *testing.T) {
 	}
 }
 
+func TestHashMemberListIsOrderAndFieldSensitive(t *testing.T) {
+	a := []ChannelUser{{Nick: "alice", Prefix: "@", Realname: "Alice"}, {Nick: "bob"}}
+	b := []ChannelUser{{Nick: "alice", Prefix: "@", Realname: "Alice"}, {Nick: "bob"}}
+	if hashMemberList(a) != hashMemberList(b) {
+		t.Fatal("identical lists must hash equal")
+	}
+	c := []ChannelUser{{Nick: "bob"}, {Nick: "alice", Prefix: "@", Realname: "Alice"}}
+	if hashMemberList(a) == hashMemberList(c) {
+		t.Fatal("reordered list must hash differently")
+	}
+	d := []ChannelUser{{Nick: "alice", Prefix: "@", Realname: "Alice2"}, {Nick: "bob"}}
+	if hashMemberList(a) == hashMemberList(d) {
+		t.Fatal("realname change must hash differently")
+	}
+	e := []ChannelUser{{Nick: "alice", Prefix: "@", Realname: "Alice", Away: true}, {Nick: "bob"}}
+	if hashMemberList(a) == hashMemberList(e) {
+		t.Fatal("away change must hash differently")
+	}
+}
+
+func TestPublishMemberListDedupSuppressesIdenticalRepublish(t *testing.T) {
+	h := hub.New()
+	fixture := newTestHandlerFixture(t, withTestHandlerHub(h))
+	client := newTestClient(t)
+	handler := fixture.Handler
+	handler.register(client)
+
+	runClientEvent(client, mustEvent(t, ":tester!u@h JOIN #test"))
+	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :tester"))
+
+	events, unsub := h.Subscribe(16)
+	defer unsub()
+
+	handler.onEndOfNames(client, mustEvent(t, ":fake 366 tester #test :End of NAMES"))
+	handler.onEndOfNames(client, mustEvent(t, ":fake 366 tester #test :End of NAMES"))
+
+	count := 0
+	for range 16 {
+		select {
+		case ev := <-events:
+			if ml, ok := ev.(*MemberListEvent); ok && ml.Channel == "#test" {
+				count++
+			}
+		default:
+		}
+	}
+	if count != 1 {
+		t.Fatalf("member_list publishes = %d, want 1 (dedup)", count)
+	}
+}
+
+func TestOnEndOfWhoBackfillsRealname(t *testing.T) {
+	h := hub.New()
+	fixture := newTestHandlerFixture(t, withTestHandlerHub(h))
+	client := newTestClient(t)
+	handler := fixture.Handler
+	handler.register(client)
+
+	runClientEvent(client, mustEvent(t, ":tester!u@h JOIN #test"))
+	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :tester"))
+	handler.onEndOfNames(client, mustEvent(t, ":fake 366 tester #test :End of NAMES"))
+
+	events, unsub := h.Subscribe(16)
+	defer unsub()
+
+	// girc auto-WHOs the joined channel; feed a RPL_WHOREPLY then RPL_ENDOFWHO.
+	runClientEvent(client, mustEvent(t, ":fake 352 tester #test u host fake tester H :0 Real Name"))
+	runClientEvent(client, mustEvent(t, ":fake 315 tester #test :End of WHO list"))
+
+	var memberList *MemberListEvent
+	for range 8 {
+		select {
+		case ev := <-events:
+			if ml, ok := ev.(*MemberListEvent); ok && ml.Channel == "#test" {
+				memberList = ml
+			}
+		default:
+		}
+	}
+	if memberList == nil {
+		t.Fatal("member_list never republished after RPL_ENDOFWHO")
+	}
+	if len(memberList.Members) != 1 || memberList.Members[0].Realname != "Real Name" {
+		t.Fatalf("member list = %+v, want realname 'Real Name'", memberList.Members)
+	}
+}
+
+func TestOnEndOfWhoNickTargetRepublishesChannels(t *testing.T) {
+	h := hub.New()
+	fixture := newTestHandlerFixture(t, withTestHandlerHub(h))
+	client := newTestClient(t)
+	handler := fixture.Handler
+	handler.register(client)
+
+	runClientEvent(client, mustEvent(t, ":tester!u@h JOIN #test"))
+	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :tester alice"))
+	handler.onEndOfNames(client, mustEvent(t, ":fake 366 tester #test :End of NAMES"))
+
+	events, unsub := h.Subscribe(16)
+	defer unsub()
+
+	// girc per-nick WHO (remote JOIN path): target is the nick, not the channel.
+	runClientEvent(client, mustEvent(t, ":fake 352 tester #test u host fake alice H :0 Alice Real"))
+	runClientEvent(client, mustEvent(t, ":fake 315 tester alice :End of WHO list"))
+
+	var memberList *MemberListEvent
+	for range 8 {
+		select {
+		case ev := <-events:
+			if ml, ok := ev.(*MemberListEvent); ok && ml.Channel == "#test" {
+				memberList = ml
+			}
+		default:
+		}
+	}
+	if memberList == nil {
+		t.Fatal("per-nick RPL_ENDOFWHO did not trigger member_list republish")
+	}
+	var alice *ChannelUser
+	for i := range memberList.Members {
+		if memberList.Members[i].Nick == "alice" {
+			alice = &memberList.Members[i]
+		}
+	}
+	if alice == nil {
+		t.Fatalf("alice missing from republished list: %+v", memberList.Members)
+	}
+	if alice.Realname != "Alice Real" {
+		t.Fatalf("alice realname = %q, want 'Alice Real'", alice.Realname)
+	}
+}
+
 func TestManagerStartAndStopNetworkIndividually(t *testing.T) {
 	stores, err := ircdb.OpenMultiStore(t.TempDir())
 	if err != nil {

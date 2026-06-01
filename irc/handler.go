@@ -26,4 +26,8 @@ type handler struct {
 	setJoinedHook       func(channel string, joined bool)
 	drainJoinedHook     func() []string
 	listEntries         []ChannelListEntry // accumulator for /LIST responses
+	// lastMemberListHash deduplicates member_list republishes per channel.
+	// Manual /WHO or repeated state events would otherwise broadcast the
+	// full roster to every WS client even when nothing changed.
+	lastMemberListHash map[string]uint64
 }
