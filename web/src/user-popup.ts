@@ -182,6 +182,8 @@ function buildMeta(member: Member, myNick: string): HTMLElement {
   const rows: Array<[string, string]> = [];
   if (member.self || (myNick && member.nick === myNick)) rows.push(["you", "this is you"]);
   rows.push(["nick", member.nick]);
+  const realname = cleanRealname(member.realname);
+  if (realname && realname !== member.nick) rows.push(["name", realname]);
   rows.push(["mode", modeLabel(member.prefix)]);
   rows.push(["status", member.away ? "away" : "online"]);
 
@@ -351,6 +353,77 @@ function prefixClass(prefix: string): string {
   if (prefix === "%") return "hop";
   if (prefix === "+") return "voice";
   return "";
+}
+
+// Strip mIRC formatting codes (color, bold, italic, etc.) and trim.
+// Realname is rendered via textContent so control chars leak visually
+// without this.
+export function cleanRealname(s: string | undefined): string {
+  if (!s) return "";
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    const code = s.charCodeAt(i);
+    if (code === 0x03) {
+      // color: \x03[fg[,bg]] with 1-2 digit numbers
+      i++;
+      let n = 0;
+      while (n < 2 && i < s.length && s.charCodeAt(i) >= 0x30 && s.charCodeAt(i) <= 0x39) {
+        i++;
+        n++;
+      }
+      if (n > 0 && s.charCodeAt(i) === 0x2c) {
+        const save = i;
+        i++;
+        let m = 0;
+        while (m < 2 && i < s.length && s.charCodeAt(i) >= 0x30 && s.charCodeAt(i) <= 0x39) {
+          i++;
+          m++;
+        }
+        if (m === 0) i = save;
+      }
+      continue;
+    }
+    if (code === 0x04) {
+      // hex color: \x04[RRGGBB[,RRGGBB]]
+      i++;
+      let n = 0;
+      while (n < 6 && i < s.length && isHex(s.charCodeAt(i))) {
+        i++;
+        n++;
+      }
+      if (n > 0 && s.charCodeAt(i) === 0x2c) {
+        const save = i;
+        i++;
+        let m = 0;
+        while (m < 6 && i < s.length && isHex(s.charCodeAt(i))) {
+          i++;
+          m++;
+        }
+        if (m === 0) i = save;
+      }
+      continue;
+    }
+    if (
+      code === 0x02 ||
+      code === 0x0f ||
+      code === 0x11 ||
+      code === 0x16 ||
+      code === 0x1d ||
+      code === 0x1e ||
+      code === 0x1f
+    ) {
+      i++;
+      continue;
+    }
+    out += s[i];
+    i++;
+  }
+  return out.trim();
+}
+
+function isHex(c: number): boolean {
+  return (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x46) || (c >= 0x61 && c <= 0x66);
 }
 
 function modeLabel(prefix: string): string {

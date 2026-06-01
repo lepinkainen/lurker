@@ -59,6 +59,7 @@ export type Message = {
 export type Member = {
   nick: string;
   prefix: string;
+  realname?: string;
   away: boolean;
   self: boolean;
 };
