@@ -172,6 +172,11 @@ tasks:
     cmds:
       - go mod tidy
 
+  generate:
+    desc: Regenerate sqlc Go code from db/{control,log,preview}_queries
+    cmds:
+      - sqlc generate
+
   clean:
     desc: Remove build artifacts and local data
     cmds:

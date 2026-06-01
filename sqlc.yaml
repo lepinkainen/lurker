@@ -1,0 +1,41 @@
+version: "2"
+sql:
+  - engine: sqlite
+    queries: db/control_queries
+    schema: db/control_migrations
+    gen:
+      go:
+        package: controldb
+        out: db/internal/controldb
+        sql_package: database/sql
+        emit_json_tags: false
+        emit_prepared_queries: false
+        emit_interface: false
+        emit_exact_table_names: false
+        emit_empty_slices: true
+  - engine: sqlite
+    queries: db/log_queries
+    schema: db/log_migrations
+    gen:
+      go:
+        package: logdb
+        out: db/internal/logdb
+        sql_package: database/sql
+        emit_json_tags: false
+        emit_prepared_queries: false
+        emit_interface: false
+        emit_exact_table_names: false
+        emit_empty_slices: true
+  - engine: sqlite
+    queries: db/preview_queries
+    schema: db/preview_migrations
+    gen:
+      go:
+        package: previewdb
+        out: db/internal/previewdb
+        sql_package: database/sql
+        emit_json_tags: false
+        emit_prepared_queries: false
+        emit_interface: false
+        emit_exact_table_names: false
+        emit_empty_slices: true
