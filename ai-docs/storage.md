@@ -113,6 +113,26 @@ This avoids putting all message history for all networks into one DB while still
 
 This project is still greenfield. On-disk databases from before the UUIDv7 storage model are intentionally not migrated; delete old `data/` directories when crossing that boundary.
 
+## SQL query layer (sqlc)
+
+Most query bodies live in `db/{control,log,preview}_queries/*.sql` and are compiled into Go via [sqlc](https://github.com/sqlc-dev/sqlc) (config: `sqlc.yaml`). Generated code lands in `db/internal/{controldb,logdb,previewdb}/` and is committed alongside hand-written wrappers in `db/`.
+
+Workflow:
+
+- edit a `.sql` file under one of the `*_queries/` dirs
+- run `task generate` (or `sqlc generate`) to regenerate the `db/internal/*` packages
+- update the thin wrappers in `db/*.go` if signatures changed
+
+The wrappers convert between the project's domain types (`Network`, `Buffer`, `URLPreview`, `uuid.UUID`, `bool`, ...) and sqlc's defaults (`[]byte` for `BLOB`, `int64` for `INTEGER`, `sql.NullString` for nullable TEXT). Wrappers also resolve cross-DB orchestration like `EnsureBuffer`, which writes to both `control.db.buffer_registry` and the per-network `buffers` table.
+
+A few queries deliberately remain on raw `database/sql` because sqlc cannot codegen them:
+
+- `SearchLogMessages` — FTS5 `messages_fts MATCH ?` against the virtual table
+- `ListMessagePreviewLinks`, `PreviewStore.GetMany` — dynamic `IN (?, ?, …)` arity
+- `UnreadCandidates`, `MarkNonYAMLNetworksDisabled` — dynamic `WHERE` / `IN` arity
+
+When changing schema, edit the migration files in `db/{control,log,preview}_migrations/` AND re-run `task generate` so sqlc reparses the schema and updates row/param structs. Schema and queries must agree at codegen time or `sqlc generate` errors out — that's the compile-time SQL safety this layer buys.
+
 ## Network model
 
 A network is:

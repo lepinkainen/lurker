@@ -35,5 +35,12 @@ Preferred commands come from `Taskfile.yml`:
 - `task test`
 - `task lint`
 - `task build`
+- `task generate` — regenerate sqlc Go code from `db/{control,log,preview}_queries/*.sql`
 - `task up`
 - `task down`
+
+## SQL codegen (sqlc)
+
+The `db` package uses [sqlc](https://github.com/sqlc-dev/sqlc) to compile SQL into typed Go. See [storage.md](storage.md#sql-query-layer-sqlc) for the full pattern. Regenerate after editing any `.sql` file under `db/{control,log,preview}_queries/` or any migration file under `db/{control,log,preview}_migrations/`.
+
+Install: `brew install sqlc`. Generated code (`db/internal/*`) is committed.

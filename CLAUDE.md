@@ -26,6 +26,7 @@ Always use `task` (Taskfile.yml), not direct `go`/`pnpm`.
 - `task up` / `task down` — docker compose
 - `task push` — push branch + watch CI via `scripts/push-and-watch.sh`
 - `task tidy` — `go mod tidy`
+- `task generate` — `sqlc generate` (regenerate `db/internal/{controldb,logdb,previewdb}/*` after editing `db/{control,log,preview}_queries/*.sql` or any migration)
 - `task clean` — remove `build/`, `web/dist/`, `data/`
 - `task docker` — build Docker image locally
 - `task test-ci` — tests with `-tags=ci -cover -v`, outputs `coverage.out`
