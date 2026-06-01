@@ -12,6 +12,8 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/lepinkainen/lurker/db/internal/controldb"
+	"github.com/lepinkainen/lurker/db/internal/logdb"
 )
 
 type resolvedGlobalBuffer struct {
@@ -253,27 +255,42 @@ func (ms *MultiStore) EnsureBuffer(ctx context.Context, networkID uuid.UUID, nam
 // inserts a fresh UUIDv7 row when absent. If another writer wins the insert
 // race, it re-selects to adopt the winning ID.
 func (ms *MultiStore) ensureBufferRegistryRow(ctx context.Context, networkID uuid.UUID, name, kind, now string, buf *Buffer) (bool, error) {
-	switch err := ms.Control.QueryRowContext(ctx,
-		`SELECT id, kind, created_at FROM buffer_registry WHERE network_id = ? AND name = ?`,
-		networkID[:], name,
-	).Scan(&buf.ID, &buf.Kind, &buf.CreatedAt); {
+	q := controldb.New(ms.Control)
+	lookup := controldb.LookupBufferRegistryByNameParams{NetworkID: networkID[:], Name: name}
+	row, err := q.LookupBufferRegistryByName(ctx, lookup)
+	switch {
 	case err == nil:
+		id, perr := parseUUID(row.ID)
+		if perr != nil {
+			return false, perr
+		}
+		buf.ID = id
+		buf.Kind = row.Kind
+		buf.CreatedAt = row.CreatedAt
 		return false, nil
 	case errors.Is(err, sql.ErrNoRows):
 		buf.ID = newID()
-		_, ierr := ms.Control.ExecContext(ctx,
-			`INSERT INTO buffer_registry(id, network_id, name, kind, created_at) VALUES (?, ?, ?, ?, ?)`,
-			buf.ID[:], networkID[:], name, kind, now,
-		)
+		ierr := q.InsertBufferRegistry(ctx, controldb.InsertBufferRegistryParams{
+			ID:        buf.ID[:],
+			NetworkID: networkID[:],
+			Name:      name,
+			Kind:      kind,
+			CreatedAt: now,
+		})
 		if ierr == nil {
 			return true, nil
 		}
-		if rerr := ms.Control.QueryRowContext(ctx,
-			`SELECT id, kind, created_at FROM buffer_registry WHERE network_id = ? AND name = ?`,
-			networkID[:], name,
-		).Scan(&buf.ID, &buf.Kind, &buf.CreatedAt); rerr != nil {
+		row2, rerr := q.LookupBufferRegistryByName(ctx, lookup)
+		if rerr != nil {
 			return false, ierr
 		}
+		id, perr := parseUUID(row2.ID)
+		if perr != nil {
+			return false, perr
+		}
+		buf.ID = id
+		buf.Kind = row2.Kind
+		buf.CreatedAt = row2.CreatedAt
 		return false, nil
 	default:
 		return false, err
@@ -284,18 +301,21 @@ func (ms *MultiStore) ensureBufferRegistryRow(ctx context.Context, networkID uui
 // the registry ID. Same name with a different UUID is corruption: never
 // silently preserve divergent IDs.
 func (ms *MultiStore) ensureBufferLogRow(ctx context.Context, logStore *LogStore, name string, buf *Buffer) error {
-	var logID uuid.UUID
-	var lastSeen []byte
-	err := logStore.DB.QueryRowContext(ctx,
-		`SELECT id, COALESCE(topic,''), last_seen_id, created_at FROM buffers WHERE name = ?`, name,
-	).Scan(&logID, &buf.Topic, &lastSeen, &buf.CreatedAt)
+	q := logdb.New(logStore.DB)
+	row, err := q.LookupLogBufferByName(ctx, name)
 	switch {
 	case err == nil:
+		logID, perr := parseUUID(row.ID)
+		if perr != nil {
+			return perr
+		}
 		if logID != buf.ID {
 			return fmt.Errorf("%w: name=%q registry=%s log=%s",
 				ErrBufferIDMismatch, name, buf.ID, logID)
 		}
-		buf.LastSeenID = scanUUID(lastSeen)
+		buf.Topic = row.Topic
+		buf.LastSeenID = scanUUID(row.LastSeenID)
+		buf.CreatedAt = row.CreatedAt
 		return nil
 	case errors.Is(err, sql.ErrNoRows):
 		return ms.insertBufferLogRow(ctx, logStore, name, buf)
@@ -305,25 +325,31 @@ func (ms *MultiStore) ensureBufferLogRow(ctx context.Context, logStore *LogStore
 }
 
 func (ms *MultiStore) insertBufferLogRow(ctx context.Context, logStore *LogStore, name string, buf *Buffer) error {
-	_, ierr := logStore.DB.ExecContext(ctx,
-		`INSERT INTO buffers(id, name, kind, created_at) VALUES (?, ?, ?, ?)`,
-		buf.ID[:], name, buf.Kind, buf.CreatedAt,
-	)
+	q := logdb.New(logStore.DB)
+	ierr := q.InsertLogBuffer(ctx, logdb.InsertLogBufferParams{
+		ID:        buf.ID[:],
+		Name:      name,
+		Kind:      buf.Kind,
+		CreatedAt: buf.CreatedAt,
+	})
 	if ierr == nil {
 		return nil
 	}
-	var logID uuid.UUID
-	var lastSeen []byte
-	if rerr := logStore.DB.QueryRowContext(ctx,
-		`SELECT id, COALESCE(topic,''), last_seen_id, created_at FROM buffers WHERE name = ?`, name,
-	).Scan(&logID, &buf.Topic, &lastSeen, &buf.CreatedAt); rerr != nil {
+	row, rerr := q.LookupLogBufferByName(ctx, name)
+	if rerr != nil {
 		return ierr
+	}
+	logID, perr := parseUUID(row.ID)
+	if perr != nil {
+		return perr
 	}
 	if logID != buf.ID {
 		return fmt.Errorf("%w: name=%q registry=%s log=%s",
 			ErrBufferIDMismatch, name, buf.ID, logID)
 	}
-	buf.LastSeenID = scanUUID(lastSeen)
+	buf.Topic = row.Topic
+	buf.LastSeenID = scanUUID(row.LastSeenID)
+	buf.CreatedAt = row.CreatedAt
 	return nil
 }
 
@@ -371,19 +397,24 @@ func (ms *MultiStore) ListAllBuffers(ctx context.Context) ([]Buffer, error) {
 }
 
 func (ms *MultiStore) networkBuffers(ctx context.Context, n Network, logStore *LogStore, settings map[uuid.UUID]BufferSettings) ([]Buffer, error) {
-	registryRows, err := ms.Control.QueryContext(ctx,
-		`SELECT id, name, kind, created_at FROM buffer_registry WHERE network_id = ? ORDER BY id`, n.ID[:])
+	rows, err := controldb.New(ms.Control).ListBufferRegistryForNetwork(ctx, n.ID[:])
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = registryRows.Close() }()
-	var out []Buffer
-	for registryRows.Next() {
-		var b Buffer
-		if err := registryRows.Scan(&b.ID, &b.Name, &b.Kind, &b.CreatedAt); err != nil {
+	logQ := logdb.New(logStore.DB)
+	out := make([]Buffer, 0, len(rows))
+	for _, r := range rows {
+		id, err := parseUUID(r.ID)
+		if err != nil {
 			return nil, err
 		}
-		b.NetworkID = n.ID
+		b := Buffer{
+			ID:        id,
+			NetworkID: n.ID,
+			Name:      r.Name,
+			Kind:      r.Kind,
+			CreatedAt: r.CreatedAt,
+		}
 		if s, ok := settings[b.ID]; ok {
 			b.ShowEmbeds = s.ShowEmbeds
 			b.ShowPresenceEvents = s.ShowPresenceEvents
@@ -393,15 +424,13 @@ func (ms *MultiStore) networkBuffers(ctx context.Context, n Network, logStore *L
 			b.ShowEmbeds = true
 			b.ShowPresenceEvents = true
 		}
-		var lastSeenBytes []byte
-		if err := logStore.DB.QueryRowContext(ctx,
-			`SELECT COALESCE(topic,''), last_seen_id FROM buffers WHERE name = ?`, b.Name,
-		).Scan(&b.Topic, &lastSeenBytes); err == nil {
-			b.LastSeenID = scanUUID(lastSeenBytes)
+		if lrow, err := logQ.GetLogBufferTopicLastSeen(ctx, b.Name); err == nil {
+			b.Topic = lrow.Topic
+			b.LastSeenID = scanUUID(lrow.LastSeenID)
 		}
 		out = append(out, b)
 	}
-	return out, registryRows.Err()
+	return out, nil
 }
 
 // RecentMessages returns recent messages for a global buffer ID.

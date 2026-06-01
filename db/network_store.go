@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/lepinkainen/lurker/db/internal/controldb"
 )
 
 // UpsertNetwork inserts the network if missing, or updates its config fields
@@ -15,67 +16,77 @@ func UpsertNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 		return Network{}, err
 	}
 	nameCI := NormalizeNetworkName(n.Name)
-	tls := 0
-	if n.TLS {
-		tls = 1
-	}
-	var saslUser, saslPass any
-	if n.SASLUser != "" {
-		saslUser = n.SASLUser
-		saslPass = n.SASLPass
-	}
-	newId := newID()
 	kind := n.Kind
 	if kind == "" {
 		kind = NetworkKindIRC
 	}
-	_, err := d.ExecContext(ctx,
-		`INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order)+1,0) FROM networks), ?)
-		 ON CONFLICT(name_ci) DO UPDATE SET
-		   name=excluded.name, kind=excluded.kind, host=excluded.host, port=excluded.port,
-		   tls=excluded.tls, nick=excluded.nick, realname=excluded.realname,
-		   sasl_user=excluded.sasl_user, sasl_pass=excluded.sasl_pass,
-		   disabled=0`,
-		newId[:], n.Name, nameCI, kind, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
+	tls := int64(0)
+	if n.TLS {
+		tls = 1
+	}
+	newId := newID()
+	q := controldb.New(d)
+	if err := q.UpsertNetwork(ctx, controldb.UpsertNetworkParams{
+		ID:        newId[:],
+		Name:      n.Name,
+		NameCi:    nameCI,
+		Kind:      kind,
+		Host:      n.Host,
+		Port:      int64(n.Port),
+		Tls:       tls,
+		Nick:      n.Nick,
+		Realname:  nullStr(n.Realname),
+		SaslUser:  nullStr(n.SASLUser),
+		SaslPass:  nullStr(n.SASLPass),
+		CreatedAt: Now(),
+	}); err != nil {
+		return Network{}, err
+	}
+	idBytes, err := q.GetNetworkIDByNameCI(ctx, nameCI)
 	if err != nil {
 		return Network{}, err
 	}
-
-	var idBytes []byte
-	if err := d.QueryRowContext(ctx, `SELECT id FROM networks WHERE name_ci = ?`, nameCI).Scan(&idBytes); err != nil {
+	id, err := parseUUID(idBytes)
+	if err != nil {
 		return Network{}, err
 	}
-	id := scanUUID(idBytes)
 	return GetNetwork(ctx, d, id)
 }
 
 // ListNetworks returns every network row for API state responses.
 func ListNetworks(ctx context.Context, d *sql.DB) ([]Network, error) {
-	rows, err := d.QueryContext(ctx,
-		`SELECT id, name, kind, host, port, tls, nick, COALESCE(realname,''), sort_order, disabled
-		 FROM networks ORDER BY sort_order, id`)
+	rows, err := controldb.New(d).ListNetworks(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	var out []Network
-	for rows.Next() {
-		var n Network
-		var tls, disabled int
-		if err := rows.Scan(&n.ID, &n.Name, &n.Kind, &n.Host, &n.Port, &tls, &n.Nick, &n.Realname, &n.SortOrder, &disabled); err != nil {
+	out := make([]Network, 0, len(rows))
+	for _, r := range rows {
+		id, err := parseUUID(r.ID)
+		if err != nil {
 			return nil, err
 		}
-		n.TLS = tls == 1
-		n.Disabled = disabled == 1
-		out = append(out, n)
+		out = append(out, Network{
+			ID:        id,
+			Name:      r.Name,
+			Kind:      r.Kind,
+			Host:      r.Host,
+			Port:      int(r.Port),
+			TLS:       r.Tls == 1,
+			Nick:      r.Nick,
+			Realname:  r.Realname,
+			SortOrder: int(r.SortOrder),
+			Disabled:  r.Disabled == 1,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // MarkNonYAMLNetworksDisabled sets disabled=1 on all networks whose name is
 // not in the provided list. Used at startup to disable networks removed from
 // config.yaml without deleting their log data.
+//
+// Kept on raw database/sql because the IN-clause arity is dynamic; sqlc cannot
+// codegen variable-length placeholder lists for SQLite.
 func MarkNonYAMLNetworksDisabled(ctx context.Context, d *sql.DB, yamlNames []string) error {
 	if len(yamlNames) == 0 {
 		return nil
@@ -99,15 +110,14 @@ func MarkNonYAMLNetworksDisabled(ctx context.Context, d *sql.DB, yamlNames []str
 
 // SetNetworkDisabled sets the disabled flag on a single network.
 func SetNetworkDisabled(ctx context.Context, d *sql.DB, id uuid.UUID, disabled bool) error {
-	v := 0
+	v := int64(0)
 	if disabled {
 		v = 1
 	}
-	res, err := d.ExecContext(ctx, `UPDATE networks SET disabled=? WHERE id=?`, v, id[:])
-	if err != nil {
-		return err
-	}
-	affected, err := res.RowsAffected()
+	affected, err := controldb.New(d).SetNetworkDisabled(ctx, controldb.SetNetworkDisabledParams{
+		Disabled: v,
+		ID:       id[:],
+	})
 	if err != nil {
 		return err
 	}
@@ -120,28 +130,29 @@ func SetNetworkDisabled(ctx context.Context, d *sql.DB, id uuid.UUID, disabled b
 // ListNetworksWithSASL returns every non-disabled network row including SASL
 // credentials, ordered by sort_order. Used for config export only.
 func ListNetworksWithSASL(ctx context.Context, d *sql.DB) ([]Network, error) {
-	rows, err := d.QueryContext(ctx,
-		`SELECT id, name, kind, host, port, tls, nick, COALESCE(realname,''), sasl_user, sasl_pass, sort_order
-		 FROM networks WHERE disabled=0 ORDER BY sort_order, id`)
+	rows, err := controldb.New(d).ListNetworksWithSASL(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	var out []Network
-	for rows.Next() {
-		var n Network
-		var tls int
-		var saslUser, saslPass sql.NullString
-		if err := rows.Scan(&n.ID, &n.Name, &n.Kind, &n.Host, &n.Port, &tls, &n.Nick, &n.Realname, &saslUser, &saslPass, &n.SortOrder); err != nil {
+	out := make([]Network, 0, len(rows))
+	for _, r := range rows {
+		id, err := parseUUID(r.ID)
+		if err != nil {
 			return nil, err
 		}
-		n.TLS = tls == 1
-		n.SASLUser = saslUser.String
-		n.SASLPass = saslPass.String
-		out = append(out, n)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+		out = append(out, Network{
+			ID:        id,
+			Name:      r.Name,
+			Kind:      r.Kind,
+			Host:      r.Host,
+			Port:      int(r.Port),
+			TLS:       r.Tls == 1,
+			Nick:      r.Nick,
+			Realname:  r.Realname,
+			SASLUser:  r.SaslUser.String,
+			SASLPass:  r.SaslPass.String,
+			SortOrder: int(r.SortOrder),
+		})
 	}
 	for i := range out {
 		commands, err := ListNetworkConnectCommands(ctx, d, out[i].ID)

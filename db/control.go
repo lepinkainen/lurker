@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/lepinkainen/lurker/db/internal/controldb"
 )
 
 // ErrNetworkNotFound indicates the requested network row does not exist.
@@ -15,26 +16,40 @@ var ErrNetworkNotFound = errors.New("db: network not found")
 // valid full permutation of the existing network IDs.
 var ErrInvalidNetworkReorder = errors.New("db: invalid network reorder")
 
+func nullStr(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
+}
+
 // GetNetwork returns a network by ID.
 func GetNetwork(ctx context.Context, d *sql.DB, id uuid.UUID) (Network, error) {
-	var n Network
-	var tls, disabled int
-	var saslUser, saslPass sql.NullString
-	err := d.QueryRowContext(ctx,
-		`SELECT id, name, kind, host, port, tls, nick, COALESCE(realname,''), sasl_user, sasl_pass, sort_order, disabled
-		 FROM networks WHERE id = ?`, id[:],
-	).Scan(&n.ID, &n.Name, &n.Kind, &n.Host, &n.Port, &tls, &n.Nick, &n.Realname, &saslUser, &saslPass, &n.SortOrder, &disabled)
+	row, err := controldb.New(d).GetNetwork(ctx, id[:])
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Network{}, ErrNetworkNotFound
 		}
 		return Network{}, err
 	}
-	n.TLS = tls == 1
-	n.SASLUser = saslUser.String
-	n.SASLPass = saslPass.String
-	n.Disabled = disabled == 1
-	return n, nil
+	rid, err := parseUUID(row.ID)
+	if err != nil {
+		return Network{}, err
+	}
+	return Network{
+		ID:        rid,
+		Name:      row.Name,
+		Kind:      row.Kind,
+		Host:      row.Host,
+		Port:      int(row.Port),
+		TLS:       row.Tls == 1,
+		Nick:      row.Nick,
+		Realname:  row.Realname,
+		SASLUser:  row.SaslUser.String,
+		SASLPass:  row.SaslPass.String,
+		SortOrder: int(row.SortOrder),
+		Disabled:  row.Disabled == 1,
+	}, nil
 }
 
 // CreateNetwork inserts a network row and returns the stored record.
@@ -42,26 +57,29 @@ func CreateNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 	if err := ValidateNetworkName(n.Name); err != nil {
 		return Network{}, err
 	}
-	nameCI := NormalizeNetworkName(n.Name)
-	tls := 0
-	if n.TLS {
-		tls = 1
-	}
-	var saslUser, saslPass any
-	if n.SASLUser != "" {
-		saslUser = n.SASLUser
-		saslPass = n.SASLPass
-	}
-	id := newID()
 	kind := n.Kind
 	if kind == "" {
 		kind = NetworkKindIRC
 	}
-	_, err := d.ExecContext(ctx,
-		`INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks), ?)`,
-		id[:], n.Name, nameCI, kind, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, Now())
-	if err != nil {
+	id := newID()
+	tls := int64(0)
+	if n.TLS {
+		tls = 1
+	}
+	if err := controldb.New(d).CreateNetwork(ctx, controldb.CreateNetworkParams{
+		ID:        id[:],
+		Name:      n.Name,
+		NameCi:    NormalizeNetworkName(n.Name),
+		Kind:      kind,
+		Host:      n.Host,
+		Port:      int64(n.Port),
+		Tls:       tls,
+		Nick:      n.Nick,
+		Realname:  nullStr(n.Realname),
+		SaslUser:  nullStr(n.SASLUser),
+		SaslPass:  nullStr(n.SASLPass),
+		CreatedAt: Now(),
+	}); err != nil {
 		return Network{}, err
 	}
 	return GetNetwork(ctx, d, id)
@@ -92,29 +110,25 @@ func UpdateNetwork(ctx context.Context, d *sql.DB, id uuid.UUID, n Network) (Net
 		n.SASLUser = current.SASLUser
 		n.SASLPass = current.SASLPass
 	}
-	validateErr := ValidateNetworkName(n.Name)
-	if validateErr != nil {
-		return Network{}, validateErr
+	if vErr := ValidateNetworkName(n.Name); vErr != nil {
+		return Network{}, vErr
 	}
-	nameCI := NormalizeNetworkName(n.Name)
-	tls := 0
+	tls := int64(0)
 	if n.TLS {
 		tls = 1
 	}
-	var saslUser, saslPass any
-	if n.SASLUser != "" {
-		saslUser = n.SASLUser
-		saslPass = n.SASLPass
-	}
-	res, err := d.ExecContext(ctx,
-		`UPDATE networks
-		 SET name = ?, name_ci = ?, host = ?, port = ?, tls = ?, nick = ?, realname = ?, sasl_user = ?, sasl_pass = ?
-		 WHERE id = ?`,
-		n.Name, nameCI, n.Host, n.Port, tls, n.Nick, n.Realname, saslUser, saslPass, id[:])
-	if err != nil {
-		return Network{}, err
-	}
-	affected, err := res.RowsAffected()
+	affected, err := controldb.New(d).UpdateNetwork(ctx, controldb.UpdateNetworkParams{
+		Name:     n.Name,
+		NameCi:   NormalizeNetworkName(n.Name),
+		Host:     n.Host,
+		Port:     int64(n.Port),
+		Tls:      tls,
+		Nick:     n.Nick,
+		Realname: nullStr(n.Realname),
+		SaslUser: nullStr(n.SASLUser),
+		SaslPass: nullStr(n.SASLPass),
+		ID:       id[:],
+	})
 	if err != nil {
 		return Network{}, err
 	}
@@ -126,11 +140,7 @@ func UpdateNetwork(ctx context.Context, d *sql.DB, id uuid.UUID, n Network) (Net
 
 // DeleteNetwork deletes a network row by ID.
 func DeleteNetwork(ctx context.Context, d *sql.DB, id uuid.UUID) error {
-	res, err := d.ExecContext(ctx, `DELETE FROM networks WHERE id = ?`, id[:])
-	if err != nil {
-		return err
-	}
-	affected, err := res.RowsAffected()
+	affected, err := controldb.New(d).DeleteNetwork(ctx, id[:])
 	if err != nil {
 		return err
 	}
@@ -148,22 +158,18 @@ func ReorderNetworks(ctx context.Context, d *sql.DB, ids []uuid.UUID) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM networks`)
+	q := controldb.New(tx)
+	existingBytes, err := q.ListNetworkIDs(ctx)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = rows.Close() }()
-
 	existing := map[uuid.UUID]struct{}{}
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return err
+	for _, b := range existingBytes {
+		id, perr := parseUUID(b)
+		if perr != nil {
+			return perr
 		}
 		existing[id] = struct{}{}
-	}
-	if err := rows.Err(); err != nil {
-		return err
 	}
 	if len(existing) != len(ids) {
 		return ErrInvalidNetworkReorder
@@ -178,7 +184,10 @@ func ReorderNetworks(ctx context.Context, d *sql.DB, ids []uuid.UUID) error {
 			return ErrInvalidNetworkReorder
 		}
 		seen[id] = struct{}{}
-		if _, err := tx.ExecContext(ctx, `UPDATE networks SET sort_order = ? WHERE id = ?`, order, id[:]); err != nil {
+		if err := q.SetNetworkSortOrder(ctx, controldb.SetNetworkSortOrderParams{
+			SortOrder: int64(order),
+			ID:        id[:],
+		}); err != nil {
 			return err
 		}
 	}

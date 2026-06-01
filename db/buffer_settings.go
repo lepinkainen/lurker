@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/lepinkainen/lurker/db/internal/controldb"
 )
 
 // ErrBufferNotFound indicates the requested global buffer does not exist.
@@ -36,40 +37,40 @@ func defaultBufferSettings(bufferID uuid.UUID) BufferSettings {
 	return BufferSettings{BufferID: bufferID, ShowEmbeds: true, ShowPresenceEvents: true}
 }
 
+func bufferSettingsFromRow(r controldb.BufferSetting) BufferSettings {
+	return BufferSettings{
+		BufferID:               scanUUID(r.BufferID),
+		ShowEmbeds:             r.ShowEmbeds != 0,
+		ShowPresenceEvents:     r.ShowPresenceEvents != 0,
+		CollapsePresenceEvents: r.CollapsePresenceEvents != 0,
+		Pinned:                 r.Pinned != 0,
+		UpdatedAt:              r.UpdatedAt,
+	}
+}
+
 // ListBufferSettings returns persisted settings keyed by buffer id. Missing rows use defaults elsewhere.
 func ListBufferSettings(ctx context.Context, d *sql.DB) (map[uuid.UUID]BufferSettings, error) {
-	rows, err := d.QueryContext(ctx, `SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at FROM buffer_settings`)
+	rows, err := controldb.New(d).ListBufferSettings(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
 	out := map[uuid.UUID]BufferSettings{}
-	for rows.Next() {
-		var s BufferSettings
-		var showEmbeds, showPresence, collapsePresence, pinned int
-		if err := rows.Scan(&s.BufferID, &showEmbeds, &showPresence, &collapsePresence, &pinned, &s.UpdatedAt); err != nil {
-			return nil, err
-		}
-		s.ShowEmbeds = showEmbeds != 0
-		s.ShowPresenceEvents = showPresence != 0
-		s.CollapsePresenceEvents = collapsePresence != 0
-		s.Pinned = pinned != 0
+	for _, r := range rows {
+		s := bufferSettingsFromRow(r)
 		out[s.BufferID] = s
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // GetBufferSettings returns settings with defaults when no row exists.
 func GetBufferSettings(ctx context.Context, d *sql.DB, bufferID uuid.UUID) (BufferSettings, error) {
-	var s BufferSettings
-	var showEmbeds, showPresence, collapsePresence, pinned int
-	err := d.QueryRowContext(ctx, `SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at FROM buffer_settings WHERE buffer_id = ?`, bufferID[:]).
-		Scan(&s.BufferID, &showEmbeds, &showPresence, &collapsePresence, &pinned, &s.UpdatedAt)
+	q := controldb.New(d)
+	r, err := q.GetBufferSettings(ctx, bufferID[:])
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			var exists int
-			if scanErr := d.QueryRowContext(ctx, `SELECT COUNT(1) FROM buffer_registry WHERE id = ?`, bufferID[:]).Scan(&exists); scanErr != nil {
-				return BufferSettings{}, scanErr
+			exists, exErr := q.BufferRegistryExists(ctx, bufferID[:])
+			if exErr != nil {
+				return BufferSettings{}, exErr
 			}
 			if exists == 0 {
 				return BufferSettings{}, ErrBufferNotFound
@@ -78,17 +79,14 @@ func GetBufferSettings(ctx context.Context, d *sql.DB, bufferID uuid.UUID) (Buff
 		}
 		return BufferSettings{}, err
 	}
-	s.ShowEmbeds = showEmbeds != 0
-	s.ShowPresenceEvents = showPresence != 0
-	s.CollapsePresenceEvents = collapsePresence != 0
-	s.Pinned = pinned != 0
-	return s, nil
+	return bufferSettingsFromRow(r), nil
 }
 
 // UpdateBufferSettings applies a partial settings patch for a channel buffer.
 func UpdateBufferSettings(ctx context.Context, d *sql.DB, bufferID uuid.UUID, patch BufferSettingsPatch) (BufferSettings, error) {
-	var kind string
-	if err := d.QueryRowContext(ctx, `SELECT kind FROM buffer_registry WHERE id = ?`, bufferID[:]).Scan(&kind); err != nil {
+	q := controldb.New(d)
+	kind, err := q.GetBufferRegistryKind(ctx, bufferID[:])
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return BufferSettings{}, ErrBufferNotFound
 		}
@@ -115,22 +113,20 @@ func UpdateBufferSettings(ctx context.Context, d *sql.DB, bufferID uuid.UUID, pa
 		current.Pinned = *patch.Pinned
 	}
 	current.UpdatedAt = Now()
-	_, err = d.ExecContext(ctx, `INSERT INTO buffer_settings(buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(buffer_id) DO UPDATE SET
-		show_embeds=excluded.show_embeds,
-		show_presence_events=excluded.show_presence_events,
-		collapse_presence_events=excluded.collapse_presence_events,
-		pinned=excluded.pinned,
-		updated_at=excluded.updated_at`,
-		bufferID[:], boolInt(current.ShowEmbeds), boolInt(current.ShowPresenceEvents), boolInt(current.CollapsePresenceEvents), boolInt(current.Pinned), current.UpdatedAt)
-	if err != nil {
+	if err := q.UpsertBufferSettings(ctx, controldb.UpsertBufferSettingsParams{
+		BufferID:               bufferID[:],
+		ShowEmbeds:             boolInt(current.ShowEmbeds),
+		ShowPresenceEvents:     boolInt(current.ShowPresenceEvents),
+		CollapsePresenceEvents: boolInt(current.CollapsePresenceEvents),
+		Pinned:                 boolInt(current.Pinned),
+		UpdatedAt:              current.UpdatedAt,
+	}); err != nil {
 		return BufferSettings{}, err
 	}
 	return current, nil
 }
 
-func boolInt(v bool) int {
+func boolInt(v bool) int64 {
 	if v {
 		return 1
 	}

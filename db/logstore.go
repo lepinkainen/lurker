@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lepinkainen/lurker/db/internal/logdb"
 )
 
 // LogStore manages one per-network log database.
@@ -57,91 +58,122 @@ type LogMessageInput struct {
 func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id uuid.UUID, ts string, inserted bool, err error) {
 	ts = FormatTime(m.Timestamp)
 	newId := newID()
-	insert := logMessageInsert{
-		ID:       newId,
-		BufferID: m.BufferID,
-		MsgID:    m.MsgID,
-		TS:       ts,
+	affected, err := logdb.New(d).InsertLogMessage(ctx, logdb.InsertLogMessageParams{
+		ID:       newId[:],
+		BufferID: m.BufferID[:],
+		Msgid:    nullableString(m.MsgID),
+		Ts:       ts,
 		Sender:   m.Sender,
 		Userhost: m.Userhost,
-		Account:  m.Account,
+		Account:  nullableString(m.Account),
 		Kind:     m.Kind,
-		Target:   m.Target,
+		Target:   nullableString(m.Target),
 		Content:  m.Content,
 		Raw:      m.Raw,
+	})
+	if err != nil {
+		return uuid.Nil, ts, false, err
 	}
-	return insertMessageRow(ctx, d,
-		`INSERT OR IGNORE INTO messages
-		   (id, buffer_id, msgid, ts, sender, userhost, account, kind, target, content, raw)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		[]any{insert.ID[:], insert.BufferID[:], nullableString(insert.MsgID), insert.TS, insert.Sender, insert.Userhost, nullableString(insert.Account), insert.Kind, nullableString(insert.Target), insert.Content, insert.Raw},
-		ts,
-		newId,
-	)
+	if affected == 0 {
+		return uuid.Nil, ts, false, nil
+	}
+	return newId, ts, true, nil
 }
 
 // ListLogBuffers returns every buffer stored in a per-network log DB.
 func ListLogBuffers(ctx context.Context, d *sql.DB) ([]LogBufferRow, error) {
-	rows, err := d.QueryContext(ctx,
-		`SELECT id, name, kind, COALESCE(topic,''), last_seen_id, created_at
-		 FROM buffers ORDER BY id`)
+	rows, err := logdb.New(d).ListLogBuffers(ctx)
 	if err != nil {
 		return nil, err
 	}
-	scanned, err := scanLogBufferRows(rows, func(b *logBufferRow) error {
-		var lastSeen []byte
-		if scanErr := rows.Scan(&b.ID, &b.Name, &b.Kind, &b.Topic, &lastSeen, &b.CreatedAt); scanErr != nil {
-			return scanErr
+	out := make([]logBufferRow, 0, len(rows))
+	for _, r := range rows {
+		id, err := parseUUID(r.ID)
+		if err != nil {
+			return nil, err
 		}
-		b.LastSeenID = scanUUID(lastSeen)
-		return nil
-	})
-	if err != nil {
-		return nil, err
+		out = append(out, logBufferRow{
+			ID:         id,
+			Name:       r.Name,
+			Kind:       r.Kind,
+			Topic:      r.Topic,
+			LastSeenID: scanUUID(r.LastSeenID),
+			CreatedAt:  r.CreatedAt,
+		})
 	}
-	return scanned, nil
+	return out, nil
 }
 
 // RecentLogMessages returns recent messages for a buffer in ascending order.
 func RecentLogMessages(ctx context.Context, d *sql.DB, bufferID uuid.UUID, limit int) ([]LogMessageRow, error) {
-	return logMessagesQuery(ctx, d,
-		`SELECT id, buffer_id, COALESCE(msgid,''), ts, sender, COALESCE(userhost,''),
-		        COALESCE(account,''), kind, COALESCE(target,''), content
-		 FROM (
-		   SELECT * FROM messages WHERE buffer_id = ? ORDER BY id DESC LIMIT ?
-		 ) ORDER BY id ASC`,
-		bufferID[:], limit)
+	rows, err := logdb.New(d).RecentLogMessages(ctx, logdb.RecentLogMessagesParams{
+		BufferID: bufferID[:],
+		Limit:    int64(limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return recentRowsToMessages(rows), nil
 }
 
 // LogMessagesBefore returns messages before a given message ID.
 func LogMessagesBefore(ctx context.Context, d *sql.DB, bufferID, before uuid.UUID, limit int) ([]LogMessageRow, error) {
-	return logMessagesQuery(ctx, d,
-		`SELECT id, buffer_id, COALESCE(msgid,''), ts, sender, COALESCE(userhost,''),
-		        COALESCE(account,''), kind, COALESCE(target,''), content
-		 FROM (
-		   SELECT * FROM messages WHERE buffer_id = ? AND id < ?
-		   ORDER BY id DESC LIMIT ?
-		 ) ORDER BY id ASC`,
-		bufferID[:], before[:], limit)
+	rows, err := logdb.New(d).LogMessagesBefore(ctx, logdb.LogMessagesBeforeParams{
+		BufferID: bufferID[:],
+		ID:       before[:],
+		Limit:    int64(limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return beforeRowsToMessages(rows), nil
 }
 
 // LookupLogBuffer returns the name and kind for a local log buffer.
 func LookupLogBuffer(ctx context.Context, d *sql.DB, bufferID uuid.UUID) (name, kind string, err error) {
-	err = d.QueryRowContext(ctx,
-		`SELECT name, kind FROM buffers WHERE id = ?`, bufferID[:],
-	).Scan(&name, &kind)
-	return
+	row, err := logdb.New(d).LookupLogBuffer(ctx, bufferID[:])
+	if err != nil {
+		return "", "", err
+	}
+	return row.Name, row.Kind, nil
 }
 
-func logMessagesQuery(ctx context.Context, d *sql.DB, q string, args ...any) ([]LogMessageRow, error) {
-	rows, err := d.QueryContext(ctx, q, args...)
-	if err != nil {
-		return nil, err
+func recentRowsToMessages(rows []logdb.RecentLogMessagesRow) []logMessageRow {
+	out := make([]logMessageRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, logMessageRow{
+			ID:       scanUUID(r.ID),
+			BufferID: scanUUID(r.BufferID),
+			MsgID:    r.Msgid,
+			TS:       r.Ts,
+			Sender:   r.Sender,
+			Userhost: r.Userhost,
+			Account:  r.Account,
+			Kind:     r.Kind,
+			Target:   r.Target,
+			Content:  r.Content,
+		})
 	}
-	return scanLogMessageRows(rows, func(m *logMessageRow) error {
-		return rows.Scan(&m.ID, &m.BufferID, &m.MsgID, &m.TS,
-			&m.Sender, &m.Userhost, &m.Account, &m.Kind, &m.Target, &m.Content)
-	})
+	return out
+}
+
+func beforeRowsToMessages(rows []logdb.LogMessagesBeforeRow) []logMessageRow {
+	out := make([]logMessageRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, logMessageRow{
+			ID:       scanUUID(r.ID),
+			BufferID: scanUUID(r.BufferID),
+			MsgID:    r.Msgid,
+			TS:       r.Ts,
+			Sender:   r.Sender,
+			Userhost: r.Userhost,
+			Account:  r.Account,
+			Kind:     r.Kind,
+			Target:   r.Target,
+			Content:  r.Content,
+		})
+	}
+	return out
 }
 
 // EnsureStatusBuffer ensures the synthetic status buffer exists for a network.
@@ -155,18 +187,29 @@ func EnsureStatusBuffer(ctx context.Context, store *MultiStore, networkID uuid.U
 
 // UpdateLogBufferTopic updates the topic for a buffer.
 func UpdateLogBufferTopic(ctx context.Context, d *sql.DB, name, topic string) error {
-	_, err := d.ExecContext(ctx, `UPDATE buffers SET topic = ? WHERE name = ?`, topic, name)
-	return err
+	return logdb.New(d).UpdateLogBufferTopic(ctx, logdb.UpdateLogBufferTopicParams{
+		Topic: nullableString(topic),
+		Name:  name,
+	})
 }
 
 // UpdateLogBufferLastSeen updates the last seen message ID for a buffer.
 func UpdateLogBufferLastSeen(ctx context.Context, d *sql.DB, name string, lastSeenID uuid.UUID) error {
-	_, err := d.ExecContext(ctx, `UPDATE buffers SET last_seen_id = ? WHERE name = ?`, uuidParam(lastSeenID), name)
-	return err
+	var idBytes []byte
+	if lastSeenID != uuid.Nil {
+		idBytes = lastSeenID[:]
+	}
+	return logdb.New(d).UpdateLogBufferLastSeen(ctx, logdb.UpdateLogBufferLastSeenParams{
+		LastSeenID: idBytes,
+		Name:       name,
+	})
 }
 
 // SearchLogMessages searches a per-network log DB using FTS. Returns messages
 // joined to their FTS rowid match. The internal rowid is not exposed.
+//
+// Kept on raw database/sql because sqlc cannot parse `messages_fts MATCH ?`
+// against the FTS5 virtual table.
 func SearchLogMessages(ctx context.Context, d *sql.DB, query string, bufferID uuid.UUID, limit int) ([]LogMessageRow, error) {
 	if limit <= 0 {
 		limit = 100
@@ -186,6 +229,17 @@ func SearchLogMessages(ctx context.Context, d *sql.DB, query string, bufferID uu
 	return logMessagesQuery(ctx, d, q, args...)
 }
 
+func logMessagesQuery(ctx context.Context, d *sql.DB, q string, args ...any) ([]LogMessageRow, error) {
+	rows, err := d.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	return scanLogMessageRows(rows, func(m *logMessageRow) error {
+		return rows.Scan(&m.ID, &m.BufferID, &m.MsgID, &m.TS,
+			&m.Sender, &m.Userhost, &m.Account, &m.Kind, &m.Target, &m.Content)
+	})
+}
+
 func (s *LogStore) String() string {
 	return fmt.Sprintf("LogStore(network_id=%s)", s.NetworkID.String())
 }
@@ -199,6 +253,12 @@ type MessagePreviewLink struct {
 
 // InsertMessagePreviewLinks upserts (message_id, url, position) rows. No-op
 // on empty input.
+//
+// Kept on raw database/sql + tx.PrepareContext so the INSERT statement is
+// prepared once and reused across the batch. sqlc's emit_prepared_queries
+// flag is off (cleaner generated code), so the generated wrapper would
+// issue ExecContext per row. For preview-link bursts on IRC message floods
+// the per-row prepare overhead is noticeable.
 func InsertMessagePreviewLinks(ctx context.Context, d *sql.DB, links []MessagePreviewLink) error {
 	if len(links) == 0 {
 		return nil
@@ -207,18 +267,18 @@ func InsertMessagePreviewLinks(ctx context.Context, d *sql.DB, links []MessagePr
 	if err != nil {
 		return err
 	}
+	defer func() { _ = tx.Rollback() }()
+
 	stmt, err := tx.PrepareContext(ctx,
 		`INSERT OR IGNORE INTO message_previews(message_id, url, position)
 		 VALUES (?, ?, ?)`)
 	if err != nil {
-		_ = tx.Rollback()
 		return err
 	}
 	defer func() { _ = stmt.Close() }()
 	for _, l := range links {
 		mid := l.MessageID
 		if _, err := stmt.ExecContext(ctx, mid[:], l.URL, l.Position); err != nil {
-			_ = tx.Rollback()
 			return err
 		}
 	}
@@ -227,6 +287,8 @@ func InsertMessagePreviewLinks(ctx context.Context, d *sql.DB, links []MessagePr
 
 // ListMessagePreviewLinks returns (message_id, url, position) rows for the
 // given message IDs ordered by (message_id, position).
+//
+// Kept on raw database/sql because the IN-clause arity is dynamic.
 func ListMessagePreviewLinks(ctx context.Context, d *sql.DB, messageIDs []uuid.UUID) ([]MessagePreviewLink, error) {
 	if len(messageIDs) == 0 {
 		return nil, nil

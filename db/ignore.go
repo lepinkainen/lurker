@@ -5,41 +5,29 @@ import (
 	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/lepinkainen/lurker/db/internal/controldb"
 )
 
 // CreateIgnore adds an ignore mask for a network. Silently ignores duplicates.
 func CreateIgnore(ctx context.Context, d *sql.DB, networkID uuid.UUID, mask string) error {
 	id := newID()
-	_, err := d.ExecContext(ctx,
-		`INSERT OR IGNORE INTO ignores (id, network_id, mask, created_at) VALUES (?, ?, ?, ?)`,
-		id[:], networkID[:], mask, Now())
-	return err
+	return controldb.New(d).CreateIgnore(ctx, controldb.CreateIgnoreParams{
+		ID:        id[:],
+		NetworkID: networkID[:],
+		Mask:      mask,
+		CreatedAt: Now(),
+	})
 }
 
 // DeleteIgnore removes an ignore mask for a network.
 func DeleteIgnore(ctx context.Context, d *sql.DB, networkID uuid.UUID, mask string) error {
-	_, err := d.ExecContext(ctx,
-		`DELETE FROM ignores WHERE network_id = ? AND mask = ?`,
-		networkID[:], mask)
-	return err
+	return controldb.New(d).DeleteIgnore(ctx, controldb.DeleteIgnoreParams{
+		NetworkID: networkID[:],
+		Mask:      mask,
+	})
 }
 
 // ListIgnores returns all ignore masks for a network.
 func ListIgnores(ctx context.Context, d *sql.DB, networkID uuid.UUID) ([]string, error) {
-	rows, err := d.QueryContext(ctx,
-		`SELECT mask FROM ignores WHERE network_id = ? ORDER BY created_at`,
-		networkID[:])
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var masks []string
-	for rows.Next() {
-		var m string
-		if err := rows.Scan(&m); err != nil {
-			return nil, err
-		}
-		masks = append(masks, m)
-	}
-	return masks, rows.Err()
+	return controldb.New(d).ListIgnores(ctx, networkID[:])
 }

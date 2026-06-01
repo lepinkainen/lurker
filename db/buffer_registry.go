@@ -5,12 +5,18 @@ import (
 	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/lepinkainen/lurker/db/internal/controldb"
 )
 
 // LookupBufferRegistry resolves a global buffer registry row by ID.
 func LookupBufferRegistry(ctx context.Context, d *sql.DB, bufferID uuid.UUID) (networkID uuid.UUID, name, kind string, err error) {
-	err = d.QueryRowContext(ctx,
-		`SELECT network_id, name, kind FROM buffer_registry WHERE id = ?`, bufferID[:],
-	).Scan(&networkID, &name, &kind)
-	return
+	row, err := controldb.New(d).LookupBufferRegistry(ctx, bufferID[:])
+	if err != nil {
+		return uuid.Nil, "", "", err
+	}
+	nid, err := parseUUID(row.NetworkID)
+	if err != nil {
+		return uuid.Nil, "", "", err
+	}
+	return nid, row.Name, row.Kind, nil
 }
