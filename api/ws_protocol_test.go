@@ -1014,4 +1014,3 @@ func TestWSHandleCmdUnknownCommand(t *testing.T) {
 		t.Fatalf("got error=%+v, want unknown command error", env)
 	}
 }
-

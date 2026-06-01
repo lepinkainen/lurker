@@ -8,8 +8,8 @@ import {
   inlineCode,
   isSelf,
   linkify,
-  mentionsMe,
   type MessageKind,
+  mentionsMe,
 } from "./format";
 import { mircFormat } from "./mirc";
 import { nickEl, sysBodyDOM } from "./nick";

@@ -214,9 +214,7 @@ describe("main UI", () => {
     });
 
     const stateRes = await (await fetch("/api/state")).json();
-    const buf = stateRes.buffers.find(
-      (b: { name: string; kind: string }) => b.name === name && b.kind === "channel",
-    );
+    const buf = stateRes.buffers.find((b: { name: string; kind: string }) => b.name === name && b.kind === "channel");
     expect(buf).toBeTruthy();
 
     const base = Date.now();
