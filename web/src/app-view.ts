@@ -61,6 +61,7 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
         memberCountInlineEl: d.memberCountInlineEl,
         bufferMemcountEl: d.bufferMemcountEl,
         memberListEl: d.memberListEl,
+        sendCmd: deps.sendCmd,
       }),
     updateInputEnabled: () => updateInputEnabled(d.inputEl),
     renderSidebar: () => renderSidebar({ sbScrollEl: d.sbScrollEl, setActive: deps.setActive, iconEl }),

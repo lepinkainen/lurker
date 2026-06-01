@@ -1,0 +1,258 @@
+/* stylelint-disable no-descending-specificity */
+@layer components {
+  .user-popup {
+    position: fixed;
+    width: 264px;
+    background: var(--bg-3);
+    border: 1px solid var(--hair-strong);
+    border-radius: 8px;
+    box-shadow:
+      0 14px 40px rgb(0 0 0 / 55%),
+      0 1px 0 rgb(255 255 255 / 2%) inset;
+    overflow: hidden;
+    z-index: 200;
+    animation: user-popup-in 0.12s ease-out;
+    color: var(--fg-0);
+  }
+
+  @keyframes user-popup-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px) scale(0.98);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .user-popup .up-hdr {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    border-bottom: 1px solid var(--hair);
+  }
+
+  .user-popup .up-hdr .nick-avatar {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    image-rendering: pixelated;
+    border-radius: 4px;
+  }
+
+  .user-popup .up-who {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .user-popup .up-nick {
+    font: 600 14px var(--mono);
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-popup .up-nick .up-pre {
+    font-weight: 700;
+  }
+
+  .user-popup .up-nick .up-pre.op {
+    color: var(--red);
+  }
+
+  .user-popup .up-nick .up-pre.hop {
+    color: var(--magenta);
+  }
+
+  .user-popup .up-nick .up-pre.voice {
+    color: var(--green);
+  }
+
+  .user-popup .up-sub {
+    font-size: 12px;
+    color: var(--fg-2);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-popup .up-meta {
+    padding: 8px 12px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--fg-2);
+    border-bottom: 1px solid var(--hair);
+    display: grid;
+    gap: 3px;
+  }
+
+  .user-popup .up-meta .up-row {
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    gap: 8px;
+    align-items: baseline;
+  }
+
+  .user-popup .up-meta .up-k {
+    color: var(--fg-3);
+  }
+
+  .user-popup .up-meta .up-v {
+    color: var(--fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-popup .up-actions {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 0;
+  }
+
+  .user-popup .up-actions button {
+    background: none;
+    border: 0;
+    text-align: left;
+    color: var(--fg-1);
+    padding: 7px 14px;
+    font: 500 13px var(--sans);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+
+  .user-popup .up-actions button:hover,
+  .user-popup .up-actions button:focus-visible {
+    background: var(--bg-4);
+    color: var(--fg-0);
+    outline: none;
+  }
+
+  .user-popup .up-actions button.danger {
+    color: var(--red);
+  }
+
+  .user-popup .up-actions button.danger:hover,
+  .user-popup .up-actions button.danger:focus-visible {
+    background: color-mix(in srgb, var(--red) 14%, transparent);
+  }
+
+  .user-popup .up-actions .up-ic {
+    width: 14px;
+    text-align: center;
+    color: var(--fg-3);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  .user-popup .up-actions button:hover .up-ic,
+  .user-popup .up-actions button:focus-visible .up-ic {
+    color: var(--fg-1);
+  }
+
+  .user-popup .up-inline-form {
+    border-top: 1px solid var(--hair);
+    padding: 10px 12px 12px;
+    background: var(--bg-2);
+    display: grid;
+    gap: 6px;
+  }
+
+  .user-popup .up-inline-form label {
+    font-size: 11px;
+    color: var(--fg-3);
+  }
+
+  .user-popup .up-inline-form input {
+    background: var(--bg-input);
+    border: 1px solid var(--hair-strong);
+    border-radius: 4px;
+    padding: 6px 8px;
+    color: var(--fg-0);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+  }
+
+  .user-popup .up-inline-form .up-form-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+
+  .user-popup .up-inline-form button {
+    padding: 4px 10px;
+    border-radius: 4px;
+    font: 500 12px var(--sans);
+    border: 1px solid var(--hair-strong);
+    color: var(--fg-1);
+    background: var(--bg-3);
+    cursor: pointer;
+  }
+
+  .user-popup .up-inline-form button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-0);
+    font-weight: 600;
+  }
+
+  .user-popup .up-inline-form button:hover {
+    background: var(--bg-4);
+    color: var(--fg-0);
+  }
+
+  .user-popup .up-inline-form button.primary:hover {
+    background: var(--accent-strong);
+    border-color: var(--accent-strong);
+  }
+
+  .user-popup .up-inline-form input:focus {
+    border-color: var(--accent);
+  }
+
+  .user-popup .up-send {
+    border-top: 1px solid var(--hair);
+    padding: 10px 12px 12px;
+    background: var(--bg-2);
+  }
+
+  .user-popup .up-send-label {
+    display: block;
+    font-size: 11px;
+    color: var(--fg-3);
+    margin-bottom: 6px;
+    letter-spacing: 0.03em;
+  }
+
+  .user-popup .up-send input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--hair-strong);
+    border-radius: 4px;
+    padding: 7px 9px;
+    color: var(--fg-0);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+  }
+
+  .user-popup .up-send input:focus {
+    border-color: var(--accent);
+  }
+
+  .member.popup-open {
+    background: var(--bg-4);
+    color: var(--fg-0);
+    outline: 1px solid var(--hair-strong);
+  }
+}

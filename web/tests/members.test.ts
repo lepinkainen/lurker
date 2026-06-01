@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type Buffer, type Member, state } from "../src/app-state";
 import { type MembersDom, membersForActive, populateMembersForActive, renderMembers } from "../src/members";
 import { resetAppState } from "../src/reset";
@@ -24,7 +24,15 @@ function dom(): MembersDom {
   const bufferMemcountEl = document.createElement("span");
   bufferMemcountEl.hidden = true;
   const memberListEl = document.createElement("div");
-  return { memberPaneEl, toggleMembersEl, memberCountEl, memberCountInlineEl, bufferMemcountEl, memberListEl };
+  return {
+    memberPaneEl,
+    toggleMembersEl,
+    memberCountEl,
+    memberCountInlineEl,
+    bufferMemcountEl,
+    memberListEl,
+    sendCmd: vi.fn(),
+  };
 }
 
 describe("membersForActive", () => {

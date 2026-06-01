@@ -1,5 +1,6 @@
 import { activeBuffer, type Member, state } from "./app-state";
 import { nickEl } from "./nick";
+import { dismissUserPopupIfDetached, openUserPopup, type SendCmd } from "./user-popup";
 
 export type MembersDom = {
   memberPaneEl: HTMLElement;
@@ -8,6 +9,7 @@ export type MembersDom = {
   memberCountInlineEl: HTMLElement;
   bufferMemcountEl: HTMLElement;
   memberListEl: HTMLElement;
+  sendCmd: SendCmd;
 };
 
 export function membersForActive(): Member[] {
@@ -36,7 +38,7 @@ export function populateMembersForActive() {
   );
 }
 
-function memberRow(member: Member) {
+function memberRow(member: Member, sendCmd: SendCmd) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = `member ${member.away ? "away" : ""} ${member.self ? "me" : ""}`.trim();
@@ -46,6 +48,10 @@ function memberRow(member: Member) {
   pfx.textContent = member.prefix || "\u00a0";
   const mn = nickEl(member.nick, "mn");
   btn.append(pfx, mn);
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openUserPopup({ member, anchor: btn, sendCmd });
+  });
   return btn;
 }
 
@@ -62,7 +68,10 @@ export function renderMembers(dom: MembersDom) {
   dom.bufferMemcountEl.hidden = !isChannel;
 
   dom.memberListEl.innerHTML = "";
-  if (!showPane) return;
+  if (!showPane) {
+    dismissUserPopupIfDetached();
+    return;
+  }
 
   const groups: [string, Member[]][] = [
     ["ops", members.filter((member) => member.prefix === "@")],
@@ -76,6 +85,7 @@ export function renderMembers(dom: MembersDom) {
     heading.className = "mgroup";
     heading.textContent = `${name} · ${items.length}`;
     dom.memberListEl.appendChild(heading);
-    for (const member of items) dom.memberListEl.appendChild(memberRow(member));
+    for (const member of items) dom.memberListEl.appendChild(memberRow(member, dom.sendCmd));
   }
+  dismissUserPopupIfDetached();
 }
