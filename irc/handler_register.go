@@ -67,6 +67,7 @@ func isExplicitlyHandledEvent(command string) bool {
 		girc.RPL_LISTEND,
 		girc.RPL_NAMREPLY,
 		girc.RPL_WHOREPLY,
+		girc.RPL_WHOSPCRPL,
 		girc.RPL_ENDOFWHO,
 		girc.PING,
 		girc.PONG:
