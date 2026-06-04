@@ -75,7 +75,7 @@ export function start() {
   document.getElementById("settings-btn")?.addEventListener("click", () => openSettingsDialog());
   document.addEventListener("click", onBackdropClick);
   initTouchGestures({ sidebarEl: d.sidebarEl });
-  initKeyboardShortcuts({ inputEl: d.inputEl, setActive: (id: string) => setActive(id) });
+  initKeyboardShortcuts({ inputEl: d.inputEl, setActive: (id: string) => setActive(id, { focusInput: true }) });
   const onHash = () => onHashChange(setActive);
   window.addEventListener("hashchange", onHash);
   window.addEventListener("popstate", onHash);

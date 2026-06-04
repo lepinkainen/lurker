@@ -148,6 +148,24 @@ export function saveLayout(layout: LayoutSettings) {
   }
 }
 
+const LAST_ACTIVE_KEY = "lurker.lastActive";
+
+export function loadLastActive(): string | null {
+  try {
+    return localStorage.getItem(LAST_ACTIVE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveLastActive(id: string) {
+  try {
+    localStorage.setItem(LAST_ACTIVE_KEY, id);
+  } catch {
+    // Best-effort; ignore unavailable storage/quota failures.
+  }
+}
+
 export const state: AppState = {
   networks: new Map(),
   buffers: new Map(),

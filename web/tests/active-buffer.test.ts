@@ -57,10 +57,12 @@ describe("createSetActive", () => {
   let originalHash: string;
   beforeEach(() => {
     resetAppState();
+    localStorage.clear();
     originalHash = location.hash;
   });
   afterEach(() => {
     resetAppState();
+    localStorage.clear();
     history.replaceState(null, "", `${location.pathname}${originalHash}`);
   });
 
@@ -81,6 +83,7 @@ describe("createSetActive", () => {
     const markRead = vi.fn();
     const setActive = createSetActive({ getDom: () => dom, getView: () => view, maybeMarkActiveRead: markRead });
     seedBuffer("b1");
+    const focusSpy = vi.spyOn(dom.inputEl, "focus");
 
     setActive("b1");
     expect(state.activeId).toBe("b1");
@@ -90,6 +93,59 @@ describe("createSetActive", () => {
     expect(view.renderMembers).toHaveBeenCalled();
     expect(view.updateInputEnabled).toHaveBeenCalled();
     expect(markRead).toHaveBeenCalled();
+    expect(focusSpy).toHaveBeenCalled();
+  });
+
+  it("persists the active buffer to localStorage", () => {
+    const dom = makeDom();
+    const view = makeView(dom);
+    const setActive = createSetActive({
+      getDom: () => dom,
+      getView: () => view,
+      maybeMarkActiveRead: vi.fn(),
+    });
+    seedBuffer("b1");
+
+    setActive("b1");
+    expect(localStorage.getItem("lurker.lastActive")).toBe("b1");
+  });
+
+  it("does not auto-focus input on coarse-pointer (touch) devices", () => {
+    const dom = makeDom();
+    const view = makeView(dom);
+    const setActive = createSetActive({
+      getDom: () => dom,
+      getView: () => view,
+      maybeMarkActiveRead: vi.fn(),
+    });
+    seedBuffer("b1");
+    const focusSpy = vi.spyOn(dom.inputEl, "focus");
+    const matchMediaSpy = vi
+      .spyOn(window, "matchMedia")
+      .mockImplementation((q: string) => ({ matches: q === "(pointer: coarse)" }) as MediaQueryList);
+
+    setActive("b1");
+    expect(focusSpy).not.toHaveBeenCalled();
+    matchMediaSpy.mockRestore();
+  });
+
+  it("focuses input on keyboard-driven switches even on touch devices", () => {
+    const dom = makeDom();
+    const view = makeView(dom);
+    const setActive = createSetActive({
+      getDom: () => dom,
+      getView: () => view,
+      maybeMarkActiveRead: vi.fn(),
+    });
+    seedBuffer("b1");
+    const focusSpy = vi.spyOn(dom.inputEl, "focus");
+    const matchMediaSpy = vi
+      .spyOn(window, "matchMedia")
+      .mockImplementation((q: string) => ({ matches: q === "(pointer: coarse)" }) as MediaQueryList);
+
+    setActive("b1", { focusInput: true });
+    expect(focusSpy).toHaveBeenCalled();
+    matchMediaSpy.mockRestore();
   });
 
   it("clears channelList state", () => {
