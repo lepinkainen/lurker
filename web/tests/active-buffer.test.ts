@@ -129,6 +129,25 @@ describe("createSetActive", () => {
     matchMediaSpy.mockRestore();
   });
 
+  it("focuses input on keyboard-driven switches even on touch devices", () => {
+    const dom = makeDom();
+    const view = makeView(dom);
+    const setActive = createSetActive({
+      getDom: () => dom,
+      getView: () => view,
+      maybeMarkActiveRead: vi.fn(),
+    });
+    seedBuffer("b1");
+    const focusSpy = vi.spyOn(dom.inputEl, "focus");
+    const matchMediaSpy = vi
+      .spyOn(window, "matchMedia")
+      .mockImplementation((q: string) => ({ matches: q === "(pointer: coarse)" }) as MediaQueryList);
+
+    setActive("b1", { focusInput: true });
+    expect(focusSpy).toHaveBeenCalled();
+    matchMediaSpy.mockRestore();
+  });
+
   it("clears channelList state", () => {
     const dom = makeDom();
     const view = makeView(dom);

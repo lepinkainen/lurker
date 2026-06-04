@@ -7,7 +7,7 @@ import { populateMembersForActive } from "./members";
 import { bufferHashFor } from "./router";
 import { prefersNoAutoFocus, setSidebarDrawer } from "./ui-shell";
 
-export type SetActiveOpts = { skipHash?: boolean; replaceHash?: boolean };
+export type SetActiveOpts = { skipHash?: boolean; replaceHash?: boolean; focusInput?: boolean };
 export type SetActive = (id: string, opts?: SetActiveOpts) => void;
 
 export type SetActiveDeps = {
@@ -51,6 +51,10 @@ export function createSetActive(deps: SetActiveDeps): SetActive {
     restoreInputDraft(view.dom.inputEl, id);
     updateInputPopups(view.dom.inputEl, view.dom.cmdPopEl, view.dom.emojiPopEl, view.dom.nickPopEl, activeBuffer());
     deps.maybeMarkActiveRead();
-    if (!prefersNoAutoFocus()) view.dom.inputEl.focus();
+    // Keyboard-driven switches (focusInput) always focus so the user can keep
+    // typing. Pointer-driven switches skip focus on touch devices to avoid
+    // summoning the on-screen keyboard.
+    const shouldFocus = opts.focusInput ?? !prefersNoAutoFocus();
+    if (shouldFocus) view.dom.inputEl.focus();
   };
 }

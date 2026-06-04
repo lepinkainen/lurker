@@ -13,6 +13,8 @@ import { setDesktopSidebarHidden, setMembersDrawer, setSidebarDrawer, toggleSide
 
 export type KeyboardShortcutsDeps = {
   inputEl: HTMLInputElement;
+  // Keyboard-driven buffer switches focus the input so typing continues
+  // uninterrupted, even on touch devices with a hardware keyboard (e.g. iPad).
   setActive: (id: string) => void;
 };
 
