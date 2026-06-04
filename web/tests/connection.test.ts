@@ -91,8 +91,40 @@ describe("connection recovery", () => {
 
   afterEach(() => {
     resetAppState();
+    localStorage.clear();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it("restores the last active buffer from localStorage over the first channel when the hash misses", async () => {
+    // Return two joined channels; "10" would be the default first-channel pick.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        if (String(input) === "/api/state") {
+          return Promise.resolve(
+            Response.json({
+              current_nick: "tester",
+              networks: [{ id: "1", name: "Libera", status: "connected" }],
+              buffers: [
+                { id: "10", network_id: "1", name: "#go", kind: "channel", joined: true },
+                { id: "20", network_id: "1", name: "#rust", kind: "channel", joined: true },
+              ],
+              initial_messages: {},
+              members: {},
+            }),
+          );
+        }
+        return Promise.resolve(new Response("{}", { status: 500 }));
+      }),
+    );
+    localStorage.setItem("lurker.lastActive", "20");
+    const d = deps();
+    d.bufferFromHash.mockReturnValue(null);
+
+    await syncStateFromServer(d);
+
+    expect(d.setActive).toHaveBeenCalledWith("20", { replaceHash: true });
   });
 
   it("closes and immediately reconnects a stale websocket that still appears open", () => {

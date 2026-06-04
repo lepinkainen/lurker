@@ -2,6 +2,13 @@ export function isMobileViewport(): boolean {
   return window.matchMedia("(max-width: 640px)").matches;
 }
 
+// Touch devices summon an on-screen keyboard when an input is focused, which
+// covers much of the screen. Skip automatic focus there (e.g. switching channels);
+// deliberate focus (tapping the input) still works.
+export function prefersNoAutoFocus(): boolean {
+  return window.matchMedia("(pointer: coarse)").matches;
+}
+
 export function setSidebarDrawer(open: boolean) {
   if (open) document.body.dataset.sidebarOpen = "true";
   else delete document.body.dataset.sidebarOpen;

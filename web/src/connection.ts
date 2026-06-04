@@ -1,4 +1,5 @@
 import {
+  loadLastActive,
   type Member,
   type Message,
   type StateResponse,
@@ -103,10 +104,14 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
   deps.renderMembers();
   if (!state.activeId && state.buffers.size > 0) {
     const fromUrl = deps.bufferFromHash(location.hash);
+    // iOS standalone PWAs cold-launch at the manifest start_url ("/") with no
+    // hash, so fall back to the last active buffer persisted in localStorage.
+    const lastId = loadLastActive();
+    const lastActive = lastId ? state.buffers.get(lastId) : null;
     const firstChannel = [...state.buffers.values()].find(
       (buffer) => buffer.kind === "channel" && buffer.joined === true,
     );
-    const initial = fromUrl ?? firstChannel ?? state.buffers.values().next().value;
+    const initial = fromUrl ?? lastActive ?? firstChannel ?? state.buffers.values().next().value;
     if (initial) deps.setActive(initial.id, { replaceHash: true });
   }
 }

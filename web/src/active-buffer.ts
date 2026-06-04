@@ -1,11 +1,11 @@
-import { activeBuffer, state } from "./app-state";
+import { activeBuffer, saveLastActive, state } from "./app-state";
 import type { AppView } from "./app-view";
 import type { DomRefs } from "./dom";
 import { updateInputPopups } from "./input";
 import { restoreInputDraft, saveInputDraft } from "./input-history";
 import { populateMembersForActive } from "./members";
 import { bufferHashFor } from "./router";
-import { setSidebarDrawer } from "./ui-shell";
+import { prefersNoAutoFocus, setSidebarDrawer } from "./ui-shell";
 
 export type SetActiveOpts = { skipHash?: boolean; replaceHash?: boolean };
 export type SetActive = (id: string, opts?: SetActiveOpts) => void;
@@ -21,6 +21,7 @@ export function createSetActive(deps: SetActiveDeps): SetActive {
     const dom = deps.getDom();
     if (dom && state.activeId !== null) saveInputDraft(state.activeId, dom.inputEl.value, true);
     state.activeId = id;
+    saveLastActive(id);
     state.channelList = null;
     setSidebarDrawer(false);
     if (!opts.skipHash) {
@@ -50,6 +51,6 @@ export function createSetActive(deps: SetActiveDeps): SetActive {
     restoreInputDraft(view.dom.inputEl, id);
     updateInputPopups(view.dom.inputEl, view.dom.cmdPopEl, view.dom.emojiPopEl, view.dom.nickPopEl, activeBuffer());
     deps.maybeMarkActiveRead();
-    view.dom.inputEl.focus();
+    if (!prefersNoAutoFocus()) view.dom.inputEl.focus();
   };
 }
