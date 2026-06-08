@@ -9,10 +9,43 @@ import (
 	"github.com/lrstanley/girc"
 )
 
-func (h *handler) onQuit(_ *girc.Client, e girc.Event) {
-	// QUIT doesn't name the channels the user was in; we log it to the
-	// status buffer for now. Per-channel fan-out is a later enhancement.
-	h.storeEvent(e, "", ircdb.BufferStatus, "quit", "", e.Last())
+func (h *handler) onQuit(c *girc.Client, e girc.Event) {
+	if e.Source == nil {
+		h.storeEvent(e, "", ircdb.BufferStatus, "quit", "", e.Last())
+		return
+	}
+	reason := e.Last()
+	nick := e.Source.Name
+	// Self-quit: girc's built-in handler returns early and never reaches us
+	// in production, but guard anyway. Use nickFn (the canonical current
+	// nick) when girc.Client is nil — test harnesses pass nil here.
+	if h.isSelfNick(c, nick) {
+		h.storeEvent(e, "", ircdb.BufferStatus, "quit", "", reason)
+		return
+	}
+	channels, tracked := h.userChannels.dropUser(nick)
+	if !tracked {
+		// Unknown user (or userChannels store missing) — keep the
+		// status-buffer record for ops visibility.
+		h.storeEvent(e, "", ircdb.BufferStatus, "quit", "", reason)
+		return
+	}
+	for _, channel := range channels {
+		h.publishRemotePresence(channel, "quit", e.Source)
+		h.storeEvent(e, channel, ircdb.BufferChannel, "quit", "", reason)
+	}
+}
+
+func (h *handler) isSelfNick(c *girc.Client, nick string) bool {
+	if c != nil && strings.EqualFold(nick, c.GetNick()) {
+		return true
+	}
+	if h.nickFn != nil {
+		if own := h.nickFn(); own != "" && strings.EqualFold(nick, own) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *handler) onNick(c *girc.Client, e girc.Event) {
@@ -22,6 +55,9 @@ func (h *handler) onNick(c *girc.Client, e girc.Event) {
 	}
 	if h.hub != nil && e.Source != nil {
 		h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, Nick: e.Source.Name, State: "nick", Target: newNick})
+	}
+	if e.Source != nil {
+		h.userChannels.renameUser(e.Source.Name, newNick)
 	}
 	h.storeEvent(e, "", ircdb.BufferStatus, "nick", newNick, "")
 }

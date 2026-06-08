@@ -30,4 +30,9 @@ type handler struct {
 	// Manual /WHO or repeated state events would otherwise broadcast the
 	// full roster to every WS client even when nothing changed.
 	lastMemberListHash map[string]uint64
+	// userChannels mirrors nick→channel membership so that on QUIT we can
+	// fan out to every channel the user shared with us. girc's internal
+	// QUIT handler runs before ours and purges the user from its own
+	// state, so we have to track it ourselves.
+	userChannels *userChannels
 }

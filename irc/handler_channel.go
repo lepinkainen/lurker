@@ -21,6 +21,9 @@ func (h *handler) onJoin(c *girc.Client, e girc.Event) {
 	if isSelf {
 		return
 	}
+	if e.Source != nil {
+		h.userChannels.addUser(e.Source.Name, channel)
+	}
 	h.storeEvent(e, channel, ircdb.BufferChannel, "join", "", "")
 }
 
@@ -35,8 +38,12 @@ func (h *handler) onPart(c *girc.Client, e girc.Event) {
 	}
 	if c != nil && e.Source != nil && strings.EqualFold(e.Source.Name, c.GetNick()) {
 		h.updateChannelJoined(channel, false, "part", e.Source)
+		h.userChannels.dropChannel(channel)
 	} else {
 		h.publishRemotePresence(channel, "part", e.Source)
+		if e.Source != nil {
+			h.userChannels.removeUser(e.Source.Name, channel)
+		}
 	}
 	h.storeEvent(e, channel, ircdb.BufferChannel, "part", "", reason)
 }
@@ -71,6 +78,11 @@ func (h *handler) onKick(c *girc.Client, e girc.Event) {
 			h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: false})
 			h.publishMemberList(c, channel)
 		}
+	}
+	if c != nil && strings.EqualFold(kickedNick, c.GetNick()) {
+		h.userChannels.dropChannel(channel)
+	} else {
+		h.userChannels.removeUser(kickedNick, channel)
 	}
 	// target = the kicked nick
 	h.storeEvent(e, channel, ircdb.BufferChannel, "kick", kickedNick, reason)
@@ -121,6 +133,13 @@ func (h *handler) onEndOfNames(c *girc.Client, e girc.Event) {
 		return
 	}
 	channel := e.Params[1]
+	if c != nil {
+		if ch := c.LookupChannel(channel); ch != nil && len(ch.UserList) > 0 {
+			// Skip empty UserList: a malformed/empty NAMES reply would
+			// otherwise purge every tracked user from this channel.
+			h.userChannels.syncChannel(channel, ch.UserList)
+		}
+	}
 	h.publishMemberList(c, channel)
 }
 

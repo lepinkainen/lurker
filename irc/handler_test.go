@@ -65,7 +65,7 @@ func newTestHandlerFixture(t *testing.T, opts ...testHandlerOption) *testHandler
 		t.Fatal(err)
 	}
 
-	h := &handler{stores: stores, db: logStore.DB, hub: cfg.hub, networkID: network.ID, networkName: network.Name}
+	h := &handler{stores: stores, db: logStore.DB, hub: cfg.hub, networkID: network.ID, networkName: network.Name, userChannels: newUserChannels()}
 	return &testHandlerFixture{Stores: stores, LogStore: logStore, Handler: h, Hub: cfg.hub, Network: network}
 }
 
