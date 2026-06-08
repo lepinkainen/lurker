@@ -106,6 +106,10 @@ var (
 	styleSeparator = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(colorBorder))
 
+	styleSidebarSep = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorBorder)).
+			Background(lipgloss.Color(colorPanel))
+
 	styleStatusOk   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorOk)).Bold(true)
 	styleStatusWarn = lipgloss.NewStyle().Foreground(lipgloss.Color(colorWarn)).Bold(true)
 	styleStatusBad  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorBad)).Bold(true)

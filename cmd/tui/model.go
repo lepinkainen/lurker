@@ -22,7 +22,7 @@ const (
 	membersWidth    = 22
 	inputLines      = 1 // textarea height in rows
 	statusHeight    = 1
-	headerHeight    = 1
+	headerHeight    = 2 // content row + BorderBottom row from styleHeader
 	separatorHeight = 1
 )
 
@@ -1214,30 +1214,32 @@ func (m model) renderHeader(width int) string {
 	return styleHeader.Width(width).Render(title)
 }
 
-// renderConnStatus draws the connection status row at the top of the sidebar.
-// TODO: add tailscale + update-available rows once TUI is feature-stable.
+// renderConnStatus draws the backend WS connection row at the top of the
+// sidebar. Tailscale/update rows are webui-only and intentionally omitted.
 func (m model) renderConnStatus() string {
-	var dot, label string
+	var dot, value string
 	switch m.wsStatus {
 	case "connected":
 		dot = styleStatusOk.Render("●")
-		label = "Connected"
+		value = "Connected"
 	case "connecting":
 		dot = styleStatusWarn.Render("●")
-		label = "Connecting…"
+		value = "Connecting…"
 	case "reconnecting":
 		dot = styleStatusWarn.Render("●")
-		label = "Reconnecting…"
+		value = "Reconnecting…"
 	default:
 		dot = styleStatusBad.Render("●")
-		label = "Offline"
+		value = "Offline"
 	}
-	return styleStatusBox.Render(dot + " " + label)
+	return styleStatusBox.Render(dot + " " + value)
 }
 
 func (m model) renderSidebar(height int) string {
 	var sb strings.Builder
 	sb.WriteString(m.renderConnStatus())
+	sb.WriteByte('\n')
+	sb.WriteString(styleSidebarSep.Width(sidebarWidth - 2).Render(strings.Repeat("─", sidebarWidth-2)))
 	sb.WriteByte('\n')
 
 	for i, item := range m.sidebarItems {
