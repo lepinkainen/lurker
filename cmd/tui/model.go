@@ -216,6 +216,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("Error: %v", msg.err)
 		m.loading = false
 
+	case historyFailedMsg:
+		delete(m.historyLoading, msg.bufferID)
+		m.status = fmt.Sprintf("History request failed: %v", msg.err)
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -282,11 +286,12 @@ func (m *model) dispatchNavKey(key string) (tea.Model, tea.Cmd, bool) {
 	case "down":
 		return m.handleDown()
 	case "pgup":
+		var cmd tea.Cmd
 		if m.viewport.AtTop() {
-			m.requestHistory()
+			cmd = m.requestHistory()
 		}
 		m.viewport.HalfPageUp()
-		return *m, nil, true
+		return *m, cmd, true
 	case "pgdown":
 		m.viewport.HalfPageDown()
 		return *m, nil, true
@@ -549,29 +554,41 @@ func (m *model) nickAutocomplete() {
 	m.input.CursorEnd()
 }
 
-func (m *model) requestHistory() {
+// historyFailedMsg signals a failed outbound history request so the loop
+// can clear historyLoading and surface a status line — otherwise the
+// flag stayed true forever after a WS write error and pgup at the top of
+// the buffer became a silent no-op.
+type historyFailedMsg struct {
+	bufferID uuid.UUID
+	err      error
+}
+
+func (m *model) requestHistory() tea.Cmd {
 	if m.activeBuffer == nil || m.wsConn == nil {
-		return
+		return nil
 	}
 	bufID := m.activeBuffer.ID
 	if m.historyLoading[bufID] || m.historyExhaust[bufID] {
-		return
+		return nil
 	}
 	msgs := m.messages[bufID]
 	if len(msgs) == 0 {
-		return
+		return nil
 	}
 	oldest := msgs[0].ID
 	m.historyLoading[bufID] = true
 	conn := m.wsConn
-	go func() {
-		_ = sendWSCmd(context.Background(), conn, wsCmd{
+	return func() tea.Msg {
+		if err := sendWSCmd(context.Background(), conn, wsCmd{
 			"type":      "history",
 			"buffer_id": bufID,
 			"before":    oldest,
 			"limit":     100,
-		})
-	}()
+		}); err != nil {
+			return historyFailedMsg{bufferID: bufID, err: err}
+		}
+		return nil
+	}
 }
 
 // ── state helpers ─────────────────────────────────────────────────────────────
