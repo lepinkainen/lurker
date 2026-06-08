@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Lurker: single-user IRCCloud-style bouncer + web client backend. Go service + Vite/TypeScript web UI. SQLite storage. Private network only (Tailscale), no app-layer auth, no multi-user. Greenfield — no backwards-compat constraints.
 
-See `PROJECT.md`, `AGENTS.md`, `ai-docs/ARCHITECTURE.md` (and subdocs: `storage.md`, `rest-api.md`, `websocket-protocol.md`, `irc-runtime.md`, `frontend.md`, `testing-and-build.md`, `operations.md`).
+See `PROJECT.md`, `AGENTS.md`, `ai-docs/ARCHITECTURE.md` (and subdocs: `storage.md`, `rest-api.md`, `websocket-protocol.md`, `irc-runtime.md`, `frontend.md`, `testing-and-build.md`, `operations.md`). Runtime behavior specs hard to unit-test live in `ai-docs/behaviors/`.
 
 ## Commands
 
