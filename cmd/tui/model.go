@@ -696,8 +696,13 @@ func (m *model) handleWSEvent(ev wsEvent) {
 	case "network_state":
 		m.networkStates[ev.NetworkID] = ev.State
 	case "buffer_created":
+		// Match backend defaults (db/buffer_settings.go newBufferSettings):
+		// ShowPresenceEvents=true, CollapsePresenceEvents=false. Without
+		// these defaults, presenceMode would treat the freshly created
+		// buffer as "hide presence" until the next /api/state reload.
 		m.buffers = append(m.buffers, bufferDTO{
 			ID: ev.ID, NetworkID: ev.NetworkID, Name: ev.Name, Kind: ev.Kind,
+			ShowPresenceEvents: true,
 		})
 		m.rebuildSidebar()
 	case "member_list":
