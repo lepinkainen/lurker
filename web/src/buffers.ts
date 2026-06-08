@@ -27,17 +27,25 @@ function pushDedup(ids: string[], seen: Set<string>, buffer: Buffer | null | und
   ids.push(buffer.id);
 }
 
-export function getVisibleSidebarBufferIds(): string[] {
-  const ids: string[] = [];
-  const seen = new Set<string>();
-
-  for (const buffer of [...state.buffers.values()]
-    .filter((buffer) => buffer.kind === "channel" && buffer.pinned)
+function sortedPinnedChannels(opts: { skipDisabledNetworks: boolean }): Buffer[] {
+  return [...state.buffers.values()]
+    .filter((buffer) => {
+      if (buffer.kind !== "channel" || !buffer.pinned) return false;
+      if (opts.skipDisabledNetworks && state.networks.get(buffer.network_id)?.disabled) return false;
+      return true;
+    })
     .sort((a, b) => {
       const an = state.networks.get(a.network_id)?.sort_order ?? Number.MAX_SAFE_INTEGER;
       const bn = state.networks.get(b.network_id)?.sort_order ?? Number.MAX_SAFE_INTEGER;
       return an - bn || a.name.localeCompare(b.name);
-    })) {
+    });
+}
+
+export function getVisibleSidebarBufferIds(): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+
+  for (const buffer of sortedPinnedChannels({ skipDisabledNetworks: false })) {
     pushDedup(ids, seen, buffer);
   }
 
@@ -51,6 +59,26 @@ export function getVisibleSidebarBufferIds(): string[] {
     if (state.layout.archivesOpen[network.id]) {
       for (const buffer of parted) pushDedup(ids, seen, buffer);
     }
+  }
+
+  return ids;
+}
+
+export function getStartupFallbackBufferIds(): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+
+  for (const buffer of sortedPinnedChannels({ skipDisabledNetworks: true })) {
+    pushDedup(ids, seen, buffer);
+  }
+
+  for (const network of orderedNetworks()) {
+    if (network.disabled) continue;
+    const { status, channels, queries, parted } = groupedBuffers(network.id);
+    for (const buffer of channels) pushDedup(ids, seen, buffer);
+    for (const buffer of queries) pushDedup(ids, seen, buffer);
+    for (const buffer of parted) pushDedup(ids, seen, buffer);
+    pushDedup(ids, seen, status);
   }
 
   return ids;

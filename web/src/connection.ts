@@ -7,6 +7,7 @@ import {
   type TailscaleStatus,
   type UpdateStatus,
 } from "./app-state";
+import { getStartupFallbackBufferIds } from "./buffers";
 
 export const RECONNECT_BASE_MS = 1000;
 export const RECONNECT_MAX_MS = 30_000;
@@ -108,10 +109,9 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
     // hash, so fall back to the last active buffer persisted in localStorage.
     const lastId = loadLastActive();
     const lastActive = lastId ? state.buffers.get(lastId) : null;
-    const firstChannel = [...state.buffers.values()].find(
-      (buffer) => buffer.kind === "channel" && buffer.joined === true,
-    );
-    const initial = fromUrl ?? lastActive ?? firstChannel ?? state.buffers.values().next().value;
+    const fallbackId = getStartupFallbackBufferIds()[0];
+    const fallback = fallbackId ? state.buffers.get(fallbackId) : undefined;
+    const initial = fromUrl ?? lastActive ?? fallback;
     if (initial) deps.setActive(initial.id, { replaceHash: true });
   }
 }
