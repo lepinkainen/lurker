@@ -177,7 +177,7 @@ func TestUnhandledServerReplyPersistsToStatusBuffer(t *testing.T) {
 	if sender != "irc.example" {
 		t.Fatalf("sender = %q, want irc.example", sender)
 	}
-	if content != "There are 42 users and 10 servers" {
+	if content != "251 There are 42 users and 10 servers" {
 		t.Fatalf("content = %q", content)
 	}
 }
@@ -276,8 +276,8 @@ func TestBanlistRepliesPersistToStatusBuffer(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"notice:#test bad!*@* oper 1714410000",
-		"notice:#test End of Channel Ban List",
+		"notice:367 #test bad!*@* oper 1714410000",
+		"notice:368 #test End of Channel Ban List",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)

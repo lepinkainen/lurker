@@ -51,8 +51,17 @@ func formatUnhandledEventContent(e girc.Event, dropChannel bool) string {
 		params = params[1:]
 	}
 	text := strings.TrimSpace(strings.Join(params, " "))
+	// Channel-targeted errors keep their stripped human form. Status-buffer
+	// rows include the raw command (numeric or verb) so unknown server
+	// responses are debuggable from history.
+	if dropChannel {
+		if text == "" {
+			return e.Command
+		}
+		return text
+	}
 	if text == "" {
 		return e.Command
 	}
-	return text
+	return e.Command + " " + text
 }
