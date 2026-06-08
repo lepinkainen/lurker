@@ -77,6 +77,63 @@ func TestAccountStarStoresEmptyAccount(t *testing.T) {
 	}
 }
 
+// Regression for the per-channel QUIT fan-out: a remote user that we
+// share two channels with must produce one quit row in each channel and
+// no status-buffer row. Status-only quits are reserved for unknown nicks.
+func TestQuitFansOutToSharedChannels(t *testing.T) {
+	f := newTestHandlerFixture(t)
+	// Seed userChannels: alice is in #a and #b.
+	f.Handler.userChannels.addUser("alice", "#a")
+	f.Handler.userChannels.addUser("alice", "#b")
+
+	f.Handler.onQuit(nil, mustEvent(t, ":alice!u@h QUIT :irc.cc.tut.fi irc2.inet.fi"))
+
+	rows, err := f.LogStore.DB.Query(`
+		SELECT b.name, b.kind, m.kind, m.content
+		FROM messages m JOIN buffers b ON b.id = m.buffer_id
+		ORDER BY b.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	type row struct{ Buf, BufKind, Kind, Content string }
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.Buf, &r.BufKind, &r.Kind, &r.Content); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, r)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 channel rows, got %d: %+v", len(got), got)
+	}
+	for _, r := range got {
+		if r.Kind != "quit" {
+			t.Errorf("row kind=%q, want quit", r.Kind)
+		}
+		if r.BufKind != "channel" {
+			t.Errorf("row buffer kind=%q, want channel (status fallback indicates fan-out missed)", r.BufKind)
+		}
+		if r.Content != "irc.cc.tut.fi irc2.inet.fi" {
+			t.Errorf("row content=%q, want netsplit reason preserved", r.Content)
+		}
+	}
+}
+
+// Regression for the userChannels store-missing branch: when a quit
+// arrives for a nick we don't know about, the row must still be written
+// to the status buffer so netadmins keep cross-network visibility.
+func TestQuitForUntrackedNickFallsBackToStatus(t *testing.T) {
+	f := newTestHandlerFixture(t)
+	f.Handler.onQuit(nil, mustEvent(t, ":stranger!u@h QUIT :Ping timeout"))
+
+	msg := lastHandlerMessage(t, f)
+	if msg.Kind != "quit" || msg.BufferKind != "status" || msg.Content != "Ping timeout" {
+		t.Fatalf("status fallback row = %+v", msg)
+	}
+}
+
 func TestChghostStoresIdentAndHost(t *testing.T) {
 	f := newTestHandlerFixture(t)
 
