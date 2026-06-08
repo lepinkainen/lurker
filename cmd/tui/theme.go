@@ -103,6 +103,9 @@ var (
 			Foreground(lipgloss.Color(colorTextDim)).
 			Italic(true)
 
+	styleSeparator = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorBorder))
+
 	styleStatusOk   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorOk)).Bold(true)
 	styleStatusWarn = lipgloss.NewStyle().Foreground(lipgloss.Color(colorWarn)).Bold(true)
 	styleStatusBad  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorBad)).Bold(true)

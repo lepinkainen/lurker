@@ -18,11 +18,12 @@ import (
 
 // layout constants
 const (
-	sidebarWidth = 26
-	membersWidth = 22
-	inputLines   = 3 // textarea height in rows
-	statusHeight = 1
-	headerHeight = 1
+	sidebarWidth    = 26
+	membersWidth    = 22
+	inputLines      = 1 // textarea height in rows
+	statusHeight    = 1
+	headerHeight    = 1
+	separatorHeight = 1
 )
 
 type focusArea int
@@ -202,7 +203,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.wsChan = msg.ch
 		m.backendOK = true
 		m.wsStatus = "connected"
-		m.status = fmt.Sprintf("Connected to %s", m.cfg.BackendURL)
+		m.status = ""
 		return m, waitForWSEvent(m.wsChan)
 
 	case wsEventMsg:
@@ -946,7 +947,7 @@ func (m *model) resizeComponents() {
 	if rightW < 1 {
 		rightW = 1
 	}
-	vpH := m.height - headerHeight - inputLines - statusHeight - 2
+	vpH := m.height - headerHeight - separatorHeight - inputLines - statusHeight
 	if vpH < 1 {
 		vpH = 1
 	}
@@ -1164,7 +1165,7 @@ func (m model) View() string {
 		return fmt.Sprintf("Loading from %s…\n", m.cfg.BackendURL)
 	}
 
-	sidebarH := m.height - statusHeight
+	sidebarH := m.height
 	sidebar := m.renderSidebar(sidebarH)
 
 	rightW := m.width - sidebarWidth - 1
@@ -1174,11 +1175,13 @@ func (m model) View() string {
 	header := m.renderHeader(rightW)
 	messages := m.viewport.View()
 	inputBox := m.input.View()
+	separator := styleSeparator.Width(rightW).Render(strings.Repeat("─", rightW))
 	statusLine := styleStatus.Width(rightW).Render(m.status)
 
 	rightPane := lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		messages,
+		separator,
 		inputBox,
 		statusLine,
 	)
