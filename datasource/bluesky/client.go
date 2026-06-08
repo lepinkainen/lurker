@@ -138,7 +138,9 @@ func (c *Client) GetTimeline(ctx context.Context, limit int, cursor string) (*Fe
 	return &out, nil
 }
 
-// callAuthed runs an authenticated XRPC call, refreshing once on 401.
+// callAuthed runs an authenticated XRPC call. On expired access JWT it
+// refreshes and retries once; if the refresh JWT itself is expired it
+// re-runs createSession and retries once.
 func (c *Client) callAuthed(ctx context.Context, method, nsid string, q url.Values, body, out any) error {
 	c.mu.Lock()
 	access := c.accessJwt
@@ -147,12 +149,16 @@ func (c *Client) callAuthed(ctx context.Context, method, nsid string, q url.Valu
 	if err == nil {
 		return nil
 	}
-	var herr *httpError
-	if !errors.As(err, &herr) || herr.Status != http.StatusUnauthorized {
+	if !isExpiredAuthErr(err) {
 		return err
 	}
 	if rerr := c.Refresh(ctx); rerr != nil {
-		return fmt.Errorf("refresh after 401: %w", rerr)
+		if !isExpiredAuthErr(rerr) {
+			return fmt.Errorf("refresh after expired access: %w", rerr)
+		}
+		if lerr := c.Login(ctx); lerr != nil {
+			return fmt.Errorf("re-login after expired refresh: %w", lerr)
+		}
 	}
 	c.mu.Lock()
 	access = c.accessJwt
@@ -160,9 +166,44 @@ func (c *Client) callAuthed(ctx context.Context, method, nsid string, q url.Valu
 	return c.doJSON(ctx, method, nsid, q, access, body, out)
 }
 
+// isExpiredAuthErr reports whether err is an XRPC auth failure that warrants
+// a token refresh or re-login. ATProto returns 400 + error:"ExpiredToken" on
+// access-JWT expiry, and 400 + error:"ExpiredToken"/"InvalidToken" on
+// refresh-JWT expiry; 401 also covers older/edge cases.
+func isExpiredAuthErr(err error) bool {
+	var herr *httpError
+	if !errors.As(err, &herr) {
+		return false
+	}
+	if herr.Status == http.StatusUnauthorized {
+		return true
+	}
+	if herr.Status != http.StatusBadRequest {
+		return false
+	}
+	switch herr.Code {
+	case "ExpiredToken", "InvalidToken", "AuthenticationRequired":
+		return true
+	}
+	return false
+}
+
+// parseXRPCErrorCode extracts the `error` field from an XRPC error body.
+// Returns "" if the body is not JSON or has no error field.
+func parseXRPCErrorCode(raw []byte) string {
+	var env struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return ""
+	}
+	return env.Error
+}
+
 // httpError carries non-2xx XRPC responses.
 type httpError struct {
 	Status int
+	Code   string
 	Body   string
 }
 
@@ -209,7 +250,7 @@ func (c *Client) doJSON(ctx context.Context, method, nsid string, q url.Values, 
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &httpError{Status: resp.StatusCode, Body: string(raw)}
+		return &httpError{Status: resp.StatusCode, Code: parseXRPCErrorCode(raw), Body: string(raw)}
 	}
 	if out == nil {
 		return nil
