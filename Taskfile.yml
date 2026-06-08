@@ -68,6 +68,11 @@ tasks:
       - mkdir -p {{.BUILD_DIR}}
       - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/lurker-tui ./cmd/tui
 
+  test-tui:
+    desc: Run Go tests for the TUI client only
+    cmds:
+      - go test ./cmd/tui/...
+
   build-tui-linux:
     desc: Build the TUI client Linux binary to build/lurker-tui-linux-amd64
     cmds:
