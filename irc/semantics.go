@@ -21,6 +21,21 @@ var sysKinds = map[string]struct{}{
 	"topic": {}, "connected": {}, "disconnected": {},
 }
 
+// presenceKinds is the subset of sysKinds that represent user-presence
+// changes (the events the UI collapses into "X joined / quit / changed
+// nick" runs). Mirror in web/src/messages.ts PRESENCE_KINDS.
+var presenceKinds = map[string]struct{}{
+	"join": {}, "part": {}, "quit": {}, "nick": {},
+}
+
+// IsPresenceKind reports whether the given event kind is a presence event
+// eligible for run-collapsing in the UI. Exported for client renderers
+// (cmd/tui) so the kind set has one source of truth.
+func IsPresenceKind(kind string) bool {
+	_, ok := presenceKinds[kind]
+	return ok
+}
+
 // kinds that should NOT count as unread activity. Mirrors the historical
 // frontend list in messages.ts so behavior is consistent.
 var nonUnreadKinds = map[string]struct{}{

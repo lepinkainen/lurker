@@ -1,0 +1,19 @@
+{
+  "reason": [
+    {"in": "irc.cc.tut.fi irc2.inet.fi", "ok": true, "a": "irc.cc.tut.fi", "b": "irc2.inet.fi"},
+    {"in": "hub.example.org leaf.example.net", "ok": true, "a": "hub.example.org", "b": "leaf.example.net"},
+    {"in": "Ping timeout: 240 seconds", "ok": false, "a": "", "b": ""},
+    {"in": "Client Quit", "ok": false, "a": "", "b": ""},
+    {"in": "", "ok": false, "a": "", "b": ""},
+    {"in": "a.b a.b", "ok": false, "a": "", "b": ""},
+    {"in": "foo!bar baz.qux.example", "ok": false, "a": "", "b": ""},
+    {"in": "*.net *.split", "ok": false, "a": "", "b": ""}
+  ],
+  "casemap": [
+    {"in": "Foo[bar]", "out": "foo{bar}"},
+    {"in": "ABC|def", "out": "abc|def"},
+    {"in": "Cat^Away", "out": "cat~away"},
+    {"in": "{}|~", "out": "{}|~"},
+    {"in": "Plain", "out": "plain"}
+  ]
+}
