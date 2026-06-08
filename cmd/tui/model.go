@@ -597,9 +597,39 @@ func (m *model) requestHistory() tea.Cmd {
 
 // ── state helpers ─────────────────────────────────────────────────────────────
 
+// findNetwork resolves a network by ID. Returns nil if unknown.
+// Linear scan is fine — typical session has a handful of networks.
+func (m *model) findNetwork(id uuid.UUID) *networkDTO {
+	for i := range m.networks {
+		if m.networks[i].ID == id {
+			return &m.networks[i]
+		}
+	}
+	return nil
+}
+
+// refreshActiveBuffer re-resolves the m.activeBuffer pointer to the
+// current m.buffers slice. Call after any operation that may have
+// replaced or reslized m.buffers (applyState, buffer_created append) —
+// otherwise the pointer would alias a stale backing array.
+func (m *model) refreshActiveBuffer() {
+	if m.activeBuffer == nil {
+		return
+	}
+	id := m.activeBuffer.ID
+	for i := range m.buffers {
+		if m.buffers[i].ID == id {
+			m.activeBuffer = &m.buffers[i]
+			return
+		}
+	}
+	m.activeBuffer = nil
+}
+
 func (m *model) applyState(s *stateResponse) {
 	m.networks = s.Networks
 	m.buffers = s.Buffers
+	m.refreshActiveBuffer()
 	for _, b := range s.Buffers {
 		if b.Topic != "" {
 			m.topics[b.ID] = b.Topic
@@ -725,6 +755,9 @@ func (m *model) handleWSEvent(ev wsEvent) {
 			ID: ev.ID, NetworkID: ev.NetworkID, Name: ev.Name, Kind: ev.Kind,
 			ShowPresenceEvents: true,
 		})
+		// append may have reslized m.buffers; refresh m.activeBuffer
+		// before any subsequent code dereferences the (now stale) pointer.
+		m.refreshActiveBuffer()
 		m.rebuildSidebar()
 	case "member_list":
 		if ev.BufferID != uuid.Nil {
@@ -748,11 +781,8 @@ func (m *model) applyChannelList(ev wsEvent) {
 	entries := m.channelList[ev.NetworkID]
 	delete(m.channelList, ev.NetworkID)
 	netName := ""
-	for _, n := range m.networks {
-		if n.ID == ev.NetworkID {
-			netName = n.Name
-			break
-		}
+	if n := m.findNetwork(ev.NetworkID); n != nil {
+		netName = n.Name
 	}
 	m.status = fmt.Sprintf("/list %s: %d channels", netName, len(entries))
 }
@@ -882,11 +912,8 @@ func (m *model) refreshViewport() {
 
 	// own nick for this network
 	ownNick := ""
-	for _, n := range m.networks {
-		if n.ID == m.activeBuffer.NetworkID {
-			ownNick = n.Nick
-			break
-		}
+	if n := m.findNetwork(m.activeBuffer.NetworkID); n != nil {
+		ownNick = n.Nick
 	}
 
 	var sb strings.Builder
@@ -908,7 +935,7 @@ func groupAndFormatMessages(msgs []messageDTO, ownNick string, buf *bufferDTO) [
 	var out []string
 	if !collapse {
 		for _, msg := range msgs {
-			if !showPresence && isPresenceKind(msg.Kind) {
+			if !showPresence && irc.IsPresenceKind(msg.Kind) {
 				continue
 			}
 			out = append(out, formatMessage(msg, ownNick))
@@ -923,7 +950,7 @@ func groupAndFormatMessages(msgs []messageDTO, ownNick string, buf *bufferDTO) [
 		}
 	}
 	for _, msg := range msgs {
-		if isPresenceKind(msg.Kind) {
+		if irc.IsPresenceKind(msg.Kind) {
 			if !showPresence {
 				continue
 			}
@@ -970,8 +997,6 @@ func flushPresenceRun(run []messageDTO, ownNick string) []string {
 	}
 	return out
 }
-
-func isPresenceKind(kind string) bool { return irc.IsPresenceKind(kind) }
 
 func formatNetsplit(ns *irc.NetsplitGroup) string {
 	ts := styleTimestamp.Render(formatTSTime(ns.SplitTS))
