@@ -12,6 +12,7 @@ import {
   mentionsMe,
 } from "./format";
 import { mircFormat } from "./mirc";
+import { caseFoldNick, type NetsplitGroup, partitionPresence } from "./netsplit";
 import { nickEl, sysBodyDOM } from "./nick";
 import { renderPreviews } from "./preview";
 import type { ScrollStick } from "./scroll-stick";
@@ -269,22 +270,40 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
     groupSender = null;
   };
 
+  const rerender = () => {
+    const scrollTop = messagesEl.scrollTop;
+    renderMessages(messagesEl, stick);
+    messagesEl.scrollTop = scrollTop;
+  };
+  const renderPlainRun = (items: Message[]) => {
+    if (items.length === 0) return;
+    if (items.length === 1) {
+      const [message] = items;
+      if (message) messagesEl.appendChild(messageRow(message, classifyKind(message.kind)));
+      return;
+    }
+    messagesEl.appendChild(presenceSummaryRow(items, rerender));
+    if (expandedPresenceGroups.has(presenceGroupKey(items))) {
+      for (const message of items) {
+        const row = messageRow(message, classifyKind(message.kind));
+        row.classList.add("presence-expanded");
+        messagesEl.appendChild(row);
+      }
+    }
+  };
   const flushPresenceGroup = () => {
     if (presenceGroup.length === 0) return;
     breakGroup();
-    if (presenceGroup.length === 1) {
-      const [message] = presenceGroup;
-      if (message) messagesEl.appendChild(messageRow(message, classifyKind(message.kind)));
-    } else {
-      messagesEl.appendChild(
-        presenceSummaryRow(presenceGroup, () => {
-          const scrollTop = messagesEl.scrollTop;
-          renderMessages(messagesEl, stick);
-          messagesEl.scrollTop = scrollTop;
-        }),
-      );
-      if (expandedPresenceGroups.has(presenceGroupKey(presenceGroup))) {
-        for (const message of presenceGroup) {
+    const groups = partitionPresence(presenceGroup);
+    for (const group of groups) {
+      if (group.kind === "plain") {
+        renderPlainRun(group.items);
+        continue;
+      }
+      messagesEl.appendChild(netsplitSummaryRow(group, rerender));
+      const key = netsplitGroupKey(group);
+      if (expandedPresenceGroups.has(key)) {
+        for (const message of [...group.quits, ...group.rejoins]) {
           const row = messageRow(message, classifyKind(message.kind));
           row.classList.add("presence-expanded");
           messagesEl.appendChild(row);
@@ -444,6 +463,85 @@ function presenceKindLabel(kind: (typeof PRESENCE_KINDS)[number], count: number)
 
 function presenceGroupKey(messages: Message[]) {
   return messages.map((message) => message.id).join("|");
+}
+
+function netsplitGroupKey(group: NetsplitGroup) {
+  // Stable across re-renders: anchored on the first quit's id (the split
+  // start), not the full id list — so adding a late rejoin doesn't move
+  // the key out from under the expandedPresenceGroups Set.
+  const anchor = group.quits[0]?.id ?? "";
+  return `netsplit:${group.serverA}|${group.serverB}|${anchor}`;
+}
+
+const MAX_NETSPLIT_NICKS = 8;
+
+function netsplitSummaryRow(group: NetsplitGroup, rerender: () => void) {
+  const key = netsplitGroupKey(group);
+  const expanded = expandedPresenceGroups.has(key);
+  const row = document.createElement("div");
+  row.className = `msg sys presence-summary netsplit${expanded ? " expanded" : ""}`;
+  row.dataset.expanded = String(expanded);
+  row.setAttribute("role", "button");
+  row.tabIndex = 0;
+  row.setAttribute("aria-expanded", String(expanded));
+
+  const ts = document.createElement("span");
+  ts.className = "ts";
+  ts.textContent = formatTime(group.quits[0]?.ts);
+  const gutter = document.createElement("span");
+  gutter.className = "gutter";
+  gutter.textContent = expanded ? "−" : "+";
+  const body = document.createElement("span");
+  body.className = "body";
+
+  const servers = document.createElement("span");
+  servers.className = "netsplit-servers";
+  servers.textContent = `${group.serverA} ↮ ${group.serverB}`;
+  body.appendChild(servers);
+
+  const quitNicks = group.quits.map((m) => m.sender || "");
+  const rejoinNicks = new Set(group.rejoins.map((m) => caseFoldNick(m.sender || "")));
+  const stillGone = quitNicks.filter((n) => !rejoinNicks.has(caseFoldNick(n)));
+
+  if (group.rejoins.length > 0) {
+    body.appendChild(document.createTextNode(" → "));
+    appendNickList(
+      body,
+      group.rejoins.map((m) => m.sender || ""),
+    );
+    body.appendChild(document.createTextNode(` rejoined`));
+  }
+  if (stillGone.length > 0) {
+    body.appendChild(document.createTextNode(` ⇐ `));
+    body.appendChild(document.createTextNode(`${stillGone.length} still gone`));
+  }
+  body.appendChild(document.createTextNode(` · ${group.quits.length} nipped out: `));
+  appendNickList(body, quitNicks);
+
+  const toggle = () => {
+    if (expandedPresenceGroups.has(key)) expandedPresenceGroups.delete(key);
+    else expandedPresenceGroups.add(key);
+    rerender();
+  };
+  row.addEventListener("click", toggle);
+  row.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggle();
+  });
+
+  row.append(ts, gutter, body);
+  return row;
+}
+
+function appendNickList(parent: HTMLElement, nicks: string[]) {
+  const visible = nicks.slice(0, MAX_NETSPLIT_NICKS);
+  visible.forEach((nick, idx) => {
+    if (idx > 0) parent.appendChild(document.createTextNode(", "));
+    parent.appendChild(nickEl(nick, "nick"));
+  });
+  const overflow = nicks.length - visible.length;
+  if (overflow > 0) parent.appendChild(document.createTextNode(` … +${overflow} more`));
 }
 
 function shouldCollapsePresence(buffer: import("./app-state").Buffer | undefined) {

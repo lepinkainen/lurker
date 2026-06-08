@@ -261,6 +261,11 @@
     background: color-mix(in srgb, var(--bg-4) 45%, transparent);
   }
 
+  .msg.presence-summary.netsplit .netsplit-servers {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
   .selfmention {
     background: var(--mention-soft);
     color: var(--mention);
