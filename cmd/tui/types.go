@@ -35,6 +35,7 @@ type messageDTO struct {
 	TS        string    `json:"ts"`
 	Sender    string    `json:"sender"`
 	Kind      string    `json:"kind"`
+	Target    string    `json:"target"`
 	Content   string    `json:"content"`
 }
 
@@ -55,6 +56,7 @@ type wsEvent struct {
 	TS        string    `json:"ts"`
 	Sender    string    `json:"sender"`
 	Kind      string    `json:"kind"`
+	Target    string    `json:"target"`
 	Content   string    `json:"content"`
 	// buffer_update
 	Topic  string `json:"topic"`

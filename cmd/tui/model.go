@@ -408,6 +408,7 @@ func (m *model) activateSidebarSel() {
 		}
 	}
 	m.refreshViewport()
+	m.viewport.GotoBottom()
 }
 
 func (m *model) handleWSEvent(ev wsEvent) {
@@ -415,7 +416,7 @@ func (m *model) handleWSEvent(ev wsEvent) {
 	case "message":
 		msg := messageDTO{
 			ID: ev.ID, NetworkID: ev.NetworkID, BufferID: ev.BufferID,
-			TS: ev.TS, Sender: ev.Sender, Kind: ev.Kind, Content: ev.Content,
+			TS: ev.TS, Sender: ev.Sender, Kind: ev.Kind, Target: ev.Target, Content: ev.Content,
 		}
 		atBottom := m.viewport.AtBottom()
 		m.messages[ev.BufferID] = append(m.messages[ev.BufferID], msg)
@@ -498,26 +499,50 @@ func (m *model) refreshViewport() {
 }
 
 func formatMessage(m messageDTO) string {
-	ts := formatTS(m.TS)
+	ts := styleTimestamp.Render(formatTS(m.TS))
 	switch m.Kind {
 	case "action":
-		return styleAction.Render(fmt.Sprintf("%s * %s %s",
-			styleTimestamp.Render(ts), m.Sender, m.Content))
-	case "privmsg":
-		return fmt.Sprintf("%s %s %s",
-			styleTimestamp.Render(ts),
-			styleSender.Render("<"+m.Sender+">"),
-			m.Content)
+		return styleAction.Render(fmt.Sprintf("%s * %s %s", ts, m.Sender, m.Content))
+	case "privmsg", "message":
+		return fmt.Sprintf("%s %s %s", ts, styleSender.Render("<"+m.Sender+">"), m.Content)
 	case "notice":
-		return fmt.Sprintf("%s %s %s",
-			styleTimestamp.Render(ts),
-			styleSender.Render("-"+m.Sender+"-"),
-			m.Content)
+		return fmt.Sprintf("%s %s %s", ts, styleSender.Render("-"+m.Sender+"-"), m.Content)
+	case "join":
+		return styleAction.Render(fmt.Sprintf("%s → %s joined", ts, m.Sender))
+	case "part":
+		if m.Content != "" {
+			return styleAction.Render(fmt.Sprintf("%s ← %s left (%s)", ts, m.Sender, m.Content))
+		}
+		return styleAction.Render(fmt.Sprintf("%s ← %s left", ts, m.Sender))
+	case "quit":
+		if m.Content != "" {
+			return styleAction.Render(fmt.Sprintf("%s ⇠ %s quit (%s)", ts, m.Sender, m.Content))
+		}
+		return styleAction.Render(fmt.Sprintf("%s ⇠ %s quit", ts, m.Sender))
+	case "nick":
+		return styleAction.Render(fmt.Sprintf("%s — %s is now %s", ts, m.Sender, m.Target))
+	case "kick":
+		return styleAction.Render(fmt.Sprintf("%s ⛔ %s kicked %s (%s)", ts, m.Sender, m.Target, m.Content))
+	case "mode":
+		return styleAction.Render(fmt.Sprintf("%s ⚙ %s set mode %s %s", ts, m.Sender, m.Target, m.Content))
+	case "topic":
+		return styleAction.Render(fmt.Sprintf("%s 📌 %s set topic: %s", ts, m.Sender, m.Content))
+	case "invite":
+		return styleAction.Render(fmt.Sprintf("%s ✉ %s invited to %s", ts, m.Sender, m.Target))
+	case "away":
+		if m.Content != "" {
+			return styleAction.Render(fmt.Sprintf("%s 💤 %s is away (%s)", ts, m.Target, m.Content))
+		}
+		return styleAction.Render(fmt.Sprintf("%s 💤 %s is away", ts, m.Target))
+	case "back":
+		return styleAction.Render(fmt.Sprintf("%s ☀ %s is back", ts, m.Target))
+	case "ctcp":
+		return styleAction.Render(fmt.Sprintf("%s [CTCP %s] %s", ts, m.Sender, m.Content))
 	default:
 		if m.Sender != "" {
-			return fmt.Sprintf("%s [%s] %s", styleTimestamp.Render(ts), m.Sender, m.Content)
+			return fmt.Sprintf("%s [%s] %s %s", ts, m.Kind, m.Sender, m.Content)
 		}
-		return fmt.Sprintf("%s *** %s", styleTimestamp.Render(ts), m.Content)
+		return fmt.Sprintf("%s *** %s", ts, m.Content)
 	}
 }
 
