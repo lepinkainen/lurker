@@ -70,7 +70,7 @@ func (c *apiClient) connectWS(ctx context.Context) (*websocket.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ws dial: %w", err)
 	}
-	if resp != nil {
+	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}
 	return conn, nil
