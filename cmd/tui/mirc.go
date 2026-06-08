@@ -94,9 +94,13 @@ func mircFormat(input string) string {
 	i := 0
 	for i < len(input) {
 		ch := input[i]
-		if applied, next := applyToggleCode(&st, ch, i); applied {
+		if isToggleCode(ch) {
+			// Flush the in-progress run under the *current* style before
+			// the toggle takes effect — otherwise prior characters render
+			// with the next style.
 			flush()
-			i = next
+			applyToggleCode(&st, ch)
+			i++
 			continue
 		}
 		if ch == mircColor {
@@ -111,9 +115,15 @@ func mircFormat(input string) string {
 	return out.String()
 }
 
-// applyToggleCode handles single-byte toggle/reset codes. Returns (true, nextIdx)
-// when the byte at idx was a control code consumed here, (false, idx) otherwise.
-func applyToggleCode(st *mircState, ch byte, idx int) (applied bool, next int) {
+func isToggleCode(ch byte) bool {
+	switch ch {
+	case mircBold, mircItalic, mircUnderline, mircStrike, mircMono, mircReset:
+		return true
+	}
+	return false
+}
+
+func applyToggleCode(st *mircState, ch byte) {
 	switch ch {
 	case mircBold:
 		st.bold = !st.bold
@@ -127,10 +137,7 @@ func applyToggleCode(st *mircState, ch byte, idx int) (applied bool, next int) {
 		st.mono = !st.mono
 	case mircReset:
 		*st = newMircState()
-	default:
-		return false, idx
 	}
-	return true, idx + 1
 }
 
 // applyColorCode parses a color spec at input[i:] and returns the new index.
