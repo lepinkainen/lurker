@@ -104,3 +104,8 @@ func sendMessage(ctx context.Context, conn *websocket.Conn, bufferID uuid.UUID, 
 		"content":   content,
 	})
 }
+
+// sendWSCmd sends an arbitrary command payload over the websocket.
+func sendWSCmd(ctx context.Context, conn *websocket.Conn, cmd map[string]any) error {
+	return wsjson.Write(ctx, conn, cmd)
+}

@@ -26,23 +26,36 @@ type bufferDTO struct {
 	Topic      string    `json:"topic"`
 	Joined     bool      `json:"joined"`
 	LastSeenID uuid.UUID `json:"last_seen_id"`
+	Unread     int       `json:"unread"`
+	Mentions   int       `json:"mentions"`
 }
 
 type messageDTO struct {
-	ID        uuid.UUID `json:"id"`
-	NetworkID uuid.UUID `json:"network_id"`
-	BufferID  uuid.UUID `json:"buffer_id"`
-	TS        string    `json:"ts"`
-	Sender    string    `json:"sender"`
-	Kind      string    `json:"kind"`
-	Target    string    `json:"target"`
-	Content   string    `json:"content"`
+	ID             uuid.UUID `json:"id"`
+	NetworkID      uuid.UUID `json:"network_id"`
+	BufferID       uuid.UUID `json:"buffer_id"`
+	TS             string    `json:"ts"`
+	Sender         string    `json:"sender"`
+	Kind           string    `json:"kind"`
+	Target         string    `json:"target"`
+	Content        string    `json:"content"`
+	MentionsMe     bool      `json:"mentions_me"`
+	CountsAsUnread bool      `json:"counts_as_unread"`
+}
+
+type channelMember struct {
+	Nick     string `json:"nick"`
+	Prefix   string `json:"prefix"`
+	Realname string `json:"realname"`
+	Away     bool   `json:"away"`
+	Self     bool   `json:"self"`
 }
 
 type stateResponse struct {
-	Networks        []networkDTO            `json:"networks"`
-	Buffers         []bufferDTO             `json:"buffers"`
-	InitialMessages map[string][]messageDTO `json:"initial_messages"`
+	Networks        []networkDTO               `json:"networks"`
+	Buffers         []bufferDTO                `json:"buffers"`
+	InitialMessages map[string][]messageDTO    `json:"initial_messages"`
+	Members         map[string][]channelMember `json:"members"`
 }
 
 // wsEvent is a union of all event shapes from /api/stream.
@@ -50,22 +63,33 @@ type stateResponse struct {
 type wsEvent struct {
 	Type string `json:"type"`
 	// message
-	ID        uuid.UUID `json:"id"`
-	NetworkID uuid.UUID `json:"network_id"`
-	BufferID  uuid.UUID `json:"buffer_id"`
-	TS        string    `json:"ts"`
-	Sender    string    `json:"sender"`
-	Kind      string    `json:"kind"`
-	Target    string    `json:"target"`
-	Content   string    `json:"content"`
+	ID             uuid.UUID `json:"id"`
+	NetworkID      uuid.UUID `json:"network_id"`
+	BufferID       uuid.UUID `json:"buffer_id"`
+	TS             string    `json:"ts"`
+	Sender         string    `json:"sender"`
+	Kind           string    `json:"kind"`
+	Target         string    `json:"target"`
+	Content        string    `json:"content"`
+	MentionsMe     bool      `json:"mentions_me"`
+	CountsAsUnread bool      `json:"counts_as_unread"`
 	// buffer_update
-	Topic  string `json:"topic"`
-	Joined bool   `json:"joined"`
+	Topic      string    `json:"topic"`
+	Joined     bool      `json:"joined"`
+	LastSeenID uuid.UUID `json:"last_seen_id"`
+	Unread     int       `json:"unread"`
+	Mentions   int       `json:"mentions"`
 	// network_state
 	State string `json:"state"`
 	// buffer_created
 	Name      string `json:"name"`
 	CreatedAt string `json:"created_at"`
+	// member_list
+	Channel string          `json:"channel"`
+	Members []channelMember `json:"members"`
+	// history_result
+	ReqID    string       `json:"req_id"`
+	Messages []messageDTO `json:"messages"`
 }
 
 // tea messages
