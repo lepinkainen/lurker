@@ -10,12 +10,16 @@ import (
 
 func main() {
 	configPath := flag.String("config", "", "path to tui config YAML (default: ./tui-config.yaml or ~/.config/lurker/tui.yaml)")
+	backendURL := flag.String("url", "", "backend URL (overrides config file)")
 	flag.Parse()
 
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
 		os.Exit(1)
+	}
+	if *backendURL != "" {
+		cfg.BackendURL = *backendURL
 	}
 
 	p := tea.NewProgram(newModel(cfg), tea.WithAltScreen())
