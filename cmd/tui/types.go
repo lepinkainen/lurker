@@ -101,6 +101,15 @@ type wsEvent struct {
 	// history_result
 	ReqID    string       `json:"req_id"`
 	Messages []messageDTO `json:"messages"`
+	// channel_list (streamed; final batch has Done=true)
+	Entries []channelListEntry `json:"entries"`
+	Done    bool               `json:"done"`
+}
+
+type channelListEntry struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+	Topic string `json:"topic"`
 }
 
 // tea messages

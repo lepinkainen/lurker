@@ -84,6 +84,9 @@ type model struct {
 	historyLoading map[uuid.UUID]bool
 	historyExhaust map[uuid.UUID]bool
 
+	// /list result accumulator: per-network until channel_list Done=true.
+	channelList map[uuid.UUID][]channelListEntry
+
 	status  string
 	loading bool
 }
@@ -113,6 +116,7 @@ func newModel(cfg *Config) model {
 		historyIdx:     -1,
 		historyLoading: make(map[uuid.UUID]bool),
 		historyExhaust: make(map[uuid.UUID]bool),
+		channelList:    make(map[uuid.UUID][]channelListEntry),
 	}
 }
 
@@ -728,7 +732,29 @@ func (m *model) handleWSEvent(ev wsEvent) {
 		}
 	case "history_result":
 		m.applyHistoryResult(ev)
+	case "channel_list":
+		m.applyChannelList(ev)
 	}
+}
+
+func (m *model) applyChannelList(ev wsEvent) {
+	if ev.NetworkID == uuid.Nil {
+		return
+	}
+	m.channelList[ev.NetworkID] = append(m.channelList[ev.NetworkID], ev.Entries...)
+	if !ev.Done {
+		return
+	}
+	entries := m.channelList[ev.NetworkID]
+	delete(m.channelList, ev.NetworkID)
+	netName := ""
+	for _, n := range m.networks {
+		if n.ID == ev.NetworkID {
+			netName = n.Name
+			break
+		}
+	}
+	m.status = fmt.Sprintf("/list %s: %d channels", netName, len(entries))
 }
 
 func (m *model) applyMessageEvent(ev wsEvent) {
