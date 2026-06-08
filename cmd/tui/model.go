@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+	"github.com/lepinkainen/lurker/irc"
 )
 
 // layout constants
@@ -590,6 +591,9 @@ func (m *model) applyState(s *stateResponse) {
 		if err != nil {
 			continue
 		}
+		for i := range msgs {
+			msgs[i].TSParsed, _ = time.Parse(time.RFC3339Nano, msgs[i].TS)
+		}
 		m.messages[id] = msgs
 	}
 	for key, mems := range s.Members {
@@ -687,6 +691,8 @@ func (m *model) handleWSEvent(ev wsEvent) {
 		m.applyMessageEvent(ev)
 	case "buffer_update":
 		m.applyBufferUpdate(ev)
+	case "buffer_settings":
+		m.applyBufferSettings(ev)
 	case "network_state":
 		m.networkStates[ev.NetworkID] = ev.State
 	case "buffer_created":
@@ -704,10 +710,12 @@ func (m *model) handleWSEvent(ev wsEvent) {
 }
 
 func (m *model) applyMessageEvent(ev wsEvent) {
+	parsed, _ := time.Parse(time.RFC3339Nano, ev.TS)
 	msg := messageDTO{
 		ID: ev.ID, NetworkID: ev.NetworkID, BufferID: ev.BufferID,
 		TS: ev.TS, Sender: ev.Sender, Kind: ev.Kind, Target: ev.Target, Content: ev.Content,
 		MentionsMe: ev.MentionsMe, CountsAsUnread: ev.CountsAsUnread,
+		TSParsed: parsed,
 	}
 	atBottom := m.viewport.AtBottom()
 	m.messages[ev.BufferID] = append(m.messages[ev.BufferID], msg)
@@ -751,12 +759,31 @@ func (m *model) applyBufferUpdate(ev wsEvent) {
 	}
 }
 
+func (m *model) applyBufferSettings(ev wsEvent) {
+	bufID := ev.ID
+	for i := range m.buffers {
+		if m.buffers[i].ID != bufID {
+			continue
+		}
+		m.buffers[i].ShowPresenceEvents = ev.ShowPresenceEvents
+		m.buffers[i].CollapsePresenceEvents = ev.CollapsePresenceEvents
+		if m.activeBuffer != nil && m.activeBuffer.ID == bufID {
+			m.activeBuffer = &m.buffers[i]
+			m.refreshViewport()
+		}
+		return
+	}
+}
+
 func (m *model) applyHistoryResult(ev wsEvent) {
 	bufID := ev.BufferID
 	m.historyLoading[bufID] = false
 	if len(ev.Messages) == 0 {
 		m.historyExhaust[bufID] = true
 		return
+	}
+	for i := range ev.Messages {
+		ev.Messages[i].TSParsed, _ = time.Parse(time.RFC3339Nano, ev.Messages[i].TS)
 	}
 	existing := m.messages[bufID]
 	combined := make([]messageDTO, 0, len(ev.Messages)+len(existing))
@@ -815,25 +842,122 @@ func (m *model) refreshViewport() {
 	}
 
 	var sb strings.Builder
-	for _, msg := range msgs {
-		sb.WriteString(formatMessage(msg, ownNick))
+	for _, line := range groupAndFormatMessages(msgs, ownNick, m.activeBuffer) {
+		sb.WriteString(line)
 		sb.WriteByte('\n')
 	}
 	m.viewport.SetContent(sb.String())
+}
+
+// groupAndFormatMessages renders a buffer slice with netsplit collapsing.
+// Plain (non-presence) messages render individually; runs of presence
+// events are passed through irc.GroupPresence so netsplits become a single
+// summary line. Status buffers always render raw to preserve debug visibility
+// of server numerics and unfanned QUITs. Channel buffers honor
+// show/collapse_presence_events flags from buffer settings.
+func groupAndFormatMessages(msgs []messageDTO, ownNick string, buf *bufferDTO) []string {
+	showPresence, collapse := presenceMode(buf)
+	var out []string
+	if !collapse {
+		for _, msg := range msgs {
+			if !showPresence && isPresenceKind(msg.Kind) {
+				continue
+			}
+			out = append(out, formatMessage(msg, ownNick))
+		}
+		return out
+	}
+	var run []messageDTO
+	flush := func() {
+		if len(run) > 0 {
+			out = append(out, flushPresenceRun(run, ownNick)...)
+			run = run[:0]
+		}
+	}
+	for _, msg := range msgs {
+		if isPresenceKind(msg.Kind) {
+			if !showPresence {
+				continue
+			}
+			run = append(run, msg)
+			continue
+		}
+		flush()
+		out = append(out, formatMessage(msg, ownNick))
+	}
+	flush()
+	return out
+}
+
+// presenceMode returns (showPresence, collapseAndGroup). Status buffers
+// always render raw; non-status buffers obey their settings (defaulting to
+// show=true, collapse=false to match backend defaults).
+func presenceMode(buf *bufferDTO) (show, collapse bool) {
+	if buf == nil || buf.Kind == "status" {
+		return true, false
+	}
+	return buf.ShowPresenceEvents, buf.CollapsePresenceEvents
+}
+
+func flushPresenceRun(run []messageDTO, ownNick string) []string {
+	entries := make([]irc.PresenceEntry, 0, len(run))
+	idxByID := make(map[string]int, len(run))
+	for i, m := range run {
+		entries = append(entries, irc.PresenceEntry{
+			ID: m.ID.String(), Kind: m.Kind, Sender: m.Sender, Content: m.Content, TS: m.TSParsed,
+		})
+		idxByID[m.ID.String()] = i
+	}
+	var out []string
+	for _, g := range irc.GroupPresence(entries) {
+		if g.Netsplit != nil {
+			out = append(out, formatNetsplit(g.Netsplit))
+			continue
+		}
+		for _, p := range g.Plain {
+			if i, ok := idxByID[p.ID]; ok {
+				out = append(out, formatMessage(run[i], ownNick))
+			}
+		}
+	}
+	return out
+}
+
+func isPresenceKind(kind string) bool { return irc.IsPresenceKind(kind) }
+
+func formatNetsplit(ns *irc.NetsplitGroup) string {
+	ts := styleTimestamp.Render(formatTSTime(ns.SplitTS))
+	rejoined := len(ns.Rejoins)
+	lost := max(len(ns.Quits)-rejoined, 0)
+	body := fmt.Sprintf("↮ %s ⇎ %s · %d split (rejoined %d, lost %d)",
+		ns.ServerA, ns.ServerB, len(ns.Quits), rejoined, lost)
+	return ts + " " + styleAction.Render(body)
+}
+
+func formatTSTime(t time.Time) string {
+	if t.IsZero() {
+		return "[??:??]"
+	}
+	return t.Local().Format("[15:04]")
 }
 
 func formatMessage(m messageDTO, ownNick string) string {
 	ts := styleTimestamp.Render(formatTS(m.TS))
 	isSelf := m.Sender != "" && strings.EqualFold(m.Sender, ownNick)
 	content := mircFormat(m.Content)
+	// action prepends the timestamp outside any style wrap so styleAction's
+	// italic only applies to the event body itself.
+	action := func(body string) string {
+		return ts + " " + styleAction.Render(body)
+	}
 
 	switch m.Kind {
 	case "action":
-		line := fmt.Sprintf("%s * %s %s", ts, m.Sender, content)
+		body := fmt.Sprintf("* %s %s", m.Sender, content)
 		if m.MentionsMe && !isSelf {
-			return styleMentionLine.Render(line)
+			return ts + " " + styleMentionLine.Render(body)
 		}
-		return styleAction.Render(line)
+		return action(body)
 	case "privmsg", "message":
 		sender := styledSender(m.Sender, isSelf)
 		line := fmt.Sprintf("%s %s %s", ts, sender, content)
@@ -848,36 +972,36 @@ func formatMessage(m messageDTO, ownNick string) string {
 			Render("-" + m.Sender + "-")
 		return fmt.Sprintf("%s %s %s", ts, sender, content)
 	case "join":
-		return styleAction.Render(fmt.Sprintf("%s → %s joined", ts, m.Sender))
+		return action(fmt.Sprintf("→ %s joined", m.Sender))
 	case "part":
 		if m.Content != "" {
-			return styleAction.Render(fmt.Sprintf("%s ← %s left (%s)", ts, m.Sender, m.Content))
+			return action(fmt.Sprintf("← %s left (%s)", m.Sender, m.Content))
 		}
-		return styleAction.Render(fmt.Sprintf("%s ← %s left", ts, m.Sender))
+		return action(fmt.Sprintf("← %s left", m.Sender))
 	case "quit":
 		if m.Content != "" {
-			return styleAction.Render(fmt.Sprintf("%s ⇠ %s quit (%s)", ts, m.Sender, m.Content))
+			return action(fmt.Sprintf("⇠ %s quit (%s)", m.Sender, m.Content))
 		}
-		return styleAction.Render(fmt.Sprintf("%s ⇠ %s quit", ts, m.Sender))
+		return action(fmt.Sprintf("⇠ %s quit", m.Sender))
 	case "nick":
-		return styleAction.Render(fmt.Sprintf("%s — %s is now %s", ts, m.Sender, m.Target))
+		return action(fmt.Sprintf("— %s is now %s", m.Sender, m.Target))
 	case "kick":
-		return styleAction.Render(fmt.Sprintf("%s ⛔ %s kicked %s (%s)", ts, m.Sender, m.Target, m.Content))
+		return action(fmt.Sprintf("⛔ %s kicked %s (%s)", m.Sender, m.Target, m.Content))
 	case "mode":
-		return styleAction.Render(fmt.Sprintf("%s ⚙ %s set mode %s %s", ts, m.Sender, m.Target, m.Content))
+		return action(fmt.Sprintf("⚙ %s set mode %s %s", m.Sender, m.Target, m.Content))
 	case "topic":
-		return styleAction.Render(fmt.Sprintf("%s 📌 %s set topic: %s", ts, m.Sender, content))
+		return action(fmt.Sprintf("📌 %s set topic: %s", m.Sender, content))
 	case "invite":
-		return styleAction.Render(fmt.Sprintf("%s ✉ %s invited to %s", ts, m.Sender, m.Target))
+		return action(fmt.Sprintf("✉ %s invited to %s", m.Sender, m.Target))
 	case "away":
 		if m.Content != "" {
-			return styleAction.Render(fmt.Sprintf("%s 💤 %s is away (%s)", ts, m.Target, content))
+			return action(fmt.Sprintf("💤 %s is away (%s)", m.Target, content))
 		}
-		return styleAction.Render(fmt.Sprintf("%s 💤 %s is away", ts, m.Target))
+		return action(fmt.Sprintf("💤 %s is away", m.Target))
 	case "back":
-		return styleAction.Render(fmt.Sprintf("%s ☀ %s is back", ts, m.Target))
+		return action(fmt.Sprintf("☀ %s is back", m.Target))
 	case "ctcp":
-		return styleAction.Render(fmt.Sprintf("%s [CTCP %s] %s", ts, m.Sender, content))
+		return action(fmt.Sprintf("[CTCP %s] %s", m.Sender, content))
 	default:
 		if m.Sender != "" {
 			return fmt.Sprintf("%s [%s] %s %s", ts, m.Kind, m.Sender, content)

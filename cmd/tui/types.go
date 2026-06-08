@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
@@ -19,15 +20,17 @@ type networkDTO struct {
 }
 
 type bufferDTO struct {
-	ID         uuid.UUID `json:"id"`
-	NetworkID  uuid.UUID `json:"network_id"`
-	Name       string    `json:"name"`
-	Kind       string    `json:"kind"`
-	Topic      string    `json:"topic"`
-	Joined     bool      `json:"joined"`
-	LastSeenID uuid.UUID `json:"last_seen_id"`
-	Unread     int       `json:"unread"`
-	Mentions   int       `json:"mentions"`
+	ID                     uuid.UUID `json:"id"`
+	NetworkID              uuid.UUID `json:"network_id"`
+	Name                   string    `json:"name"`
+	Kind                   string    `json:"kind"`
+	Topic                  string    `json:"topic"`
+	Joined                 bool      `json:"joined"`
+	LastSeenID             uuid.UUID `json:"last_seen_id"`
+	Unread                 int       `json:"unread"`
+	Mentions               int       `json:"mentions"`
+	ShowPresenceEvents     bool      `json:"show_presence_events"`
+	CollapsePresenceEvents bool      `json:"collapse_presence_events"`
 }
 
 type messageDTO struct {
@@ -41,6 +44,9 @@ type messageDTO struct {
 	Content        string    `json:"content"`
 	MentionsMe     bool      `json:"mentions_me"`
 	CountsAsUnread bool      `json:"counts_as_unread"`
+	// parsed-once cache: TS is RFC3339Nano. Parsing it on every viewport
+	// refresh is wasted work — refreshViewport fires on every WS message.
+	TSParsed time.Time `json:"-"`
 }
 
 type channelMember struct {
@@ -79,6 +85,11 @@ type wsEvent struct {
 	LastSeenID uuid.UUID `json:"last_seen_id"`
 	Unread     int       `json:"unread"`
 	Mentions   int       `json:"mentions"`
+	// buffer_settings
+	ShowEmbeds             bool `json:"show_embeds"`
+	ShowPresenceEvents     bool `json:"show_presence_events"`
+	CollapsePresenceEvents bool `json:"collapse_presence_events"`
+	Pinned                 bool `json:"pinned"`
 	// network_state
 	State string `json:"state"`
 	// buffer_created
