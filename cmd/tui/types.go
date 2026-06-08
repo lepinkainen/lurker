@@ -31,6 +31,7 @@ type bufferDTO struct {
 	Mentions               int       `json:"mentions"`
 	ShowPresenceEvents     bool      `json:"show_presence_events"`
 	CollapsePresenceEvents bool      `json:"collapse_presence_events"`
+	Pinned                 bool      `json:"pinned"`
 }
 
 type messageDTO struct {

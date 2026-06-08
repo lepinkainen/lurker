@@ -36,17 +36,18 @@ type model struct {
 	cfg    *Config
 	client *apiClient
 
-	networks      []networkDTO
-	buffers       []bufferDTO
-	networkStates map[uuid.UUID]string          // network_id -> state string
-	messages      map[uuid.UUID][]messageDTO    // buffer_id -> messages
-	topics        map[uuid.UUID]string          // buffer_id -> topic
-	members       map[uuid.UUID][]channelMember // buffer_id -> members
-	unread        map[uuid.UUID]int             // buffer_id -> unread count (client-side accumulated)
-	mentions      map[uuid.UUID]int             // buffer_id -> mention count
-	sidebarItems  []sidebarItem
-	sidebarSel    int
-	activeBuffer  *bufferDTO
+	networks            []networkDTO
+	buffers             []bufferDTO
+	networkStates       map[uuid.UUID]string          // network_id -> state string
+	messages            map[uuid.UUID][]messageDTO    // buffer_id -> messages
+	topics              map[uuid.UUID]string          // buffer_id -> topic
+	members             map[uuid.UUID][]channelMember // buffer_id -> members
+	unread              map[uuid.UUID]int             // buffer_id -> unread count (client-side accumulated)
+	mentions            map[uuid.UUID]int             // buffer_id -> mention count
+	sidebarItems        []sidebarItem
+	sidebarSel          int
+	activeBuffer        *bufferDTO
+	lastPersistedBuffer uuid.UUID
 
 	viewport viewport.Model
 	input    textarea.Model
@@ -656,8 +657,64 @@ func (m *model) applyState(s *stateResponse) {
 	}
 	m.rebuildSidebar()
 	if len(m.sidebarItems) > 0 {
+		m.selectStartupBuffer()
 		m.activateSidebarSel()
 	}
+}
+
+func (m *model) selectStartupBuffer() {
+	var initial uuid.UUID
+	if m.activeBuffer != nil {
+		initial = m.activeBuffer.ID
+	} else {
+		persisted := loadPersistedBufferID()
+		m.lastPersistedBuffer = persisted
+		initial = pickStartupBuffer(m.networks, m.buffers, persisted)
+	}
+	if initial == uuid.Nil {
+		return
+	}
+	for i, item := range m.sidebarItems {
+		if !item.isHeader && item.bufferID == initial {
+			m.sidebarSel = i
+			return
+		}
+	}
+}
+
+func (m *model) pinnedSidebarItems() []sidebarItem {
+	netOrder := make(map[uuid.UUID]int, len(m.networks))
+	enabled := make(map[uuid.UUID]bool, len(m.networks))
+	for i, n := range m.networks {
+		netOrder[n.ID] = i
+		enabled[n.ID] = !n.Disabled
+	}
+	pinned := []bufferDTO{}
+	for _, b := range m.buffers {
+		if b.Kind == "channel" && b.Pinned && enabled[b.NetworkID] {
+			pinned = append(pinned, b)
+		}
+	}
+	if len(pinned) == 0 {
+		return nil
+	}
+	sort.Slice(pinned, func(i, j int) bool {
+		ni, nj := netOrder[pinned[i].NetworkID], netOrder[pinned[j].NetworkID]
+		if ni != nj {
+			return ni < nj
+		}
+		return strings.ToLower(pinned[i].Name) < strings.ToLower(pinned[j].Name)
+	})
+	items := make([]sidebarItem, 0, len(pinned)+1)
+	items = append(items, sidebarItem{label: "⚑ Pinned", isHeader: true})
+	for _, b := range pinned {
+		items = append(items, sidebarItem{
+			label:     "⚑ " + b.Name,
+			bufferID:  b.ID,
+			networkID: b.NetworkID,
+		})
+	}
+	return items
 }
 
 func (m *model) rebuildSidebar() {
@@ -667,6 +724,7 @@ func (m *model) rebuildSidebar() {
 	}
 
 	items := []sidebarItem{}
+	items = append(items, m.pinnedSidebarItems()...)
 	for _, n := range m.networks {
 		if n.Disabled {
 			continue
@@ -731,6 +789,11 @@ func (m *model) activateSidebarSel() {
 	if m.activeBuffer != nil {
 		m.unread[m.activeBuffer.ID] = 0
 		m.mentions[m.activeBuffer.ID] = 0
+		if m.activeBuffer.ID != m.lastPersistedBuffer {
+			if err := savePersistedBufferID(m.activeBuffer.ID); err == nil {
+				m.lastPersistedBuffer = m.activeBuffer.ID
+			}
+		}
 	}
 	m.refreshViewport()
 	m.viewport.GotoBottom()
