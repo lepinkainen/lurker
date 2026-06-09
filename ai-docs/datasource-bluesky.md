@@ -19,13 +19,14 @@ For the cross-cutting `DataSource` abstraction shared by all non-IRC sources, se
 | Notifications (`app.bsky.notification.listNotifications`) | One channel buffer named `#notifications`. |
 | Saved/list feed (`app.bsky.feed.getListFeed`, `app.bsky.feed.getFeed`) | Optional channel buffer per configured feed/list URI, named `#feed:<short-name>`. |
 | Post (`app.bsky.feed.defs#feedViewPost`) | One row via `datasource.IngestPost` → `db.InsertLogMessage` + `MessageEvent`. |
-| `post.author.handle` | `MessageEvent.Sender`. |
-| `post.author.did` | `MessageEvent.Account`. |
-| `record.text` (+ extracted embed URLs joined with space) | `MessageEvent.Content`. |
+| `post.author.displayName` (falls back to `post.author.handle`) | `MessageEvent.Sender`. The display name reads better than the raw handle; the handle is the fallback when no display name is set. |
+| `post.author.did` | `MessageEvent.Account` (stable identifier, unaffected by the display-name label). |
+| `record.text` (+ embed render tokens joined with space) | `MessageEvent.Content`. See [Embeds](#embeds). |
 | `post.uri` | `MessageEvent.MsgID` / `datasource.Post.ExternalID` (dedupe key). |
 | `post.indexedAt` | `MessageEvent.TS`. |
-| Reposts | Sender is original `post.author.handle`; `Content` is prefixed with `[RT by <reposter>] `. |
-| Replies | Top-level only in `#home`. Append a parent post link when available; do not render a thread tree in MVP. |
+| Reposts | Sender is the original author's display name/handle; `Content` is prefixed with `[RT by <reposter>] ` (reposter display name/handle). |
+| Replies | Top-level only in `#home`. Append an inline parent snippet `(re: <name>: "<text…>")` so the replied-to context is visible at a glance; falls back to the raw `at://` URI when the parent cannot be resolved. Do not render a thread tree in MVP. |
+| Quote posts | Append an inline snippet of the quoted post `(quoting <name>: "<text…>")`. The quoted record is always embedded in the timeline view (`embed.record`), so no extra fetch is needed. |
 
 `MessageEvent.Kind` is set to `"privmsg"` for posts. Status/system messages such as auth failure, rate limiting, or repeated refresh failure go to the status buffer with `Kind="notice"`.
 
@@ -86,6 +87,67 @@ Restart behavior:
 - On restart, fetch newest page for each configured channel.
 - Existing messages are ignored by `(buffer_id, msgid)` dedupe.
 - New messages missed while offline are ingested if still present in the newest page. Deep gap-fill/backfill is deferred.
+
+## Reply parent resolution
+
+Replies carry their parent post's `at://` URI in `record.reply.parent`. To make
+the buffer readable without clicking out of the app, each reply inlines a short
+parent snippet instead of the bare URI.
+
+Resolution is per-poll and best-effort, in priority order:
+
+1. **Inline feed context (free)** — `app.bsky.feed.getTimeline` already embeds
+   the full parent `PostView` under `feedViewPost.reply.parent` when it is
+   visible. Use it directly; no extra request. `notFound`/`blocked` parents
+   decode to a stub with only `uri` set and are skipped.
+2. **Batched hydration** — remaining parent URIs are fetched via
+   `app.bsky.feed.getPosts` (max 25 URIs/call, so chunk). Missing/blocked posts
+   are simply absent from the response.
+3. **Fallback** — anything still unresolved renders as the raw `at://` URI, so
+   context is never silently dropped.
+
+Resolved parents are held in a small per-channel FIFO cache (~500 entries,
+keyed by parent URI) so a parent is hydrated once and reused across sibling
+replies and subsequent polls. The cache is owned by the single channel
+goroutine and is not safe for concurrent use. Snippet text is whitespace-
+collapsed and truncated to ~100 runes with an ellipsis.
+
+## Embeds
+
+`renderEmbed` turns a post's `embed` into the tokens appended to its text. It
+emits the previewable URLs (so the shared preview pipeline can attach cards and
+images) interleaved with the human context ATProto already ships for free — no
+extra requests:
+
+- **External cards** — the link URL plus the card `title` in quotes, so the
+  reader sees what a link is even before (or without) the OG preview resolving.
+- **Images** — the `fullsize` (or `thumb`) URL plus the image `alt` text as
+  `[image: <alt>]` when present.
+- **Video** (`app.bsky.embed.video#view`) — the poster `thumbnail` URL plus
+  `[video: <alt>]` (or a bare `[video]` marker). Without this, video posts
+  surfaced as text-only with no indication a video existed.
+- **Record-with-media** (`recordWithMedia#view`) — the media half is walked
+  recursively via `embed.media`; the quoted record half is handled by
+  `quotedPost` (see [Quote posts](#quote-posts)).
+
+Alt text and titles are whitespace-collapsed (newlines flattened) so a token
+stays on one line. Non-post embed union members are skipped.
+
+## Quote posts
+
+A quote post embeds the quoted record directly in the timeline view, so unlike
+reply parents it needs **no extra request**. The embed shape depends on `$type`:
+
+- `app.bsky.embed.record#view` — `embed.record` is the quoted `viewRecord`
+  (`author`, `value.text`).
+- `app.bsky.embed.recordWithMedia#view` — `embed.record` wraps the `viewRecord`
+  one level deeper, and `embed.media` carries the images/external card (already
+  walked by `renderEmbed`). The quote extractor unwraps the nesting.
+
+The quoted post renders inline as `(quoting <name>: "<text…>")`, using the
+same whitespace-collapse/truncation as reply snippets. Non-post union members
+(`viewNotFound`, `viewBlocked`, `viewDetached`, feed generators, lists, starter
+packs) decode with empty author/value and are skipped.
 
 ## Configuration
 

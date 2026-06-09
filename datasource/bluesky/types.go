@@ -23,9 +23,19 @@ type FeedResponse struct {
 
 // FeedItem is one entry in a timeline page.
 type FeedItem struct {
-	Post   PostView    `json:"post"`
-	Reason *FeedReason `json:"reason,omitempty"`
-	Reply  *ReplyRef   `json:"reply,omitempty"`
+	Post   PostView      `json:"post"`
+	Reason *FeedReason   `json:"reason,omitempty"`
+	Reply  *FeedReplyRef `json:"reply,omitempty"`
+}
+
+// FeedReplyRef is the feed-level reply context. Unlike the record-level
+// ReplyRef (which carries only uri/cid strong refs), the timeline embeds the
+// full parent/root PostViews when they are visible, letting us render a quote
+// snippet without a separate fetch. A parent that is not found, blocked, or
+// otherwise unhydrated decodes into a PostView with only URI populated.
+type FeedReplyRef struct {
+	Root   *PostView `json:"root,omitempty"`
+	Parent *PostView `json:"parent,omitempty"`
 }
 
 // PostView is the public view of a single post.
@@ -72,14 +82,18 @@ type FeedReason struct {
 	By   Actor  `json:"by"`
 }
 
-// Embed is the union of embedded content kinds we care about for previews.
-// All fields optional; presence depends on $type.
+// Embed is the union of embedded content kinds we care about. All fields
+// optional; presence depends on $type. Video views (app.bsky.embed.video#view)
+// carry playlist/thumbnail/alt at the top level rather than under a nested key.
 type Embed struct {
-	Type     string         `json:"$type,omitempty"`
-	External *EmbedExternal `json:"external,omitempty"`
-	Images   []EmbedImage   `json:"images,omitempty"`
-	Media    *Embed         `json:"media,omitempty"` // embeds with record+media wrap a nested embed
-	Record   *EmbedRecord   `json:"record,omitempty"`
+	Type      string         `json:"$type,omitempty"`
+	External  *EmbedExternal `json:"external,omitempty"`
+	Images    []EmbedImage   `json:"images,omitempty"`
+	Playlist  string         `json:"playlist,omitempty"`  // video#view: m3u8
+	Thumbnail string         `json:"thumbnail,omitempty"` // video#view: poster image
+	Alt       string         `json:"alt,omitempty"`       // video#view alt text
+	Media     *Embed         `json:"media,omitempty"`     // recordWithMedia wraps a nested embed
+	Record    *EmbedRecord   `json:"record,omitempty"`
 }
 
 // EmbedExternal is an OG card.
@@ -102,7 +116,16 @@ type EmbedImageRef struct {
 	MimeType string `json:"mimeType,omitempty"`
 }
 
-// EmbedRecord is a quote post.
+// EmbedRecord models the `record` field of a quote embed. For a plain quote
+// (app.bsky.embed.record#view) it is the quoted post directly: Author and
+// Value (the app.bsky.feed.post record) are populated. For a
+// record-with-media embed the quoted post sits one level deeper under Record.
+// Non-post union members (viewNotFound, viewBlocked, viewDetached, feed
+// generators, lists, starter packs) leave Author/Value empty and are skipped.
 type EmbedRecord struct {
-	Record *PostView `json:"record,omitempty"`
+	Type   string       `json:"$type,omitempty"`
+	URI    string       `json:"uri,omitempty"`
+	Author Actor        `json:"author,omitempty"`
+	Value  *Record      `json:"value,omitempty"`
+	Record *EmbedRecord `json:"record,omitempty"`
 }
