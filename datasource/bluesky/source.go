@@ -332,6 +332,12 @@ func mapFeedItem(item FeedItem, resolveParent func(uri string) (parentRef, bool)
 		content += " " + renderParent(uri, resolveParent)
 	}
 
+	if q, ok := quotedPost(p.Embed); ok {
+		if r := renderQuote(q); r != "" {
+			content += " " + r
+		}
+	}
+
 	ts := parseATTimestamp(p.IndexedAt)
 	return datasource.Post{
 		MsgID:     p.URI,
@@ -387,6 +393,46 @@ func renderParent(uri string, resolve func(uri string) (parentRef, bool)) string
 		}
 	}
 	return "(re: " + uri + ")"
+}
+
+// renderQuote formats the inline quote-post reference, e.g.
+// `(quoting @alice.bsky.social: "the quoted text…")`. Returns "" when there is
+// nothing to show.
+func renderQuote(q parentRef) string {
+	snippet := truncateSnippet(q.text, parentSnippetLen)
+	switch {
+	case q.handle != "" && snippet != "":
+		return "(quoting @" + q.handle + ": \"" + snippet + "\")"
+	case q.handle != "":
+		return "(quoting @" + q.handle + ")"
+	case snippet != "":
+		return "(quoting \"" + snippet + "\")"
+	default:
+		return ""
+	}
+}
+
+// quotedPost extracts the quoted post (handle + text) from an embed, or false
+// when the embed is not a quote or the quoted record is unhydrated. The quoted
+// post is always carried inline by the timeline, so no fetch is needed. Handles
+// both app.bsky.embed.record#view (quote directly under Record) and the record
+// half of recordWithMedia#view (quote nested one level deeper).
+func quotedPost(e *Embed) (parentRef, bool) {
+	if e == nil {
+		return parentRef{}, false
+	}
+	// The loop bound guards against a malformed/cyclic nesting; in practice
+	// recordWithMedia nests at most one level.
+	for rec, i := e.Record, 0; rec != nil && i < 4; rec, i = rec.Record, i+1 {
+		text := ""
+		if rec.Value != nil {
+			text = rec.Value.Text
+		}
+		if rec.Author.Handle != "" || text != "" {
+			return parentRef{handle: rec.Author.Handle, text: text}, true
+		}
+	}
+	return parentRef{}, false
 }
 
 // truncateSnippet collapses whitespace and trims s to at most max runes,

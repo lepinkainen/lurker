@@ -115,6 +115,69 @@ func TestMapFeedItemReplyRendersResolvedSnippet(t *testing.T) {
 	}
 }
 
+func TestMapFeedItemQuotePost(t *testing.T) {
+	// Plain quote: app.bsky.embed.record#view carries the quoted post directly.
+	item := FeedItem{
+		Post: PostView{
+			URI:    "at://did:plc:abc/app.bsky.feed.post/4",
+			Author: Actor{Handle: "alice.bsky.social"},
+			Record: Record{Text: "look at this"},
+			Embed: &Embed{
+				Type: "app.bsky.embed.record#view",
+				Record: &EmbedRecord{
+					Type:   "app.bsky.embed.record#viewRecord",
+					URI:    "at://did:plc:xyz/app.bsky.feed.post/q",
+					Author: Actor{Handle: "carol.bsky.social"},
+					Value:  &Record{Text: "the quoted hot take"},
+				},
+			},
+		},
+	}
+	post := mapFeedItem(item, nil)
+	want := "look at this (quoting @carol.bsky.social: \"the quoted hot take\")"
+	if post.Content != want {
+		t.Fatalf("content = %q, want %q", post.Content, want)
+	}
+}
+
+func TestQuotedPost(t *testing.T) {
+	// recordWithMedia#view nests the quoted viewRecord one level deeper, and
+	// the media (images/external) is collected separately via Media.
+	rwm := &Embed{
+		Type: "app.bsky.embed.recordWithMedia#view",
+		Record: &EmbedRecord{
+			Type: "app.bsky.embed.record#view",
+			Record: &EmbedRecord{
+				Type:   "app.bsky.embed.record#viewRecord",
+				Author: Actor{Handle: "dave.bsky.social"},
+				Value:  &Record{Text: "nested quote"},
+			},
+		},
+		Media: &Embed{External: &EmbedExternal{URI: "https://example.com/y"}},
+	}
+	q, ok := quotedPost(rwm)
+	if !ok || q.handle != "dave.bsky.social" || q.text != "nested quote" {
+		t.Fatalf("quoted = %+v ok=%v", q, ok)
+	}
+	if urls := collectEmbedURLs(rwm); len(urls) != 1 || urls[0] != "https://example.com/y" {
+		t.Fatalf("media urls = %v", urls)
+	}
+
+	// notFound/blocked/feed-generator stubs leave Author and Value empty.
+	stub := &Embed{Record: &EmbedRecord{Type: "app.bsky.embed.record#viewNotFound", URI: "at://x"}}
+	if _, ok := quotedPost(stub); ok {
+		t.Fatal("expected unhydrated quote stub to be skipped")
+	}
+
+	// Non-quote embeds yield nothing.
+	if _, ok := quotedPost(&Embed{External: &EmbedExternal{URI: "https://example.com/z"}}); ok {
+		t.Fatal("external embed is not a quote")
+	}
+	if _, ok := quotedPost(nil); ok {
+		t.Fatal("nil embed is not a quote")
+	}
+}
+
 func TestInlineParent(t *testing.T) {
 	uri := "at://did:plc:xyz/app.bsky.feed.post/p"
 	base := func() FeedItem {

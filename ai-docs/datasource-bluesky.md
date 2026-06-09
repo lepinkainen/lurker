@@ -26,6 +26,7 @@ For the cross-cutting `DataSource` abstraction shared by all non-IRC sources, se
 | `post.indexedAt` | `MessageEvent.TS`. |
 | Reposts | Sender is original `post.author.handle`; `Content` is prefixed with `[RT by <reposter>] `. |
 | Replies | Top-level only in `#home`. Append an inline parent snippet `(re: @<handle>: "<text…>")` so the replied-to context is visible at a glance; falls back to the raw `at://` URI when the parent cannot be resolved. Do not render a thread tree in MVP. |
+| Quote posts | Append an inline snippet of the quoted post `(quoting @<handle>: "<text…>")`. The quoted record is always embedded in the timeline view (`embed.record`), so no extra fetch is needed. |
 
 `MessageEvent.Kind` is set to `"privmsg"` for posts. Status/system messages such as auth failure, rate limiting, or repeated refresh failure go to the status buffer with `Kind="notice"`.
 
@@ -110,6 +111,22 @@ keyed by parent URI) so a parent is hydrated once and reused across sibling
 replies and subsequent polls. The cache is owned by the single channel
 goroutine and is not safe for concurrent use. Snippet text is whitespace-
 collapsed and truncated to ~100 runes with an ellipsis.
+
+## Quote posts
+
+A quote post embeds the quoted record directly in the timeline view, so unlike
+reply parents it needs **no extra request**. The embed shape depends on `$type`:
+
+- `app.bsky.embed.record#view` — `embed.record` is the quoted `viewRecord`
+  (`author`, `value.text`).
+- `app.bsky.embed.recordWithMedia#view` — `embed.record` wraps the `viewRecord`
+  one level deeper, and `embed.media` carries the images/external card (already
+  walked by the URL collector). The quote extractor unwraps the nesting.
+
+The quoted post renders inline as `(quoting @<handle>: "<text…>")`, using the
+same whitespace-collapse/truncation as reply snippets. Non-post union members
+(`viewNotFound`, `viewBlocked`, `viewDetached`, feed generators, lists, starter
+packs) decode with empty author/value and are skipped.
 
 ## Configuration
 

@@ -112,7 +112,16 @@ type EmbedImageRef struct {
 	MimeType string `json:"mimeType,omitempty"`
 }
 
-// EmbedRecord is a quote post.
+// EmbedRecord models the `record` field of a quote embed. For a plain quote
+// (app.bsky.embed.record#view) it is the quoted post directly: Author and
+// Value (the app.bsky.feed.post record) are populated. For a
+// record-with-media embed the quoted post sits one level deeper under Record.
+// Non-post union members (viewNotFound, viewBlocked, viewDetached, feed
+// generators, lists, starter packs) leave Author/Value empty and are skipped.
 type EmbedRecord struct {
-	Record *PostView `json:"record,omitempty"`
+	Type   string       `json:"$type,omitempty"`
+	URI    string       `json:"uri,omitempty"`
+	Author Actor        `json:"author,omitempty"`
+	Value  *Record      `json:"value,omitempty"`
+	Record *EmbedRecord `json:"record,omitempty"`
 }
