@@ -19,14 +19,14 @@ For the cross-cutting `DataSource` abstraction shared by all non-IRC sources, se
 | Notifications (`app.bsky.notification.listNotifications`) | One channel buffer named `#notifications`. |
 | Saved/list feed (`app.bsky.feed.getListFeed`, `app.bsky.feed.getFeed`) | Optional channel buffer per configured feed/list URI, named `#feed:<short-name>`. |
 | Post (`app.bsky.feed.defs#feedViewPost`) | One row via `datasource.IngestPost` → `db.InsertLogMessage` + `MessageEvent`. |
-| `post.author.handle` | `MessageEvent.Sender`. |
-| `post.author.did` | `MessageEvent.Account`. |
-| `record.text` (+ extracted embed URLs joined with space) | `MessageEvent.Content`. |
+| `post.author.displayName` (falls back to `post.author.handle`) | `MessageEvent.Sender`. The display name reads better than the raw handle; the handle is the fallback when no display name is set. |
+| `post.author.did` | `MessageEvent.Account` (stable identifier, unaffected by the display-name label). |
+| `record.text` (+ embed render tokens joined with space) | `MessageEvent.Content`. See [Embeds](#embeds). |
 | `post.uri` | `MessageEvent.MsgID` / `datasource.Post.ExternalID` (dedupe key). |
 | `post.indexedAt` | `MessageEvent.TS`. |
-| Reposts | Sender is original `post.author.handle`; `Content` is prefixed with `[RT by <reposter>] `. |
-| Replies | Top-level only in `#home`. Append an inline parent snippet `(re: @<handle>: "<text…>")` so the replied-to context is visible at a glance; falls back to the raw `at://` URI when the parent cannot be resolved. Do not render a thread tree in MVP. |
-| Quote posts | Append an inline snippet of the quoted post `(quoting @<handle>: "<text…>")`. The quoted record is always embedded in the timeline view (`embed.record`), so no extra fetch is needed. |
+| Reposts | Sender is the original author's display name/handle; `Content` is prefixed with `[RT by <reposter>] ` (reposter display name/handle). |
+| Replies | Top-level only in `#home`. Append an inline parent snippet `(re: <name>: "<text…>")` so the replied-to context is visible at a glance; falls back to the raw `at://` URI when the parent cannot be resolved. Do not render a thread tree in MVP. |
+| Quote posts | Append an inline snippet of the quoted post `(quoting <name>: "<text…>")`. The quoted record is always embedded in the timeline view (`embed.record`), so no extra fetch is needed. |
 
 `MessageEvent.Kind` is set to `"privmsg"` for posts. Status/system messages such as auth failure, rate limiting, or repeated refresh failure go to the status buffer with `Kind="notice"`.
 
@@ -112,6 +112,27 @@ replies and subsequent polls. The cache is owned by the single channel
 goroutine and is not safe for concurrent use. Snippet text is whitespace-
 collapsed and truncated to ~100 runes with an ellipsis.
 
+## Embeds
+
+`renderEmbed` turns a post's `embed` into the tokens appended to its text. It
+emits the previewable URLs (so the shared preview pipeline can attach cards and
+images) interleaved with the human context ATProto already ships for free — no
+extra requests:
+
+- **External cards** — the link URL plus the card `title` in quotes, so the
+  reader sees what a link is even before (or without) the OG preview resolving.
+- **Images** — the `fullsize` (or `thumb`) URL plus the image `alt` text as
+  `[image: <alt>]` when present.
+- **Video** (`app.bsky.embed.video#view`) — the poster `thumbnail` URL plus
+  `[video: <alt>]` (or a bare `[video]` marker). Without this, video posts
+  surfaced as text-only with no indication a video existed.
+- **Record-with-media** (`recordWithMedia#view`) — the media half is walked
+  recursively via `embed.media`; the quoted record half is handled by
+  `quotedPost` (see [Quote posts](#quote-posts)).
+
+Alt text and titles are whitespace-collapsed (newlines flattened) so a token
+stays on one line. Non-post embed union members are skipped.
+
 ## Quote posts
 
 A quote post embeds the quoted record directly in the timeline view, so unlike
@@ -121,9 +142,9 @@ reply parents it needs **no extra request**. The embed shape depends on `$type`:
   (`author`, `value.text`).
 - `app.bsky.embed.recordWithMedia#view` — `embed.record` wraps the `viewRecord`
   one level deeper, and `embed.media` carries the images/external card (already
-  walked by the URL collector). The quote extractor unwraps the nesting.
+  walked by `renderEmbed`). The quote extractor unwraps the nesting.
 
-The quoted post renders inline as `(quoting @<handle>: "<text…>")`, using the
+The quoted post renders inline as `(quoting <name>: "<text…>")`, using the
 same whitespace-collapse/truncation as reply snippets. Non-post union members
 (`viewNotFound`, `viewBlocked`, `viewDetached`, feed generators, lists, starter
 packs) decode with empty author/value and are skipped.

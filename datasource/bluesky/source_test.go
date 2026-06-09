@@ -106,12 +106,93 @@ func TestMapFeedItemReplyRendersResolvedSnippet(t *testing.T) {
 		if uri != parentURI {
 			return parentRef{}, false
 		}
-		return parentRef{handle: "bob.bsky.social", text: "the original hot take"}, true
+		return parentRef{name: "Bob", text: "the original hot take"}, true
 	}
 	post := mapFeedItem(item, resolve)
-	want := "yeah agreed (re: @bob.bsky.social: \"the original hot take\")"
+	want := "yeah agreed (re: Bob: \"the original hot take\")"
 	if post.Content != want {
 		t.Fatalf("content = %q, want %q", post.Content, want)
+	}
+}
+
+func TestMapFeedItemDisplayName(t *testing.T) {
+	item := FeedItem{
+		Post: PostView{
+			URI:    "at://did:plc:abc/app.bsky.feed.post/5",
+			Author: Actor{DID: "did:plc:abc", Handle: "alice.bsky.social", DisplayName: "Alice 🌸"},
+			Record: Record{Text: "hi"},
+		},
+	}
+	post := mapFeedItem(item, nil)
+	if post.Sender != "Alice 🌸" {
+		t.Fatalf("sender = %q, want display name", post.Sender)
+	}
+	// Account stays the stable DID even when the display name is shown.
+	if post.Account != "did:plc:abc" {
+		t.Fatalf("account = %q", post.Account)
+	}
+}
+
+func TestMapFeedItemRepostUsesDisplayName(t *testing.T) {
+	item := FeedItem{
+		Post: PostView{
+			URI:    "at://did:plc:abc/app.bsky.feed.post/6",
+			Author: Actor{Handle: "alice.bsky.social", DisplayName: "Alice"},
+			Record: Record{Text: "original"},
+		},
+		Reason: &FeedReason{
+			Type: "app.bsky.feed.defs#reasonRepost",
+			By:   Actor{Handle: "bob.bsky.social", DisplayName: "Bob"},
+		},
+	}
+	post := mapFeedItem(item, nil)
+	if !strings.HasPrefix(post.Content, "[RT by Bob] ") {
+		t.Fatalf("repost label = %q", post.Content)
+	}
+	if post.Sender != "Alice" {
+		t.Fatalf("sender = %q", post.Sender)
+	}
+}
+
+func TestRenderEmbedExternalTitle(t *testing.T) {
+	parts := renderEmbed(&Embed{
+		External: &EmbedExternal{URI: "https://theverge.com/x", Title: "Apple announces  thing"},
+	})
+	if len(parts) != 2 || parts[0] != "https://theverge.com/x" || parts[1] != "\"Apple announces thing\"" {
+		t.Fatalf("parts = %v", parts)
+	}
+}
+
+func TestRenderEmbedImageAlt(t *testing.T) {
+	parts := renderEmbed(&Embed{
+		Images: []EmbedImage{{Fullsize: "https://cdn/img.jpg", Alt: "a cat\nasleep"}},
+	})
+	want := []string{"https://cdn/img.jpg", "[image: a cat asleep]"}
+	if len(parts) != 2 || parts[0] != want[0] || parts[1] != want[1] {
+		t.Fatalf("parts = %v, want %v", parts, want)
+	}
+	// No alt: just the URL, no descriptor.
+	bare := renderEmbed(&Embed{Images: []EmbedImage{{Thumb: "https://cdn/t.jpg"}}})
+	if len(bare) != 1 || bare[0] != "https://cdn/t.jpg" {
+		t.Fatalf("bare = %v", bare)
+	}
+}
+
+func TestRenderEmbedVideo(t *testing.T) {
+	parts := renderEmbed(&Embed{
+		Type:      "app.bsky.embed.video#view",
+		Playlist:  "https://cdn/playlist.m3u8",
+		Thumbnail: "https://cdn/thumb.jpg",
+		Alt:       "a short clip",
+	})
+	want := []string{"https://cdn/thumb.jpg", "[video: a short clip]"}
+	if len(parts) != 2 || parts[0] != want[0] || parts[1] != want[1] {
+		t.Fatalf("parts = %v, want %v", parts, want)
+	}
+	// No alt and no thumbnail still flags the video.
+	bare := renderEmbed(&Embed{Playlist: "https://cdn/p.m3u8"})
+	if len(bare) != 1 || bare[0] != "[video]" {
+		t.Fatalf("bare = %v", bare)
 	}
 }
 
@@ -127,14 +208,14 @@ func TestMapFeedItemQuotePost(t *testing.T) {
 				Record: &EmbedRecord{
 					Type:   "app.bsky.embed.record#viewRecord",
 					URI:    "at://did:plc:xyz/app.bsky.feed.post/q",
-					Author: Actor{Handle: "carol.bsky.social"},
+					Author: Actor{Handle: "carol.bsky.social", DisplayName: "Carol"},
 					Value:  &Record{Text: "the quoted hot take"},
 				},
 			},
 		},
 	}
 	post := mapFeedItem(item, nil)
-	want := "look at this (quoting @carol.bsky.social: \"the quoted hot take\")"
+	want := "look at this (quoting Carol: \"the quoted hot take\")"
 	if post.Content != want {
 		t.Fatalf("content = %q, want %q", post.Content, want)
 	}
@@ -156,11 +237,11 @@ func TestQuotedPost(t *testing.T) {
 		Media: &Embed{External: &EmbedExternal{URI: "https://example.com/y"}},
 	}
 	q, ok := quotedPost(rwm)
-	if !ok || q.handle != "dave.bsky.social" || q.text != "nested quote" {
+	if !ok || q.name != "dave.bsky.social" || q.text != "nested quote" {
 		t.Fatalf("quoted = %+v ok=%v", q, ok)
 	}
-	if urls := collectEmbedURLs(rwm); len(urls) != 1 || urls[0] != "https://example.com/y" {
-		t.Fatalf("media urls = %v", urls)
+	if parts := renderEmbed(rwm); len(parts) != 1 || parts[0] != "https://example.com/y" {
+		t.Fatalf("media render = %v", parts)
 	}
 
 	// notFound/blocked/feed-generator stubs leave Author and Value empty.
@@ -195,7 +276,7 @@ func TestInlineParent(t *testing.T) {
 		Author: Actor{Handle: "bob.bsky.social"},
 		Record: Record{Text: "hello"},
 	}}
-	if ref, ok := inlineParent(item, uri); !ok || ref.handle != "bob.bsky.social" || ref.text != "hello" {
+	if ref, ok := inlineParent(item, uri); !ok || ref.name != "bob.bsky.social" || ref.text != "hello" {
 		t.Fatalf("inline parent = %+v ok=%v", ref, ok)
 	}
 
@@ -231,12 +312,12 @@ func TestTruncateSnippet(t *testing.T) {
 
 func TestParentCache(t *testing.T) {
 	c := newParentCache(2)
-	c.put("a", parentRef{handle: "ha"})
-	c.put("b", parentRef{handle: "hb"})
-	if ref, ok := c.get("a"); !ok || ref.handle != "ha" {
+	c.put("a", parentRef{name: "ha"})
+	c.put("b", parentRef{name: "hb"})
+	if ref, ok := c.get("a"); !ok || ref.name != "ha" {
 		t.Fatalf("get a = %+v ok=%v", ref, ok)
 	}
-	c.put("c", parentRef{handle: "hc"}) // evicts "a"
+	c.put("c", parentRef{name: "hc"}) // evicts "a"
 	if _, ok := c.get("a"); ok {
 		t.Fatal("a should have been evicted")
 	}
@@ -244,9 +325,9 @@ func TestParentCache(t *testing.T) {
 		t.Fatal("c should be present")
 	}
 	// put on existing key updates in place without eviction churn.
-	c.put("b", parentRef{handle: "hb2"})
-	if ref, _ := c.get("b"); ref.handle != "hb2" {
-		t.Fatalf("update b = %q", ref.handle)
+	c.put("b", parentRef{name: "hb2"})
+	if ref, _ := c.get("b"); ref.name != "hb2" {
+		t.Fatalf("update b = %q", ref.name)
 	}
 }
 

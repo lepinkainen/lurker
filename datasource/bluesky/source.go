@@ -279,7 +279,7 @@ func (s *Source) resolveParents(ctx context.Context, items []FeedItem, parents *
 			return
 		}
 		for _, p := range posts {
-			parents.put(p.URI, parentRef{handle: p.Author.Handle, text: p.Record.Text})
+			parents.put(p.URI, parentRef{name: personLabel(p.Author), text: p.Record.Text})
 		}
 	}
 }
@@ -300,10 +300,25 @@ func (s *Source) emitStatus(ctx context.Context, deps datasource.Deps, msg strin
 // glanceable in the buffer.
 const parentSnippetLen = 100
 
-// parentRef is the minimal parent-post context rendered inline on a reply.
+// parentRef is the minimal parent-post context rendered inline on a reply or
+// quote. name is the display name, falling back to the handle.
 type parentRef struct {
-	handle string
-	text   string
+	name string
+	text string
+}
+
+// personLabel prefers an actor's display name and falls back to the stable
+// handle, so the timeline reads with human names rather than raw handles.
+func personLabel(a Actor) string {
+	if n := strings.TrimSpace(a.DisplayName); n != "" {
+		return n
+	}
+	return a.Handle
+}
+
+// oneLine collapses runs of whitespace (including newlines) to single spaces.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // mapFeedItem converts a Bluesky feed item to a datasource.Post. resolveParent
@@ -313,19 +328,20 @@ func mapFeedItem(item FeedItem, resolveParent func(uri string) (parentRef, bool)
 	p := item.Post
 	content := p.Record.Text
 
-	embedURLs := collectEmbedURLs(p.Embed)
-	if len(embedURLs) > 0 {
+	if parts := renderEmbed(p.Embed); len(parts) > 0 {
 		if content != "" {
 			content += " "
 		}
-		content += strings.Join(embedURLs, " ")
+		content += strings.Join(parts, " ")
 	}
 
-	sender := p.Author.Handle
+	sender := personLabel(p.Author)
 	account := p.Author.DID
 
-	if item.Reason != nil && strings.HasSuffix(item.Reason.Type, "#reasonRepost") && item.Reason.By.Handle != "" {
-		content = "[RT by " + item.Reason.By.Handle + "] " + content
+	if item.Reason != nil && strings.HasSuffix(item.Reason.Type, "#reasonRepost") {
+		if by := personLabel(item.Reason.By); by != "" {
+			content = "[RT by " + by + "] " + content
+		}
 	}
 
 	if uri := parentURI(item); uri != "" {
@@ -372,21 +388,21 @@ func inlineParent(item FeedItem, uri string) (parentRef, bool) {
 	if pv.Author.Handle == "" && pv.Record.Text == "" {
 		return parentRef{}, false
 	}
-	return parentRef{handle: pv.Author.Handle, text: pv.Record.Text}, true
+	return parentRef{name: personLabel(pv.Author), text: pv.Record.Text}, true
 }
 
 // renderParent formats the inline reply reference. With a resolved parent it
-// produces e.g. `(re: @alice.bsky.social: "the quoted text…")`; otherwise it
-// falls back to the raw URI so context is never silently dropped.
+// produces e.g. `(re: Alice: "the quoted text…")`; otherwise it falls back to
+// the raw URI so context is never silently dropped.
 func renderParent(uri string, resolve func(uri string) (parentRef, bool)) string {
 	if resolve != nil {
 		if ref, ok := resolve(uri); ok {
 			snippet := truncateSnippet(ref.text, parentSnippetLen)
 			switch {
-			case ref.handle != "" && snippet != "":
-				return "(re: @" + ref.handle + ": \"" + snippet + "\")"
-			case ref.handle != "":
-				return "(re: @" + ref.handle + ")"
+			case ref.name != "" && snippet != "":
+				return "(re: " + ref.name + ": \"" + snippet + "\")"
+			case ref.name != "":
+				return "(re: " + ref.name + ")"
 			case snippet != "":
 				return "(re: \"" + snippet + "\")"
 			}
@@ -396,15 +412,15 @@ func renderParent(uri string, resolve func(uri string) (parentRef, bool)) string
 }
 
 // renderQuote formats the inline quote-post reference, e.g.
-// `(quoting @alice.bsky.social: "the quoted text…")`. Returns "" when there is
-// nothing to show.
+// `(quoting Alice: "the quoted text…")`. Returns "" when there is nothing to
+// show.
 func renderQuote(q parentRef) string {
 	snippet := truncateSnippet(q.text, parentSnippetLen)
 	switch {
-	case q.handle != "" && snippet != "":
-		return "(quoting @" + q.handle + ": \"" + snippet + "\")"
-	case q.handle != "":
-		return "(quoting @" + q.handle + ")"
+	case q.name != "" && snippet != "":
+		return "(quoting " + q.name + ": \"" + snippet + "\")"
+	case q.name != "":
+		return "(quoting " + q.name + ")"
 	case snippet != "":
 		return "(quoting \"" + snippet + "\")"
 	default:
@@ -429,7 +445,7 @@ func quotedPost(e *Embed) (parentRef, bool) {
 			text = rec.Value.Text
 		}
 		if rec.Author.Handle != "" || text != "" {
-			return parentRef{handle: rec.Author.Handle, text: text}, true
+			return parentRef{name: personLabel(rec.Author), text: text}, true
 		}
 	}
 	return parentRef{}, false
@@ -438,7 +454,7 @@ func quotedPost(e *Embed) (parentRef, bool) {
 // truncateSnippet collapses whitespace and trims s to at most max runes,
 // appending an ellipsis when it cuts.
 func truncateSnippet(s string, max int) string {
-	s = strings.Join(strings.Fields(s), " ")
+	s = oneLine(s)
 	if max <= 0 {
 		return s
 	}
@@ -449,23 +465,50 @@ func truncateSnippet(s string, max int) string {
 	return strings.TrimRight(string(r[:max]), " ") + "…"
 }
 
-func collectEmbedURLs(e *Embed) []string {
+// renderEmbed produces the tokens appended to a post's text for its embed:
+// media URLs (so the preview pipeline can attach cards/images) interleaved
+// with the human context ATProto already ships for free — external card
+// titles, image alt text, and video markers. It recurses into Media for
+// recordWithMedia embeds; the quoted record is handled separately by
+// quotedPost.
+func renderEmbed(e *Embed) []string {
 	if e == nil {
 		return nil
 	}
 	var out []string
+
 	if e.External != nil && e.External.URI != "" {
 		out = append(out, e.External.URI)
-	}
-	for _, img := range e.Images {
-		if img.Fullsize != "" {
-			out = append(out, img.Fullsize)
-		} else if img.Thumb != "" {
-			out = append(out, img.Thumb)
+		if t := oneLine(e.External.Title); t != "" {
+			out = append(out, "\""+t+"\"")
 		}
 	}
+
+	for _, img := range e.Images {
+		switch {
+		case img.Fullsize != "":
+			out = append(out, img.Fullsize)
+		case img.Thumb != "":
+			out = append(out, img.Thumb)
+		}
+		if alt := oneLine(img.Alt); alt != "" {
+			out = append(out, "[image: "+alt+"]")
+		}
+	}
+
+	if e.Thumbnail != "" || e.Playlist != "" {
+		if e.Thumbnail != "" {
+			out = append(out, e.Thumbnail)
+		}
+		if alt := oneLine(e.Alt); alt != "" {
+			out = append(out, "[video: "+alt+"]")
+		} else {
+			out = append(out, "[video]")
+		}
+	}
+
 	if e.Media != nil {
-		out = append(out, collectEmbedURLs(e.Media)...)
+		out = append(out, renderEmbed(e.Media)...)
 	}
 	return out
 }

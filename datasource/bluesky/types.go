@@ -82,14 +82,18 @@ type FeedReason struct {
 	By   Actor  `json:"by"`
 }
 
-// Embed is the union of embedded content kinds we care about for previews.
-// All fields optional; presence depends on $type.
+// Embed is the union of embedded content kinds we care about. All fields
+// optional; presence depends on $type. Video views (app.bsky.embed.video#view)
+// carry playlist/thumbnail/alt at the top level rather than under a nested key.
 type Embed struct {
-	Type     string         `json:"$type,omitempty"`
-	External *EmbedExternal `json:"external,omitempty"`
-	Images   []EmbedImage   `json:"images,omitempty"`
-	Media    *Embed         `json:"media,omitempty"` // embeds with record+media wrap a nested embed
-	Record   *EmbedRecord   `json:"record,omitempty"`
+	Type      string         `json:"$type,omitempty"`
+	External  *EmbedExternal `json:"external,omitempty"`
+	Images    []EmbedImage   `json:"images,omitempty"`
+	Playlist  string         `json:"playlist,omitempty"`  // video#view: m3u8
+	Thumbnail string         `json:"thumbnail,omitempty"` // video#view: poster image
+	Alt       string         `json:"alt,omitempty"`       // video#view alt text
+	Media     *Embed         `json:"media,omitempty"`     // recordWithMedia wraps a nested embed
+	Record    *EmbedRecord   `json:"record,omitempty"`
 }
 
 // EmbedExternal is an OG card.
