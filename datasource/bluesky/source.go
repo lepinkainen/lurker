@@ -451,18 +451,18 @@ func quotedPost(e *Embed) (parentRef, bool) {
 	return parentRef{}, false
 }
 
-// truncateSnippet collapses whitespace and trims s to at most max runes,
+// truncateSnippet collapses whitespace and trims s to at most limit runes,
 // appending an ellipsis when it cuts.
-func truncateSnippet(s string, max int) string {
+func truncateSnippet(s string, limit int) string {
 	s = oneLine(s)
-	if max <= 0 {
+	if limit <= 0 {
 		return s
 	}
 	r := []rune(s)
-	if len(r) <= max {
+	if len(r) <= limit {
 		return s
 	}
-	return strings.TrimRight(string(r[:max]), " ") + "…"
+	return strings.TrimRight(string(r[:limit]), " ") + "…"
 }
 
 // renderEmbed produces the tokens appended to a post's text for its embed:
