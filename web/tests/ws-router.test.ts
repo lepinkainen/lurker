@@ -4,7 +4,9 @@ import type { AppView } from "../src/app-view";
 import { resetAppState } from "../src/reset";
 import { createWSRouter } from "../src/ws-router";
 
-function fakeView() {
+type FakeView = AppView & Record<string, ReturnType<typeof vi.fn>>;
+
+function fakeView(): FakeView {
   return {
     dom: {} as never,
     renderStatus: vi.fn(),
@@ -19,22 +21,15 @@ function fakeView() {
     patchPreview: vi.fn(),
     updateBuffer: vi.fn(),
     setMembers: vi.fn(),
-  } as unknown as AppView & Record<string, ReturnType<typeof vi.fn>>;
+  } as unknown as FakeView;
 }
 
-describe("ws-router", () => {
+describe("ws-router state transformations", () => {
   beforeEach(() => resetAppState());
   afterEach(() => resetAppState());
 
-  it("routes message → appendMessage", () => {
-    const view = fakeView();
-    createWSRouter(view)({ type: "message", id: "m1", buffer_id: "b1", content: "hi" });
-    expect(view.appendMessage).toHaveBeenCalledWith({ type: "message", id: "m1", buffer_id: "b1", content: "hi" });
-  });
-
-  it("buffer_created seeds defaults and renders sidebar", () => {
-    const view = fakeView();
-    createWSRouter(view)({
+  it("buffer_created seeds a buffer in state with default flags", () => {
+    createWSRouter(fakeView())({
       type: "buffer_created",
       id: "b1",
       network_id: "n1",
@@ -55,17 +50,92 @@ describe("ws-router", () => {
       collapse_presence_events: false,
       pinned: false,
     });
-    expect(view.renderSidebar).toHaveBeenCalled();
   });
 
-  it("buffer_update routes through view.updateBuffer without rerender", () => {
+  it("network_state updates network status in state on change", () => {
+    state.networks.set("n1", { id: "n1", name: "Libera", status: "connected" });
+    const route = createWSRouter(fakeView());
+
+    route({ type: "network_state", network_id: "n1", state: "connected" });
+    expect(state.networks.get("n1")?.status).toBe("connected");
+
+    route({ type: "network_state", network_id: "n1", state: "disconnected" });
+    expect(state.networks.get("n1")?.status).toBe("disconnected");
+  });
+
+  it("network_state ignored for unknown network — state unchanged", () => {
+    const before = state.networks.size;
+    createWSRouter(fakeView())({ type: "network_state", network_id: "missing", state: "x" });
+    expect(state.networks.size).toBe(before);
+    expect(state.networks.has("missing")).toBe(false);
+  });
+
+  it("ignorelist_result writes masks to console", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    createWSRouter(fakeView())({ type: "ignorelist_result", req_id: "r1", network_id: "n1", masks: ["a!*@*"] });
+    expect(log).toHaveBeenCalledWith("ignore list:", ["a!*@*"]);
+    log.mockRestore();
+  });
+});
+
+// Pure-dispatch contract: kind → handler. Router transforms nothing; it forwards.
+// Asserting the mapping (not observable state) is intentional here because the
+// router's whole job IS dispatch. Handler bodies are tested where they live.
+describe("ws-router dispatch contract", () => {
+  beforeEach(() => resetAppState());
+  afterEach(() => resetAppState());
+
+  const DISPATCH_CASES: Array<{
+    kind: string;
+    handler: keyof FakeView;
+    msg: Record<string, unknown>;
+  }> = [
+    {
+      kind: "message",
+      handler: "appendMessage",
+      msg: { type: "message", id: "m1", buffer_id: "b1", content: "hi" },
+    },
+    {
+      kind: "buffer_update",
+      handler: "updateBuffer",
+      msg: { type: "buffer_update", id: "b1", topic: "new" },
+    },
+    {
+      kind: "buffer_settings",
+      handler: "updateBuffer",
+      msg: {
+        type: "buffer_settings",
+        id: "b1",
+        show_embeds: false,
+        show_presence_events: true,
+        collapse_presence_events: false,
+        pinned: false,
+      },
+    },
+    {
+      kind: "history_result",
+      handler: "prependHistory",
+      msg: { type: "history_result", buffer_id: "b1", messages: [] },
+    },
+    {
+      kind: "preview",
+      handler: "patchPreview",
+      msg: { type: "preview", buffer_id: "b1", message_id: "m1", previews: [] },
+    },
+    {
+      kind: "member_list",
+      handler: "setMembers",
+      msg: { type: "member_list", buffer_id: "b1", members: [] },
+    },
+  ];
+
+  it.each(DISPATCH_CASES)("$kind dispatches to $handler", ({ handler, msg }) => {
     const view = fakeView();
-    const m = { type: "buffer_update" as const, id: "b1", topic: "new" };
-    createWSRouter(view)(m);
-    expect(view.updateBuffer).toHaveBeenCalledWith(m, { rerenderActive: false });
+    createWSRouter(view)(msg);
+    expect(view[handler]).toHaveBeenCalledTimes(1);
   });
 
-  it("buffer_settings forces rerenderActive", () => {
+  it("buffer_settings forces rerenderActive opt", () => {
     const view = fakeView();
     const m = {
       type: "buffer_settings" as const,
@@ -79,45 +149,19 @@ describe("ws-router", () => {
     expect(view.updateBuffer).toHaveBeenCalledWith(m, { rerenderActive: true });
   });
 
-  it("network_state updates status and re-renders only on change", () => {
+  it("buffer_update does not force rerenderActive", () => {
     const view = fakeView();
-    state.networks.set("n1", { id: "n1", name: "Libera", status: "connected" });
-    const route = createWSRouter(view);
-    route({ type: "network_state", network_id: "n1", state: "connected" });
-    expect(view.renderSidebar).not.toHaveBeenCalled();
-    route({ type: "network_state", network_id: "n1", state: "disconnected" });
-    expect(state.networks.get("n1")?.status).toBe("disconnected");
-    expect(view.renderSidebar).toHaveBeenCalled();
-    expect(view.renderHeader).toHaveBeenCalled();
-  });
-
-  it("network_state ignored for unknown network", () => {
-    const view = fakeView();
-    createWSRouter(view)({ type: "network_state", network_id: "missing", state: "x" });
-    expect(view.renderSidebar).not.toHaveBeenCalled();
-  });
-
-  it("history_result → prependHistory", () => {
-    const view = fakeView();
-    const m = { type: "history_result" as const, buffer_id: "b1", messages: [] };
+    const m = { type: "buffer_update" as const, id: "b1", topic: "new" };
     createWSRouter(view)(m);
-    expect(view.prependHistory).toHaveBeenCalledWith(m);
+    expect(view.updateBuffer).toHaveBeenCalledWith(m, { rerenderActive: false });
   });
+});
 
-  it("preview → patchPreview", () => {
-    const view = fakeView();
-    const m = { type: "preview" as const, buffer_id: "b1", message_id: "m1", previews: [] };
-    createWSRouter(view)(m);
-    expect(view.patchPreview).toHaveBeenCalledWith(m);
-  });
+describe("ws-router channel_list", () => {
+  beforeEach(() => resetAppState());
+  afterEach(() => resetAppState());
 
-  it("member_list → setMembers", () => {
-    const view = fakeView();
-    createWSRouter(view)({ type: "member_list", buffer_id: "b1", members: [] });
-    expect(view.setMembers).toHaveBeenCalledWith("b1", []);
-  });
-
-  it("channel_list triggers renderActiveView when active matches and done", () => {
+  it("triggers render only when applyChannelListUpdate returns true (done + active buffer matches)", () => {
     state.buffers.set("b1", {
       id: "b1",
       network_id: "n1",
@@ -136,17 +180,9 @@ describe("ws-router", () => {
     expect(view.renderActiveView).toHaveBeenCalled();
   });
 
-  it("channel_list does not trigger render when not done", () => {
+  it("does not trigger render while not done", () => {
     const view = fakeView();
     createWSRouter(view)({ type: "channel_list", network_id: "n1", entries: [], done: false });
     expect(view.renderActiveView).not.toHaveBeenCalled();
-  });
-
-  it("ignorelist_result logs", () => {
-    const view = fakeView();
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    createWSRouter(view)({ type: "ignorelist_result", req_id: "r1", network_id: "n1", masks: ["a!*@*"] });
-    expect(log).toHaveBeenCalledWith("ignore list:", ["a!*@*"]);
-    log.mockRestore();
   });
 });

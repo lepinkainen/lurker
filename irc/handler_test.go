@@ -114,16 +114,6 @@ func hasPresence(events <-chan any, nick, state string) bool {
 	return false
 }
 
-func hasBufferUpdate(events <-chan any, _ string, joined bool) bool {
-	for _, ev := range drainEvents(events) {
-		update, ok := ev.(*BufferUpdateEvent)
-		if ok && update.Joined == joined {
-			return true
-		}
-	}
-	return false
-}
-
 func hasTopicUpdate(events <-chan any, topic string) bool {
 	for _, ev := range drainEvents(events) {
 		update, ok := ev.(*BufferUpdateEvent)

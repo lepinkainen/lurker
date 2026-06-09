@@ -1,0 +1,216 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/google/uuid"
+	ircdb "github.com/lepinkainen/lurker/db"
+)
+
+func newHistoryTestServer(t *testing.T) (*ircdb.MultiStore, *Server, ircdb.Network, uuid.UUID) {
+	t.Helper()
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stores.Close() })
+
+	ctx := t.Context()
+	n, err := stores.UpsertNetwork(ctx, ircdb.Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bufID, _, _, err := stores.EnsureBuffer(ctx, n.ID, "#go", ircdb.BufferChannel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stores, &Server{Stores: stores}, n, bufID
+}
+
+func insertHistoryMessages(t *testing.T, stores *ircdb.MultiStore, networkID, bufID uuid.UUID, count int) []uuid.UUID {
+	t.Helper()
+	ls, err := stores.LogStore(networkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]uuid.UUID, 0, count)
+	for range count {
+		id, _, _, err := ircdb.InsertLogMessage(t.Context(), ls.DB, ircdb.LogMessageInput{
+			BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "hi",
+		})
+		if err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func TestHistoryEndpointReturnsMessagesForBuffer(t *testing.T) {
+	stores, s, n, bufID := newHistoryTestServer(t)
+	ids := insertHistoryMessages(t, stores, n.ID, bufID, 3)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/buffers/"+bufID.String()+"/history", http.NoBody)
+	r.SetPathValue("id", bufID.String())
+	s.history(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		BufferID uuid.UUID    `json:"buffer_id"`
+		Messages []messageDTO `json:"messages"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.BufferID != bufID {
+		t.Fatalf("buffer_id = %s, want %s", resp.BufferID, bufID)
+	}
+	if len(resp.Messages) != 3 {
+		t.Fatalf("messages len = %d want 3", len(resp.Messages))
+	}
+	gotIDs := map[uuid.UUID]bool{}
+	for _, m := range resp.Messages {
+		gotIDs[m.ID] = true
+	}
+	for _, id := range ids {
+		if !gotIDs[id] {
+			t.Fatalf("missing inserted id %s in response", id)
+		}
+	}
+}
+
+func TestHistoryEndpointRejectsBadBufferID(t *testing.T) {
+	_, s, _, _ := newHistoryTestServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/buffers/not-a-uuid/history", http.NoBody)
+	r.SetPathValue("id", "not-a-uuid")
+	s.history(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestLoadHistoryPaginatesWithBeforeCursor(t *testing.T) {
+	stores, s, n, bufID := newHistoryTestServer(t)
+	ids := insertHistoryMessages(t, stores, n.ID, bufID, 5)
+	// ids are time-ordered ascending. Use the third id as the `before` cursor;
+	// the response should contain only ids strictly older than it.
+	cursor := ids[2]
+
+	msgs, err := s.loadHistory(t.Context(), bufID, cursor, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) == 0 {
+		t.Fatal("expected at least one older message before cursor")
+	}
+	for _, m := range msgs {
+		if m.ID.String() >= cursor.String() {
+			t.Fatalf("message %s not strictly before cursor %s", m.ID, cursor)
+		}
+	}
+}
+
+func TestLoadHistoryRecentWhenBeforeIsNil(t *testing.T) {
+	stores, s, n, bufID := newHistoryTestServer(t)
+	insertHistoryMessages(t, stores, n.ID, bufID, 2)
+
+	msgs, err := s.loadHistory(t.Context(), bufID, uuid.Nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("recent messages len = %d want 2", len(msgs))
+	}
+}
+
+func TestToChannelMemberDTOsEmptyAndPartial(t *testing.T) {
+	if got := toChannelMemberDTOs(nil); len(got) != 0 {
+		t.Fatalf("nil input got %d entries", len(got))
+	}
+	in := []ircdb.ChannelMember{
+		{Nick: "alice", Prefix: "@", Self: true},
+		{Nick: "bob"},
+	}
+	got := toChannelMemberDTOs(in)
+	if len(got) != 2 {
+		t.Fatalf("len = %d want 2", len(got))
+	}
+	if got[0].Nick != "alice" || got[0].Prefix != "@" || !got[0].Self {
+		t.Fatalf("alice dto = %+v", got[0])
+	}
+	if got[1].Nick != "bob" || got[1].Prefix != "" || got[1].Self || got[1].Away {
+		t.Fatalf("bob dto = %+v", got[1])
+	}
+}
+
+func TestAttachPreviewsNoopWhenInputEmpty(t *testing.T) {
+	_, s, _, _ := newHistoryTestServer(t)
+	// Should not panic on nil or empty slice even though Stores.Previews exists.
+	s.attachPreviews(t.Context(), nil)
+	s.attachPreviews(t.Context(), []messageDTO{})
+}
+
+func TestAttachPreviewsLeavesMessagesUntouchedWithoutLinks(t *testing.T) {
+	stores, s, n, bufID := newHistoryTestServer(t)
+	ids := insertHistoryMessages(t, stores, n.ID, bufID, 1)
+
+	dto := messageDTO{ID: ids[0], NetworkID: n.ID, BufferID: bufID}
+	msgs := []messageDTO{dto}
+	s.attachPreviews(t.Context(), msgs)
+	if len(msgs[0].Previews) != 0 {
+		t.Fatalf("previews populated unexpectedly: %+v", msgs[0].Previews)
+	}
+}
+
+func TestAttachPreviewsResolvesCachedDisplayablePreview(t *testing.T) {
+	stores, s, n, bufID := newHistoryTestServer(t)
+	ids := insertHistoryMessages(t, stores, n.ID, bufID, 1)
+	url := "https://example.test/p.png"
+
+	if err := stores.Previews.Put(t.Context(), ircdb.URLPreview{URL: url, Kind: ircdb.PreviewKindImage, Mime: "image/png"}); err != nil {
+		t.Fatal(err)
+	}
+	ls, _ := stores.LogStore(n.ID)
+	if err := ircdb.InsertMessagePreviewLinks(t.Context(), ls.DB, []ircdb.MessagePreviewLink{
+		{MessageID: ids[0], URL: url, Position: 0},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs := []messageDTO{{ID: ids[0], NetworkID: n.ID, BufferID: bufID}}
+	s.attachPreviews(t.Context(), msgs)
+	if len(msgs[0].Previews) != 1 {
+		t.Fatalf("previews len = %d want 1: %+v", len(msgs[0].Previews), msgs[0].Previews)
+	}
+	if msgs[0].Previews[0].Kind != ircdb.PreviewKindImage {
+		t.Fatalf("preview kind = %q want image", msgs[0].Previews[0].Kind)
+	}
+}
+
+func TestAttachPreviewsSkipsNonDisplayableKinds(t *testing.T) {
+	stores, s, n, bufID := newHistoryTestServer(t)
+	ids := insertHistoryMessages(t, stores, n.ID, bufID, 1)
+	url := "https://example.test/error"
+
+	if err := stores.Previews.Put(t.Context(), ircdb.URLPreview{URL: url, Kind: ircdb.PreviewKindError, Error: "boom"}); err != nil {
+		t.Fatal(err)
+	}
+	ls, _ := stores.LogStore(n.ID)
+	if err := ircdb.InsertMessagePreviewLinks(t.Context(), ls.DB, []ircdb.MessagePreviewLink{
+		{MessageID: ids[0], URL: url, Position: 0},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs := []messageDTO{{ID: ids[0], NetworkID: n.ID, BufferID: bufID}}
+	s.attachPreviews(t.Context(), msgs)
+	if len(msgs[0].Previews) != 0 {
+		t.Fatalf("expected error-kind to be filtered: %+v", msgs[0].Previews)
+	}
+}

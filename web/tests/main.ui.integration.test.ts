@@ -1,3 +1,7 @@
+// Integration / e2e-tier test: boots the full app (main.ts entrypoint), mounts
+// the real index fixture DOM, and drives behavior end-to-end via stubbed
+// fetch/WebSocket. Heavier than the unit suite. Each `it` targets one
+// observable behavior; shared setup is in beforeEach.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { state } from "../src/app-state";
 import { __handleWSMessage, __initForTests, __resetForTests } from "../src/main";
@@ -154,7 +158,7 @@ describe("main UI", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders networks and active channel from /api/state", async () => {
+  it("renders network names in the sidebar from /api/state", async () => {
     await __initForTests();
 
     const names = await waitFor(() => {
@@ -163,6 +167,11 @@ describe("main UI", () => {
       return [...nodes].map((n) => n.textContent);
     });
     expect(names).toEqual(expect.arrayContaining(["libera", "oftc"]));
+  });
+
+  it("activates an initial buffer header on first hydrate", async () => {
+    await __initForTests();
+    await waitFor(() => document.querySelector("#sb-scroll .netname"));
 
     const bufName = document.getElementById("buffer-name")?.textContent ?? "";
     expect(bufName.length).toBeGreaterThan(0);
@@ -228,7 +237,7 @@ describe("main UI", () => {
     expect(headerName.replace(LEADING_HASH_RE, "")).toBe(name.replace(LEADING_HASH_RE, ""));
   });
 
-  it("shows slash-command popup on input and hides on clear", async () => {
+  it("shows slash-command popup with matching items when slash typed", async () => {
     await __initForTests();
     await waitFor(() => document.querySelector("#sb-scroll .sbrow.chan"));
 
@@ -241,6 +250,18 @@ describe("main UI", () => {
     await waitFor(() => (!pop.hidden ? pop : null));
     expect(pop.querySelectorAll(".ci").length).toBeGreaterThan(0);
     expect(pop.querySelector(".ci.hl .c")?.textContent).toContain("/join");
+  });
+
+  it("hides slash-command popup when input is cleared", async () => {
+    await __initForTests();
+    await waitFor(() => document.querySelector("#sb-scroll .sbrow.chan"));
+
+    const input = document.getElementById("input") as HTMLInputElement;
+    const pop = document.getElementById("cmd-pop") as HTMLElement;
+
+    input.value = "/j";
+    input.dispatchEvent(new Event("input"));
+    await waitFor(() => (!pop.hidden ? pop : null));
 
     input.value = "";
     input.dispatchEvent(new Event("input"));

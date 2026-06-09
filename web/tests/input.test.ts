@@ -209,28 +209,43 @@ describe("input history", () => {
     return new KeyboardEvent("keydown", { key, cancelable: true });
   }
 
-  it("cycles sent messages per buffer and restores current draft", () => {
+  function seedTwoEntriesWithDraft() {
     recordSentInput(1, "first");
     recordSentInput(1, "second");
     const input = document.createElement("input");
     const pop = document.createElement("div");
     input.value = "draft";
+    return { input, pop };
+  }
+
+  it("ArrowUp walks back through history (newest → oldest) and prevents default", () => {
+    const { input, pop } = seedTwoEntriesWithDraft();
 
     const up1 = keyEvent("ArrowUp");
     expect(handleHistoryKey(up1, input, pop, 1)).toBe(true);
     expect(input.value).toBe("second");
     expect(up1.defaultPrevented).toBe(true);
 
-    const up2 = keyEvent("ArrowUp");
-    expect(handleHistoryKey(up2, input, pop, 1)).toBe(true);
+    expect(handleHistoryKey(keyEvent("ArrowUp"), input, pop, 1)).toBe(true);
+    expect(input.value).toBe("first");
+  });
+
+  it("ArrowDown walks forward through history toward newest", () => {
+    const { input, pop } = seedTwoEntriesWithDraft();
+    handleHistoryKey(keyEvent("ArrowUp"), input, pop, 1);
+    handleHistoryKey(keyEvent("ArrowUp"), input, pop, 1);
     expect(input.value).toBe("first");
 
-    const down1 = keyEvent("ArrowDown");
-    expect(handleHistoryKey(down1, input, pop, 1)).toBe(true);
+    expect(handleHistoryKey(keyEvent("ArrowDown"), input, pop, 1)).toBe(true);
+    expect(input.value).toBe("second");
+  });
+
+  it("ArrowDown past newest restores the current draft", () => {
+    const { input, pop } = seedTwoEntriesWithDraft();
+    handleHistoryKey(keyEvent("ArrowUp"), input, pop, 1);
     expect(input.value).toBe("second");
 
-    const down2 = keyEvent("ArrowDown");
-    expect(handleHistoryKey(down2, input, pop, 1)).toBe(true);
+    expect(handleHistoryKey(keyEvent("ArrowDown"), input, pop, 1)).toBe(true);
     expect(input.value).toBe("draft");
   });
 

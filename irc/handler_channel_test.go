@@ -7,37 +7,23 @@ import (
 	"github.com/lepinkainen/lurker/hub"
 )
 
-func TestSelfPartUpdatesJoinedStateAndClearsMembers(t *testing.T) {
+func TestSelfPartEmitsBufferUpdateAndPresence(t *testing.T) {
 	h := hub.New()
 	f := newTestHandlerFixture(t, withTestHandlerHub(h))
 	events, unsub := h.Subscribe(16)
 	defer unsub()
 	client := newTestClient(t)
-	var cleared []string
-	var joined []struct {
-		channel string
-		joined  bool
-	}
-	f.Handler.clearMemberListHook = func(channel string) { cleared = append(cleared, channel) }
-	f.Handler.setJoinedHook = func(channel string, isJoined bool) {
-		joined = append(joined, struct {
-			channel string
-			joined  bool
-		}{channel: channel, joined: isJoined})
-	}
 
 	f.Handler.onJoin(client, mustEvent(t, ":tester!u@h JOIN #test"))
 	drainEvents(events)
 	f.Handler.onPart(client, mustEvent(t, ":tester!u@h PART #test :bye"))
 
-	if len(cleared) != 1 || cleared[0] != "#test" {
-		t.Fatalf("cleared = %v, want [#test]", cleared)
+	drained := drainEventsAfter(events)
+	if !hasBufferUpdateIn(drained, false) {
+		t.Fatal("missing buffer_update joined=false for self part")
 	}
-	if len(joined) != 2 || joined[1].channel != "#test" || joined[1].joined {
-		t.Fatalf("joined updates = %+v, want final #test false", joined)
-	}
-	if !hasBufferUpdate(events, "#test", false) {
-		t.Fatal("missing buffer_update joined=false for #test")
+	if !hasPresenceIn(drained, "tester", "part") {
+		t.Fatal("missing self-part presence for tester")
 	}
 }
 
@@ -47,20 +33,42 @@ func TestRemotePartPublishesPresenceOnly(t *testing.T) {
 	events, unsub := h.Subscribe(16)
 	defer unsub()
 	client := newTestClient(t)
-	var joinedCalls int
-	f.Handler.setJoinedHook = func(string, bool) { joinedCalls++ }
-	f.Handler.clearMemberListHook = func(string) { t.Fatal("remote part should not clear member list") }
 
 	f.Handler.onJoin(client, mustEvent(t, ":tester!u@h JOIN #test"))
 	drainEvents(events)
 	f.Handler.onPart(client, mustEvent(t, ":alice!u@h PART #test :bye"))
 
-	if joinedCalls != 1 {
-		t.Fatalf("joined calls = %d, want only self join call", joinedCalls)
-	}
-	if !hasPresence(events, "alice", "part") {
+	drained := drainEventsAfter(events)
+	if !hasPresenceIn(drained, "alice", "part") {
 		t.Fatal("missing remote part presence for alice")
 	}
+	if hasBufferUpdateIn(drained, false) {
+		t.Fatal("unexpected buffer_update joined=false on remote part")
+	}
+}
+
+// drainEventsAfter snapshots remaining events. Kept local so we can run the
+// helpers below against the snapshot without re-draining the channel.
+func drainEventsAfter(events <-chan any) []any {
+	return drainEvents(events)
+}
+
+func hasBufferUpdateIn(evs []any, joined bool) bool {
+	for _, ev := range evs {
+		if bu, ok := ev.(*BufferUpdateEvent); ok && bu.Joined == joined {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPresenceIn(evs []any, nick, state string) bool {
+	for _, ev := range evs {
+		if p, ok := ev.(*PresenceEvent); ok && p.Nick == nick && p.State == state {
+			return true
+		}
+	}
+	return false
 }
 
 func TestTopicUpdatePersistsTopicAndPublishesBufferUpdate(t *testing.T) {

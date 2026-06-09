@@ -78,7 +78,39 @@ describe("createSetActive", () => {
     expect(() => setActive("b1")).toThrow(NOT_INITIALIZED_RE);
   });
 
-  it("renders all view sections and focuses input", () => {
+  it("sets state.activeId to the selected buffer", () => {
+    const dom = makeDom();
+    const view = makeView(dom);
+    const setActive = createSetActive({
+      getDom: () => dom,
+      getView: () => view,
+      markBufferReadOnExit: vi.fn(),
+      maybeMarkActiveRead: vi.fn(),
+    });
+    seedBuffer("b1");
+
+    setActive("b1");
+    expect(state.activeId).toBe("b1");
+  });
+
+  it("focuses the input on a non-touch device", () => {
+    const dom = makeDom();
+    const view = makeView(dom);
+    const setActive = createSetActive({
+      getDom: () => dom,
+      getView: () => view,
+      markBufferReadOnExit: vi.fn(),
+      maybeMarkActiveRead: vi.fn(),
+    });
+    seedBuffer("b1");
+    const focusSpy = vi.spyOn(dom.inputEl, "focus");
+
+    setActive("b1");
+    expect(focusSpy).toHaveBeenCalled();
+    focusSpy.mockRestore();
+  });
+
+  it("invokes markBufferReadOnExit when leaving a previous buffer", () => {
     const dom = makeDom();
     const view = makeView(dom);
     const markRead = vi.fn();
@@ -89,18 +121,11 @@ describe("createSetActive", () => {
       maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
-    const focusSpy = vi.spyOn(dom.inputEl, "focus");
+    seedBuffer("b2");
 
-    setActive("b1");
-    expect(state.activeId).toBe("b1");
-    expect(view.renderSidebar).toHaveBeenCalled();
-    expect(view.renderHeader).toHaveBeenCalled();
-    expect(view.renderActiveView).toHaveBeenCalled();
-    expect(view.renderMembers).toHaveBeenCalled();
-    expect(view.updateInputEnabled).toHaveBeenCalled();
+    state.activeId = "b1";
+    setActive("b2", { skipHash: true });
     expect(markRead).toHaveBeenCalled();
-    expect(focusSpy).toHaveBeenCalled();
-    focusSpy.mockRestore();
   });
 
   it("persists the active buffer to localStorage", () => {

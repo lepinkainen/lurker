@@ -37,15 +37,18 @@ func TestPreviewStorePutGet(t *testing.T) {
 func TestPreviewStoreTTL(t *testing.T) {
 	s := newTestPreviewStore(t)
 	ctx := context.Background()
-	p := URLPreview{
-		URL:       "https://ex.test/stale",
-		Kind:      PreviewKindNone,
-		FetchedAt: time.Now().Add(-2 * time.Hour).UTC(),
-	}
-	if err := s.Put(ctx, p); err != nil {
+	// Fixed reference instant. Put stamps FetchedAt at `t0`; Get runs at
+	// `t0 + 2h` so the entry is two hours old vs a one-hour TTL.
+	t0 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	now := t0
+	s.Now = func() time.Time { return now }
+
+	if err := s.Put(ctx, URLPreview{URL: "https://ex.test/stale", Kind: PreviewKindNone}); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	_, ok, err := s.Get(ctx, p.URL, time.Hour)
+	now = t0.Add(2 * time.Hour)
+
+	_, ok, err := s.Get(ctx, "https://ex.test/stale", time.Hour)
 	if err != nil {
 		t.Fatalf("get err: %v", err)
 	}

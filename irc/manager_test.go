@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/lrstanley/girc"
 
 	ircdb "github.com/lepinkainen/lurker/db"
@@ -497,9 +498,13 @@ func TestManagerStartAndStopNetworkIndividually(t *testing.T) {
 	}()
 
 	ctx := t.Context()
-	m := NewManager(stores, nil)
-	f := &fakeConnector{waitForClose: true}
+	h := hub.New()
+	m := NewManager(stores, h)
+	f := &fakeConnector{waitForClose: true, attempts: make(chan ServerConfig, 16)}
 	m.connector = f.connect
+
+	events, unsub := h.Subscribe(16)
+	defer unsub()
 
 	n1, err := stores.UpsertNetwork(ctx, ircdb.Network{Name: "NetOne", Host: "127.0.0.1", Port: 6667, TLS: false, Nick: "a"})
 	if err != nil {
@@ -517,17 +522,17 @@ func TestManagerStartAndStopNetworkIndividually(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	waitFor(t, time.Second, func() bool {
-		return f.callCount() >= 2
-	}, "manager never attempted both network starts")
+	f.awaitCalls(t, 2, time.Second)
 
 	if err := m.StopNetwork(n1.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, time.Second, func() bool {
-		state := m.StateSnapshot()
-		return state[n1.ID] == StateDisconnected.String() && state[n2.ID] == StateConnecting.String()
-	}, "stop network affected wrong runtime state")
+	// Wait for the network_state events that describe the post-stop topology:
+	// n1 must reach Disconnected and n2 must still be Connecting.
+	awaitState(t, events, time.Second, n1.ID, StateDisconnected.String())
+	if got := m.StateSnapshot()[n2.ID]; got != StateConnecting.String() {
+		t.Fatalf("n2 state = %q, want %q", got, StateConnecting.String())
+	}
 
 	if err := m.StopNetwork(n2.ID); err != nil {
 		t.Fatal(err)
@@ -550,7 +555,7 @@ func TestYAMLStyleNetworkUsesOneLogicalConnectionConfigWithMultipleServers(t *te
 	defer cancel()
 
 	m := NewManager(stores, nil)
-	f := &fakeConnector{returnErr: errors.New("boom")}
+	f := &fakeConnector{returnErr: errors.New("boom"), attempts: make(chan ServerConfig, 16)}
 	m.connector = f.connect
 
 	err = m.Start(ctx, []NetworkConfig{{
@@ -571,9 +576,7 @@ func TestYAMLStyleNetworkUsesOneLogicalConnectionConfigWithMultipleServers(t *te
 		m.Wait()
 	}()
 
-	waitFor(t, 2500*time.Millisecond, func() bool {
-		return f.callCount() >= 2
-	}, "manager never attempted failover to second server")
+	f.awaitCalls(t, 2, 2500*time.Millisecond)
 
 	nets, err := ircdb.ListNetworks(t.Context(), stores.Control)
 	if err != nil {
@@ -601,7 +604,7 @@ func TestManagerFallsBackToTLS12AfterTLSError(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	m := NewManager(stores, nil)
-	f := &fakeConnector{returnErr: errors.New("tls handshake failed")}
+	f := &fakeConnector{returnErr: errors.New("tls handshake failed"), attempts: make(chan ServerConfig, 16)}
 	m.connector = f.connect
 
 	err = m.Start(ctx, []NetworkConfig{{
@@ -616,9 +619,7 @@ func TestManagerFallsBackToTLS12AfterTLSError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, time.Second, func() bool {
-		return f.callCount() >= 2
-	}, "manager never retried with TLS 1.2")
+	f.awaitCalls(t, 2, time.Second)
 	cancel()
 	m.Wait()
 
@@ -692,29 +693,27 @@ func runClientEvent(c *girc.Client, e girc.Event) {
 	c.RunHandlers(&e)
 }
 
-func waitFor(t *testing.T, timeout time.Duration, fn func() bool, msg string) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if fn() {
-			return
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	t.Fatal(msg)
-}
-
 type fakeConnector struct {
 	mu           sync.Mutex
 	calls        []ServerConfig
 	returnErr    error
 	waitForClose bool
+	// attempts signals each connect attempt. Tests block on the channel
+	// rather than polling callCount via time.Sleep loops.
+	attempts chan ServerConfig
 }
 
 func (f *fakeConnector) connect(ctx context.Context, _ *girc.Client, server ServerConfig) error {
 	f.mu.Lock()
 	f.calls = append(f.calls, server)
+	ch := f.attempts
 	f.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- server:
+		default:
+		}
+	}
 	if f.waitForClose {
 		<-ctx.Done()
 		return nil
@@ -735,6 +734,43 @@ func (f *fakeConnector) callsSnapshot() []ServerConfig {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.calls)
+}
+
+// awaitState blocks until a NetworkStateEvent for networkID with the given
+// state is observed on the events channel, or fails the test on timeout.
+func awaitState(t *testing.T, events <-chan any, timeout time.Duration, networkID uuid.UUID, state string) {
+	t.Helper()
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+		select {
+		case ev := <-events:
+			ns, ok := ev.(*NetworkStateEvent)
+			if !ok {
+				continue
+			}
+			if ns.NetworkID == networkID && ns.State == state {
+				return
+			}
+		case <-deadline.C:
+			t.Fatalf("never observed state %q for network %s", state, networkID)
+		}
+	}
+}
+
+// awaitCalls blocks until f has observed at least n connect attempts. Uses the
+// attempts channel rather than polling callCount on a sleep loop.
+func (f *fakeConnector) awaitCalls(t *testing.T, n int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for f.callCount() < n {
+		select {
+		case <-f.attempts:
+		case <-deadline.C:
+			t.Fatalf("only %d connect attempts before timeout (wanted %d)", f.callCount(), n)
+		}
+	}
 }
 
 var _ = sql.ErrNoRows

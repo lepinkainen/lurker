@@ -1,3 +1,6 @@
+// Integration test: depends on the seedtest fixture (`task seed-test`) and the
+// running backend started by tests/globalSetup.ts. Asserts against seeded
+// networks, buffers, and messages — drift in the seed will break this.
 import { describe, expect, it } from "vitest";
 
 describe("seeded backend", () => {

@@ -195,12 +195,16 @@ func TestServiceProcessUsesCacheHit(t *testing.T) {
 	ch, unsub := h.Subscribe(1)
 	defer unsub()
 	svc := NewService(Config{Enabled: true, CacheTTL: time.Hour}, env.stores, h)
+	var fetcherCalled atomic.Bool
 	svc.fetcher = NewFetcher(FetcherConfig{SSRFCheck: func(context.Context, string) error {
-		t.Fatal("fetcher called for cache hit")
+		fetcherCalled.Store(true)
 		return nil
 	}})
 
 	svc.process(ctx, job{NetworkID: env.networkID, BufferID: env.bufferID, MessageID: env.messageID, Content: url})
+	if fetcherCalled.Load() {
+		t.Fatal("fetcher called for cache hit")
+	}
 	ev := recvPreviewEvent(t, ch)
 	if len(ev.Previews) != 1 || ev.Previews[0].Title != "Cached Title" {
 		t.Fatalf("unexpected cached event previews: %+v", ev.Previews)

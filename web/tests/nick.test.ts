@@ -126,11 +126,11 @@ describe("nickAvatar", () => {
     const b = nickAvatar("alice");
     const ctxA = a.getContext("2d");
     const ctxB = b.getContext("2d");
-    if (ctxA && ctxB) {
-      const dataA = ctxA.getImageData(0, 0, a.width, a.height).data.join(",");
-      const dataB = ctxB.getImageData(0, 0, b.width, b.height).data.join(",");
-      expect(dataA).toBe(dataB);
-    }
+    expect(ctxA).not.toBeNull();
+    expect(ctxB).not.toBeNull();
+    const dataA = (ctxA as CanvasRenderingContext2D).getImageData(0, 0, a.width, a.height).data.join(",");
+    const dataB = (ctxB as CanvasRenderingContext2D).getImageData(0, 0, b.width, b.height).data.join(",");
+    expect(dataA).toBe(dataB);
   });
 
   it("differs for different nicks", () => {
@@ -138,10 +138,10 @@ describe("nickAvatar", () => {
     const b = nickAvatar("bob");
     const ctxA = a.getContext("2d");
     const ctxB = b.getContext("2d");
-    if (ctxA && ctxB) {
-      const dataA = ctxA.getImageData(0, 0, a.width, a.height).data.join(",");
-      const dataB = ctxB.getImageData(0, 0, b.width, b.height).data.join(",");
-      expect(dataA).not.toBe(dataB);
-    }
+    expect(ctxA).not.toBeNull();
+    expect(ctxB).not.toBeNull();
+    const dataA = (ctxA as CanvasRenderingContext2D).getImageData(0, 0, a.width, a.height).data.join(",");
+    const dataB = (ctxB as CanvasRenderingContext2D).getImageData(0, 0, b.width, b.height).data.join(",");
+    expect(dataA).not.toBe(dataB);
   });
 });

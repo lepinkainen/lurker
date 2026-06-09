@@ -15,30 +15,49 @@ export const RECONNECT_MAX_MS = 30_000;
 export const WS_STALE_MS = 60_000;
 export const WS_HEALTHCHECK_MS = 10_000;
 
-export type StateSyncDeps = {
+// Grouped collaborator interfaces. Rendering, navigation, and transport are
+// the three cohesive seams used across connection.ts.
+
+export type Renderer = {
+  renderStatus: () => void;
   renderPromptNick: () => void;
   renderSidebar: () => void;
   renderHeader: () => void;
   renderActiveView: () => void;
   renderMembers: () => void;
+  updateInputEnabled: () => void;
+};
+
+export type Navigation = {
   setActive: (id: string, opts?: { skipHash?: boolean; replaceHash?: boolean }) => void;
   bufferFromHash: (hash: string) => { id: string } | null;
+  maybeMarkActiveRead: () => void;
+};
+
+export type Transport = {
+  syncState: () => Promise<void>;
+  handleMessage: (msg: unknown) => void;
+};
+
+export type StateSyncDeps = {
+  renderer: Pick<
+    Renderer,
+    "renderPromptNick" | "renderSidebar" | "renderHeader" | "renderActiveView" | "renderMembers"
+  >;
+  navigation: Pick<Navigation, "setActive" | "bufferFromHash">;
 };
 
 export type HydrateDeps = {
-  renderStatus: () => void;
-  syncState: () => Promise<void>;
+  renderer: Pick<Renderer, "renderStatus">;
+  transport: Pick<Transport, "syncState">;
   scheduleReconnect: (delayMs: number) => void;
 };
 
 export type ConnectionDeps = {
   domReady: () => boolean;
-  renderStatus: () => void;
-  renderSidebar: () => void;
-  updateInputEnabled: () => void;
-  maybeMarkActiveRead: () => void;
-  syncState: () => Promise<void>;
-  handleMessage: (msg: unknown) => void;
+  renderer: Pick<Renderer, "renderStatus" | "renderSidebar" | "updateInputEnabled">;
+  navigation: Pick<Navigation, "maybeMarkActiveRead">;
+  transport: Transport;
 };
 
 export type Connection = {
@@ -51,14 +70,15 @@ type WebSocketRuntimeDeps = ConnectionDeps & {
   scheduleReconnect: (delayMs: number) => void;
 };
 
-type HealthCheckDeps = Pick<
-  WebSocketRuntimeDeps,
-  "domReady" | "renderStatus" | "updateInputEnabled" | "renderSidebar" | "scheduleReconnect"
->;
+type HealthCheckDeps = {
+  domReady: () => boolean;
+  renderer: Pick<Renderer, "renderStatus" | "renderSidebar" | "updateInputEnabled">;
+  scheduleReconnect: (delayMs: number) => void;
+};
 
 type ReconnectDeps = {
   domReady: () => boolean;
-  renderStatus: () => void;
+  renderer: Pick<Renderer, "renderStatus">;
   connectWS: () => void;
 };
 
@@ -72,7 +92,7 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
   const s: StateResponse = await stateRes.json();
   state.me.nick = s.current_nick || s.nick || s.user?.nick || s.networks?.[0]?.nick || "you";
   for (const network of s.networks || []) state.networks.set(network.id, network);
-  deps.renderPromptNick();
+  deps.renderer.renderPromptNick();
   for (const buffer of s.buffers || []) {
     state.buffers.set(buffer.id, {
       ...buffer,
@@ -101,12 +121,12 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
   } else {
     state.tailscaleStatus = null;
   }
-  deps.renderSidebar();
-  deps.renderHeader();
-  deps.renderActiveView();
-  deps.renderMembers();
+  deps.renderer.renderSidebar();
+  deps.renderer.renderHeader();
+  deps.renderer.renderActiveView();
+  deps.renderer.renderMembers();
   if (!state.activeId && state.buffers.size > 0) {
-    const fromUrl = deps.bufferFromHash(location.hash);
+    const fromUrl = deps.navigation.bufferFromHash(location.hash);
     // iOS standalone PWAs cold-launch at the manifest start_url ("/") with no
     // hash, so fall back to the last active buffer persisted in localStorage.
     const lastId = loadLastActive();
@@ -114,20 +134,20 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
     const fallbackId = getStartupFallbackBufferIds()[0];
     const fallback = fallbackId ? state.buffers.get(fallbackId) : undefined;
     const initial = fromUrl ?? lastActive ?? fallback;
-    if (initial) deps.setActive(initial.id, { replaceHash: true });
+    if (initial) deps.navigation.setActive(initial.id, { replaceHash: true });
   }
 }
 
 export async function hydrate(deps: HydrateDeps) {
   try {
     state.backendStatus = "connecting";
-    deps.renderStatus();
-    await deps.syncState();
+    deps.renderer.renderStatus();
+    await deps.transport.syncState();
     state.reconnectAttempts = 0;
     deps.scheduleReconnect(0);
   } catch (err) {
     state.backendStatus = "offline";
-    deps.renderStatus();
+    deps.renderer.renderStatus();
     console.error("hydrate failed", err);
     deps.scheduleReconnect(nextReconnectDelay());
   }
@@ -144,7 +164,7 @@ export function createConnection(deps: ConnectionDeps): Connection {
     scheduleReconnectTimer(
       {
         domReady: deps.domReady,
-        renderStatus: deps.renderStatus,
+        renderer: { renderStatus: deps.renderer.renderStatus },
         connectWS: connect,
       },
       delayMs,
@@ -152,7 +172,12 @@ export function createConnection(deps: ConnectionDeps): Connection {
   }
 
   return {
-    hydrate: () => hydrate({ renderStatus: deps.renderStatus, syncState: deps.syncState, scheduleReconnect }),
+    hydrate: () =>
+      hydrate({
+        renderer: { renderStatus: deps.renderer.renderStatus },
+        transport: { syncState: deps.transport.syncState },
+        scheduleReconnect,
+      }),
     connect,
     scheduleReconnect,
   };
@@ -178,16 +203,16 @@ export function checkWebSocketHealth(deps: HealthCheckDeps) {
   state.backendStatus = "offline";
   state.needsStateSyncOnConnect = true;
   if (!deps.domReady()) return;
-  deps.renderStatus();
-  deps.updateInputEnabled();
-  deps.renderSidebar();
+  deps.renderer.renderStatus();
+  deps.renderer.updateInputEnabled();
+  deps.renderer.renderSidebar();
   deps.scheduleReconnect(0);
 }
 
 function connectWS(deps: WebSocketRuntimeDeps) {
   if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
   state.backendStatus = "connecting";
-  deps.renderStatus();
+  deps.renderer.renderStatus();
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${proto}//${location.host}/api/stream`);
   state.ws = ws;
@@ -197,12 +222,12 @@ function connectWS(deps: WebSocketRuntimeDeps) {
     state.lastWSActivityAt = Date.now();
     state.backendStatus = "connected";
     state.reconnectAttempts = 0;
-    deps.renderStatus();
-    deps.updateInputEnabled();
-    deps.maybeMarkActiveRead();
-    deps.renderSidebar();
+    deps.renderer.renderStatus();
+    deps.renderer.updateInputEnabled();
+    deps.navigation.maybeMarkActiveRead();
+    deps.renderer.renderSidebar();
     if (state.needsStateSyncOnConnect) {
-      deps
+      deps.transport
         .syncState()
         .then(() => {
           state.needsStateSyncOnConnect = false;
@@ -213,7 +238,7 @@ function connectWS(deps: WebSocketRuntimeDeps) {
   ws.addEventListener("message", (ev) => {
     state.lastWSActivityAt = Date.now();
     try {
-      deps.handleMessage(JSON.parse(ev.data));
+      deps.transport.handleMessage(JSON.parse(ev.data));
     } catch {
       console.warn("non-json ws frame", ev.data);
     }
@@ -224,9 +249,9 @@ function connectWS(deps: WebSocketRuntimeDeps) {
     state.backendStatus = "offline";
     state.needsStateSyncOnConnect = true;
     if (!deps.domReady()) return;
-    deps.renderStatus();
-    deps.updateInputEnabled();
-    deps.renderSidebar();
+    deps.renderer.renderStatus();
+    deps.renderer.updateInputEnabled();
+    deps.renderer.renderSidebar();
     deps.scheduleReconnect(nextReconnectDelay());
   });
   ws.addEventListener("error", () => ws.close());
@@ -254,11 +279,11 @@ function scheduleReconnectTimer(deps: ReconnectDeps, delayMs: number) {
   clearReconnectTimer();
   state.backendStatus = "reconnecting";
   state.reconnectAt = Date.now() + delayMs;
-  deps.renderStatus();
+  deps.renderer.renderStatus();
   if (delayMs > 0) {
     state.reconnectTicker = window.setInterval(() => {
       if (!deps.domReady() || state.backendStatus !== "reconnecting") return;
-      deps.renderStatus();
+      deps.renderer.renderStatus();
     }, 250);
   }
   state.reconnectTimer = window.setTimeout(() => {

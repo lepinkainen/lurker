@@ -83,22 +83,27 @@ export function start() {
   window.addEventListener("hashchange", onHash);
   window.addEventListener("popstate", onHash);
   const syncStateDeps: StateSyncDeps = {
-    renderPromptNick: view.renderPromptNick,
-    renderSidebar: view.renderSidebar,
-    renderHeader: view.renderHeader,
-    renderActiveView: view.renderActiveView,
-    renderMembers: view.renderMembers,
-    setActive,
-    bufferFromHash,
+    renderer: {
+      renderPromptNick: view.renderPromptNick,
+      renderSidebar: view.renderSidebar,
+      renderHeader: view.renderHeader,
+      renderActiveView: view.renderActiveView,
+      renderMembers: view.renderMembers,
+    },
+    navigation: { setActive, bufferFromHash },
   };
   const connection = createConnection({
     domReady: () => domReady,
-    renderStatus: view.renderStatus,
-    renderSidebar: view.renderSidebar,
-    updateInputEnabled: view.updateInputEnabled,
-    maybeMarkActiveRead,
-    syncState: () => syncStateFromServer(syncStateDeps),
-    handleMessage: (msg) => routeWSMessage?.(msg),
+    renderer: {
+      renderStatus: view.renderStatus,
+      renderSidebar: view.renderSidebar,
+      updateInputEnabled: view.updateInputEnabled,
+    },
+    navigation: { maybeMarkActiveRead },
+    transport: {
+      syncState: () => syncStateFromServer(syncStateDeps),
+      handleMessage: (msg) => routeWSMessage?.(msg),
+    },
   });
   return connection.hydrate();
 }

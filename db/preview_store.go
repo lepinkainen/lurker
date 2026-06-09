@@ -42,6 +42,17 @@ func (p URLPreview) Displayable() bool {
 // PreviewStore wraps the shared previews.db handle.
 type PreviewStore struct {
 	DB *sql.DB
+	// Now is the clock used for FetchedAt stamping and TTL comparisons.
+	// Tests inject a fixed clock; production code leaves it nil and the
+	// store falls back to time.Now.
+	Now func() time.Time
+}
+
+func (s *PreviewStore) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
 }
 
 // OpenPreviewStore opens the shared preview cache at path.
@@ -96,7 +107,7 @@ func (s *PreviewStore) Get(ctx context.Context, url string, ttl time.Duration) (
 		return URLPreview{}, false, err
 	}
 	p := rowToPreview(r)
-	if ttl > 0 && !p.FetchedAt.IsZero() && time.Since(p.FetchedAt) > ttl {
+	if ttl > 0 && !p.FetchedAt.IsZero() && s.now().Sub(p.FetchedAt) > ttl {
 		return p, false, nil
 	}
 	return p, true, nil
@@ -112,7 +123,7 @@ func nullInt(n int) sql.NullInt64 {
 // Put upserts a preview keyed on URL.
 func (s *PreviewStore) Put(ctx context.Context, p URLPreview) error {
 	if p.FetchedAt.IsZero() {
-		p.FetchedAt = time.Now().UTC()
+		p.FetchedAt = s.now().UTC()
 	}
 	return previewdb.New(s.DB).UpsertURLPreview(ctx, previewdb.UpsertURLPreviewParams{
 		Url:         p.URL,
@@ -180,6 +191,6 @@ func (s *PreviewStore) PurgeExpired(ctx context.Context, ttl time.Duration) (int
 	if ttl <= 0 {
 		return 0, nil
 	}
-	cutoff := time.Now().Add(-ttl).UTC().Format(time.RFC3339Nano)
+	cutoff := s.now().Add(-ttl).UTC().Format(time.RFC3339Nano)
 	return previewdb.New(s.DB).DeleteURLPreviewsBefore(ctx, cutoff)
 }

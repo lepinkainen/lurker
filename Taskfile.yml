@@ -168,9 +168,19 @@ tasks:
       - cd web && pnpm lint:fix
 
   test-web:
-    desc: Run the frontend test suite
+    desc: Run the frontend unit test suite
     cmds:
       - cd web && pnpm test
+
+  test-web-integration:
+    desc: Run the frontend integration tests (requires seeded backend)
+    cmds:
+      - cd web && pnpm test:integration
+
+  test-web-all:
+    desc: Run frontend unit + integration tests
+    cmds:
+      - cd web && pnpm test:all
 
   tidy:
     desc: Tidy Go module dependencies

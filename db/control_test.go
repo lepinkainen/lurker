@@ -1,11 +1,10 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
-
-	"github.com/google/uuid"
 )
 
 func TestOpenControlAppliesMigrations(t *testing.T) {
@@ -36,21 +35,23 @@ func TestControlNetworksNameCIUnique(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = d.Close() }()
+	ctx := context.Background()
 
-	id1 := uuid.Must(uuid.NewV7())
-	_, err = d.Exec(`INSERT INTO networks(id, name, name_ci, host, port, tls, nick, autoconnect, sort_order, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id1[:], "Libera", "libera", "irc.libera.chat", 6697, 1, "tester", 1, 0, Now())
-	if err != nil {
-		t.Fatal(err)
+	// Drive uniqueness via the public CreateNetwork path so the test exercises
+	// the same code production callers hit. The underlying schema constraint
+	// on networks.name_ci is the safety net but is not tested directly.
+	if _, err := CreateNetwork(ctx, d, Network{
+		Name: "Libera",
+		Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "tester",
+	}); err != nil {
+		t.Fatalf("first create: %v", err)
 	}
 
-	id2 := uuid.Must(uuid.NewV7())
-	_, err = d.Exec(`INSERT INTO networks(id, name, name_ci, host, port, tls, nick, autoconnect, sort_order, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id2[:], "LIBERA", "libera", "irc.example.net", 6667, 0, "tester2", 1, 1, Now())
-	if err == nil {
-		t.Fatal("expected unique constraint error for networks.name_ci")
+	if _, err := CreateNetwork(ctx, d, Network{
+		Name: "LIBERA",
+		Host: "irc.example.net", Port: 6667, Nick: "tester2",
+	}); err == nil {
+		t.Fatal("expected duplicate-name error for case-insensitive collision")
 	}
 }
 

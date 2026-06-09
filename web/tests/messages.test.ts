@@ -326,17 +326,22 @@ describe("onMessage", () => {
     expect(handlers.renderActiveView).toHaveBeenCalled();
   });
 
-  it("does not bump unread or mentions for state-change noise on inactive buffer", () => {
+  it.each([
+    "join",
+    "part",
+    "quit",
+    "nick",
+    "mode",
+    "kick",
+    "connected",
+    "disconnected",
+    "error",
+  ])("does not bump unread or mentions for %s on inactive buffer", (kind) => {
     state.activeId = "99";
     state.me.nick = "you";
     state.buffers.set("1", buf({ id: "1", show_presence_events: true }));
     const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    ["join", "part", "quit", "nick", "mode", "kick", "connected", "disconnected", "error"].forEach((kind, idx) => {
-      onMessage(
-        { id: `10${idx}`, buffer_id: "1", sender: "alice", content: `mentions you in ${kind}`, kind },
-        handlers,
-      );
-    });
+    onMessage({ id: "100", buffer_id: "1", sender: "alice", content: `mentions you in ${kind}`, kind }, handlers);
     expect(state.buffers.get("1")?.unread).toBe(0);
     expect(state.buffers.get("1")?.mentions).toBe(0);
   });

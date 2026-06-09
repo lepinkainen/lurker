@@ -10,6 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:all": "pnpm test && pnpm test:integration",
     "lint": "biome check src tests && stylelint \"src/**/*.css\"",
     "lint:fix": "biome check --write src tests && stylelint \"src/**/*.css\" --fix",
     "format": "biome format --write src tests"

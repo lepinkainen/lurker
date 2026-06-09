@@ -1,11 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { state } from "../src/app-state";
 import { resetAppState } from "../src/reset";
 
 describe("resetAppState", () => {
-  it("clears transient app state and restores defaults", () => {
-    const close = vi.fn();
-    state.ws = { close } as unknown as WebSocket;
+  let closeSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    closeSpy = vi.fn();
+    state.ws = { close: closeSpy } as unknown as WebSocket;
     state.wsReady = true;
     state.activeId = "99";
     state.networks.set("1", { id: "1", name: "Libera" });
@@ -28,33 +30,57 @@ describe("resetAppState", () => {
     );
 
     resetAppState();
+  });
 
-    expect(close).toHaveBeenCalledOnce();
-    expect(state.networks.size).toBe(0);
-    expect(state.buffers.size).toBe(0);
-    expect(state.messages.size).toBe(0);
-    expect(state.members.size).toBe(0);
-    expect(state.inputHistory.size).toBe(0);
-    expect(state.activeId).toBeNull();
-    expect(state.ws).toBeNull();
-    expect(state.wsReady).toBe(false);
-    expect(state.loadingHistory.size).toBe(0);
-    expect(state.historyExhausted.size).toBe(0);
-    expect(state.lastMarkedReadId.size).toBe(0);
-    expect(state.markerAnchorId.size).toBe(0);
-    expect(state.uiFocused).toBe(true);
-    expect(state.activeFocusedSinceEnter).toBe(true);
-    expect(state.me.nick).toBe("you");
-    expect(state.showMemberList).toBe(true);
+  it("closes the websocket", () => {
+    expect(closeSpy).toHaveBeenCalledOnce();
+  });
+
+  describe.each([
+    ["networks", () => state.networks.size, 0],
+    ["buffers", () => state.buffers.size, 0],
+    ["messages", () => state.messages.size, 0],
+    ["members", () => state.members.size, 0],
+    ["inputHistory", () => state.inputHistory.size, 0],
+    ["loadingHistory", () => state.loadingHistory.size, 0],
+    ["historyExhausted", () => state.historyExhausted.size, 0],
+    ["lastMarkedReadId", () => state.lastMarkedReadId.size, 0],
+    ["markerAnchorId", () => state.markerAnchorId.size, 0],
+  ])("clears collection %s", (_name, getter, expected) => {
+    it("becomes empty", () => {
+      expect(getter()).toBe(expected);
+    });
+  });
+
+  describe.each([
+    ["activeId", () => state.activeId, null],
+    ["ws", () => state.ws, null],
+    ["wsReady", () => state.wsReady, false],
+    ["uiFocused", () => state.uiFocused, true],
+    ["activeFocusedSinceEnter", () => state.activeFocusedSinceEnter, true],
+    ["me.nick", () => state.me.nick, "you"],
+    ["showMemberList", () => state.showMemberList, true],
+  ])("restores scalar %s", (_name, getter, expected) => {
+    it("matches default", () => {
+      expect(getter()).toBe(expected);
+    });
+  });
+
+  it("rehydrates layout from localStorage", () => {
     expect(state.layout).toEqual({
       collapsed: { 5: true },
       pinned: [2],
       archivesOpen: { 1: true },
       sidebarHidden: false,
     });
-    expect(state.drag).toEqual({ id: null, over: null });
   });
 
+  it("resets drag", () => {
+    expect(state.drag).toEqual({ id: null, over: null });
+  });
+});
+
+describe("resetAppState error handling", () => {
   it("ignores websocket close errors", () => {
     state.ws = {
       close: () => {

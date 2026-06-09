@@ -53,22 +53,23 @@ func doNetworkRequest(h http.Handler, method, path, body string) *httptest.Respo
 	return rec
 }
 
-func TestNetworkCRUDAndDeleteRetainsLogDB(t *testing.T) {
-	ctx := t.Context()
+// newNetworkTestServerInDir is like newNetworkTestServer but exposes the data
+// directory so log-DB file retention can be asserted.
+func newNetworkTestServerInDir(t *testing.T) (string, *ircdb.MultiStore, http.Handler) {
+	t.Helper()
 	dataDir := t.TempDir()
 	stores, err := ircdb.OpenMultiStore(dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = stores.Close() }()
-
+	t.Cleanup(func() { _ = stores.Close() })
 	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(stores, hub.New())}
-	h := srv.Handler()
+	return dataDir, stores, srv.Handler()
+}
 
-	body := bytes.NewBufferString(`{"name":"Libera","host":"irc.libera.chat","port":6697,"tls":true,"nick":"tester"}`)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/networks", body)
-	h.ServeHTTP(rec, req)
+func createNetworkViaAPI(t *testing.T, h http.Handler, body string) networkDTO {
+	t.Helper()
+	rec := doNetworkRequest(h, http.MethodPost, "/api/networks", body)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -76,31 +77,61 @@ func TestNetworkCRUDAndDeleteRetainsLogDB(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
 		t.Fatal(err)
 	}
+	return created
+}
+
+func TestNetworkCreate(t *testing.T) {
+	dataDir, _, h := newNetworkTestServerInDir(t)
+	created := createNetworkViaAPI(t, h, `{"name":"Libera","host":"irc.libera.chat","port":6697,"tls":true,"nick":"tester"}`)
 	if created.ID == uuid.Nil {
 		t.Fatal("expected created id")
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "libera.db")); err != nil {
 		t.Fatalf("expected log db to exist: %v", err)
 	}
+}
 
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPatch, "/api/networks/"+created.ID.String(), bytes.NewBufferString(`{"nick":"tester2"}`))
-	h.ServeHTTP(rec, req)
+func TestNetworkPatch(t *testing.T) {
+	_, stores, h := newNetworkTestServerInDir(t)
+	created := createNetworkViaAPI(t, h, `{"name":"Libera","host":"irc.libera.chat","port":6697,"tls":true,"nick":"tester"}`)
+
+	rec := doNetworkRequest(h, http.MethodPatch, "/api/networks/"+created.ID.String(), `{"nick":"tester2"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch status = %d body=%s", rec.Code, rec.Body.String())
 	}
+	updated, err := ircdb.GetNetwork(t.Context(), stores.Control, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Nick != "tester2" {
+		t.Fatalf("nick = %q, want tester2", updated.Nick)
+	}
+}
 
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodDelete, "/api/networks/"+created.ID.String(), http.NoBody)
-	h.ServeHTTP(rec, req)
+func TestNetworkDelete(t *testing.T) {
+	ctx := t.Context()
+	_, stores, h := newNetworkTestServerInDir(t)
+	created := createNetworkViaAPI(t, h, `{"name":"Libera","host":"irc.libera.chat","port":6697,"tls":true,"nick":"tester"}`)
+
+	rec := doNetworkRequest(h, http.MethodDelete, "/api/networks/"+created.ID.String(), "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := ircdb.GetNetwork(ctx, stores.Control, created.ID); err == nil {
+		t.Fatal("expected control db network row deleted")
+	}
+}
+
+func TestNetworkDeleteRetainsLogDB(t *testing.T) {
+	dataDir, _, h := newNetworkTestServerInDir(t)
+	created := createNetworkViaAPI(t, h, `{"name":"Libera","host":"irc.libera.chat","port":6697,"tls":true,"nick":"tester"}`)
+
+	rec := doNetworkRequest(h, http.MethodDelete, "/api/networks/"+created.ID.String(), "")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "libera.db")); err != nil {
-		t.Fatalf("expected retained log db: %v", err)
-	}
-	if _, err := ircdb.GetNetwork(ctx, stores.Control, created.ID); err == nil {
-		t.Fatal("expected control db network row deleted")
+		t.Fatalf("expected retained log db after network delete: %v", err)
 	}
 }
 
@@ -175,27 +206,12 @@ func TestReorderNetworksEndpointRejectsInvalidPermutation(t *testing.T) {
 
 }
 
-func TestNetworkConnectCommandsEndpointsAndStateDoesNotLeak(t *testing.T) {
-	ctx := t.Context()
-	stores, err := ircdb.OpenMultiStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = stores.Close() }()
+func TestNetworkConnectCommandsPut(t *testing.T) {
+	stores, h := newNetworkTestServer(t)
+	n := createTestNetwork(t, stores, "Libera")
 
-	n, err := ircdb.CreateNetwork(ctx, stores.Control, ircdb.Network{Name: "Libera", Host: "127.0.0.1", Port: 1, TLS: false, Nick: "tester"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := stores.OpenNetwork(ctx, n); err != nil {
-		t.Fatal(err)
-	}
-	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(stores, hub.New())}
-	h := srv.Handler()
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/networks/"+n.ID.String()+"/connect-commands", bytes.NewBufferString(`{"commands":["  PRIVMSG NickServ :IDENTIFY secret  ","","MODE tester +x"]}`)).WithContext(ctx)
-	h.ServeHTTP(rec, req)
+	rec := doNetworkRequest(h, http.MethodPut, "/api/networks/"+n.ID.String()+"/connect-commands",
+		`{"commands":["  PRIVMSG NickServ :IDENTIFY secret  ","","MODE tester +x"]}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put commands status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -206,20 +222,36 @@ func TestNetworkConnectCommandsEndpointsAndStateDoesNotLeak(t *testing.T) {
 	if len(body.Commands) != 2 || body.Commands[0] != "PRIVMSG NickServ :IDENTIFY secret" || body.Commands[1] != "MODE tester +x" {
 		t.Fatalf("commands = %#v", body.Commands)
 	}
+}
 
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/api/networks/"+n.ID.String()+"/connect-commands", http.NoBody).WithContext(ctx)
-	h.ServeHTTP(rec, req)
+func TestNetworkConnectCommandsGet(t *testing.T) {
+	stores, h := newNetworkTestServer(t)
+	n := createTestNetwork(t, stores, "Libera")
+
+	if rec := doNetworkRequest(h, http.MethodPut, "/api/networks/"+n.ID.String()+"/connect-commands",
+		`{"commands":["PRIVMSG NickServ :IDENTIFY secret"]}`); rec.Code != http.StatusOK {
+		t.Fatalf("put commands status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := doNetworkRequest(h, http.MethodGet, "/api/networks/"+n.ID.String()+"/connect-commands", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get commands status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte("IDENTIFY secret")) {
 		t.Fatalf("expected command response, body=%s", rec.Body.String())
 	}
+}
 
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/api/state", http.NoBody).WithContext(ctx)
-	h.ServeHTTP(rec, req)
+func TestNetworkConnectCommandsStateDoesNotLeak(t *testing.T) {
+	stores, h := newNetworkTestServer(t)
+	n := createTestNetwork(t, stores, "Libera")
+
+	if rec := doNetworkRequest(h, http.MethodPut, "/api/networks/"+n.ID.String()+"/connect-commands",
+		`{"commands":["PRIVMSG NickServ :IDENTIFY secret"]}`); rec.Code != http.StatusOK {
+		t.Fatalf("put commands status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := doNetworkRequest(h, http.MethodGet, "/api/state", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("state status = %d body=%s", rec.Code, rec.Body.String())
 	}

@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { state } from "../src/app-state";
-import { checkWebSocketHealth, createConnection, syncStateFromServer } from "../src/connection";
+import {
+  type ConnectionDeps,
+  checkWebSocketHealth,
+  createConnection,
+  type StateSyncDeps,
+  syncStateFromServer,
+} from "../src/connection";
 import { resetAppState } from "../src/reset";
 
 class FakeWebSocket extends EventTarget {
@@ -32,9 +38,33 @@ class FakeWebSocket extends EventTarget {
   static instances: FakeWebSocket[] = [];
 }
 
-const deps = () => {
-  const d = {
-    domReady: () => true,
+type FakeRenderer = {
+  renderStatus: ReturnType<typeof vi.fn>;
+  renderPromptNick: ReturnType<typeof vi.fn>;
+  renderSidebar: ReturnType<typeof vi.fn>;
+  renderHeader: ReturnType<typeof vi.fn>;
+  renderActiveView: ReturnType<typeof vi.fn>;
+  renderMembers: ReturnType<typeof vi.fn>;
+  updateInputEnabled: ReturnType<typeof vi.fn>;
+};
+type FakeNavigation = {
+  setActive: ReturnType<typeof vi.fn>;
+  bufferFromHash: ReturnType<typeof vi.fn>;
+  maybeMarkActiveRead: ReturnType<typeof vi.fn>;
+};
+type FakeTransport = {
+  syncState: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  handleMessage: ReturnType<typeof vi.fn>;
+};
+type Fakes = {
+  domReady: () => boolean;
+  renderer: FakeRenderer;
+  navigation: FakeNavigation;
+  transport: FakeTransport;
+};
+
+const deps = (): Fakes => {
+  const renderer: FakeRenderer = {
     renderStatus: vi.fn(),
     renderPromptNick: vi.fn(),
     renderSidebar: vi.fn(),
@@ -42,15 +72,34 @@ const deps = () => {
     renderActiveView: vi.fn(),
     renderMembers: vi.fn(),
     updateInputEnabled: vi.fn(),
-    maybeMarkActiveRead: vi.fn(),
+  };
+  const navigation: FakeNavigation = {
     setActive: vi.fn(),
     bufferFromHash: vi.fn(() => null),
-    handleMessage: vi.fn(),
-    syncState: vi.fn<() => Promise<void>>(),
+    maybeMarkActiveRead: vi.fn(),
   };
-  d.syncState.mockImplementation(() => syncStateFromServer(d));
-  return d;
+  const transport: FakeTransport = {
+    syncState: vi.fn<() => Promise<void>>(),
+    handleMessage: vi.fn(),
+  };
+  const fakes: Fakes = { domReady: () => true, renderer, navigation, transport };
+  transport.syncState.mockImplementation(() =>
+    syncStateFromServer({
+      renderer,
+      navigation,
+    } satisfies StateSyncDeps),
+  );
+  return fakes;
 };
+
+function asConnectionDeps(f: Fakes): ConnectionDeps {
+  return {
+    domReady: f.domReady,
+    renderer: f.renderer,
+    navigation: { maybeMarkActiveRead: f.navigation.maybeMarkActiveRead },
+    transport: f.transport,
+  };
+}
 
 describe("connection recovery", () => {
   beforeEach(() => {
@@ -97,7 +146,6 @@ describe("connection recovery", () => {
   });
 
   it("restores the last active buffer from localStorage over the first channel when the hash misses", async () => {
-    // Return two joined channels; "10" would be the default first-channel pick.
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
@@ -120,16 +168,16 @@ describe("connection recovery", () => {
     );
     localStorage.setItem("lurker.lastActive", "20");
     const d = deps();
-    d.bufferFromHash.mockReturnValue(null);
+    d.navigation.bufferFromHash.mockReturnValue(null);
 
-    await syncStateFromServer(d);
+    await syncStateFromServer({ renderer: d.renderer, navigation: d.navigation });
 
-    expect(d.setActive).toHaveBeenCalledWith("20", { replaceHash: true });
+    expect(d.navigation.setActive).toHaveBeenCalledWith("20", { replaceHash: true });
   });
 
   it("closes and immediately reconnects a stale websocket that still appears open", () => {
     const d = deps();
-    const connection = createConnection(d);
+    const connection = createConnection(asConnectionDeps(d));
     connection.connect();
     const ws = FakeWebSocket.instances[0];
     ws.open();
@@ -137,9 +185,7 @@ describe("connection recovery", () => {
 
     checkWebSocketHealth({
       domReady: d.domReady,
-      renderStatus: d.renderStatus,
-      updateInputEnabled: d.updateInputEnabled,
-      renderSidebar: d.renderSidebar,
+      renderer: d.renderer,
       scheduleReconnect: connection.scheduleReconnect,
     });
 
@@ -156,25 +202,25 @@ describe("connection recovery", () => {
     const d = deps();
     state.needsStateSyncOnConnect = false;
 
-    createConnection(d).connect();
+    createConnection(asConnectionDeps(d)).connect();
     FakeWebSocket.instances[0].open();
 
-    expect(d.syncState).not.toHaveBeenCalled();
+    expect(d.transport.syncState).not.toHaveBeenCalled();
   });
 
   it("refreshes state on reconnect so missed messages are backfilled", async () => {
     const d = deps();
     state.needsStateSyncOnConnect = true;
 
-    createConnection(d).connect();
+    createConnection(asConnectionDeps(d)).connect();
     FakeWebSocket.instances[0].open();
     await vi.waitFor(() => {
       expect(state.messages.get("10")).toEqual([{ id: "99", buffer_id: "10", content: "missed while asleep" }]);
     });
 
     expect(fetch).toHaveBeenCalledWith("/api/state");
-    expect(d.renderSidebar).toHaveBeenCalled();
-    expect(d.renderActiveView).toHaveBeenCalled();
+    expect(d.renderer.renderSidebar).toHaveBeenCalled();
+    expect(d.renderer.renderActiveView).toHaveBeenCalled();
     expect(state.needsStateSyncOnConnect).toBe(false);
   });
 
@@ -182,10 +228,10 @@ describe("connection recovery", () => {
     const d = deps();
     const error = new Error("state down");
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    d.syncState.mockRejectedValueOnce(error);
+    d.transport.syncState.mockRejectedValueOnce(error);
     state.needsStateSyncOnConnect = true;
 
-    createConnection(d).connect();
+    createConnection(asConnectionDeps(d)).connect();
     FakeWebSocket.instances[0].open();
 
     await vi.waitFor(() => {
