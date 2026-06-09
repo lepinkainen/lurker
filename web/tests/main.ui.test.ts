@@ -1,9 +1,127 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { state } from "../src/app-state";
 import { __handleWSMessage, __initForTests, __resetForTests } from "../src/main";
 import { fixtureIndexHTML } from "./fixture-index";
 
 const LEADING_HASH_RE = /^#/u;
 
+// ---------------------------------------------------------------------------
+// Fake WebSocket (same pattern as connection.test.ts)
+// ---------------------------------------------------------------------------
+class FakeWebSocket extends EventTarget {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+
+  readyState = FakeWebSocket.CONNECTING;
+  close = vi.fn(() => {
+    this.readyState = FakeWebSocket.CLOSED;
+    this.dispatchEvent(new Event("close"));
+  });
+  send = vi.fn();
+
+  constructor(public url: string) {
+    super();
+    FakeWebSocket.instances.push(this);
+    // Simulate open asynchronously so connection setup finishes first
+    queueMicrotask(() => {
+      this.readyState = FakeWebSocket.OPEN;
+      this.dispatchEvent(new Event("open"));
+    });
+  }
+
+  static instances: FakeWebSocket[] = [];
+  static reset() {
+    FakeWebSocket.instances = [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fixture data — 2 networks, 4 channel buffers spanning both
+// ---------------------------------------------------------------------------
+const FIXTURE = {
+  current_nick: "tester",
+  networks: [
+    { id: "net1", name: "libera", status: "connected" },
+    { id: "net2", name: "oftc", status: "connected" },
+  ],
+  buffers: [
+    {
+      id: "buf1",
+      network_id: "net1",
+      name: "#lurker",
+      kind: "channel",
+      joined: true,
+      last_seen_id: "0",
+      unread: 0,
+      mentions: 0,
+      show_embeds: true,
+      show_presence_events: true,
+      collapse_presence_events: false,
+      pinned: false,
+    },
+    {
+      id: "buf2",
+      network_id: "net1",
+      name: "#go",
+      kind: "channel",
+      joined: true,
+      last_seen_id: "0",
+      unread: 0,
+      mentions: 0,
+      show_embeds: true,
+      show_presence_events: true,
+      collapse_presence_events: false,
+      pinned: false,
+    },
+    {
+      id: "buf3",
+      network_id: "net2",
+      name: "#debian",
+      kind: "channel",
+      joined: true,
+      last_seen_id: "0",
+      unread: 0,
+      mentions: 0,
+      show_embeds: true,
+      show_presence_events: true,
+      collapse_presence_events: false,
+      pinned: false,
+    },
+    {
+      id: "buf4",
+      network_id: "net2",
+      name: "#ubuntu",
+      kind: "channel",
+      joined: true,
+      last_seen_id: "0",
+      unread: 0,
+      mentions: 0,
+      show_embeds: true,
+      show_presence_events: true,
+      collapse_presence_events: false,
+      pinned: false,
+    },
+  ],
+  initial_messages: {} as Record<string, unknown[]>,
+  members: {} as Record<string, unknown[]>,
+};
+
+function makeFetchMock() {
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/state") {
+      return Promise.resolve(Response.json(FIXTURE));
+    }
+    // update-status and tailscale-status — return 500 to keep them null
+    return Promise.resolve(new Response("{}", { status: 500 }));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 function installFixture() {
   const parsed = new DOMParser().parseFromString(fixtureIndexHTML, "text/html");
   document.body.innerHTML = parsed.body.innerHTML;
@@ -20,13 +138,20 @@ async function waitFor<T>(fn: () => T | null | undefined, timeoutMs = 3000): Pro
   throw new Error(`waitFor timeout; last=${String(last)}`);
 }
 
+// ---------------------------------------------------------------------------
+// Test suite
+// ---------------------------------------------------------------------------
 describe("main UI", () => {
   beforeEach(() => {
     installFixture();
+    FakeWebSocket.reset();
+    vi.stubGlobal("fetch", makeFetchMock());
+    vi.stubGlobal("WebSocket", FakeWebSocket);
   });
 
   afterEach(() => {
     __resetForTests();
+    vi.unstubAllGlobals();
   });
 
   it("renders networks and active channel from /api/state", async () => {
@@ -39,7 +164,7 @@ describe("main UI", () => {
     });
     expect(names).toEqual(expect.arrayContaining(["libera", "oftc"]));
 
-    const bufName = document.getElementById("buffer-name")?.textContent || "";
+    const bufName = document.getElementById("buffer-name")?.textContent ?? "";
     expect(bufName.length).toBeGreaterThan(0);
     expect(bufName).not.toBe("—");
   });
@@ -47,20 +172,19 @@ describe("main UI", () => {
   it("increments unread/mention counts for non-active buffer", async () => {
     await __initForTests();
 
-    // pick a non-active buffer (query or channel) — queries are always visible without opening archive fold
+    // pick a non-active buffer
     const target = await waitFor(() => {
       const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan:not(.active):not(.archives)");
       return rows.length > 0 ? rows[0] : null;
     });
-    const name = target.querySelector(".name")?.textContent || "";
-    expect(name).toBeTruthy();
+    const name = target.querySelector(".name")?.textContent;
+    if (!name) throw new Error("missing buffer name");
 
-    // find buffer id from state via /api/state
-    const stateRes = await (await fetch("/api/state")).json();
-    const buf = stateRes.buffers.find((b: { name: string }) => b.name === name);
-    expect(buf).toBeTruthy();
+    // look up buffer id directly from state instead of re-fetching
+    const buf = [...state.buffers.values()].find((b) => b.name === name);
+    if (!buf) throw new Error(`missing buffer for name=${name}`);
 
-    const nick = stateRes.current_nick || stateRes.nick || stateRes.user?.nick || stateRes.networks?.[0]?.nick || "you";
+    const nick = state.me.nick;
 
     __handleWSMessage({
       type: "message",
@@ -90,8 +214,8 @@ describe("main UI", () => {
       const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan:not(.active):not(.archives)");
       return rows.length > 0 ? rows[0] : null;
     });
-    const name = target.querySelector(".name")?.textContent || "";
-    expect(name).toBeTruthy();
+    const name = target.querySelector(".name")?.textContent;
+    if (!name) throw new Error("missing buffer name");
 
     target.click();
 
@@ -100,7 +224,7 @@ describe("main UI", () => {
       return row && row.querySelector(".name")?.textContent === name ? row : null;
     });
     expect(active).toBeTruthy();
-    const headerName = document.getElementById("buffer-name")?.textContent || "";
+    const headerName = document.getElementById("buffer-name")?.textContent ?? "";
     expect(headerName.replace(LEADING_HASH_RE, "")).toBe(name.replace(LEADING_HASH_RE, ""));
   });
 
@@ -157,14 +281,13 @@ describe("main UI", () => {
       const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan:not(.active):not(.archives)");
       return rows.length > 0 ? rows[0] : null;
     });
-    const targetName = target.querySelector(".name")?.textContent || "";
-    expect(targetName).toBeTruthy();
+    const targetName = target.querySelector(".name")?.textContent;
+    if (!targetName) throw new Error("missing target name");
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true }));
     const channelSwitcherSelector = `dialog[data-overlay='${"channel-switcher"}'][open]`;
     const dialog = await waitFor(() => document.querySelector<HTMLDialogElement>(channelSwitcherSelector));
     const switcherInput = dialog.querySelector<HTMLInputElement>(".ks-input");
-    expect(switcherInput).not.toBeNull();
     if (!switcherInput) throw new Error("missing switcher input");
 
     switcherInput.value = targetName;
@@ -185,7 +308,7 @@ describe("main UI", () => {
     const before = await waitFor(() =>
       document.querySelector<HTMLButtonElement>("#sb-scroll .sbrow.chan.active, #sb-scroll .net-hdr.active"),
     );
-    const beforeLabel = before.querySelector(".name, .netname")?.textContent || "";
+    const beforeLabel = before.querySelector(".name, .netname")?.textContent ?? "";
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, bubbles: true }));
 
@@ -193,7 +316,7 @@ describe("main UI", () => {
       const node = document.querySelector<HTMLButtonElement>(
         "#sb-scroll .sbrow.chan.active, #sb-scroll .net-hdr.active",
       );
-      const label = node?.querySelector(".name, .netname")?.textContent || "";
+      const label = node?.querySelector(".name, .netname")?.textContent ?? "";
       return label && label !== beforeLabel ? node : null;
     });
     expect(after).toBeTruthy();
@@ -213,9 +336,9 @@ describe("main UI", () => {
       return active?.querySelector(".name")?.textContent || null;
     });
 
-    const stateRes = await (await fetch("/api/state")).json();
-    const buf = stateRes.buffers.find((b: { name: string; kind: string }) => b.name === name && b.kind === "channel");
-    expect(buf).toBeTruthy();
+    // Look up buffer directly from state
+    const buf = [...state.buffers.values()].find((b) => b.name === name && b.kind === "channel");
+    if (!buf) throw new Error(`missing channel buffer for name=${name}`);
 
     const base = Date.now();
     const send = (id: string, sender: string, offsetMs: number) =>
@@ -251,18 +374,18 @@ describe("main UI", () => {
   it("jumps to the first unread buffer with alt+a", async () => {
     await __initForTests();
 
-    const stateRes = await (await fetch("/api/state")).json();
-    const activeName = document.getElementById("buffer-name")?.textContent || "";
+    const activeName = document.getElementById("buffer-name")?.textContent ?? "";
     const rows = document.querySelectorAll<HTMLButtonElement>("#sb-scroll .sbrow.chan:not(.archives)");
     const target = [...rows].find((row) => {
-      const name = row.querySelector(".name")?.textContent || "";
+      const name = row.querySelector(".name")?.textContent ?? "";
       return name && name !== activeName;
     });
     expect(target).toBeTruthy();
     if (!target) throw new Error("missing unread target row");
 
-    const targetName = target.querySelector(".name")?.textContent || "";
-    const buf = stateRes.buffers.find((b: { name: string }) => b.name === targetName);
+    const targetName = target.querySelector(".name")?.textContent ?? "";
+    // Look up buffer from state directly
+    const buf = [...state.buffers.values()].find((b) => b.name === targetName);
     expect(buf).toBeTruthy();
     if (!buf) throw new Error("missing unread target buffer");
 

@@ -100,6 +100,7 @@ describe("createSetActive", () => {
     expect(view.updateInputEnabled).toHaveBeenCalled();
     expect(markRead).toHaveBeenCalled();
     expect(focusSpy).toHaveBeenCalled();
+    focusSpy.mockRestore();
   });
 
   it("persists the active buffer to localStorage", () => {
@@ -134,6 +135,7 @@ describe("createSetActive", () => {
 
     setActive("b1");
     expect(focusSpy).not.toHaveBeenCalled();
+    focusSpy.mockRestore();
     matchMediaSpy.mockRestore();
   });
 
@@ -154,6 +156,7 @@ describe("createSetActive", () => {
 
     setActive("b1", { focusInput: true });
     expect(focusSpy).toHaveBeenCalled();
+    focusSpy.mockRestore();
     matchMediaSpy.mockRestore();
   });
 
