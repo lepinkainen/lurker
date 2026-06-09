@@ -25,7 +25,7 @@ For the cross-cutting `DataSource` abstraction shared by all non-IRC sources, se
 | `post.uri` | `MessageEvent.MsgID` / `datasource.Post.ExternalID` (dedupe key). |
 | `post.indexedAt` | `MessageEvent.TS`. |
 | Reposts | Sender is original `post.author.handle`; `Content` is prefixed with `[RT by <reposter>] `. |
-| Replies | Top-level only in `#home`. Append a parent post link when available; do not render a thread tree in MVP. |
+| Replies | Top-level only in `#home`. Append an inline parent snippet `(re: @<handle>: "<text…>")` so the replied-to context is visible at a glance; falls back to the raw `at://` URI when the parent cannot be resolved. Do not render a thread tree in MVP. |
 
 `MessageEvent.Kind` is set to `"privmsg"` for posts. Status/system messages such as auth failure, rate limiting, or repeated refresh failure go to the status buffer with `Kind="notice"`.
 
@@ -86,6 +86,30 @@ Restart behavior:
 - On restart, fetch newest page for each configured channel.
 - Existing messages are ignored by `(buffer_id, msgid)` dedupe.
 - New messages missed while offline are ingested if still present in the newest page. Deep gap-fill/backfill is deferred.
+
+## Reply parent resolution
+
+Replies carry their parent post's `at://` URI in `record.reply.parent`. To make
+the buffer readable without clicking out of the app, each reply inlines a short
+parent snippet instead of the bare URI.
+
+Resolution is per-poll and best-effort, in priority order:
+
+1. **Inline feed context (free)** — `app.bsky.feed.getTimeline` already embeds
+   the full parent `PostView` under `feedViewPost.reply.parent` when it is
+   visible. Use it directly; no extra request. `notFound`/`blocked` parents
+   decode to a stub with only `uri` set and are skipped.
+2. **Batched hydration** — remaining parent URIs are fetched via
+   `app.bsky.feed.getPosts` (max 25 URIs/call, so chunk). Missing/blocked posts
+   are simply absent from the response.
+3. **Fallback** — anything still unresolved renders as the raw `at://` URI, so
+   context is never silently dropped.
+
+Resolved parents are held in a small per-channel FIFO cache (~500 entries,
+keyed by parent URI) so a parent is hydrated once and reused across sibling
+replies and subsequent polls. The cache is owned by the single channel
+goroutine and is not safe for concurrent use. Snippet text is whitespace-
+collapsed and truncated to ~100 runes with an ellipsis.
 
 ## Configuration
 

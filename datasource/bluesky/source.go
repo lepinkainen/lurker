@@ -177,12 +177,13 @@ func (s *Source) resolveChannels(parent context.Context, deps datasource.Deps, n
 
 func (s *Source) runChannel(ctx context.Context, deps datasource.Deps, rc runtimeChannel) {
 	lru := newURILRU(500)
+	parents := newParentCache(500)
 
 	// Initial fetch is immediate; subsequent fetches run on the channel
 	// interval. backoff doubles up to ~10 min on repeated failure.
 	backoff := time.Second
 	for {
-		if err := s.pollOnce(ctx, deps, rc, lru); err != nil {
+		if err := s.pollOnce(ctx, deps, rc, lru, parents); err != nil {
 			if errors.Is(err, context.Canceled) {
 				return
 			}
@@ -204,7 +205,7 @@ func (s *Source) runChannel(ctx context.Context, deps datasource.Deps, rc runtim
 	}
 }
 
-func (s *Source) pollOnce(ctx context.Context, deps datasource.Deps, rc runtimeChannel, lru *uriLRU) error {
+func (s *Source) pollOnce(ctx context.Context, deps datasource.Deps, rc runtimeChannel, lru *uriLRU, parents *parentCache) error {
 	page, err := s.fetchPage(ctx, rc.cfg)
 	if err != nil {
 		return err
@@ -218,21 +219,69 @@ func (s *Source) pollOnce(ctx context.Context, deps datasource.Deps, rc runtimeC
 	sort.Slice(page.Feed, func(i, j int) bool {
 		return page.Feed[i].Post.IndexedAt < page.Feed[j].Post.IndexedAt
 	})
+
+	// Keep only items we will actually ingest, so we resolve reply parents
+	// for fresh posts only.
+	fresh := make([]FeedItem, 0, len(page.Feed))
 	for _, item := range page.Feed {
 		uri := item.Post.URI
+		if uri == "" || lru.seen(uri) {
+			continue
+		}
+		fresh = append(fresh, item)
+	}
+	if len(fresh) == 0 {
+		return nil
+	}
+
+	s.resolveParents(ctx, fresh, parents)
+
+	for _, item := range fresh {
+		post := mapFeedItem(item, parents.get)
+		if _, _, err := datasource.IngestPost(ctx, deps, s.networkID, rc.bufferID, post); err != nil {
+			slog.Warn("bluesky ingest failed", "uri", item.Post.URI, "err", err)
+			continue
+		}
+		lru.add(item.Post.URI)
+	}
+	return nil
+}
+
+// resolveParents fills the parent cache for every reply in items. It prefers
+// the parent PostView the timeline already embeds (free), and batch-hydrates
+// the rest via getPosts. Resolution is best-effort: on fetch failure the
+// affected replies fall back to rendering the raw parent URI.
+func (s *Source) resolveParents(ctx context.Context, items []FeedItem, parents *parentCache) {
+	var need []string
+	queued := map[string]bool{}
+	for _, item := range items {
+		uri := parentURI(item)
 		if uri == "" {
 			continue
 		}
-		if lru.seen(uri) {
+		if _, ok := parents.get(uri); ok {
 			continue
 		}
-		if _, _, err := datasource.IngestPost(ctx, deps, s.networkID, rc.bufferID, mapFeedItem(item)); err != nil {
-			slog.Warn("bluesky ingest failed", "uri", uri, "err", err)
+		if ref, ok := inlineParent(item, uri); ok {
+			parents.put(uri, ref)
 			continue
 		}
-		lru.add(uri)
+		if !queued[uri] {
+			queued[uri] = true
+			need = append(need, uri)
+		}
 	}
-	return nil
+	for start := 0; start < len(need); start += getPostsMax {
+		end := min(start+getPostsMax, len(need))
+		posts, err := s.client.GetPosts(ctx, need[start:end])
+		if err != nil {
+			slog.Warn("bluesky parent fetch failed", "network", s.cfg.Network, "err", err)
+			return
+		}
+		for _, p := range posts {
+			parents.put(p.URI, parentRef{handle: p.Author.Handle, text: p.Record.Text})
+		}
+	}
 }
 
 func (s *Source) emitStatus(ctx context.Context, deps datasource.Deps, msg string) {
@@ -247,8 +296,20 @@ func (s *Source) emitStatus(ctx context.Context, deps datasource.Deps, msg strin
 	})
 }
 
-// mapFeedItem converts a Bluesky feed item to a datasource.Post.
-func mapFeedItem(item FeedItem) datasource.Post {
+// parentSnippetLen caps the inlined parent-post text so a reply stays
+// glanceable in the buffer.
+const parentSnippetLen = 100
+
+// parentRef is the minimal parent-post context rendered inline on a reply.
+type parentRef struct {
+	handle string
+	text   string
+}
+
+// mapFeedItem converts a Bluesky feed item to a datasource.Post. resolveParent
+// returns the cached parent context for a reply's parent URI; pass nil to fall
+// back to rendering the raw URI.
+func mapFeedItem(item FeedItem, resolveParent func(uri string) (parentRef, bool)) datasource.Post {
 	p := item.Post
 	content := p.Record.Text
 
@@ -267,9 +328,8 @@ func mapFeedItem(item FeedItem) datasource.Post {
 		content = "[RT by " + item.Reason.By.Handle + "] " + content
 	}
 
-	if p.Record.Reply != nil && p.Record.Reply.Parent != nil && p.Record.Reply.Parent.URI != "" {
-		// Best-effort parent reference; thread tree rendering is out of scope.
-		content += " (re: " + p.Record.Reply.Parent.URI + ")"
+	if uri := parentURI(item); uri != "" {
+		content += " " + renderParent(uri, resolveParent)
 	}
 
 	ts := parseATTimestamp(p.IndexedAt)
@@ -281,6 +341,66 @@ func mapFeedItem(item FeedItem) datasource.Post {
 		Kind:      "privmsg",
 		Content:   content,
 	}
+}
+
+// parentURI returns the at:// URI of the post this item replies to, or "".
+func parentURI(item FeedItem) string {
+	r := item.Post.Record.Reply
+	if r == nil || r.Parent == nil {
+		return ""
+	}
+	return r.Parent.URI
+}
+
+// inlineParent extracts the parent context from the timeline's embedded reply
+// PostView when present and hydrated. notFound/blocked parents (only URI set)
+// and URI mismatches return false so the caller falls back to getPosts.
+func inlineParent(item FeedItem, uri string) (parentRef, bool) {
+	if item.Reply == nil || item.Reply.Parent == nil {
+		return parentRef{}, false
+	}
+	pv := item.Reply.Parent
+	if pv.URI != uri {
+		return parentRef{}, false
+	}
+	if pv.Author.Handle == "" && pv.Record.Text == "" {
+		return parentRef{}, false
+	}
+	return parentRef{handle: pv.Author.Handle, text: pv.Record.Text}, true
+}
+
+// renderParent formats the inline reply reference. With a resolved parent it
+// produces e.g. `(re: @alice.bsky.social: "the quoted text…")`; otherwise it
+// falls back to the raw URI so context is never silently dropped.
+func renderParent(uri string, resolve func(uri string) (parentRef, bool)) string {
+	if resolve != nil {
+		if ref, ok := resolve(uri); ok {
+			snippet := truncateSnippet(ref.text, parentSnippetLen)
+			switch {
+			case ref.handle != "" && snippet != "":
+				return "(re: @" + ref.handle + ": \"" + snippet + "\")"
+			case ref.handle != "":
+				return "(re: @" + ref.handle + ")"
+			case snippet != "":
+				return "(re: \"" + snippet + "\")"
+			}
+		}
+	}
+	return "(re: " + uri + ")"
+}
+
+// truncateSnippet collapses whitespace and trims s to at most max runes,
+// appending an ellipsis when it cuts.
+func truncateSnippet(s string, max int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if max <= 0 {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return strings.TrimRight(string(r[:max]), " ") + "…"
 }
 
 func collectEmbedURLs(e *Embed) []string {
@@ -380,5 +500,52 @@ func (l *uriLRU) add(uri string) {
 		}
 		l.order.Remove(oldest)
 		delete(l.index, oldest.Value.(string))
+	}
+}
+
+// parentCache is a bounded FIFO map from parent URI to its resolved context.
+// It lets a reply's parent be hydrated once and reused across polls and across
+// sibling replies in the same batch. Owned by a single channel goroutine — not
+// safe for concurrent use.
+type parentCache struct {
+	cap   int
+	order *list.List
+	index map[string]*list.Element
+}
+
+type parentEntry struct {
+	uri string
+	ref parentRef
+}
+
+func newParentCache(capacity int) *parentCache {
+	if capacity <= 0 {
+		capacity = 500
+	}
+	return &parentCache{cap: capacity, order: list.New(), index: map[string]*list.Element{}}
+}
+
+func (c *parentCache) get(uri string) (parentRef, bool) {
+	el, ok := c.index[uri]
+	if !ok {
+		return parentRef{}, false
+	}
+	return el.Value.(*parentEntry).ref, true
+}
+
+func (c *parentCache) put(uri string, ref parentRef) {
+	if el, ok := c.index[uri]; ok {
+		el.Value.(*parentEntry).ref = ref
+		return
+	}
+	el := c.order.PushBack(&parentEntry{uri: uri, ref: ref})
+	c.index[uri] = el
+	for c.order.Len() > c.cap {
+		oldest := c.order.Front()
+		if oldest == nil {
+			break
+		}
+		c.order.Remove(oldest)
+		delete(c.index, oldest.Value.(*parentEntry).uri)
 	}
 }

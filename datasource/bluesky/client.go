@@ -138,6 +138,34 @@ func (c *Client) GetTimeline(ctx context.Context, limit int, cursor string) (*Fe
 	return &out, nil
 }
 
+// getPostsMax is the per-call URI cap of app.bsky.feed.getPosts. Callers
+// must chunk longer lists.
+const getPostsMax = 25
+
+// GetPosts hydrates posts by their at:// URIs via app.bsky.feed.getPosts.
+// At most getPostsMax URIs are honoured per call; extras are dropped by the
+// API, so callers chunk. Missing/blocked posts are simply absent from the
+// response rather than erroring.
+func (c *Client) GetPosts(ctx context.Context, uris []string) ([]PostView, error) {
+	if len(uris) == 0 {
+		return nil, nil
+	}
+	if len(uris) > getPostsMax {
+		uris = uris[:getPostsMax]
+	}
+	q := url.Values{}
+	for _, u := range uris {
+		q.Add("uris", u)
+	}
+	var out struct {
+		Posts []PostView `json:"posts"`
+	}
+	if err := c.callAuthed(ctx, http.MethodGet, "app.bsky.feed.getPosts", q, nil, &out); err != nil {
+		return nil, fmt.Errorf("getPosts: %w", err)
+	}
+	return out.Posts, nil
+}
+
 // callAuthed runs an authenticated XRPC call. On expired access JWT it
 // refreshes and retries once; if the refresh JWT itself is expired it
 // re-runs createSession and retries once.

@@ -23,9 +23,19 @@ type FeedResponse struct {
 
 // FeedItem is one entry in a timeline page.
 type FeedItem struct {
-	Post   PostView    `json:"post"`
-	Reason *FeedReason `json:"reason,omitempty"`
-	Reply  *ReplyRef   `json:"reply,omitempty"`
+	Post   PostView      `json:"post"`
+	Reason *FeedReason   `json:"reason,omitempty"`
+	Reply  *FeedReplyRef `json:"reply,omitempty"`
+}
+
+// FeedReplyRef is the feed-level reply context. Unlike the record-level
+// ReplyRef (which carries only uri/cid strong refs), the timeline embeds the
+// full parent/root PostViews when they are visible, letting us render a quote
+// snippet without a separate fetch. A parent that is not found, blocked, or
+// otherwise unhydrated decodes into a PostView with only URI populated.
+type FeedReplyRef struct {
+	Root   *PostView `json:"root,omitempty"`
+	Parent *PostView `json:"parent,omitempty"`
 }
 
 // PostView is the public view of a single post.
