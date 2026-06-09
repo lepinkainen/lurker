@@ -117,6 +117,9 @@ export type AppState = {
   loadingHistory: Set<string>;
   historyExhausted: Set<string>;
   lastMarkedReadId: Map<string, string>;
+  markerAnchorId: Map<string, string>;
+  uiFocused: boolean;
+  activeFocusedSinceEnter: boolean;
   me: { nick: string };
   showMemberList: boolean;
   layout: LayoutSettings;
@@ -166,6 +169,25 @@ export function saveLastActive(id: string) {
   }
 }
 
+export function isUIFocused(): boolean {
+  if (typeof document === "undefined") return true;
+  const hasFocus = typeof document.hasFocus === "function" ? document.hasFocus() : true;
+  const visible = typeof document.visibilityState === "string" ? document.visibilityState !== "hidden" : true;
+  return hasFocus && visible;
+}
+
+export function reconcileAnchor(bufferId: string) {
+  const buffer = state.buffers.get(bufferId);
+  if (!buffer) return;
+  const anchor = state.markerAnchorId.get(bufferId);
+  if (!anchor) return;
+  if ((buffer.last_seen_id || "") >= anchor || (buffer.unread || 0) === 0) {
+    state.markerAnchorId.delete(bufferId);
+  }
+}
+
+const initialFocus = isUIFocused();
+
 export const state: AppState = {
   networks: new Map(),
   buffers: new Map(),
@@ -186,6 +208,9 @@ export const state: AppState = {
   loadingHistory: new Set(),
   historyExhausted: new Set(),
   lastMarkedReadId: new Map(),
+  markerAnchorId: new Map(),
+  uiFocused: initialFocus,
+  activeFocusedSinceEnter: initialFocus,
   me: { nick: "you" },
   showMemberList: true,
   layout: loadLayout(),

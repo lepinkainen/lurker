@@ -71,6 +71,7 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => null,
+      markBufferReadOnExit: vi.fn(),
       maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
@@ -81,7 +82,12 @@ describe("createSetActive", () => {
     const dom = makeDom();
     const view = makeView(dom);
     const markRead = vi.fn();
-    const setActive = createSetActive({ getDom: () => dom, getView: () => view, maybeMarkActiveRead: markRead });
+    const setActive = createSetActive({
+      getDom: () => dom,
+      getView: () => view,
+      markBufferReadOnExit: markRead,
+      maybeMarkActiveRead: vi.fn(),
+    });
     seedBuffer("b1");
     const focusSpy = vi.spyOn(dom.inputEl, "focus");
 
@@ -102,6 +108,7 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
+      markBufferReadOnExit: vi.fn(),
       maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
@@ -116,6 +123,7 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
+      markBufferReadOnExit: vi.fn(),
       maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
@@ -135,6 +143,7 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
+      markBufferReadOnExit: vi.fn(),
       maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
@@ -154,6 +163,7 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
+      markBufferReadOnExit: vi.fn(),
       maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
@@ -169,6 +179,7 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
+      markBufferReadOnExit: vi.fn(),
       maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
@@ -185,6 +196,7 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
+      markBufferReadOnExit: vi.fn(),
       maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
@@ -204,6 +216,7 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
+      markBufferReadOnExit: vi.fn(),
       maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
@@ -223,6 +236,7 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
+      markBufferReadOnExit: vi.fn(),
       maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");

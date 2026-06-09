@@ -113,16 +113,26 @@ describe("renderActiveView", () => {
     expect(d.messagesEl.querySelector(".msg.mention")).not.toBeNull();
   });
 
-  it("inserts unread bar for messages past last_seen_id", () => {
+  it("inserts unread bar above anchored message id", () => {
     state.activeId = "1";
     state.buffers.set("1", buf({ id: "1", name: "#x", last_seen_id: "5" }));
     state.messages.set("1", [
       { id: "4", buffer_id: "1", sender: "a", content: "old", ts: "2024-05-01T10:00:00Z" },
       { id: "6", buffer_id: "1", sender: "a", content: "new", ts: "2024-05-01T10:01:00Z" },
     ]);
+    state.markerAnchorId.set("1", "6");
     const d = dom();
     renderActiveView(d, deps);
     expect(d.messagesEl.querySelector(".unreadbar")).not.toBeNull();
+  });
+
+  it("does not insert unread bar when no anchor is set", () => {
+    state.activeId = "1";
+    state.buffers.set("1", buf({ id: "1", name: "#x", last_seen_id: "5" }));
+    state.messages.set("1", [{ id: "6", buffer_id: "1", sender: "a", content: "new", ts: "2024-05-01T10:01:00Z" }]);
+    const d = dom();
+    renderActiveView(d, deps);
+    expect(d.messagesEl.querySelector(".unreadbar")).toBeNull();
   });
 
   it("does not insert unread bar for only state-change noise past last_seen_id", () => {
@@ -331,6 +341,52 @@ describe("onMessage", () => {
     expect(state.buffers.get("1")?.mentions).toBe(0);
   });
 
+  it("sets marker anchor on inactive buffer when last_seen_id exists", () => {
+    state.activeId = "99";
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "01" }));
+    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    onMessage({ id: "10", buffer_id: "1", sender: "a", content: "hi", kind: "message" }, handlers);
+    expect(state.markerAnchorId.get("1")).toBe("10");
+  });
+
+  it("sets marker anchor on never-visited buffer (Empty channel becomes non-empty)", () => {
+    state.activeId = "99";
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "" }));
+    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    onMessage({ id: "10", buffer_id: "1", sender: "a", content: "hi", kind: "message" }, handlers);
+    expect(state.markerAnchorId.get("1")).toBe("10");
+    expect(state.buffers.get("1")?.unread).toBe(1);
+  });
+
+  it("does not set marker anchor on active focused buffer", () => {
+    state.activeId = "1";
+    state.uiFocused = true;
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "5" }));
+    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    onMessage({ id: "10", buffer_id: "1", sender: "a", content: "hi", kind: "message" }, handlers);
+    expect(state.markerAnchorId.has("1")).toBe(false);
+    expect(handlers.maybeMarkActiveRead).toHaveBeenCalled();
+  });
+
+  it("sets marker anchor on active unfocused buffer", () => {
+    state.activeId = "1";
+    state.uiFocused = false;
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "01" }));
+    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    onMessage({ id: "10", buffer_id: "1", sender: "a", content: "hi", kind: "message" }, handlers);
+    expect(state.markerAnchorId.get("1")).toBe("10");
+    expect(handlers.maybeMarkActiveRead).not.toHaveBeenCalled();
+  });
+
+  it("marker anchor sticks to first unread arrival", () => {
+    state.activeId = "99";
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "01" }));
+    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    onMessage({ id: "10", buffer_id: "1", sender: "a", content: "first", kind: "message" }, handlers);
+    onMessage({ id: "11", buffer_id: "1", sender: "a", content: "second", kind: "message" }, handlers);
+    expect(state.markerAnchorId.get("1")).toBe("10");
+  });
+
   it("dedupes by id and keeps sorted", () => {
     state.activeId = "99";
     state.buffers.set("1", buf({ id: "1" }));
@@ -366,6 +422,30 @@ describe("onBufferUpdate", () => {
     const b = state.buffers.get("1");
     expect(b?.unread).toBe(0);
     expect(b?.mentions).toBe(0);
+  });
+
+  it("clears marker anchor when last_seen_id catches up", () => {
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "5", unread: 3 }));
+    state.markerAnchorId.set("1", "10");
+    const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
+    onBufferUpdate({ id: "1", last_seen_id: "12" }, handlers);
+    expect(state.markerAnchorId.has("1")).toBe(false);
+  });
+
+  it("clears marker anchor when unread is zeroed without last_seen_id update", () => {
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "05", unread: 3 }));
+    state.markerAnchorId.set("1", "10");
+    const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
+    onBufferUpdate({ id: "1", unread: 0, mentions: 0 }, handlers);
+    expect(state.markerAnchorId.has("1")).toBe(false);
+  });
+
+  it("keeps marker anchor when last_seen_id is still below anchor", () => {
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "05", unread: 3 }));
+    state.markerAnchorId.set("1", "10");
+    const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
+    onBufferUpdate({ id: "1", last_seen_id: "07" }, handlers);
+    expect(state.markerAnchorId.get("1")).toBe("10");
   });
 
   it("preserves existing counts when buffer_update omits them", () => {

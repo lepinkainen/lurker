@@ -2,6 +2,7 @@ import {
   loadLastActive,
   type Member,
   type Message,
+  reconcileAnchor,
   type StateResponse,
   state,
   type TailscaleStatus,
@@ -78,6 +79,7 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
       unread: buffer.unread ?? 0,
       mentions: buffer.mentions ?? 0,
     });
+    reconcileAnchor(buffer.id);
   }
   for (const [id, msgs] of Object.entries(s.initial_messages || {})) {
     const existing = state.messages.get(id) || [];

@@ -13,14 +13,25 @@ export type SetActive = (id: string, opts?: SetActiveOpts) => void;
 export type SetActiveDeps = {
   getDom: () => DomRefs | null;
   getView: () => AppView | null;
-  maybeMarkActiveRead: () => void;
+  markBufferReadOnExit: (bufferId: string | null, opts?: { render?: boolean }) => void;
+  maybeMarkActiveRead: (opts?: { render?: boolean }) => void;
 };
 
 export function createSetActive(deps: SetActiveDeps): SetActive {
   return (id: string, opts: SetActiveOpts = {}) => {
+    const view = deps.getView();
+    if (!view) throw new Error("app view not initialized");
     const dom = deps.getDom();
     if (dom && state.activeId !== null) saveInputDraft(state.activeId, dom.inputEl.value, true);
+    // Swap activeId before mark-exit so anchor cleanup keys off the right id.
+    // activeFocusedSinceEnter still holds the prior buffer's accumulator until
+    // after the exit call. {render:false} skips redundant sidebar/active
+    // renders here — setActive renders both unconditionally below.
+    const prevId = state.activeId;
     state.activeId = id;
+    deps.markBufferReadOnExit(prevId, { render: false });
+    state.activeFocusedSinceEnter = state.uiFocused;
+    deps.maybeMarkActiveRead({ render: false });
     saveLastActive(id);
     state.channelList = null;
     setSidebarDrawer(false);
@@ -34,14 +45,6 @@ export function createSetActive(deps: SetActiveDeps): SetActive {
         }
       }
     }
-    const view = deps.getView();
-    if (!view) throw new Error("app view not initialized");
-    // Optimistic; server's mark_read broadcast will overwrite shortly.
-    const activeBuf = state.buffers.get(id);
-    if (activeBuf) {
-      activeBuf.unread = 0;
-      activeBuf.mentions = 0;
-    }
     populateMembersForActive();
     view.renderSidebar();
     view.renderHeader();
@@ -50,7 +53,6 @@ export function createSetActive(deps: SetActiveDeps): SetActive {
     view.updateInputEnabled();
     restoreInputDraft(view.dom.inputEl, id);
     updateInputPopups(view.dom.inputEl, view.dom.cmdPopEl, view.dom.emojiPopEl, view.dom.nickPopEl, activeBuffer());
-    deps.maybeMarkActiveRead();
     // Keyboard-driven switches (focusInput) always focus so the user can keep
     // typing. Pointer-driven switches skip focus on touch devices to avoid
     // summoning the on-screen keyboard.

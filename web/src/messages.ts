@@ -1,4 +1,4 @@
-import { activeBuffer, type Message, state } from "./app-state";
+import { activeBuffer, type Message, reconcileAnchor, state } from "./app-state";
 import {
   classifyKind,
   dayKeyOf,
@@ -116,15 +116,21 @@ export function onMessage(
   list.sort((a, b) => a.id.localeCompare(b.id));
   state.messages.set(msg.buffer_id, list);
   const buffer = state.buffers.get(msg.buffer_id);
-  // Per-client because activeId is not server state. Server's mark_read
-  // broadcast resyncs counts so any drift here self-corrects.
-  if (buffer && msg.buffer_id !== state.activeId && msg.id > (buffer.last_seen_id || "") && msgCountsAsUnread(msg)) {
+  const isActive = msg.buffer_id === state.activeId;
+  const activeAndFocused = isActive && state.uiFocused;
+  // Spec: marker appears for unread arrivals in any buffer except the active
+  // one viewed with focus. Once placed, the anchor is sticky until mark-read
+  // clears it.
+  if (buffer && !activeAndFocused && msgCountsAsUnread(msg) && msg.id > (buffer.last_seen_id || "")) {
     buffer.unread = (buffer.unread || 0) + 1;
     if (msgMentionsMe(msg)) buffer.mentions = (buffer.mentions || 0) + 1;
+    if (!state.markerAnchorId.has(buffer.id)) {
+      state.markerAnchorId.set(buffer.id, msg.id);
+    }
   }
-  if (msg.buffer_id === state.activeId) {
+  if (isActive) {
     handlers.renderActiveView();
-    handlers.maybeMarkActiveRead();
+    if (activeAndFocused) handlers.maybeMarkActiveRead();
   }
   handlers.renderSidebar();
 }
@@ -180,6 +186,7 @@ export function onBufferUpdate(
   if (Object.hasOwn(msg, "pinned")) buffer.pinned = Boolean(msg.pinned);
   if (typeof msg.unread === "number") buffer.unread = msg.unread;
   if (typeof msg.mentions === "number") buffer.mentions = msg.mentions;
+  reconcileAnchor(buffer.id);
   handlers.renderHeader();
   handlers.renderSidebar();
 }
@@ -257,7 +264,7 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
   messagesEl.replaceChildren();
   const list = state.messages.get(state.activeId ?? "") || [];
   const buffer = activeBuffer();
-  const lastSeen = buffer?.last_seen_id || "";
+  const anchorId = buffer ? state.markerAnchorId.get(buffer.id) || "" : "";
   const collapsePresence = shouldCollapsePresence(buffer);
   let unreadInserted = false;
   let lastDayKey: string | null = null;
@@ -322,13 +329,7 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
       lastDayKey = dayKey;
       breakGroup();
     }
-    if (
-      !unreadInserted &&
-      message.id > lastSeen &&
-      countsAsUnreadActivity(message) &&
-      state.activeId !== null &&
-      lastSeen !== ""
-    ) {
+    if (!unreadInserted && anchorId && message.id === anchorId && state.activeId !== null) {
       flushPresenceGroup();
       const bar = document.createElement("div");
       bar.className = "unreadbar";

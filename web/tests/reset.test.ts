@@ -16,6 +16,9 @@ describe("resetAppState", () => {
     state.loadingHistory.add(2);
     state.historyExhausted.add(2);
     state.lastMarkedReadId.set(2, 10);
+    state.markerAnchorId.set("2", "10");
+    state.uiFocused = false;
+    state.activeFocusedSinceEnter = false;
     state.me.nick = "shrike";
     state.showMemberList = false;
     state.drag = { id: "1", over: 2 };
@@ -38,6 +41,9 @@ describe("resetAppState", () => {
     expect(state.loadingHistory.size).toBe(0);
     expect(state.historyExhausted.size).toBe(0);
     expect(state.lastMarkedReadId.size).toBe(0);
+    expect(state.markerAnchorId.size).toBe(0);
+    expect(state.uiFocused).toBe(true);
+    expect(state.activeFocusedSinceEnter).toBe(true);
     expect(state.me.nick).toBe("you");
     expect(state.showMemberList).toBe(true);
     expect(state.layout).toEqual({

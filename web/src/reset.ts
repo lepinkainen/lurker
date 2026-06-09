@@ -23,6 +23,9 @@ export function resetAppState() {
   state.loadingHistory.clear();
   state.historyExhausted.clear();
   state.lastMarkedReadId.clear();
+  state.markerAnchorId.clear();
+  state.uiFocused = true;
+  state.activeFocusedSinceEnter = true;
   state.me.nick = "you";
   state.showMemberList = true;
   state.layout = loadLayout();

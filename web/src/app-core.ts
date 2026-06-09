@@ -5,6 +5,7 @@ import { activeBuffer, state } from "./app-state";
 import { type AppView, createAppView } from "./app-view";
 import { createConnection, type StateSyncDeps, syncStateFromServer } from "./connection";
 import { captureDom, type DomRefs } from "./dom";
+import { cleanupFocusTracking, initFocusTracking } from "./focus";
 import { bindInputHandlers } from "./input";
 import { cleanupKeyboardShortcuts, initKeyboardShortcuts } from "./keyboard-routing";
 import { onHashChange } from "./navigation";
@@ -28,13 +29,14 @@ export function start() {
   dom = captureDom();
   domReady = true;
   const d = dom;
-  const { maybeMarkActiveRead, loadOlderHistory } = createReadTracker({
+  const { maybeMarkActiveRead, markBufferReadOnExit, loadOlderHistory } = createReadTracker({
     getView: () => appView,
     sendCmd,
   });
   const setActive = createSetActive({
     getDom: () => dom,
     getView: () => appView,
+    markBufferReadOnExit,
     maybeMarkActiveRead,
   });
   const stick = createScrollStick(d.messagesEl);
@@ -76,6 +78,7 @@ export function start() {
   document.addEventListener("click", onBackdropClick);
   initTouchGestures({ sidebarEl: d.sidebarEl });
   initKeyboardShortcuts({ inputEl: d.inputEl, setActive: (id: string) => setActive(id, { focusInput: true }) });
+  initFocusTracking({ renderSidebar: view.renderSidebar, maybeMarkActiveRead });
   const onHash = () => onHashChange(setActive);
   window.addEventListener("hashchange", onHash);
   window.addEventListener("popstate", onHash);
@@ -109,6 +112,7 @@ function sendCmd(cmd: Record<string, unknown>) {
 
 export function resetForTests() {
   cleanupKeyboardShortcuts();
+  cleanupFocusTracking();
   resetAppState();
   if (domReady) appView?.renderPromptNick();
   dom = null;
