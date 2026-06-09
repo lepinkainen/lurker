@@ -395,9 +395,12 @@ func sendCmd(t *testing.T, ctx context.Context, c *websocket.Conn, cmd clientCmd
 
 // recvSkipBufferUpdate reads the next message from the WebSocket,
 // skipping any buffer_update events (which may arrive after mark_read).
+// Caps iterations to avoid an infinite loop if the expected non-buffer_update
+// event is never emitted (e.g. broken handler under test).
 func recvSkipBufferUpdate(t *testing.T, ctx context.Context, c *websocket.Conn) json.RawMessage {
 	t.Helper()
-	for {
+	const maxSkips = 32
+	for range maxSkips {
 		var raw json.RawMessage
 		if err := wsjson.Read(ctx, c, &raw); err != nil {
 			t.Fatal(err)
@@ -413,6 +416,8 @@ func recvSkipBufferUpdate(t *testing.T, ctx context.Context, c *websocket.Conn) 
 		}
 		return raw
 	}
+	t.Fatalf("recvSkipBufferUpdate: saw only buffer_update events after %d reads", maxSkips)
+	return nil
 }
 
 // recvAck reads and returns the next ack envelope (skipping buffer_update).
