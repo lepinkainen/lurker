@@ -89,12 +89,23 @@ func TestMsgIDDedupAndServerTime(t *testing.T) {
 	h.onPrivmsg(nil, e)
 	h.onPrivmsg(nil, e)
 
+	// Same text + ts but distinct msgid must NOT dedup — proves msgid is the discriminator.
+	e2 := mustEvent(t, "@time="+serverTime+";msgid=mid-43 :alice!~u@h PRIVMSG #test :once")
+	h.onPrivmsg(nil, e2)
+
 	var count int
 	if qerr := logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE msgid=?`, msgid).Scan(&count); qerr != nil {
 		t.Fatal(qerr)
 	}
 	if count != 1 {
 		t.Fatalf("expected dedup via msgid, got %d rows", count)
+	}
+	var total int
+	if qerr := logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages WHERE content='once'`).Scan(&total); qerr != nil {
+		t.Fatal(qerr)
+	}
+	if total != 2 {
+		t.Fatalf("expected 2 rows (distinct msgids), got %d — msgid is not the dedup key", total)
 	}
 
 	var gotTS string
@@ -304,14 +315,17 @@ func TestPublishMemberListUsesTrackedMembers(t *testing.T) {
 	handler.onEndOfNames(client, mustEvent(t, ":fake 366 tester #test :End of NAMES"))
 
 	var memberList *MemberListEvent
-	for range 8 {
+	deadline := time.After(200 * time.Millisecond)
+drain1:
+	for {
 		select {
 		case ev := <-events:
-			ml, ok := ev.(*MemberListEvent)
-			if ok && ml.Channel == "#test" {
+			if ml, ok := ev.(*MemberListEvent); ok && ml.Channel == "#test" {
 				memberList = ml
+				break drain1
 			}
-		default:
+		case <-deadline:
+			break drain1
 		}
 	}
 	if memberList == nil {
@@ -373,13 +387,16 @@ func TestPublishMemberListDedupSuppressesIdenticalRepublish(t *testing.T) {
 	handler.onEndOfNames(client, mustEvent(t, ":fake 366 tester #test :End of NAMES"))
 
 	count := 0
-	for range 16 {
+	deadline := time.After(200 * time.Millisecond)
+drain2:
+	for {
 		select {
 		case ev := <-events:
 			if ml, ok := ev.(*MemberListEvent); ok && ml.Channel == "#test" {
 				count++
 			}
-		default:
+		case <-deadline:
+			break drain2
 		}
 	}
 	if count != 1 {
