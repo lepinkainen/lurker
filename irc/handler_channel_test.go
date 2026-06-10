@@ -131,3 +131,96 @@ func TestModeRouting(t *testing.T) {
 		t.Fatalf("user mode message = %+v", got[1])
 	}
 }
+
+func TestSelfKickClearsChannelState(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	events, unsub := h.Subscribe(32)
+	defer unsub()
+	client := newTestClient(t)
+
+	var cleared []string
+	f.Handler.clearMemberListHook = func(ch string) { cleared = append(cleared, ch) }
+	var joinedStates []bool
+	f.Handler.setJoinedHook = func(_ string, joined bool) { joinedStates = append(joinedStates, joined) }
+	f.Handler.lastMemberListHash = map[string]uint64{"#test": 1}
+
+	f.Handler.onJoin(client, mustEvent(t, ":tester!u@h JOIN #test"))
+	f.Handler.onJoin(client, mustEvent(t, ":alice!u@h JOIN #test"))
+	drainEvents(events)
+	f.Handler.onKick(client, mustEvent(t, ":op!u@h KICK #test tester :flooding"))
+
+	drained := drainEventsAfter(events)
+	if !hasPresenceIn(drained, "tester", "kick") {
+		t.Fatal("missing kick presence for tester")
+	}
+	if !hasBufferUpdateIn(drained, false) {
+		t.Fatal("missing buffer_update joined=false on self kick")
+	}
+	if len(cleared) == 0 || cleared[len(cleared)-1] != "#test" {
+		t.Fatalf("member list not cleared for #test, cleared=%v", cleared)
+	}
+	if len(joinedStates) == 0 || joinedStates[len(joinedStates)-1] != false {
+		t.Fatalf("setJoinedHook states = %v, want trailing false", joinedStates)
+	}
+	if _, ok := f.Handler.lastMemberListHash["#test"]; ok {
+		t.Fatal("lastMemberListHash entry for #test not deleted")
+	}
+	if len(f.Handler.userChannels.byNick[caseFoldNick("alice")]) != 0 {
+		t.Fatal("userChannels still tracks #test after self kick")
+	}
+
+	msg := lastHandlerMessage(t, f)
+	if msg.Kind != "kick" || msg.Target != "tester" || msg.Content != "flooding" {
+		t.Fatalf("stored message = %+v, want kick/tester/flooding", msg)
+	}
+}
+
+func TestRemoteKickPublishesPresenceOnly(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	events, unsub := h.Subscribe(32)
+	defer unsub()
+	client := newTestClient(t)
+
+	f.Handler.onJoin(client, mustEvent(t, ":tester!u@h JOIN #test"))
+	f.Handler.onJoin(client, mustEvent(t, ":alice!u@h JOIN #test"))
+	drainEvents(events)
+	f.Handler.onKick(client, mustEvent(t, ":op!u@h KICK #test alice :bye"))
+
+	drained := drainEventsAfter(events)
+	if !hasPresenceIn(drained, "alice", "kick") {
+		t.Fatal("missing kick presence for alice")
+	}
+	if hasBufferUpdateIn(drained, false) {
+		t.Fatal("unexpected buffer_update joined=false on remote kick")
+	}
+	if len(f.Handler.userChannels.byNick[caseFoldNick("alice")]) != 0 {
+		t.Fatal("alice still tracked in #test after kick")
+	}
+
+	msg := lastHandlerMessage(t, f)
+	if msg.Kind != "kick" || msg.Target != "alice" || msg.Content != "bye" {
+		t.Fatalf("stored message = %+v, want kick/alice/bye", msg)
+	}
+}
+
+func TestKickWithoutReasonAndShortParams(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	client := newTestClient(t)
+
+	f.Handler.onJoin(client, mustEvent(t, ":tester!u@h JOIN #test"))
+	before := handlerMessageCount(t, f)
+	// Malformed kick (no target param) must be ignored.
+	f.Handler.onKick(client, mustEvent(t, ":op!u@h KICK #test"))
+	if got := handlerMessageCount(t, f); got != before {
+		t.Fatalf("message count = %d after malformed kick, want %d", got, before)
+	}
+
+	f.Handler.onKick(client, mustEvent(t, ":op!u@h KICK #test alice"))
+	msg := lastHandlerMessage(t, f)
+	if msg.Kind != "kick" || msg.Target != "alice" || msg.Content != "" {
+		t.Fatalf("stored message = %+v, want kick/alice with empty reason", msg)
+	}
+}
