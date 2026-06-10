@@ -1,30 +1,33 @@
 import { activeBuffer, type Message, reconcileAnchor, state } from "./app-state";
-import {
-  classifyKind,
-  dayKeyOf,
-  escapeHTML,
-  formatTime,
-  highlightMentions,
-  inlineCode,
-  isSelf,
-  linkify,
-  type MessageKind,
-  mentionsMe,
-} from "./format";
+import { dayKeyOf, escapeHTML, formatTime, highlightMentions, inlineCode, linkify, type MessageKind } from "./format";
 import { mircFormat } from "./mirc";
 import { caseFoldNick, type NetsplitGroup, partitionPresence } from "./netsplit";
 import { nickEl, sysBodyDOM } from "./nick";
 import { renderPreviews } from "./preview";
 import type { ScrollStick } from "./scroll-stick";
 
-function msgCountsAsUnread(message: Message): boolean {
-  if (typeof message.counts_as_unread === "boolean") return message.counts_as_unread;
-  return countsAsUnreadActivity(message);
+// Display classification and the mention/self/unread flags are computed
+// server-side (irc.ComputeMessageSemantics) and shipped on every message via
+// /api/state, history, and live events. The client consumes them verbatim and
+// must NOT re-derive them from message.kind — doing so reintroduces the
+// Go<->TS drift these helpers exist to eliminate. See irc/semantics.go.
+export function msgDisplayKind(message: Message): MessageKind {
+  // display_kind is non-omitzero server-side, so it is always present on
+  // server-sourced messages; the "message" default is only a type guard.
+  return (message.display_kind as MessageKind) || "message";
 }
 
-function msgMentionsMe(message: Message): boolean {
-  if (typeof message.mentions_me === "boolean") return message.mentions_me;
-  return mentionsMe(message, state.me.nick);
+export function msgCountsAsUnread(message: Message): boolean {
+  // counts_as_unread is omitzero: true is on the wire, false/absent is falsy.
+  return message.counts_as_unread === true;
+}
+
+export function msgMentionsMe(message: Message): boolean {
+  return message.mentions_me === true;
+}
+
+export function msgIsSelf(message: Message): boolean {
+  return message.is_self === true;
 }
 
 export type MessagesDom = {
@@ -253,7 +256,12 @@ function statusLine(message: Message) {
   return row;
 }
 
-const PRESENCE_KINDS = ["join", "part", "quit", "nick"] as const;
+// The ONE sanctioned Go<->TS mirror: the server ships no per-message
+// "is_presence" flag, so presence grouping is derived client-side from kind.
+// Kept in lockstep with irc.presenceKinds via the semantic-kinds fixture
+// contract test (tests/semantics-contract.test.ts). Do not add new local kind
+// lists — every other classification is server-supplied (see msgDisplayKind).
+export const PRESENCE_KINDS = ["join", "part", "quit", "nick"] as const;
 const expandedPresenceGroups = new Set<string>();
 
 // Consecutive plain messages from the same sender within this window
@@ -286,13 +294,13 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
     if (items.length === 0) return;
     if (items.length === 1) {
       const [message] = items;
-      if (message) messagesEl.appendChild(messageRow(message, classifyKind(message.kind)));
+      if (message) messagesEl.appendChild(messageRow(message, msgDisplayKind(message)));
       return;
     }
     messagesEl.appendChild(presenceSummaryRow(items, rerender));
     if (expandedPresenceGroups.has(presenceGroupKey(items))) {
       for (const message of items) {
-        const row = messageRow(message, classifyKind(message.kind));
+        const row = messageRow(message, msgDisplayKind(message));
         row.classList.add("presence-expanded");
         messagesEl.appendChild(row);
       }
@@ -311,7 +319,7 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
       const key = netsplitGroupKey(group);
       if (expandedPresenceGroups.has(key)) {
         for (const message of [...group.quits, ...group.rejoins]) {
-          const row = messageRow(message, classifyKind(message.kind));
+          const row = messageRow(message, msgDisplayKind(message));
           row.classList.add("presence-expanded");
           messagesEl.appendChild(row);
         }
@@ -345,7 +353,7 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
       continue;
     }
     flushPresenceGroup();
-    const kind = classifyKind(message.kind);
+    const kind = msgDisplayKind(message);
     const sender = message.sender || "";
     const tsMs = Date.parse(message.ts || "") || 0;
     const continued =
@@ -366,8 +374,8 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
 function messageRow(message: Message, kind: MessageKind, continued = false) {
   const row = document.createElement("div");
   row.dataset.id = String(message.id);
-  const isMention = mentionsMe(message, state.me.nick);
-  const self = isSelf(message, state.me.nick);
+  const isMention = msgMentionsMe(message);
+  const self = msgIsSelf(message);
   row.className = `msg ${kind === "message" ? "flat" : kind}${continued ? " cont" : ""}${isMention ? " mention" : ""}${self ? " self" : ""}`;
 
   const ts = document.createElement("span");
@@ -555,25 +563,6 @@ function isPresenceEvent(message: Message) {
 
 function isHiddenPresence(message: Message, buffer: import("./app-state").Buffer | undefined) {
   return buffer?.show_presence_events === false && isPresenceEvent(message);
-}
-
-function countsAsUnreadActivity(message: Message) {
-  return ![
-    "join",
-    "part",
-    "quit",
-    "nick",
-    "mode",
-    "kick",
-    "connected",
-    "disconnected",
-    "error",
-    "away",
-    "back",
-    "account",
-    "chghost",
-    "status",
-  ].includes(message.kind || "");
 }
 
 function renderBodyHTML(message: Message) {

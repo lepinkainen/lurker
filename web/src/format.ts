@@ -41,15 +41,6 @@ export function highlightMentions(html: string, nick: string): string {
   return html.replace(re, (_match, mention: string) => `<span class="${mentionClass}">${mention}</span>`);
 }
 
-export function mentionsMe(m: { content?: string }, nick: string): boolean {
-  if (!(nick && m.content)) return false;
-  return new RegExp(`\\b${escapeRegExp(nick)}\\b`, "iu").test(m.content);
-}
-
-export function isSelf(m: { sender?: string }, nick: string): boolean {
-  return (m.sender || "").toLowerCase() === (nick || "").toLowerCase();
-}
-
 export function nickHue(nick: unknown): number {
   let h = 5381;
   const s = String(nick ?? "").toLowerCase();
@@ -62,16 +53,11 @@ export function nickColor(nick: unknown): string {
   return `oklch(var(--nick-l, 72%) var(--nick-c, 0.12) ${hue}deg)`;
 }
 
+// Display category union. The mapping from raw IRC kind -> category lives
+// server-side in irc.classifyKind and arrives as message.display_kind; the
+// client consumes it via msgDisplayKind (see messages.ts). This type stays
+// here as the shared vocabulary for render branching.
 export type MessageKind = "sys" | "notice" | "action" | "ctcp" | "message";
-
-export function classifyKind(kind: string | undefined): MessageKind {
-  if (kind && ["join", "part", "quit", "nick", "kick", "mode", "topic", "connected", "disconnected"].includes(kind))
-    return "sys";
-  if (kind === "notice") return "notice";
-  if (kind === "action") return "action";
-  if (kind === "ctcp") return "ctcp";
-  return "message";
-}
 
 export function formatTime(iso: string | undefined | null): string {
   if (!iso) return "";
