@@ -102,8 +102,17 @@ describe("renderActiveView", () => {
     state.me.nick = "you";
     const ts = "2024-05-01T10:00:00Z";
     const messages: Message[] = [
-      { id: "1", buffer_id: "1", sender: "alice", content: "hi", kind: "message", ts },
-      { id: "2", buffer_id: "1", sender: "alice", content: "you around?", kind: "message", ts },
+      { id: "1", buffer_id: "1", sender: "alice", content: "hi", kind: "message", display_kind: "message", ts },
+      {
+        id: "2",
+        buffer_id: "1",
+        sender: "alice",
+        content: "you around?",
+        kind: "message",
+        display_kind: "message",
+        mentions_me: true,
+        ts,
+      },
     ];
     state.messages.set("1", messages);
     const d = dom();
@@ -187,8 +196,8 @@ describe("renderActiveView", () => {
     state.activeId = "1";
     state.buffers.set("1", buf({ id: "1", name: "#x", show_presence_events: true, collapse_presence_events: false }));
     state.messages.set("1", [
-      { id: "1", buffer_id: "1", sender: "a", kind: "join", ts: "2024-05-01T10:00:00Z" },
-      { id: "2", buffer_id: "1", sender: "b", kind: "part", ts: "2024-05-01T10:01:00Z" },
+      { id: "1", buffer_id: "1", sender: "a", kind: "join", display_kind: "sys", ts: "2024-05-01T10:00:00Z" },
+      { id: "2", buffer_id: "1", sender: "b", kind: "part", display_kind: "sys", ts: "2024-05-01T10:01:00Z" },
     ]);
     const d = dom();
     renderActiveView(d, deps);
@@ -281,7 +290,7 @@ describe("author grouping", () => {
     const el = render(
       [
         { id: "1", buffer_id: "1", sender: "alice", content: "a1", kind: "message", ts: "2024-05-01T10:00:00Z" },
-        { id: "2", buffer_id: "1", sender: "carol", kind: "join", ts: "2024-05-01T10:01:00Z" },
+        { id: "2", buffer_id: "1", sender: "carol", kind: "join", display_kind: "sys", ts: "2024-05-01T10:01:00Z" },
         { id: "3", buffer_id: "1", sender: "alice", content: "a2", kind: "message", ts: "2024-05-01T10:02:00Z" },
       ],
       { show_presence_events: true, collapse_presence_events: false },
@@ -303,12 +312,27 @@ describe("author grouping", () => {
 describe("onMessage", () => {
   beforeEach(() => resetAppState());
 
+  // In production every message arrives with server-computed semantic flags
+  // (irc.ComputeMessageSemantics): display_kind plus is_self/mentions_me/
+  // counts_as_unread. The client trusts these verbatim, so fixtures must carry
+  // them. line() models a plain channel message: counts as unread by default.
+  const line = (o: Partial<Message> & { id: string; buffer_id: string }): Message => ({
+    sender: "a",
+    content: "hi",
+    kind: "message",
+    counts_as_unread: true,
+    ...o,
+  });
+
   it("appends to buffer and bumps unread/mentions on inactive buffer", () => {
     state.activeId = "99";
     state.me.nick = "you";
     state.buffers.set("1", buf({ id: "1" }));
     const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage({ id: "10", buffer_id: "1", sender: "alice", content: "hey you here?", kind: "message" }, handlers);
+    onMessage(
+      line({ id: "10", buffer_id: "1", sender: "alice", content: "hey you here?", mentions_me: true }),
+      handlers,
+    );
     const stored = state.messages.get("1");
     expect(stored?.length).toBe(1);
     expect(state.buffers.get("1")?.unread).toBe(1);
@@ -321,7 +345,7 @@ describe("onMessage", () => {
     state.activeId = "1";
     state.buffers.set("1", buf({ id: "1" }));
     const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage({ id: "10", buffer_id: "1", sender: "a", content: "hi", kind: "message" }, handlers);
+    onMessage(line({ id: "10", buffer_id: "1" }), handlers);
     expect(state.buffers.get("1")?.unread).toBe(0);
     expect(handlers.renderActiveView).toHaveBeenCalled();
   });
@@ -341,7 +365,21 @@ describe("onMessage", () => {
     state.me.nick = "you";
     state.buffers.set("1", buf({ id: "1", show_presence_events: true }));
     const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage({ id: "100", buffer_id: "1", sender: "alice", content: `mentions you in ${kind}`, kind }, handlers);
+    // Server marks presence/system kinds not-unread; mentions only count on
+    // unread-eligible messages, so neither counter moves even though the body
+    // contains the nick.
+    onMessage(
+      {
+        id: "100",
+        buffer_id: "1",
+        sender: "alice",
+        content: `mentions you in ${kind}`,
+        kind,
+        counts_as_unread: false,
+        mentions_me: true,
+      },
+      handlers,
+    );
     expect(state.buffers.get("1")?.unread).toBe(0);
     expect(state.buffers.get("1")?.mentions).toBe(0);
   });
@@ -350,7 +388,7 @@ describe("onMessage", () => {
     state.activeId = "99";
     state.buffers.set("1", buf({ id: "1", last_seen_id: "01" }));
     const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage({ id: "10", buffer_id: "1", sender: "a", content: "hi", kind: "message" }, handlers);
+    onMessage(line({ id: "10", buffer_id: "1" }), handlers);
     expect(state.markerAnchorId.get("1")).toBe("10");
   });
 
@@ -358,7 +396,7 @@ describe("onMessage", () => {
     state.activeId = "99";
     state.buffers.set("1", buf({ id: "1", last_seen_id: "" }));
     const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage({ id: "10", buffer_id: "1", sender: "a", content: "hi", kind: "message" }, handlers);
+    onMessage(line({ id: "10", buffer_id: "1" }), handlers);
     expect(state.markerAnchorId.get("1")).toBe("10");
     expect(state.buffers.get("1")?.unread).toBe(1);
   });
@@ -368,7 +406,7 @@ describe("onMessage", () => {
     state.uiFocused = true;
     state.buffers.set("1", buf({ id: "1", last_seen_id: "5" }));
     const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage({ id: "10", buffer_id: "1", sender: "a", content: "hi", kind: "message" }, handlers);
+    onMessage(line({ id: "10", buffer_id: "1" }), handlers);
     expect(state.markerAnchorId.has("1")).toBe(false);
     expect(handlers.maybeMarkActiveRead).toHaveBeenCalled();
   });
@@ -378,7 +416,7 @@ describe("onMessage", () => {
     state.uiFocused = false;
     state.buffers.set("1", buf({ id: "1", last_seen_id: "01" }));
     const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage({ id: "10", buffer_id: "1", sender: "a", content: "hi", kind: "message" }, handlers);
+    onMessage(line({ id: "10", buffer_id: "1" }), handlers);
     expect(state.markerAnchorId.get("1")).toBe("10");
     expect(handlers.maybeMarkActiveRead).not.toHaveBeenCalled();
   });
@@ -387,8 +425,8 @@ describe("onMessage", () => {
     state.activeId = "99";
     state.buffers.set("1", buf({ id: "1", last_seen_id: "01" }));
     const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage({ id: "10", buffer_id: "1", sender: "a", content: "first", kind: "message" }, handlers);
-    onMessage({ id: "11", buffer_id: "1", sender: "a", content: "second", kind: "message" }, handlers);
+    onMessage(line({ id: "10", buffer_id: "1", content: "first" }), handlers);
+    onMessage(line({ id: "11", buffer_id: "1", content: "second" }), handlers);
     expect(state.markerAnchorId.get("1")).toBe("10");
   });
 
@@ -396,9 +434,9 @@ describe("onMessage", () => {
     state.activeId = "99";
     state.buffers.set("1", buf({ id: "1" }));
     const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage({ id: "2", buffer_id: "1", sender: "a", content: "two", kind: "message" }, handlers);
-    onMessage({ id: "1", buffer_id: "1", sender: "a", content: "one", kind: "message" }, handlers);
-    onMessage({ id: "2", buffer_id: "1", sender: "a", content: "two-dup", kind: "message" }, handlers);
+    onMessage(line({ id: "2", buffer_id: "1", content: "two" }), handlers);
+    onMessage(line({ id: "1", buffer_id: "1", content: "one" }), handlers);
+    onMessage(line({ id: "2", buffer_id: "1", content: "two-dup" }), handlers);
     const stored = state.messages.get("1") || [];
     expect(stored.map((m) => m.id)).toEqual(["1", "2"]);
     expect(stored[1].content).toBe("two-dup");

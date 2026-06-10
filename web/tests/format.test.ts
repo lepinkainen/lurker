@@ -1,15 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  classifyKind,
   dayKeyOf,
   dotClass,
   escapeHTML,
   formatTime,
   highlightMentions,
   inlineCode,
-  isSelf,
   linkify,
-  mentionsMe,
   nickColor,
   nickHue,
 } from "../src/format";
@@ -86,37 +83,6 @@ describe("highlightMentions", () => {
   });
 });
 
-describe("mentionsMe", () => {
-  it("detects exact nick", () => {
-    expect(mentionsMe({ content: "hey alice" }, "alice")).toBe(true);
-  });
-
-  it("returns false without nick or content", () => {
-    expect(mentionsMe({ content: "hi" }, "")).toBe(false);
-    expect(mentionsMe({}, "alice")).toBe(false);
-  });
-
-  it("does not match substring", () => {
-    expect(mentionsMe({ content: "aliceish" }, "alice")).toBe(false);
-  });
-
-  it("escapes regex metachars in nick", () => {
-    expect(mentionsMe({ content: "hi a.b" }, "a.b")).toBe(true);
-    expect(mentionsMe({ content: "hi axb" }, "a.b")).toBe(false);
-  });
-});
-
-describe("isSelf", () => {
-  it("matches case-insensitively", () => {
-    expect(isSelf({ sender: "Alice" }, "alice")).toBe(true);
-    expect(isSelf({ sender: "bob" }, "alice")).toBe(false);
-  });
-
-  it("returns true when both empty", () => {
-    expect(isSelf({}, "")).toBe(true);
-  });
-});
-
 describe("nickHue", () => {
   it("is deterministic", () => {
     expect(nickHue("alice")).toBe(nickHue("alice"));
@@ -144,25 +110,6 @@ describe("nickColor", () => {
     expect(c).toContain("var(--nick-l");
     expect(c).toContain("var(--nick-c");
     expect(c).toContain("deg)");
-  });
-});
-
-describe("classifyKind", () => {
-  it("maps IRC system kinds to sys", () => {
-    for (const k of ["join", "part", "quit", "nick", "kick", "mode", "topic", "connected", "disconnected"]) {
-      expect(classifyKind(k)).toBe("sys");
-    }
-  });
-
-  it("maps notice/action", () => {
-    expect(classifyKind("notice")).toBe("notice");
-    expect(classifyKind("action")).toBe("action");
-  });
-
-  it("falls back to message", () => {
-    expect(classifyKind("privmsg")).toBe("message");
-    expect(classifyKind(undefined)).toBe("message");
-    expect(classifyKind("")).toBe("message");
   });
 });
 
