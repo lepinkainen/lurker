@@ -110,13 +110,7 @@ func (s *Source) Start(parent context.Context, deps datasource.Deps) error {
 	}
 	s.statusBufferID = statusID
 
-	if deps.Hub != nil {
-		deps.Hub.Publish(&irc.NetworkStateEvent{
-			Type:      "network_state",
-			NetworkID: nrow.ID,
-			State:     irc.StateConnected.String(),
-		})
-	}
+	irc.PublishNetworkState(deps.Hub, nrow.ID, irc.StateConnected)
 	slog.Info("data source connected", "source", "bluesky", "network", s.cfg.Network, "handle", handle)
 
 	for _, rc := range resolved {
@@ -160,15 +154,8 @@ func (s *Source) resolveChannels(parent context.Context, deps datasource.Deps, n
 		if berr != nil {
 			return nil, fmt.Errorf("ensure buffer %q: %w", ch.Name, berr)
 		}
-		if created && deps.Hub != nil {
-			deps.Hub.Publish(&irc.BufferCreatedEvent{
-				Type:      "buffer_created",
-				ID:        buf.ID,
-				NetworkID: nrow.ID,
-				Name:      buf.Name,
-				Kind:      buf.Kind,
-				CreatedAt: buf.CreatedAt,
-			})
+		if created {
+			irc.PublishBufferCreated(deps.Hub, buf)
 		}
 		resolved = append(resolved, runtimeChannel{cfg: ch, bufferID: bufID})
 	}

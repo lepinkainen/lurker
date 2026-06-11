@@ -173,9 +173,7 @@ func (m *Manager) StopNetwork(networkID uuid.UUID) error {
 	if c != nil {
 		c.Close()
 	}
-	if m.hub != nil {
-		m.hub.Publish(&NetworkStateEvent{Type: "network_state", NetworkID: networkID, State: StateDisconnected.String()})
-	}
+	PublishNetworkState(m.hub, networkID, StateDisconnected)
 	return nil
 }
 
@@ -645,9 +643,7 @@ func (m *Manager) setConnectingState(networkID uuid.UUID, client *girc.Client) {
 	m.conn[networkID] = client
 	m.state[networkID] = StateConnecting.String()
 	m.mu.Unlock()
-	if m.hub != nil {
-		m.hub.Publish(&NetworkStateEvent{Type: "network_state", NetworkID: networkID, State: StateConnecting.String()})
-	}
+	PublishNetworkState(m.hub, networkID, StateConnecting)
 }
 
 func (m *Manager) connectWithTLS12Fallback(ctx context.Context, log *slog.Logger, networkID uuid.UUID, nc NetworkConfig, server ServerConfig, firstErr error) error {
@@ -670,9 +666,7 @@ func (m *Manager) markDisconnected(networkID uuid.UUID) {
 		m.state[networkID] = StateDisconnected.String()
 	}
 	m.mu.Unlock()
-	if m.hub != nil {
-		m.hub.Publish(&NetworkStateEvent{Type: "network_state", NetworkID: networkID, State: StateDisconnected.String()})
-	}
+	PublishNetworkState(m.hub, networkID, StateDisconnected)
 }
 
 func defaultConnector(_ context.Context, client *girc.Client, _ ServerConfig) error {
