@@ -58,8 +58,8 @@ func TestBatchRecentLogMessages_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != nil {
-		t.Fatalf("want nil for empty input, got %v", got)
+	if len(got) != 0 {
+		t.Fatalf("want empty map for empty input, got %v", got)
 	}
 }
 

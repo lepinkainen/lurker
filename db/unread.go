@@ -54,7 +54,7 @@ func UnreadCandidates(ctx context.Context, d *sql.DB, bufferID uuid.UUID, lastSe
 // limit must be > 0 and caps per-buffer row count via a window function.
 func BatchUnreadCandidates(ctx context.Context, d *sql.DB, cutoffs map[uuid.UUID]uuid.UUID, limit int) (map[uuid.UUID][]UnreadCandidate, error) {
 	if len(cutoffs) == 0 {
-		return nil, nil
+		return map[uuid.UUID][]UnreadCandidate{}, nil
 	}
 	vals := make([]string, 0, len(cutoffs))
 	args := make([]any, 0, len(cutoffs)*2+1)

@@ -210,7 +210,7 @@ func UpdateLogBufferLastSeen(ctx context.Context, d *sql.DB, name string, lastSe
 // buffer ID in ascending message order. limit must be > 0.
 func BatchRecentLogMessages(ctx context.Context, d *sql.DB, bufferIDs []uuid.UUID, limit int) (map[uuid.UUID][]LogMessageRow, error) {
 	if len(bufferIDs) == 0 {
-		return nil, nil
+		return map[uuid.UUID][]LogMessageRow{}, nil
 	}
 	placeholders := make([]string, len(bufferIDs))
 	args := make([]any, 0, len(bufferIDs)+1)

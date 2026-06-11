@@ -110,47 +110,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Pre-fetch recent messages and unread candidates per network.
-	recentByBuf := make(map[uuid.UUID][]ircdb.StoredMessage, len(bufs))
-	unreadByBuf := make(map[uuid.UUID][2]int, len(bufs))
-	for netID, netBufs := range byNetwork {
-		nick := ""
-		if s.Manager != nil {
-			nick = s.Manager.Nick(netID)
-		}
-		bufIDs := make([]uuid.UUID, len(netBufs))
-		for i, b := range netBufs {
-			bufIDs[i] = b.ID
-		}
-		if batchMsgs, err := s.Stores.BatchRecentMessages(ctx, netID, bufIDs, 100); err != nil {
-			slog.Error("batch recent messages", "err", err, "network_id", netID)
-		} else {
-			for bufID, msgs := range batchMsgs {
-				recentByBuf[bufID] = msgs
-			}
-		}
-		cutoffs := make(map[uuid.UUID]uuid.UUID, len(netBufs))
-		for _, b := range netBufs {
-			cutoffs[b.ID] = b.LastSeenID
-		}
-		if batchUnread, err := s.Stores.BatchUnreadCandidates(ctx, netID, cutoffs, unreadCountsCap); err != nil {
-			slog.Error("batch unread candidates", "err", err, "network_id", netID)
-		} else {
-			for bufID, cands := range batchUnread {
-				unread, mentions := 0, 0
-				for _, c := range cands {
-					sem := irc.ComputeMessageSemantics(c.Kind, c.Sender, c.Content, "", nick)
-					if !sem.CountsAsUnread {
-						continue
-					}
-					unread++
-					if sem.MentionsMe || sem.Highlight {
-						mentions++
-					}
-				}
-				unreadByBuf[bufID] = [2]int{unread, mentions}
-			}
-		}
-	}
+	recentByBuf, unreadByBuf := s.prefetchNetworkState(ctx, byNetwork, len(bufs))
 
 	for _, b := range bufs {
 		s.appendBufferToState(ctx, &out, b, kinds, recentByBuf, unreadByBuf)
@@ -174,6 +134,67 @@ func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb
 		}
 	}
 	out.InitialMessages[b.ID.String()] = s.toMessageDTOs(ctx, recentByBuf[b.ID])
+}
+
+// prefetchNetworkState issues one batch recent-messages query and one batch
+// unread-candidates query per network, returning maps keyed by buffer ID.
+func (s *Server) prefetchNetworkState(ctx context.Context, byNetwork map[uuid.UUID][]ircdb.Buffer, totalBufs int) (map[uuid.UUID][]ircdb.StoredMessage, map[uuid.UUID][2]int) {
+	recentByBuf := make(map[uuid.UUID][]ircdb.StoredMessage, totalBufs)
+	unreadByBuf := make(map[uuid.UUID][2]int, totalBufs)
+	for netID, netBufs := range byNetwork {
+		nick := ""
+		if s.Manager != nil {
+			nick = s.Manager.Nick(netID)
+		}
+		bufIDs := make([]uuid.UUID, len(netBufs))
+		for i, b := range netBufs {
+			bufIDs[i] = b.ID
+		}
+		s.prefetchRecentMessages(ctx, netID, bufIDs, recentByBuf)
+		s.prefetchUnreadCounts(ctx, netID, netBufs, nick, unreadByBuf)
+	}
+	return recentByBuf, unreadByBuf
+}
+
+func (s *Server) prefetchRecentMessages(ctx context.Context, netID uuid.UUID, bufIDs []uuid.UUID, out map[uuid.UUID][]ircdb.StoredMessage) {
+	batchMsgs, err := s.Stores.BatchRecentMessages(ctx, netID, bufIDs, 100)
+	if err != nil {
+		slog.Error("batch recent messages", "err", err, "network_id", netID)
+		return
+	}
+	for bufID, msgs := range batchMsgs {
+		out[bufID] = msgs
+	}
+}
+
+func (s *Server) prefetchUnreadCounts(ctx context.Context, netID uuid.UUID, netBufs []ircdb.Buffer, nick string, out map[uuid.UUID][2]int) {
+	cutoffs := make(map[uuid.UUID]uuid.UUID, len(netBufs))
+	for _, b := range netBufs {
+		cutoffs[b.ID] = b.LastSeenID
+	}
+	batchUnread, err := s.Stores.BatchUnreadCandidates(ctx, netID, cutoffs, unreadCountsCap)
+	if err != nil {
+		slog.Error("batch unread candidates", "err", err, "network_id", netID)
+		return
+	}
+	for bufID, cands := range batchUnread {
+		out[bufID] = tallyUnread(cands, nick)
+	}
+}
+
+func tallyUnread(cands []ircdb.UnreadCandidate, nick string) [2]int {
+	var unread, mentions int
+	for _, c := range cands {
+		sem := irc.ComputeMessageSemantics(c.Kind, c.Sender, c.Content, "", nick)
+		if !sem.CountsAsUnread {
+			continue
+		}
+		unread++
+		if sem.MentionsMe || sem.Highlight {
+			mentions++
+		}
+	}
+	return [2]int{unread, mentions}
 }
 
 func (s *Server) bufferJoined(b ircdb.Buffer, kinds map[uuid.UUID]string) bool {
