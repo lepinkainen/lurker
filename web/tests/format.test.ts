@@ -8,8 +8,8 @@ import {
   inlineCode,
   linkify,
   nickColor,
-  nickHue,
 } from "../src/format";
+import { nickColorIndex, registerNickColor, resetNickColors } from "../src/nick-colors";
 
 describe("escapeHTML", () => {
   it("escapes the five entity chars", () => {
@@ -83,33 +83,40 @@ describe("highlightMentions", () => {
   });
 });
 
-describe("nickHue", () => {
-  it("is deterministic", () => {
-    expect(nickHue("alice")).toBe(nickHue("alice"));
-  });
-
-  it("is case-insensitive", () => {
-    expect(nickHue("ALICE")).toBe(nickHue("alice"));
-  });
-
-  it("is in range 0..359", () => {
-    for (const n of ["a", "alice", "bob", "", null]) {
-      const h = nickHue(n);
-      expect(h).toBeGreaterThanOrEqual(0);
-      expect(h).toBeLessThan(360);
-    }
-  });
-});
-
 const OKLCH_FUNCTION_RE = /^oklch\(/u;
 
 describe("nickColor", () => {
-  it("emits oklch with CSS vars", () => {
-    const c = nickColor("alice");
+  it("emits oklch with CSS vars for a server-shipped index", () => {
+    const c = nickColor(27);
     expect(c).toMatch(OKLCH_FUNCTION_RE);
     expect(c).toContain("var(--nick-l");
     expect(c).toContain("var(--nick-c");
     expect(c).toContain("deg)");
+  });
+
+  it("renders unknown (no index) as neutral gray", () => {
+    const c = nickColor(undefined);
+    expect(c).toMatch(OKLCH_FUNCTION_RE);
+    expect(c).toContain(" 0 0deg");
+  });
+});
+
+describe("nick color registry", () => {
+  it("stores and looks up server indexes case-insensitively", () => {
+    resetNickColors();
+    registerNickColor("Alice", 27);
+    expect(nickColorIndex("alice")).toBe(27);
+    expect(nickColorIndex("ALICE")).toBe(27);
+    expect(nickColorIndex("bob")).toBeUndefined();
+    resetNickColors();
+    expect(nickColorIndex("alice")).toBeUndefined();
+  });
+
+  it("ignores missing nick or index", () => {
+    resetNickColors();
+    registerNickColor(undefined, 3);
+    registerNickColor("carol", undefined);
+    expect(nickColorIndex("carol")).toBeUndefined();
   });
 });
 

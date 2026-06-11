@@ -1,7 +1,6 @@
 import { activeBuffer, type Message, reconcileAnchor, state } from "./app-state";
 import { dayKeyOf, escapeHTML, formatTime, highlightMentions, inlineCode, linkify, type MessageKind } from "./format";
-import { mircFormat } from "./mirc";
-import { caseFoldNick, type NetsplitGroup, partitionPresence } from "./netsplit";
+import { renderSegmentsHTML } from "./mirc";
 import { nickEl, sysBodyDOM } from "./nick";
 import { renderPreviews } from "./preview";
 import type { ScrollStick } from "./scroll-stick";
@@ -309,7 +308,7 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
   const flushPresenceGroup = () => {
     if (presenceGroup.length === 0) return;
     breakGroup();
-    const groups = partitionPresence(presenceGroup);
+    const groups = groupPresenceRun(presenceGroup);
     for (const group of groups) {
       if (group.kind === "plain") {
         renderPlainRun(group.items);
@@ -474,12 +473,55 @@ function presenceGroupKey(messages: Message[]) {
   return messages.map((message) => message.id).join("|");
 }
 
+// NetsplitGroup is one collapsed netsplit within a presence run. Membership
+// and rejoin matching are server-computed: messages arrive annotated with a
+// shared netsplit id (message.netsplit), the client only collates them.
+type NetsplitGroup = {
+  kind: "netsplit";
+  id: string;
+  serverA: string;
+  serverB: string;
+  quits: Message[];
+  rejoins: Message[];
+};
+type PresenceGroup = { kind: "plain"; items: Message[] } | NetsplitGroup;
+
+// groupPresenceRun collates a run of presence messages by their server-side
+// netsplit annotation. A group renders at its first member's position;
+// later members (more quits, rejoins) fold into it.
+export function groupPresenceRun(messages: Message[]): PresenceGroup[] {
+  const out: PresenceGroup[] = [];
+  const groupsById = new Map<string, NetsplitGroup>();
+  let plain: Message[] = [];
+  const flushPlain = () => {
+    if (plain.length > 0) {
+      out.push({ kind: "plain", items: plain });
+      plain = [];
+    }
+  };
+  for (const message of messages) {
+    const ns = message.netsplit;
+    if (!ns) {
+      plain.push(message);
+      continue;
+    }
+    let group = groupsById.get(ns.id);
+    if (!group) {
+      flushPlain();
+      group = { kind: "netsplit", id: ns.id, serverA: ns.server_a, serverB: ns.server_b, quits: [], rejoins: [] };
+      groupsById.set(ns.id, group);
+      out.push(group);
+    }
+    (message.kind === "join" ? group.rejoins : group.quits).push(message);
+  }
+  flushPlain();
+  return out;
+}
+
 function netsplitGroupKey(group: NetsplitGroup) {
-  // Stable across re-renders: anchored on the first quit's id (the split
-  // start), not the full id list — so adding a late rejoin doesn't move
-  // the key out from under the expandedPresenceGroups Set.
-  const anchor = group.quits[0]?.id ?? "";
-  return `netsplit:${group.serverA}|${group.serverB}|${anchor}`;
+  // The server-side group id is stable across re-renders and late rejoins,
+  // so the expandedPresenceGroups Set keeps tracking the same row.
+  return `netsplit:${group.id}`;
 }
 
 const MAX_NETSPLIT_NICKS = 8;
@@ -509,8 +551,9 @@ function netsplitSummaryRow(group: NetsplitGroup, rerender: () => void) {
   body.appendChild(servers);
 
   const quitNicks = group.quits.map((m) => m.sender || "");
-  const rejoinNicks = new Set(group.rejoins.map((m) => caseFoldNick(m.sender || "")));
-  const stillGone = quitNicks.filter((n) => !rejoinNicks.has(caseFoldNick(n)));
+  // Rejoin matching is server-side (a join is only annotated when it pairs
+  // with a quit in this group), so the count needs no nick comparison.
+  const stillGoneCount = Math.max(0, group.quits.length - group.rejoins.length);
 
   if (group.rejoins.length > 0) {
     body.appendChild(document.createTextNode(" → "));
@@ -520,9 +563,9 @@ function netsplitSummaryRow(group: NetsplitGroup, rerender: () => void) {
     );
     body.appendChild(document.createTextNode(` rejoined`));
   }
-  if (stillGone.length > 0) {
+  if (stillGoneCount > 0) {
     body.appendChild(document.createTextNode(` ⇐ `));
-    body.appendChild(document.createTextNode(`${stillGone.length} still gone`));
+    body.appendChild(document.createTextNode(`${stillGoneCount} still gone`));
   }
   body.appendChild(document.createTextNode(` · ${group.quits.length} nipped out: `));
   appendNickList(body, quitNicks);
@@ -566,8 +609,13 @@ function isHiddenPresence(message: Message, buffer: import("./app-state").Buffer
 }
 
 function renderBodyHTML(message: Message) {
-  const body = message.content || "";
-  return highlightMentions(linkify(inlineCode(mircFormat(escapeHTML(body)))), state.me.nick);
+  // mIRC parsing is server-side: formatted content arrives as segments,
+  // plain content (no codes) ships without them.
+  const html =
+    message.segments !== undefined && message.segments.length > 0
+      ? renderSegmentsHTML(message.segments)
+      : escapeHTML(message.content || "");
+  return highlightMentions(linkify(inlineCode(html)), state.me.nick);
 }
 
 function daySeparator(ts?: string) {

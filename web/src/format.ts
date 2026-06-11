@@ -41,15 +41,12 @@ export function highlightMentions(html: string, nick: string): string {
   return html.replace(re, (_match, mention: string) => `<span class="${mentionClass}">${mention}</span>`);
 }
 
-export function nickHue(nick: unknown): number {
-  let h = 5381;
-  const s = String(nick ?? "").toLowerCase();
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return Math.abs(h) % NICK_HUES.length;
-}
-
-export function nickColor(nick: unknown): string {
-  const hue = NICK_HUES[nickHue(nick)];
+// nickColor renders a server-computed palette index (see nick-colors.ts) as
+// a CSS color. The hash lives server-side (Go nickcolor package); an unknown
+// index renders as neutral gray (chroma 0) rather than a wrong color.
+export function nickColor(idx: number | null | undefined): string {
+  if (idx === null || idx === undefined) return "oklch(var(--nick-l, 72%) 0 0deg)";
+  const hue = NICK_HUES[idx % NICK_HUES.length] ?? 0;
   return `oklch(var(--nick-l, 72%) var(--nick-c, 0.12) ${hue}deg)`;
 }
 

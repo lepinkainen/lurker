@@ -1,6 +1,7 @@
-import { type Member, type Message, state } from "./app-state";
+import { type Member, type Message, type NetsplitInfo, state } from "./app-state";
 import type { AppView } from "./app-view";
 import { applyChannelListUpdate, type ChannelListUpdate } from "./channel-list";
+import { registerMemberNickColors, registerMessageNickColors } from "./nick-colors";
 
 type WSMessage =
   | ({ type: "message" } & Message)
@@ -18,6 +19,7 @@ type WSMessage =
   | { type: "history_result"; buffer_id: string; messages?: Message[] }
   | { type: "preview"; buffer_id: string; message_id: string; previews?: Message["previews"] }
   | { type: "member_list"; buffer_id: string; members?: Member[] }
+  | { type: "netsplit"; buffer_id: string; netsplit: NetsplitInfo; message_ids?: string[] }
   | ({ type: "channel_list" } & ChannelListUpdate)
   | { type: "ignorelist_result"; req_id: string; network_id: string; masks: string[] };
 
@@ -26,6 +28,7 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
     const m = msg as WSMessage;
     switch (m.type) {
       case "message":
+        registerMessageNickColors(m);
         view.appendMessage(m);
         break;
       case "buffer_created": {
@@ -63,14 +66,33 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
         break;
       }
       case "history_result":
+        for (const msg of m.messages || []) registerMessageNickColors(msg);
         view.prependHistory(m);
         break;
       case "preview":
         view.patchPreview(m);
         break;
       case "member_list":
+        registerMemberNickColors(m.members || []);
         view.setMembers(m.buffer_id, m.members || []);
         break;
+      case "netsplit": {
+        // Retroactive annotation: earlier quits were published before the
+        // cluster qualified as a netsplit. Patch them so rendering collapses
+        // the whole group.
+        const msgs = state.messages.get(m.buffer_id);
+        if (!msgs) break;
+        const ids = new Set(m.message_ids || []);
+        let patched = false;
+        for (const msg of msgs) {
+          if (ids.has(msg.id) && !msg.netsplit) {
+            msg.netsplit = m.netsplit;
+            patched = true;
+          }
+        }
+        if (patched && state.activeId === m.buffer_id) view.renderActiveView();
+        break;
+      }
       case "channel_list":
         if (applyChannelListUpdate(m)) view.renderActiveView();
         break;

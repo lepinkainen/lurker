@@ -1,4 +1,5 @@
-import { nickColor, nickHue, type SysMessage } from "./format";
+import { nickColor, type SysMessage } from "./format";
+import { nickColorIndex } from "./nick-colors";
 import { NICK_HUES } from "./nick-palette";
 
 export function nickAvatar(nick: string): HTMLCanvasElement {
@@ -11,12 +12,13 @@ export function nickAvatar(nick: string): HTMLCanvasElement {
   const ctx = c.getContext("2d");
   if (!ctx) return c;
 
-  const idx = nickHue(nick);
-  const hue = NICK_HUES[idx];
+  const idx = nickColorIndex(nick);
   const style = getComputedStyle(document.documentElement);
   const l = style.getPropertyValue("--nick-l").trim() || "72%";
   const cv = style.getPropertyValue("--nick-c").trim() || "0.12";
-  ctx.fillStyle = `oklch(${l} ${cv} ${hue}deg)`;
+  // Unknown nick (no server color seen yet) draws gray, matching nickColor.
+  const hue = idx === undefined ? null : (NICK_HUES[idx % NICK_HUES.length] ?? 0);
+  ctx.fillStyle = hue === null ? `oklch(${l} 0 0deg)` : `oklch(${l} ${cv} ${hue}deg)`;
 
   // xorshift32 seeded from nick chars
   let r = 1;
@@ -45,7 +47,7 @@ export function nickAvatar(nick: string): HTMLCanvasElement {
 export function nickEl(nick: string, className = "nickref", label?: string): HTMLElement {
   const span = document.createElement("span");
   span.className = className;
-  span.style.color = nickColor(nick);
+  span.style.color = nickColor(nickColorIndex(nick));
   span.append(nickAvatar(nick), label ?? nick);
   return span;
 }

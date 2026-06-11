@@ -17,6 +17,7 @@ export type Network = {
   port?: number;
   tls?: boolean;
   nick?: string;
+  nick_color?: number;
   realname?: string;
   status?: string;
   sort_order?: number;
@@ -40,6 +41,27 @@ export type Buffer = {
   pinned: boolean;
 };
 
+// One run of uniformly-formatted text, parsed server-side from mIRC control
+// codes (Go mirc package). fg/bg are mIRC palette indexes 0-15.
+export type MircSegment = {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+  mono?: boolean;
+  fg?: number;
+  bg?: number;
+};
+
+// Server-computed netsplit annotation: quit/join messages in the same
+// collapsed netsplit share an id (see irc/netsplit_tracker.go).
+export type NetsplitInfo = {
+  id: string;
+  server_a: string;
+  server_b: string;
+};
+
 export type Message = {
   id: string;
   buffer_id: string;
@@ -54,6 +76,10 @@ export type Message = {
   is_self?: boolean;
   mentions_me?: boolean;
   counts_as_unread?: boolean;
+  sender_color?: number;
+  target_color?: number;
+  netsplit?: NetsplitInfo;
+  segments?: MircSegment[];
 };
 
 export type Member = {
@@ -62,6 +88,7 @@ export type Member = {
   realname?: string;
   away: boolean;
   self: boolean;
+  color?: number;
 };
 
 export type StateResponse = {

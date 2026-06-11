@@ -1,4 +1,5 @@
 import { loadLayout, state } from "./app-state";
+import { resetNickColors } from "./nick-colors";
 
 export function resetAppState() {
   try {
@@ -30,4 +31,5 @@ export function resetAppState() {
   state.showMemberList = true;
   state.layout = loadLayout();
   state.drag = { id: null, over: null };
+  resetNickColors();
 }

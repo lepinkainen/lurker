@@ -1,69 +1,60 @@
 import { describe, expect, it } from "vitest";
-import { escapeHTML, linkify } from "../src/format";
-import { mircFormat } from "../src/mirc";
+import type { MircSegment } from "../src/app-state";
+import { linkify } from "../src/format";
+import { renderSegmentsHTML } from "../src/mirc";
 
-describe("mircFormat", () => {
-  it("passes plain text through unchanged", () => {
-    expect(mircFormat("hello world")).toBe("hello world");
+// mIRC parsing is server-side (Go mirc package, mirc/mirc_test.go); the
+// client renders pre-parsed segments. These tests cover the HTML rendering.
+
+describe("renderSegmentsHTML", () => {
+  it("renders an unstyled segment as plain escaped text", () => {
+    expect(renderSegmentsHTML([{ text: "hello world" }])).toBe("hello world");
   });
 
   it("wraps bold runs", () => {
-    expect(mircFormat("a\x02bold\x02b")).toBe('a<span class="m-b">bold</span>b');
+    const segs: MircSegment[] = [{ text: "a" }, { text: "bold", bold: true }, { text: "b" }];
+    expect(renderSegmentsHTML(segs)).toBe('a<span class="m-b">bold</span>b');
   });
 
   it("supports italic, underline, strike, monospace", () => {
-    expect(mircFormat("\x1di\x1d")).toBe('<span class="m-i">i</span>');
-    expect(mircFormat("\x1fu\x1f")).toBe('<span class="m-u">u</span>');
-    expect(mircFormat("\x1es\x1e")).toBe('<span class="m-s">s</span>');
-    expect(mircFormat("\x11m\x11")).toBe('<span class="m-mono">m</span>');
+    expect(renderSegmentsHTML([{ text: "i", italic: true }])).toBe('<span class="m-i">i</span>');
+    expect(renderSegmentsHTML([{ text: "u", underline: true }])).toBe('<span class="m-u">u</span>');
+    expect(renderSegmentsHTML([{ text: "s", strike: true }])).toBe('<span class="m-s">s</span>');
+    expect(renderSegmentsHTML([{ text: "m", mono: true }])).toBe('<span class="m-mono">m</span>');
   });
 
   it("combines overlapping styles", () => {
-    expect(mircFormat("\x02\x1dboth\x02\x1d")).toBe('<span class="m-b m-i">both</span>');
+    expect(renderSegmentsHTML([{ text: "both", bold: true, italic: true }])).toBe('<span class="m-b m-i">both</span>');
   });
 
-  it("emits separate spans when styles change mid-string", () => {
-    expect(mircFormat("\x02a\x1db\x02c\x1d")).toBe(
-      '<span class="m-b">a</span><span class="m-b m-i">b</span><span class="m-i">c</span>',
+  it("applies foreground color via CSS var", () => {
+    expect(renderSegmentsHTML([{ text: "red", fg: 4 }, { text: "plain" }])).toBe(
+      '<span style="color:var(--mirc-c-4)">red</span>plain',
     );
-  });
-
-  it("resets all formatting on \\x0f", () => {
-    expect(mircFormat("\x02\x1dab\x0fcd")).toBe('<span class="m-b m-i">ab</span>cd');
-  });
-
-  it("applies foreground color", () => {
-    expect(mircFormat(`\x03${4}red\x03plain`)).toBe('<span style="color:var(--mirc-c-4)">red</span>plain');
   });
 
   it("applies fg+bg color", () => {
-    expect(mircFormat("\x033,1fgbg\x03x")).toBe(
-      '<span style="color:var(--mirc-c-3);background:var(--mirc-c-1)">fgbg</span>x',
+    expect(renderSegmentsHTML([{ text: "fgbg", fg: 3, bg: 1 }])).toBe(
+      '<span style="color:var(--mirc-c-3);background:var(--mirc-c-1)">fgbg</span>',
     );
   });
 
-  it("treats \\x03 with no digits as color reset only", () => {
-    expect(mircFormat("\x02\x034ab\x03cd\x02")).toBe(
-      '<span class="m-b" style="color:var(--mirc-c-4)">ab</span><span class="m-b">cd</span>',
-    );
+  it("treats fg index 0 as styled (white)", () => {
+    expect(renderSegmentsHTML([{ text: "w", fg: 0 }])).toBe('<span style="color:var(--mirc-c-0)">w</span>');
   });
 
-  it("ignores out-of-range color codes (>15)", () => {
-    expect(mircFormat("\x0399x")).toBe("x");
+  it("escapes HTML inside segment text", () => {
+    expect(renderSegmentsHTML([{ text: "<script>", bold: true }])).toBe('<span class="m-b">&lt;script&gt;</span>');
   });
 
-  it("closes span at end of input", () => {
-    expect(mircFormat("\x02unterminated")).toBe('<span class="m-b">unterminated</span>');
-  });
-
-  it("composes with linkify (escape happens before)", () => {
-    const escaped = escapeHTML("\x02https://example.com\x02 done");
-    expect(linkify(mircFormat(escaped))).toBe(
+  it("composes with linkify", () => {
+    const html = renderSegmentsHTML([{ text: "https://example.com", bold: true }, { text: " done" }]);
+    expect(linkify(html)).toBe(
       '<span class="m-b"><a href="https://example.com" target="_blank" rel="noreferrer">https://example.com</a></span> done',
     );
   });
 
   it("handles empty input", () => {
-    expect(mircFormat("")).toBe("");
+    expect(renderSegmentsHTML([])).toBe("");
   });
 });

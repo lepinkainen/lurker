@@ -9,6 +9,7 @@ import {
   type UpdateStatus,
 } from "./app-state";
 import { getStartupFallbackBufferIds } from "./buffers";
+import { registerMemberNickColors, registerMessageNickColors, registerNetworkNickColor } from "./nick-colors";
 
 export const RECONNECT_BASE_MS = 1000;
 export const RECONNECT_MAX_MS = 30_000;
@@ -91,7 +92,10 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
   if (!stateRes.ok) throw new Error(`state ${stateRes.status}`);
   const s: StateResponse = await stateRes.json();
   state.me.nick = s.current_nick || s.nick || s.user?.nick || s.networks?.[0]?.nick || "you";
-  for (const network of s.networks || []) state.networks.set(network.id, network);
+  for (const network of s.networks || []) {
+    state.networks.set(network.id, network);
+    registerNetworkNickColor(network);
+  }
   deps.renderer.renderPromptNick();
   for (const buffer of s.buffers || []) {
     state.buffers.set(buffer.id, {
@@ -104,13 +108,19 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
   for (const [id, msgs] of Object.entries(s.initial_messages || {})) {
     const existing = state.messages.get(id) || [];
     const byID = new Map(existing.map((msg) => [msg.id, msg]));
-    for (const msg of msgs as Message[]) byID.set(msg.id, msg);
+    for (const msg of msgs as Message[]) {
+      byID.set(msg.id, msg);
+      registerMessageNickColors(msg);
+    }
     state.messages.set(
       id,
       [...byID.values()].sort((a, b) => a.id.localeCompare(b.id)),
     );
   }
-  for (const [id, members] of Object.entries(s.members || {})) state.members.set(id, members as Member[]);
+  for (const [id, members] of Object.entries(s.members || {})) {
+    state.members.set(id, members as Member[]);
+    registerMemberNickColors(members as Member[]);
+  }
   if (updateRes?.ok) {
     state.updateStatus = (await updateRes.json()) as UpdateStatus;
   } else {
