@@ -235,14 +235,16 @@ func (m *Manager) LogOutbound(ctx context.Context, networkID uuid.UUID, target, 
 		return nil
 	}
 	m.hub.Publish((&MessageEvent{
-		Type:      "message",
-		ID:        id,
-		NetworkID: networkID,
-		BufferID:  bufID,
-		TS:        ts,
-		Sender:    nick,
-		Kind:      kind,
-		Content:   content,
+		Type: "message",
+		MessageCore: MessageCore{
+			ID:        id,
+			NetworkID: networkID,
+			BufferID:  bufID,
+			TS:        ts,
+			Sender:    nick,
+			Kind:      kind,
+			Content:   content,
+		},
 	}).WithSemantics(nick))
 	if m.previews != nil && (kind == "privmsg" || kind == "notice" || kind == "action") {
 		m.previews.Enqueue(networkID, bufID, id, content)

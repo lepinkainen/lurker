@@ -2,13 +2,14 @@ package irc
 
 import (
 	"github.com/google/uuid"
+	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/mirc"
 )
 
-// MessageEvent is published after a message row is successfully written.
-// The JSON tags match the wire shape sent to WebSocket clients.
-type MessageEvent struct {
-	Type      string    `json:"type"`
+// MessageCore is the shared wire shape of a stored message. It is embedded
+// by irc.MessageEvent (live stream) and api.messageDTO (REST history) so the
+// two stay field-for-field identical by construction.
+type MessageCore struct {
 	ID        uuid.UUID `json:"id"`
 	NetworkID uuid.UUID `json:"network_id"`
 	BufferID  uuid.UUID `json:"buffer_id"`
@@ -40,20 +41,43 @@ type MessageEvent struct {
 	Segments []mirc.Segment `json:"segments,omitempty"`
 }
 
-// WithSemantics fills the four semantic flag fields based on the event's
+// ApplySemantics fills the semantic flag fields and Segments based on the
+// message's kind/sender/content/target and the network's current nick.
+func (c *MessageCore) ApplySemantics(nick string) {
+	sem := ComputeMessageSemantics(c.Kind, c.Sender, c.Content, c.Target, nick)
+	c.DisplayKind = sem.DisplayKind
+	c.IsSelf = sem.IsSelf
+	c.MentionsMe = sem.MentionsMe
+	c.CountsAsUnread = sem.CountsAsUnread
+	c.SenderColor = sem.SenderColor
+	c.TargetColor = sem.TargetColor
+	c.Highlight = sem.Highlight
+	c.HighlightPattern = sem.HighlightPattern
+	c.Segments = mirc.SegmentsForWire(c.Content)
+}
+
+// CoreFromStored builds a MessageCore from a stored message row. Only the
+// raw fields are filled; call ApplySemantics to derive the rest.
+func CoreFromStored(m ircdb.StoredMessage) MessageCore {
+	return MessageCore{
+		ID: m.ID, NetworkID: m.NetworkID, BufferID: m.BufferID,
+		MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Userhost: m.Userhost, Account: m.Account,
+		Kind: m.Kind, Target: m.Target, Content: m.Content,
+	}
+}
+
+// MessageEvent is published after a message row is successfully written.
+// The JSON tags match the wire shape sent to WebSocket clients.
+type MessageEvent struct {
+	Type string `json:"type"`
+	MessageCore
+}
+
+// WithSemantics fills the semantic flag fields based on the event's
 // kind/sender/content and the network's current nick. Returns the receiver
 // for fluent use at the publish site.
 func (e *MessageEvent) WithSemantics(nick string) *MessageEvent {
-	sem := ComputeMessageSemantics(e.Kind, e.Sender, e.Content, e.Target, nick)
-	e.DisplayKind = sem.DisplayKind
-	e.IsSelf = sem.IsSelf
-	e.MentionsMe = sem.MentionsMe
-	e.CountsAsUnread = sem.CountsAsUnread
-	e.SenderColor = sem.SenderColor
-	e.TargetColor = sem.TargetColor
-	e.Highlight = sem.Highlight
-	e.HighlightPattern = sem.HighlightPattern
-	e.Segments = mirc.SegmentsForWire(e.Content)
+	e.ApplySemantics(nick)
 	return e
 }
 

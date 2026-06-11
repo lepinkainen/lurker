@@ -125,18 +125,20 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 	}
 	nsMeta := h.trackNetsplit(bufID, id, bufKind, kind, sender, content, storedTS, ts)
 	ev := (&MessageEvent{
-		Type:      "message",
-		ID:        id,
-		NetworkID: h.networkID,
-		BufferID:  bufID,
-		MsgID:     msgID,
-		TS:        storedTS,
-		Sender:    sender,
-		Userhost:  userhost,
-		Account:   account,
-		Kind:      kind,
-		Target:    target,
-		Content:   content,
+		Type: "message",
+		MessageCore: MessageCore{
+			ID:        id,
+			NetworkID: h.networkID,
+			BufferID:  bufID,
+			MsgID:     msgID,
+			TS:        storedTS,
+			Sender:    sender,
+			Userhost:  userhost,
+			Account:   account,
+			Kind:      kind,
+			Target:    target,
+			Content:   content,
+		},
 	}).WithSemantics(nick)
 	ev.Netsplit = nsMeta
 	h.hub.Publish(ev)

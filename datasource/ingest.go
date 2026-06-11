@@ -47,17 +47,19 @@ func IngestPost(ctx context.Context, deps Deps, networkID, bufferID uuid.UUID, p
 		// (IsSelf, MentionsMe) stay zero. WithSemantics still computes the
 		// canonical DisplayKind from kind/content (e.g. action vs. privmsg).
 		deps.Hub.Publish((&irc.MessageEvent{
-			Type:      "message",
-			ID:        id,
-			NetworkID: networkID,
-			BufferID:  bufferID,
-			MsgID:     post.MsgID,
-			TS:        storedTS,
-			Sender:    post.Sender,
-			Account:   post.Account,
-			Kind:      post.Kind,
-			Target:    post.Target,
-			Content:   post.Content,
+			Type: "message",
+			MessageCore: irc.MessageCore{
+				ID:        id,
+				NetworkID: networkID,
+				BufferID:  bufferID,
+				MsgID:     post.MsgID,
+				TS:        storedTS,
+				Sender:    post.Sender,
+				Account:   post.Account,
+				Kind:      post.Kind,
+				Target:    post.Target,
+				Content:   post.Content,
+			},
 		}).WithSemantics(""))
 	}
 

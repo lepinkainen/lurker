@@ -51,8 +51,11 @@ func (h *handler) logStatus(kind, content string) {
 	})
 	if err == nil && inserted && h.hub != nil {
 		h.hub.Publish((&MessageEvent{
-			Type: "message", ID: id, NetworkID: h.networkID, BufferID: bufID,
-			TS: ts, Sender: "*", Kind: kind, Content: content,
+			Type: "message",
+			MessageCore: MessageCore{
+				ID: id, NetworkID: h.networkID, BufferID: bufID,
+				TS: ts, Sender: "*", Kind: kind, Content: content,
+			},
 		}).WithSemantics(""))
 	}
 	if kind == StateDisconnected.String() {
