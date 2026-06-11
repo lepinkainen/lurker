@@ -60,6 +60,15 @@ describe("router", () => {
     expect(bufferFromHash("#net/My%20Net/#general%2Fchat")).toBe(chan);
   });
 
+  it("matches buffer names case-insensitively", () => {
+    state.networks.set("1", network());
+    const chan = buffer({ id: "4", name: "#Lurker" });
+    state.buffers.set(chan.id, chan);
+
+    expect(bufferFromHash("#net/Libera/#lurker")).toBe(chan);
+    expect(bufferFromHash("#net/Libera/#LURKER")).toBe(chan);
+  });
+
   it("returns null for unknown network or malformed hash", () => {
     state.networks.set("1", network());
     state.buffers.set("1", buffer());

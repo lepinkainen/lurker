@@ -19,11 +19,12 @@ export function bufferFromHash(hash: string): Buffer | null {
   const netName = decodeURIComponent(parts[0]);
   const network = [...state.networks.values()].find((n) => n.name === netName);
   if (!network) return null;
-  const bufName = parts[1] ? decodeURIComponent(parts.slice(1).join("/")) : null;
+  // Buffer names can change case across IRC servers; match case-insensitively.
+  const bufName = parts[1] ? decodeURIComponent(parts.slice(1).join("/")).toLowerCase() : null;
   for (const buffer of state.buffers.values()) {
     if (buffer.network_id !== network.id) continue;
     if (bufName === null && buffer.kind === "status") return buffer;
-    if (bufName !== null && buffer.name === bufName) return buffer;
+    if (bufName !== null && buffer.name.toLowerCase() === bufName) return buffer;
   }
   return null;
 }
