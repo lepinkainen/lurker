@@ -23,6 +23,7 @@ Important tables:
 - `buffer_settings`
 - `ignores`
 - `network_connect_commands`
+- `highlights`
 - `schema_migrations`
 
 The `networks` table stores:
@@ -38,6 +39,8 @@ The `networks` table stores:
 `buffer_settings` stores per-buffer display preferences keyed by buffer ID with `ON DELETE CASCADE`. Columns: `buffer_id` (PK, FK to `buffer_registry`), `show_embeds` (default 1), `show_presence_events` (default 1), `collapse_presence_events` (default 0), `pinned` (default 0), `updated_at`. Only channel buffers are eligible for settings.
 
 `ignores` stores per-network IRC ignore masks. Columns: `id` (PK, UUIDv7 BLOB), `network_id` (FK to `networks` with `ON DELETE CASCADE`), `mask` (TEXT), `created_at`. Unique on `(network_id, mask)`.
+
+`highlights` stores the global (all-networks) user-defined highlight word list. Columns: `id` (PK, UUIDv7 BLOB), `pattern` (TEXT, unique `COLLATE NOCASE`), `created_at`. Loaded into the in-process matcher (`irc.SetHighlightPatterns`) at startup and on every `PUT /api/settings/highlights`; match results ship as `highlight`/`highlight_pattern` message flags and are never stored per-message.
 
 The `buffer_registry` table stores the global API-facing buffer ID namespace. Buffer IDs are UUIDv7 values stored as 16-byte SQLite `BLOB`s and serialized over JSON as strings.
 

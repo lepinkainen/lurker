@@ -131,6 +131,7 @@ Currently published events:
 - `buffer_settings` — per-buffer display preferences changed
 - `channel_list` — streaming /LIST results
 - `netsplit` — retroactive netsplit annotation for already-published messages
+- `highlights` — global highlight pattern list changed (`{patterns: [...]}`); matching itself stays server-side, the event only lets open settings UIs refresh
 
 Important event shapes:
 
@@ -147,6 +148,7 @@ Important event shapes:
 - `target`
 - `content`
 - `display_kind`, `is_self`, `mentions_me`, `counts_as_unread` — server-computed semantics (`irc.ComputeMessageSemantics`); clients consume verbatim
+- `highlight`, `highlight_pattern` — set when `content` matches a user-defined highlight pattern (`irc/highlights.go`, configured via `PUT /api/settings/highlights`); word-boundary case-insensitive matching, self-authored messages never highlight. Clients treat `highlight` like `mentions_me` for badges/styling but can distinguish the two
 - `sender_color` — nick-color palette index for `sender` (Go `nickcolor` package; omitted when no sender)
 - `target_color` — palette index for `target` when it is a nick (`kick`/`nick` kinds only)
 - `netsplit` — `{id, server_a, server_b}` on quit/join messages belonging to a collapsed netsplit group (server-side clustering, `irc/netsplit_tracker.go`)

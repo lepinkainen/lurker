@@ -21,6 +21,8 @@ Base routes currently exposed:
 - `PUT /api/networks/{id}/connect-commands`
 - `POST /api/networks/{id}/connect`
 - `POST /api/networks/{id}/disconnect`
+- `GET /api/settings/highlights`
+- `PUT /api/settings/highlights`
 - `GET /api/config/yaml/preview`
 - `POST /api/config/yaml/save`
 - `GET /uploads/{name}`
@@ -144,7 +146,7 @@ The settings fields (`show_embeds`, `show_presence_events`, `collapse_presence_e
 
 The `target` field records the IRC target (channel or nick) the message was addressed to. The `previews` array is populated by `attachPreviews` (see Preview attachment section below).
 
-Server-computed display fields (shared with the WS `message` event, see `websocket-protocol.md`): `display_kind`/`is_self`/`mentions_me`/`counts_as_unread` semantics, `sender_color`/`target_color` nick-color palette indexes, `segments` (parsed mIRC formatting; omitted for plain content), and `netsplit` (collapsed-netsplit group annotation on quit/join messages, recomputed for history/state batches by `annotateNetsplits`). The `topic` field on `bufferDTO` is stripped of mIRC codes at the API boundary; the DB keeps the raw topic.
+Server-computed display fields (shared with the WS `message` event, see `websocket-protocol.md`): `display_kind`/`is_self`/`mentions_me`/`counts_as_unread` semantics, `highlight`/`highlight_pattern` custom-highlight flags, `sender_color`/`target_color` nick-color palette indexes, `segments` (parsed mIRC formatting; omitted for plain content), and `netsplit` (collapsed-netsplit group annotation on quit/join messages, recomputed for history/state batches by `annotateNetsplits`). The `topic` field on `bufferDTO` is stripped of mIRC codes at the API boundary; the DB keeps the raw topic.
 
 ## `GET /api/buffers/{id}/history`
 
@@ -266,6 +268,21 @@ Behavior:
 - `POST /api/networks/{id}/disconnect`
 
 These control IRC runtime state independently of the bootstrap YAML.
+
+## Highlight patterns
+
+Global (all networks) user-defined highlight words:
+
+- `GET /api/settings/highlights`
+- `PUT /api/settings/highlights`
+
+Payload (both directions):
+
+```json
+{ "patterns": ["deploy", "lurker"] }
+```
+
+PUT replaces the whole list. Validation: entries are trimmed, blanks dropped, case-insensitive duplicates removed; max 100 patterns, 64 chars each (400 otherwise). On success the server stores the list in the control DB `highlights` table, swaps the live matcher (`irc.SetHighlightPatterns`) so subsequent messages get `highlight`/`highlight_pattern` flags immediately, and publishes a `highlights` WS event. Matching is case-insensitive on word boundaries (literal words, not regex), skips self-authored messages, and a highlight counts toward `bufferDTO.mentions` like a nick mention. History recomputes flags on read, so new patterns retroactively highlight old messages.
 
 ## `PATCH /api/buffers/{id}/settings`
 
