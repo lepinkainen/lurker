@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -49,38 +48,32 @@ func UnreadCandidates(ctx context.Context, d *sql.DB, bufferID uuid.UUID, lastSe
 	return out, rows.Err()
 }
 
-// BatchUnreadCandidates returns unread candidates for multiple buffers in one
-// query. cutoffs maps buffer ID to last-seen message ID (uuid.Nil = no cutoff).
-// limit must be > 0 and caps per-buffer row count via a window function.
+// BatchUnreadCandidates returns unread candidates for multiple buffers in a
+// single round-trip. Each buffer's subquery uses ORDER BY id ASC LIMIT so the
+// index stops early rather than ranking full unread history. cutoffs maps
+// buffer ID to last-seen message ID (uuid.Nil = no cutoff). limit must be > 0.
 func BatchUnreadCandidates(ctx context.Context, d *sql.DB, cutoffs map[uuid.UUID]uuid.UUID, limit int) (map[uuid.UUID][]UnreadCandidate, error) {
 	if len(cutoffs) == 0 {
 		return map[uuid.UUID][]UnreadCandidate{}, nil
 	}
-	vals := make([]string, 0, len(cutoffs))
-	args := make([]any, 0, len(cutoffs)*2+1)
+	parts := make([]string, 0, len(cutoffs))
+	args := make([]any, 0, len(cutoffs)*3)
 	for bufID, cutID := range cutoffs {
-		vals = append(vals, "(?, ?)")
 		b := bufID
-		args = append(args, b[:])
 		if cutID == uuid.Nil {
-			args = append(args, nil)
+			parts = append(parts, `SELECT buffer_id, kind, sender, content
+			  FROM (SELECT buffer_id, kind, sender, content FROM messages
+			        WHERE buffer_id = ? ORDER BY id ASC LIMIT ?)`)
+			args = append(args, b[:], int64(limit))
 		} else {
 			c := cutID
-			args = append(args, c[:])
+			parts = append(parts, `SELECT buffer_id, kind, sender, content
+			  FROM (SELECT buffer_id, kind, sender, content FROM messages
+			        WHERE buffer_id = ? AND id > ? ORDER BY id ASC LIMIT ?)`)
+			args = append(args, b[:], c[:], int64(limit))
 		}
 	}
-	args = append(args, int64(limit))
-	q := fmt.Sprintf(`WITH cutoffs(buf_id, cut_id) AS (VALUES %s),
-ranked AS (
-  SELECT m.buffer_id, m.kind, m.sender, m.content,
-         ROW_NUMBER() OVER (PARTITION BY m.buffer_id ORDER BY m.id ASC) AS rn
-  FROM messages m
-  JOIN cutoffs c ON m.buffer_id = c.buf_id
-  WHERE c.cut_id IS NULL OR m.id > c.cut_id
-)
-SELECT buffer_id, kind, sender, content FROM ranked WHERE rn <= ?`,
-		strings.Join(vals, ","))
-	rows, err := d.QueryContext(ctx, q, args...)
+	rows, err := d.QueryContext(ctx, strings.Join(parts, "\nUNION ALL\n"), args...)
 	if err != nil {
 		return nil, err
 	}

@@ -138,9 +138,9 @@ func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb
 
 // prefetchNetworkState issues one batch recent-messages query and one batch
 // unread-candidates query per network, returning maps keyed by buffer ID.
-func (s *Server) prefetchNetworkState(ctx context.Context, byNetwork map[uuid.UUID][]ircdb.Buffer, totalBufs int) (map[uuid.UUID][]ircdb.StoredMessage, map[uuid.UUID][2]int) {
-	recentByBuf := make(map[uuid.UUID][]ircdb.StoredMessage, totalBufs)
-	unreadByBuf := make(map[uuid.UUID][2]int, totalBufs)
+func (s *Server) prefetchNetworkState(ctx context.Context, byNetwork map[uuid.UUID][]ircdb.Buffer, totalBufs int) (recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID][2]int) {
+	recentByBuf = make(map[uuid.UUID][]ircdb.StoredMessage, totalBufs)
+	unreadByBuf = make(map[uuid.UUID][2]int, totalBufs)
 	for netID, netBufs := range byNetwork {
 		nick := ""
 		if s.Manager != nil {
