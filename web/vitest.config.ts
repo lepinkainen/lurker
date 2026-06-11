@@ -21,6 +21,7 @@ export default defineConfig({
       headless: true,
       instances: [{ browser: "chromium" }],
     },
+    setupFiles: ["tests/setup.ts"],
     include: ["tests/**/*.test.ts"],
     exclude: ["tests/**/*.integration.test.ts", "node_modules/**", "dist/**"],
     coverage: {
