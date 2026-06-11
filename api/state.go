@@ -57,9 +57,9 @@ type messageDTO struct {
 }
 
 type stateDTO struct {
-	Networks        []networkDTO              `json:"networks"`
-	Buffers         []bufferDTO               `json:"buffers"`
-	InitialMessages map[string][]messageDTO   `json:"initial_messages"`
+	Networks        []networkDTO                 `json:"networks"`
+	Buffers         []bufferDTO                  `json:"buffers"`
+	InitialMessages map[string][]messageDTO      `json:"initial_messages"`
 	Members         map[string][]irc.ChannelUser `json:"members,omitzero"`
 }
 
@@ -73,6 +73,8 @@ type stateManager interface {
 
 // state serves the full snapshot a client needs to render from scratch:
 // every network, every buffer, plus the last 100 messages per buffer.
+// All per-network log DB access is batched: O(networks) queries for both
+// recent messages and unread candidates.
 func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	nets, err := ircdb.ListNetworks(ctx, s.Stores.Control)
@@ -100,38 +102,78 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		kinds[n.ID] = n.Kind
 		out.Networks = append(out.Networks, toNetworkDTO(n, states[n.ID]))
 	}
+
+	// Group buffers by network so we can issue one log-DB query per network.
+	byNetwork := make(map[uuid.UUID][]ircdb.Buffer, len(nets))
 	for _, b := range bufs {
-		s.appendBufferToState(ctx, &out, b, kinds)
+		byNetwork[b.NetworkID] = append(byNetwork[b.NetworkID], b)
 	}
 
+	// Pre-fetch recent messages and unread candidates per network.
+	recentByBuf := make(map[uuid.UUID][]ircdb.StoredMessage, len(bufs))
+	unreadByBuf := make(map[uuid.UUID][2]int, len(bufs))
+	for netID, netBufs := range byNetwork {
+		nick := ""
+		if s.Manager != nil {
+			nick = s.Manager.Nick(netID)
+		}
+		bufIDs := make([]uuid.UUID, len(netBufs))
+		for i, b := range netBufs {
+			bufIDs[i] = b.ID
+		}
+		if batchMsgs, err := s.Stores.BatchRecentMessages(ctx, netID, bufIDs, 100); err != nil {
+			slog.Error("batch recent messages", "err", err, "network_id", netID)
+		} else {
+			for bufID, msgs := range batchMsgs {
+				recentByBuf[bufID] = msgs
+			}
+		}
+		cutoffs := make(map[uuid.UUID]uuid.UUID, len(netBufs))
+		for _, b := range netBufs {
+			cutoffs[b.ID] = b.LastSeenID
+		}
+		if batchUnread, err := s.Stores.BatchUnreadCandidates(ctx, netID, cutoffs, unreadCountsCap); err != nil {
+			slog.Error("batch unread candidates", "err", err, "network_id", netID)
+		} else {
+			for bufID, cands := range batchUnread {
+				unread, mentions := 0, 0
+				for _, c := range cands {
+					sem := irc.ComputeMessageSemantics(c.Kind, c.Sender, c.Content, "", nick)
+					if !sem.CountsAsUnread {
+						continue
+					}
+					unread++
+					if sem.MentionsMe || sem.Highlight {
+						mentions++
+					}
+				}
+				unreadByBuf[bufID] = [2]int{unread, mentions}
+			}
+		}
+	}
+
+	for _, b := range bufs {
+		s.appendBufferToState(ctx, &out, b, kinds, recentByBuf, unreadByBuf)
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb.Buffer, kinds map[uuid.UUID]string) {
+func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb.Buffer, kinds map[uuid.UUID]string, recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID][2]int) {
 	joined := s.bufferJoined(b, kinds)
-	nick := ""
-	if s.Manager != nil {
-		nick = s.Manager.Nick(b.NetworkID)
-	}
-	unread, mentions := s.computeUnreadCounts(ctx, b.NetworkID, b.ID, b.LastSeenID, nick)
+	counts := unreadByBuf[b.ID]
 	out.Buffers = append(out.Buffers, bufferDTO{
 		ID: b.ID, NetworkID: b.NetworkID, Name: b.Name, Kind: b.Kind,
 		Topic: mirc.Strip(b.Topic), Joined: joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
 		ShowEmbeds: b.ShowEmbeds, ShowPresenceEvents: b.ShowPresenceEvents,
 		CollapsePresenceEvents: b.CollapsePresenceEvents, Pinned: b.Pinned,
-		Unread: unread, Mentions: mentions,
+		Unread: counts[0], Mentions: counts[1],
 	})
 	if b.Kind == ircdb.BufferChannel && s.Manager != nil {
 		if members := s.Manager.ChannelMembers(b.NetworkID, b.Name); members != nil {
 			out.Members[b.ID.String()] = members
 		}
 	}
-	msgs, err := s.Stores.RecentMessages(ctx, b.ID, 100)
-	if err != nil {
-		slog.Error("recent messages", "err", err, "buffer_id", b.ID)
-		return
-	}
-	out.InitialMessages[b.ID.String()] = s.toMessageDTOs(ctx, msgs)
+	out.InitialMessages[b.ID.String()] = s.toMessageDTOs(ctx, recentByBuf[b.ID])
 }
 
 func (s *Server) bufferJoined(b ircdb.Buffer, kinds map[uuid.UUID]string) bool {
@@ -328,10 +370,10 @@ func (s *Server) collectPreviewLinks(ctx context.Context, byNetwork map[uuid.UUI
 // this anyway, so we keep the query bounded.
 const unreadCountsCap = 1000
 
-// computeUnreadCounts queries the per-network log DB for messages newer
-// than lastSeenID, then folds each through ComputeMessageSemantics to
-// derive unread + mention counts. Failures degrade silently to (0, 0):
-// stale counts are better than a broken /api/state response.
+// computeUnreadCounts queries the per-network log DB for messages newer than
+// lastSeenID, then folds each through ComputeMessageSemantics to derive unread
+// + mention counts. Used for single-buffer updates (e.g. mark-last-seen).
+// Failures degrade silently to (0, 0).
 func (s *Server) computeUnreadCounts(ctx context.Context, networkID, bufferID, lastSeenID uuid.UUID, nick string) (unread, mentions int) {
 	if s.Stores == nil {
 		return 0, 0
@@ -358,7 +400,6 @@ func (s *Server) computeUnreadCounts(ctx context.Context, networkID, bufferID, l
 	}
 	return unread, mentions
 }
-
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	data, err := json.Marshal(v)

@@ -393,7 +393,14 @@ func (ms *MultiStore) networkBuffers(ctx context.Context, n Network, logStore *L
 	if err != nil {
 		return nil, err
 	}
-	logQ := logdb.New(logStore.DB)
+	logBufs, err := ListLogBuffers(ctx, logStore.DB)
+	if err != nil {
+		return nil, err
+	}
+	logByName := make(map[string]logBufferRow, len(logBufs))
+	for _, lb := range logBufs {
+		logByName[lb.Name] = lb
+	}
 	out := make([]Buffer, 0, len(rows))
 	for _, r := range rows {
 		id, err := parseUUID(r.ID)
@@ -416,9 +423,9 @@ func (ms *MultiStore) networkBuffers(ctx context.Context, n Network, logStore *L
 			b.ShowEmbeds = true
 			b.ShowPresenceEvents = true
 		}
-		if lrow, err := logQ.GetLogBufferTopicLastSeen(ctx, b.Name); err == nil {
-			b.Topic = lrow.Topic
-			b.LastSeenID = scanUUID(lrow.LastSeenID)
+		if lb, ok := logByName[b.Name]; ok {
+			b.Topic = lb.Topic
+			b.LastSeenID = lb.LastSeenID
 		}
 		out = append(out, b)
 	}
@@ -531,4 +538,41 @@ func toStoredMessages(networkID, globalBufferID uuid.UUID, in []LogMessageRow) [
 		})
 	}
 	return out
+}
+
+// BatchRecentMessages returns the last limit messages for each of the given
+// buffer IDs in a single per-network log DB query, keyed by buffer ID.
+func (ms *MultiStore) BatchRecentMessages(ctx context.Context, networkID uuid.UUID, bufferIDs []uuid.UUID, limit int) (map[uuid.UUID][]StoredMessage, error) {
+	logStore, err := ms.LogStore(networkID)
+	if err != nil {
+		return nil, err
+	}
+	byBuf, err := BatchRecentLogMessages(ctx, logStore.DB, bufferIDs, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID][]StoredMessage, len(byBuf))
+	for bufID, msgs := range byBuf {
+		stored := make([]StoredMessage, 0, len(msgs))
+		for _, m := range msgs {
+			stored = append(stored, StoredMessage{
+				ID: m.ID, NetworkID: networkID, BufferID: bufID,
+				MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Userhost: m.Userhost, Account: m.Account,
+				Kind: m.Kind, Target: m.Target, Content: m.Content,
+			})
+		}
+		out[bufID] = stored
+	}
+	return out, nil
+}
+
+// BatchUnreadCandidates returns unread candidates for multiple buffers in a
+// single per-network log DB query. cutoffs maps buffer ID to last-seen message
+// ID (uuid.Nil = no cutoff). limit caps per-buffer row count; must be > 0.
+func (ms *MultiStore) BatchUnreadCandidates(ctx context.Context, networkID uuid.UUID, cutoffs map[uuid.UUID]uuid.UUID, limit int) (map[uuid.UUID][]UnreadCandidate, error) {
+	logStore, err := ms.LogStore(networkID)
+	if err != nil {
+		return nil, err
+	}
+	return BatchUnreadCandidates(ctx, logStore.DB, cutoffs, limit)
 }

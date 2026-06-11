@@ -205,6 +205,52 @@ func UpdateLogBufferLastSeen(ctx context.Context, d *sql.DB, name string, lastSe
 	})
 }
 
+// BatchRecentLogMessages returns the last limit messages for each buffer in
+// bufferIDs using a single query with a window function. Results are keyed by
+// buffer ID in ascending message order. limit must be > 0.
+func BatchRecentLogMessages(ctx context.Context, d *sql.DB, bufferIDs []uuid.UUID, limit int) (map[uuid.UUID][]LogMessageRow, error) {
+	if len(bufferIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(bufferIDs))
+	args := make([]any, 0, len(bufferIDs)+1)
+	for i, id := range bufferIDs {
+		placeholders[i] = "?"
+		b := id
+		args = append(args, b[:])
+	}
+	args = append(args, int64(limit))
+	q := `WITH ranked AS (
+	  SELECT id, buffer_id,
+	         COALESCE(msgid,'') AS msgid, ts, sender,
+	         COALESCE(userhost,'') AS userhost, COALESCE(account,'') AS account,
+	         kind, COALESCE(target,'') AS target, content,
+	         ROW_NUMBER() OVER (PARTITION BY buffer_id ORDER BY id DESC) AS rn
+	  FROM messages WHERE buffer_id IN (` + strings.Join(placeholders, ",") + `)
+	)
+	SELECT id, buffer_id, msgid, ts, sender, userhost, account, kind, target, content
+	FROM ranked WHERE rn <= ?
+	ORDER BY buffer_id, id ASC`
+	rows, err := d.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := make(map[uuid.UUID][]LogMessageRow)
+	for rows.Next() {
+		var idB, bufB []byte
+		var m logMessageRow
+		if err := rows.Scan(&idB, &bufB, &m.MsgID, &m.TS, &m.Sender,
+			&m.Userhost, &m.Account, &m.Kind, &m.Target, &m.Content); err != nil {
+			return nil, err
+		}
+		m.ID = scanUUID(idB)
+		m.BufferID = scanUUID(bufB)
+		out[m.BufferID] = append(out[m.BufferID], m)
+	}
+	return out, rows.Err()
+}
+
 // SearchLogMessages searches a per-network log DB using FTS. Returns messages
 // joined to their FTS rowid match. The internal rowid is not exposed.
 //
