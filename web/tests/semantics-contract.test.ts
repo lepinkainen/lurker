@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import fixture from "../../testdata/semantic-kinds.json";
 import type { Message } from "../src/app-state";
-import { msgCountsAsUnread, msgDisplayKind, msgIsSelf, msgMentionsMe, PRESENCE_KINDS } from "../src/messages";
+import {
+  msgCountsAsUnread,
+  msgDisplayKind,
+  msgHighlight,
+  msgIsSelf,
+  msgMentionsMe,
+  PRESENCE_KINDS,
+} from "../src/messages";
 
 // Web half of the Go irc.TestSemanticKindsContract guard. The server computes
 // display_kind + is_self/mentions_me/counts_as_unread once and ships them on
@@ -40,5 +47,12 @@ describe("server-flag consumption (finding 4)", () => {
     expect(msgMentionsMe(bare)).toBe(false);
     expect(msgIsSelf(bare)).toBe(false);
     expect(msgCountsAsUnread(bare)).toBe(false);
+  });
+
+  it("msgHighlight reads the server highlight flag verbatim", () => {
+    // Custom highlight patterns are matched server-side only; the client
+    // never sees the pattern list during rendering.
+    expect(msgHighlight(msg({ kind: "privmsg", highlight: true }))).toBe(true);
+    expect(msgHighlight(msg({ kind: "privmsg", content: "deploy done" }))).toBe(false);
   });
 });

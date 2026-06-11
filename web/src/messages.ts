@@ -25,6 +25,10 @@ export function msgMentionsMe(message: Message): boolean {
   return message.mentions_me === true;
 }
 
+export function msgHighlight(message: Message): boolean {
+  return message.highlight === true;
+}
+
 export function msgIsSelf(message: Message): boolean {
   return message.is_self === true;
 }
@@ -125,7 +129,7 @@ export function onMessage(
   // clears it.
   if (buffer && !activeAndFocused && msgCountsAsUnread(msg) && msg.id > (buffer.last_seen_id || "")) {
     buffer.unread = (buffer.unread || 0) + 1;
-    if (msgMentionsMe(msg)) buffer.mentions = (buffer.mentions || 0) + 1;
+    if (msgMentionsMe(msg) || msgHighlight(msg)) buffer.mentions = (buffer.mentions || 0) + 1;
     if (!state.markerAnchorId.has(buffer.id)) {
       state.markerAnchorId.set(buffer.id, msg.id);
     }
@@ -373,7 +377,7 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
 function messageRow(message: Message, kind: MessageKind, continued = false) {
   const row = document.createElement("div");
   row.dataset.id = String(message.id);
-  const isMention = msgMentionsMe(message);
+  const isMention = msgMentionsMe(message) || msgHighlight(message);
   const self = msgIsSelf(message);
   row.className = `msg ${kind === "message" ? "flat" : kind}${continued ? " cont" : ""}${isMention ? " mention" : ""}${self ? " self" : ""}`;
 

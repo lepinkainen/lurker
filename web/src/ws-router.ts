@@ -21,7 +21,8 @@ type WSMessage =
   | { type: "member_list"; buffer_id: string; members?: Member[] }
   | { type: "netsplit"; buffer_id: string; netsplit: NetsplitInfo; message_ids?: string[] }
   | ({ type: "channel_list" } & ChannelListUpdate)
-  | { type: "ignorelist_result"; req_id: string; network_id: string; masks: string[] };
+  | { type: "ignorelist_result"; req_id: string; network_id: string; masks: string[] }
+  | { type: "highlights"; patterns?: string[] };
 
 export function createWSRouter(view: AppView): (msg: unknown) => void {
   return (msg: unknown) => {
@@ -98,6 +99,11 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
         break;
       case "ignorelist_result":
         console.log("ignore list:", m.masks);
+        break;
+      case "highlights":
+        // Highlight matching is server-side; new flags arrive on future
+        // messages. Notify any open settings dialog so its list refreshes.
+        document.dispatchEvent(new CustomEvent("lurker:highlights", { detail: m.patterns || [] }));
         break;
     }
   };

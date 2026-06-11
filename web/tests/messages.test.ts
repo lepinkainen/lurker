@@ -122,6 +122,27 @@ describe("renderActiveView", () => {
     expect(d.messagesEl.querySelector(".msg.mention")).not.toBeNull();
   });
 
+  it("styles server-flagged highlight rows like mentions", () => {
+    state.activeId = "1";
+    state.buffers.set("1", buf({ id: "1", name: "#x" }));
+    state.me.nick = "you";
+    state.messages.set("1", [
+      {
+        id: "1",
+        buffer_id: "1",
+        sender: "alice",
+        content: "deploy done",
+        kind: "message",
+        display_kind: "message",
+        highlight: true,
+        ts: "2024-05-01T10:00:00Z",
+      },
+    ]);
+    const d = dom();
+    renderActiveView(d, deps);
+    expect(d.messagesEl.querySelector(".msg.mention")).not.toBeNull();
+  });
+
   it("inserts unread bar above anchored message id", () => {
     state.activeId = "1";
     state.buffers.set("1", buf({ id: "1", name: "#x", last_seen_id: "5" }));
@@ -339,6 +360,17 @@ describe("onMessage", () => {
     expect(state.buffers.get("1")?.mentions).toBe(1);
     expect(handlers.renderSidebar).toHaveBeenCalled();
     expect(handlers.renderActiveView).not.toHaveBeenCalled();
+  });
+
+  it("bumps mentions for highlight-only message on inactive buffer", () => {
+    state.activeId = "99";
+    state.me.nick = "you";
+    state.buffers.set("1", buf({ id: "1" }));
+    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    // Server matched a custom highlight pattern; mentions_me stays false.
+    onMessage(line({ id: "10", buffer_id: "1", sender: "alice", content: "deploy done", highlight: true }), handlers);
+    expect(state.buffers.get("1")?.unread).toBe(1);
+    expect(state.buffers.get("1")?.mentions).toBe(1);
   });
 
   it("does not bump unread for active buffer", () => {

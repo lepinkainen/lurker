@@ -78,6 +78,8 @@ export type Message = {
   counts_as_unread?: boolean;
   sender_color?: number;
   target_color?: number;
+  highlight?: boolean;
+  highlight_pattern?: string;
   netsplit?: NetsplitInfo;
   segments?: MircSegment[];
 };

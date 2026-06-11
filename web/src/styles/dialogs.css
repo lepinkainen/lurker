@@ -306,4 +306,55 @@
   .sd-close {
     align-self: flex-end;
   }
+
+  .sd-highlight-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .sd-highlight-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 0 2px 8px;
+    font-size: 0.875rem;
+    color: var(--fg-1);
+    border-radius: 4px;
+  }
+
+  .sd-highlight-item:hover {
+    background: var(--bg-4);
+  }
+
+  .sd-highlight-remove {
+    align-self: center;
+    margin-top: 0;
+    padding: 2px 8px;
+  }
+
+  .sd-highlight-form {
+    display: flex;
+    gap: 8px;
+  }
+
+  .sd-input {
+    flex: 1;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    font-family: var(--sans);
+    border: 1px solid var(--hair-strong);
+    background: var(--bg-2);
+    color: var(--fg-0);
+  }
+
+  .sd-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
 }
