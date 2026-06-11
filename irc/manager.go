@@ -85,7 +85,7 @@ type Manager struct {
 	runtime        map[uuid.UUID]networkRuntime
 	membersLoaded  map[uuid.UUID]map[string]bool
 	joined         map[uuid.UUID]map[string]bool
-	fixtureMembers map[uuid.UUID]map[string][]ircdb.ChannelMember
+	fixtureMembers map[uuid.UUID]map[string][]ChannelUser
 	connector      connectorFunc
 }
 
@@ -99,7 +99,7 @@ func NewManager(stores *ircdb.MultiStore, h *hub.Hub) *Manager {
 		runtime:        map[uuid.UUID]networkRuntime{},
 		membersLoaded:  map[uuid.UUID]map[string]bool{},
 		joined:         map[uuid.UUID]map[string]bool{},
-		fixtureMembers: map[uuid.UUID]map[string][]ircdb.ChannelMember{},
+		fixtureMembers: map[uuid.UUID]map[string][]ChannelUser{},
 		connector:      defaultConnector,
 	}
 }
@@ -492,7 +492,7 @@ func (m *Manager) StateSnapshot() map[uuid.UUID]string {
 }
 
 // ChannelMembers returns the currently tracked members for a joined channel.
-func (m *Manager) ChannelMembers(networkID uuid.UUID, channel string) []ircdb.ChannelMember {
+func (m *Manager) ChannelMembers(networkID uuid.UUID, channel string) []ChannelUser {
 	m.mu.Lock()
 	c := m.conn[networkID]
 	loaded := m.membersLoaded[networkID][channel]
@@ -507,22 +507,11 @@ func (m *Manager) ChannelMembers(networkID uuid.UUID, channel string) []ircdb.Ch
 	members := buildChannelMembers(c, channel)
 	if members == nil {
 		if loaded {
-			return []ircdb.ChannelMember{}
+			return []ChannelUser{}
 		}
 		return nil
 	}
-	out := make([]ircdb.ChannelMember, 0, len(members))
-	for _, member := range members {
-		out = append(out, ircdb.ChannelMember{
-			Nick:     member.Nick,
-			Prefix:   member.Prefix,
-			Realname: member.Realname,
-			Away:     member.Away,
-			Self:     member.Self,
-			Color:    member.Color,
-		})
-	}
-	return out
+	return members
 }
 
 // IsJoined returns whether a JOIN has been seen for the given channel on

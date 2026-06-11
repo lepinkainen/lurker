@@ -9,16 +9,7 @@ import (
 	"github.com/lrstanley/girc"
 )
 
-type channelMember struct {
-	Nick     string
-	Prefix   string
-	Realname string
-	Away     bool
-	Self     bool
-	Color    int
-}
-
-func buildChannelMembers(c *girc.Client, channel string) []channelMember {
+func buildChannelMembers(c *girc.Client, channel string) []ChannelUser {
 	if c == nil || channel == "" {
 		return nil
 	}
@@ -26,7 +17,7 @@ func buildChannelMembers(c *girc.Client, channel string) []channelMember {
 	if ch == nil {
 		return nil
 	}
-	members := make([]channelMember, 0, len(ch.UserList))
+	members := make([]ChannelUser, 0, len(ch.UserList))
 	selfNick := c.GetNick()
 	for _, nick := range ch.UserList {
 		user := c.LookupUser(nick)
@@ -40,7 +31,7 @@ func buildChannelMembers(c *girc.Client, channel string) []channelMember {
 			// clients render it as plain text, so strip codes server-side.
 			realname = strings.TrimSpace(mirc.Strip(user.Extras.Name))
 		}
-		members = append(members, channelMember{
+		members = append(members, ChannelUser{
 			Nick:     displayNick,
 			Prefix:   channelMemberPrefix(user, channel),
 			Realname: realname,

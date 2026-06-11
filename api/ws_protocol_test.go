@@ -235,7 +235,7 @@ func (m *mockState) IsJoined(networkID uuid.UUID, channel string) bool {
 	return false
 }
 
-func (m *mockState) ChannelMembers(networkID uuid.UUID, channel string) []ircdb.ChannelMember {
+func (m *mockState) ChannelMembers(networkID uuid.UUID, channel string) []irc.ChannelUser {
 	_ = m.record("ChannelMembers", networkID, channel)
 	return nil
 }

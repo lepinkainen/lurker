@@ -130,23 +130,19 @@ func TestLoadHistoryRecentWhenBeforeIsNil(t *testing.T) {
 	}
 }
 
-func TestToChannelMemberDTOsEmptyAndPartial(t *testing.T) {
-	if got := toChannelMemberDTOs(nil); len(got) != 0 {
-		t.Fatalf("nil input got %d entries", len(got))
-	}
-	in := []ircdb.ChannelMember{
+func TestChannelMembersWireShape(t *testing.T) {
+	members := []irc.ChannelUser{
 		{Nick: "alice", Prefix: "@", Self: true},
 		{Nick: "bob"},
 	}
-	got := toChannelMemberDTOs(in)
-	if len(got) != 2 {
-		t.Fatalf("len = %d want 2", len(got))
+	if len(members) != 2 {
+		t.Fatalf("len = %d want 2", len(members))
 	}
-	if got[0].Nick != "alice" || got[0].Prefix != "@" || !got[0].Self {
-		t.Fatalf("alice dto = %+v", got[0])
+	if members[0].Nick != "alice" || members[0].Prefix != "@" || !members[0].Self {
+		t.Fatalf("alice = %+v", members[0])
 	}
-	if got[1].Nick != "bob" || got[1].Prefix != "" || got[1].Self || got[1].Away {
-		t.Fatalf("bob dto = %+v", got[1])
+	if members[1].Nick != "bob" || members[1].Prefix != "" || members[1].Self || members[1].Away {
+		t.Fatalf("bob = %+v", members[1])
 	}
 }
 
