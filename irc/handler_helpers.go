@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
 	"github.com/lrstanley/girc"
 )
 
@@ -49,15 +50,31 @@ func (h *handler) ensureBuffer(ctx context.Context, name, kind string) (bufID uu
 	if err != nil {
 		return uuid.Nil, err
 	}
-	h.publishBufferCreated(created, bufID, buf)
+	h.publishBufferCreated(created, buf)
 	return bufID, nil
 }
 
-func (h *handler) publishBufferCreated(created bool, bufID uuid.UUID, buf ircdb.Buffer) {
-	if !created || h.hub == nil {
+// PublishBufferCreated publishes a buffer_created event to h. No-op if h is nil.
+func PublishBufferCreated(h *hub.Hub, buf ircdb.Buffer) {
+	if h == nil {
 		return
 	}
-	h.hub.Publish(&BufferCreatedEvent{Type: "buffer_created", ID: bufID, NetworkID: buf.NetworkID, Name: buf.Name, Kind: buf.Kind, CreatedAt: buf.CreatedAt})
+	h.Publish(&BufferCreatedEvent{Type: "buffer_created", ID: buf.ID, NetworkID: buf.NetworkID, Name: buf.Name, Kind: buf.Kind, CreatedAt: buf.CreatedAt})
+}
+
+// PublishNetworkState publishes a network_state event to h. No-op if h is nil.
+func PublishNetworkState(h *hub.Hub, networkID uuid.UUID, state NetworkState) {
+	if h == nil {
+		return
+	}
+	h.Publish(&NetworkStateEvent{Type: "network_state", NetworkID: networkID, State: state.String()})
+}
+
+func (h *handler) publishBufferCreated(created bool, buf ircdb.Buffer) {
+	if !created {
+		return
+	}
+	PublishBufferCreated(h.hub, buf)
 }
 
 func (h *handler) publishBufferUpdate(ev BufferUpdateEvent) {
@@ -68,8 +85,5 @@ func (h *handler) publishBufferUpdate(ev BufferUpdateEvent) {
 }
 
 func (h *handler) publishNetworkState(state NetworkState) {
-	if h.hub == nil {
-		return
-	}
-	h.hub.Publish(&NetworkStateEvent{Type: "network_state", NetworkID: h.networkID, State: state.String()})
+	PublishNetworkState(h.hub, h.networkID, state)
 }
