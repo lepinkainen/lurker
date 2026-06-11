@@ -45,13 +45,12 @@ If there are no buffers at all, no buffer is active; UI shows empty state.
 
 ## Edge cases
 
-- **Race with buffer list load**: do not apply fallback before the buffer list has finished loading from the server. Premature fallback would pick the wrong buffer.
-- **Network connecting**: if the persisted network is still in the process of connecting/joining at startup, prefer to wait briefly for the target buffer to appear rather than falling back immediately. Reasonable cap (e.g. a few seconds) before fallback.
+- **Race with buffer list load**: do not apply fallback before the buffer list has finished loading from the server. Premature fallback would pick the wrong buffer. (No wait for live IRC connect/join is needed: the buffer list comes from the DB, not live join state, so a persisted buffer resolves immediately even while its network is still connecting.)
 - **Persistence write frequency**: persist on active-buffer change, not on every render. Debounce if needed.
 - **Storage location**:
   - Web UI: `localStorage` (per-browser).
   - TUI: `os.UserConfigDir()/lurker/tui-state.json` (atomic tmp+rename write, mode 0600). Not in `data/` server dir — this is client state.
-- **Stable identifier**: persist a stable composite key (e.g. `network_id` + `buffer_name`), not display name. Network rename is out of scope per project invariants, but buffer names can change case across IRC servers — match case-insensitively where appropriate.
+- **Stable identifier**: persist the buffer UUID, not display name. Buffer UUIDs are stable in the control DB across restarts. Known limitation: if a buffer is deleted and recreated it gets a new UUID and persistence falls back — acceptable. Buffer names can change case across IRC servers — match names case-insensitively where appropriate (e.g. hash deep-links).
 
 ## Non-goals
 
