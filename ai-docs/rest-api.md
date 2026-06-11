@@ -89,6 +89,7 @@ Current behavior:
   "port": 6697,
   "tls": true,
   "nick": "mynick",
+  "nick_color": 27,
   "realname": "",
   "status": "connected",
   "sort_order": 0,
@@ -96,7 +97,7 @@ Current behavior:
 }
 ```
 
-SASL credentials are never shipped to clients. The `disabled` field indicates whether the network is paused; disabled networks do not auto-connect on startup.
+`nick_color` is the server-computed nick-color palette index for the configured nick (Go `nickcolor` package; omitted when nick is empty). SASL credentials are never shipped to clients. The `disabled` field indicates whether the network is paused; disabled networks do not auto-connect on startup.
 
 ### `bufferDTO` shape
 
@@ -133,11 +134,17 @@ The settings fields (`show_embeds`, `show_presence_events`, `collapse_presence_e
   "kind": "privmsg",
   "target": "#channel",
   "content": "hello",
-  "previews": []
+  "previews": [],
+  "display_kind": "message",
+  "sender_color": 19,
+  "segments": [{ "text": "hello", "bold": true }],
+  "netsplit": { "id": "...", "server_a": "a.net", "server_b": "b.net" }
 }
 ```
 
 The `target` field records the IRC target (channel or nick) the message was addressed to. The `previews` array is populated by `attachPreviews` (see Preview attachment section below).
+
+Server-computed display fields (shared with the WS `message` event, see `websocket-protocol.md`): `display_kind`/`is_self`/`mentions_me`/`counts_as_unread` semantics, `sender_color`/`target_color` nick-color palette indexes, `segments` (parsed mIRC formatting; omitted for plain content), and `netsplit` (collapsed-netsplit group annotation on quit/join messages, recomputed for history/state batches by `annotateNetsplits`). The `topic` field on `bufferDTO` is stripped of mIRC codes at the API boundary; the DB keeps the raw topic.
 
 ## `GET /api/buffers/{id}/history`
 

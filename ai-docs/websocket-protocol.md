@@ -130,6 +130,7 @@ Currently published events:
 - `presence` — lightweight join/part/quit/kick/nick-change events
 - `buffer_settings` — per-buffer display preferences changed
 - `channel_list` — streaming /LIST results
+- `netsplit` — retroactive netsplit annotation for already-published messages
 
 Important event shapes:
 
@@ -145,6 +146,11 @@ Important event shapes:
 - `kind`
 - `target`
 - `content`
+- `display_kind`, `is_self`, `mentions_me`, `counts_as_unread` — server-computed semantics (`irc.ComputeMessageSemantics`); clients consume verbatim
+- `sender_color` — nick-color palette index for `sender` (Go `nickcolor` package; omitted when no sender)
+- `target_color` — palette index for `target` when it is a nick (`kick`/`nick` kinds only)
+- `netsplit` — `{id, server_a, server_b}` on quit/join messages belonging to a collapsed netsplit group (server-side clustering, `irc/netsplit_tracker.go`)
+- `segments` — parsed mIRC formatting of `content` as `[{text, bold?, italic?, underline?, strike?, mono?, fg?, bg?}]` (Go `mirc` package); omitted for plain content — clients render `content` directly then
 
 `buffer_created`
 
@@ -172,7 +178,7 @@ Important event shapes:
 - `network_id`
 - `buffer_id`
 - `channel`
-- `members` — array of `{nick, prefix?, away, self}`
+- `members` — array of `{nick, prefix?, realname?, away, self, color}`; `realname` is pre-stripped of mIRC codes server-side, `color` is the nick-color palette index
 
 `preview`
 
@@ -198,6 +204,15 @@ Only previews with `kind` = `image` or `opengraph` are published. Negative resul
 - `show_presence_events`
 - `collapse_presence_events`
 - `pinned`
+
+`netsplit`
+
+- `network_id`
+- `buffer_id`
+- `netsplit` — `{id, server_a, server_b}`
+- `message_ids` — earlier quit messages published before the cluster reached the netsplit threshold; clients patch these messages with the annotation and re-render
+
+Netsplit clustering is fully server-side: a cluster forms from ≥2 quits sharing a hostname-pair reason within 60s, joins by the same nicks within 30min are matched as rejoins, and every member message carries the shared `netsplit.id`. Clients group by id only — they never parse quit reasons or match nicks. The `buffer_update` `topic` field is stripped of mIRC codes before publish (DB keeps the raw topic).
 
 `channel_list`
 
