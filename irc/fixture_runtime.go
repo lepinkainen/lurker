@@ -25,7 +25,7 @@ func (m *Manager) LoadFixtureRuntimeState(ctx context.Context) error {
 	nicks := map[uuid.UUID]string{}
 	states := map[uuid.UUID]string{}
 	joined := map[uuid.UUID]map[string]bool{}
-	members := map[uuid.UUID]map[string][]ircdb.ChannelMember{}
+	members := map[uuid.UUID]map[string][]ChannelUser{}
 	for _, n := range nets {
 		nicks[n.ID] = n.Nick
 		states[n.ID] = StateConnected.String()
@@ -42,7 +42,7 @@ func (m *Manager) LoadFixtureRuntimeState(ctx context.Context) error {
 		}
 		joined[b.NetworkID][b.Name] = true
 		if members[b.NetworkID] == nil {
-			members[b.NetworkID] = map[string][]ircdb.ChannelMember{}
+			members[b.NetworkID] = map[string][]ChannelUser{}
 		}
 		members[b.NetworkID][b.Name] = m.fixtureMembersForChannel(ctx, b.ID, nicks[b.NetworkID])
 	}
@@ -57,7 +57,7 @@ func (m *Manager) LoadFixtureRuntimeState(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) fixtureMembersForChannel(ctx context.Context, bufferID uuid.UUID, selfNick string) []ircdb.ChannelMember {
+func (m *Manager) fixtureMembersForChannel(ctx context.Context, bufferID uuid.UUID, selfNick string) []ChannelUser {
 	seen := map[string]bool{}
 	if selfNick != "" {
 		seen[strings.ToLower(selfNick)] = true
@@ -72,9 +72,9 @@ func (m *Manager) fixtureMembersForChannel(ctx context.Context, bufferID uuid.UU
 		}
 	}
 
-	out := make([]ircdb.ChannelMember, 0, len(seen))
+	out := make([]ChannelUser, 0, len(seen))
 	for nick := range seen {
-		member := ircdb.ChannelMember{Nick: nick, Self: strings.EqualFold(nick, selfNick)}
+		member := ChannelUser{Nick: nick, Self: strings.EqualFold(nick, selfNick)}
 		if member.Self {
 			member.Nick = selfNick
 			member.Prefix = "+"

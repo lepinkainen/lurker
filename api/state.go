@@ -56,27 +56,18 @@ type messageDTO struct {
 	Previews []preview.ResolvedPreview `json:"previews,omitzero"`
 }
 
-type channelMemberDTO struct {
-	Nick     string `json:"nick"`
-	Prefix   string `json:"prefix,omitzero"`
-	Realname string `json:"realname,omitzero"`
-	Away     bool   `json:"away"`
-	Self     bool   `json:"self"`
-	Color    int    `json:"color"`
-}
-
 type stateDTO struct {
-	Networks        []networkDTO                  `json:"networks"`
-	Buffers         []bufferDTO                   `json:"buffers"`
-	InitialMessages map[string][]messageDTO       `json:"initial_messages"`
-	Members         map[string][]channelMemberDTO `json:"members,omitzero"`
+	Networks        []networkDTO              `json:"networks"`
+	Buffers         []bufferDTO               `json:"buffers"`
+	InitialMessages map[string][]messageDTO   `json:"initial_messages"`
+	Members         map[string][]irc.ChannelUser `json:"members,omitzero"`
 }
 
 // stateManager is the IRC runtime state surface needed by /api/state.
 type stateManager interface {
 	StateSnapshot() map[uuid.UUID]string
 	IsJoined(networkID uuid.UUID, channel string) bool
-	ChannelMembers(networkID uuid.UUID, channel string) []ircdb.ChannelMember
+	ChannelMembers(networkID uuid.UUID, channel string) []irc.ChannelUser
 	Nick(networkID uuid.UUID) string
 }
 
@@ -98,7 +89,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		Networks:        make([]networkDTO, 0, len(nets)),
 		Buffers:         make([]bufferDTO, 0, len(bufs)),
 		InitialMessages: map[string][]messageDTO{},
-		Members:         map[string][]channelMemberDTO{},
+		Members:         map[string][]irc.ChannelUser{},
 	}
 	states := map[uuid.UUID]string{}
 	if s.Manager != nil {
@@ -132,7 +123,7 @@ func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb
 	})
 	if b.Kind == ircdb.BufferChannel && s.Manager != nil {
 		if members := s.Manager.ChannelMembers(b.NetworkID, b.Name); members != nil {
-			out.Members[b.ID.String()] = toChannelMemberDTOs(members)
+			out.Members[b.ID.String()] = members
 		}
 	}
 	msgs, err := s.Stores.RecentMessages(ctx, b.ID, 100)
@@ -368,13 +359,6 @@ func (s *Server) computeUnreadCounts(ctx context.Context, networkID, bufferID, l
 	return unread, mentions
 }
 
-func toChannelMemberDTOs(in []ircdb.ChannelMember) []channelMemberDTO {
-	out := make([]channelMemberDTO, 0, len(in))
-	for _, m := range in {
-		out = append(out, channelMemberDTO{Nick: m.Nick, Prefix: m.Prefix, Realname: m.Realname, Away: m.Away, Self: m.Self, Color: m.Color})
-	}
-	return out
-}
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	data, err := json.Marshal(v)

@@ -137,14 +137,10 @@ func (h *handler) publishMemberList(c *girc.Client, channel string) {
 		slog.Error("ensure names buffer", "err", err, "network", h.networkName, "buffer", channel)
 		return
 	}
-	out := make([]ChannelUser, 0, len(members))
-	for _, member := range members {
-		out = append(out, ChannelUser(member))
-	}
-	if h.memberListUnchanged(channel, out) {
+	if h.memberListUnchanged(channel, members) {
 		return
 	}
-	h.hub.Publish(&MemberListEvent{Type: "member_list", NetworkID: h.networkID, BufferID: globalBufID, Channel: channel, Members: out})
+	h.hub.Publish(&MemberListEvent{Type: "member_list", NetworkID: h.networkID, BufferID: globalBufID, Channel: channel, Members: members})
 }
 
 func (h *handler) memberListUnchanged(channel string, members []ChannelUser) bool {
