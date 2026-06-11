@@ -44,6 +44,7 @@ type messageDTO struct {
 	Target         string    `json:"target"`
 	Content        string    `json:"content"`
 	MentionsMe     bool      `json:"mentions_me"`
+	Highlight      bool      `json:"highlight"`
 	CountsAsUnread bool      `json:"counts_as_unread"`
 	// parsed-once cache: TS is RFC3339Nano. Parsing it on every viewport
 	// refresh is wasted work — refreshViewport fires on every WS message.
@@ -79,6 +80,7 @@ type wsEvent struct {
 	Target         string    `json:"target"`
 	Content        string    `json:"content"`
 	MentionsMe     bool      `json:"mentions_me"`
+	Highlight      bool      `json:"highlight"`
 	CountsAsUnread bool      `json:"counts_as_unread"`
 	// buffer_update
 	Topic      string    `json:"topic"`

@@ -856,7 +856,7 @@ func (m *model) applyMessageEvent(ev wsEvent) {
 	msg := messageDTO{
 		ID: ev.ID, NetworkID: ev.NetworkID, BufferID: ev.BufferID,
 		TS: ev.TS, Sender: ev.Sender, Kind: ev.Kind, Target: ev.Target, Content: ev.Content,
-		MentionsMe: ev.MentionsMe, CountsAsUnread: ev.CountsAsUnread,
+		MentionsMe: ev.MentionsMe, Highlight: ev.Highlight, CountsAsUnread: ev.CountsAsUnread,
 		TSParsed: parsed,
 	}
 	atBottom := m.viewport.AtBottom()
@@ -865,7 +865,7 @@ func (m *model) applyMessageEvent(ev wsEvent) {
 	isActive := m.activeBuffer != nil && ev.BufferID == m.activeBuffer.ID
 	if !isActive && ev.CountsAsUnread {
 		m.unread[ev.BufferID]++
-		if ev.MentionsMe {
+		if ev.MentionsMe || ev.Highlight {
 			m.mentions[ev.BufferID]++
 		}
 		return
@@ -1091,14 +1091,14 @@ func formatMessage(m messageDTO, ownNick string) string {
 	switch m.Kind {
 	case "action":
 		body := fmt.Sprintf("* %s %s", m.Sender, content)
-		if m.MentionsMe && !isSelf {
+		if (m.MentionsMe || m.Highlight) && !isSelf {
 			return ts + " " + styleMentionLine.Render(body)
 		}
 		return action(body)
 	case "privmsg", "message":
 		sender := styledSender(m.Sender, isSelf)
 		line := fmt.Sprintf("%s %s %s", ts, sender, content)
-		if m.MentionsMe && !isSelf {
+		if (m.MentionsMe || m.Highlight) && !isSelf {
 			return styleMentionLine.Render(line)
 		}
 		return line
