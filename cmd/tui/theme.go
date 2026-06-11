@@ -1,9 +1,8 @@
 package main
 
 import (
-	"hash/fnv"
-
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lepinkainen/lurker/nickcolor"
 )
 
 // IRCCloud Midnight-inspired palette. Single hardcoded theme; no switcher.
@@ -26,30 +25,13 @@ const (
 	colorActionEvent = "#7F8FA3"
 )
 
-// nickPalette: hues chosen to be readable on a dark background.
-var nickPalette = []string{
-	"#7CC0CC", // teal
-	"#E27878", // red
-	"#A1D490", // green
-	"#F0B33C", // amber
-	"#B294BB", // mauve
-	"#9CC4E4", // sky
-	"#E2A4D0", // pink
-	"#D9C189", // tan
-	"#7FB069", // moss
-	"#E5A07B", // peach
-	"#6FA8DC", // blue
-	"#C088E0", // violet
-}
-
+// nickColor maps a nick onto the shared server-side palette (nickcolor
+// package) so the TUI and web client color every nick identically.
 func nickColor(nick string) lipgloss.Color {
 	if nick == "" {
 		return lipgloss.Color(colorText)
 	}
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(nick))
-	idx := int(h.Sum32()&0x7fffffff) % len(nickPalette)
-	return lipgloss.Color(nickPalette[idx])
+	return lipgloss.Color(nickcolor.Hex(nickcolor.Index(nick)))
 }
 
 // Styles. Constructed once at package init.

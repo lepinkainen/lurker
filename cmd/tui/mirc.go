@@ -4,17 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-)
-
-// mIRC control characters.
-const (
-	mircBold      = '\x02'
-	mircItalic    = '\x1d'
-	mircUnderline = '\x1f'
-	mircStrike    = '\x1e'
-	mircMono      = '\x11'
-	mircReset     = '\x0f'
-	mircColor     = '\x03'
+	"github.com/lepinkainen/lurker/mirc"
 )
 
 // mIRC 16-color palette tuned for dark background.
@@ -37,148 +27,44 @@ var mircColors = [16]string{
 	"#C5D2E0", // 15 light grey
 }
 
-type mircState struct {
-	bold, italic, underline, strike, mono bool
-	fg, bg                                int // -1 = unset
-}
-
-func newMircState() mircState { return mircState{fg: -1, bg: -1} }
-
-func (s mircState) active() bool {
-	return s.bold || s.italic || s.underline || s.strike || s.fg >= 0 || s.bg >= 0
-}
-
-func (s mircState) style() lipgloss.Style {
-	st := lipgloss.NewStyle()
-	if s.bold {
-		st = st.Bold(true)
-	}
-	if s.italic {
-		st = st.Italic(true)
-	}
-	if s.underline {
-		st = st.Underline(true)
-	}
-	if s.strike {
-		st = st.Strikethrough(true)
-	}
-	if s.fg >= 0 && s.fg < len(mircColors) {
-		st = st.Foreground(lipgloss.Color(mircColors[s.fg]))
-	}
-	if s.bg >= 0 && s.bg < len(mircColors) {
-		st = st.Background(lipgloss.Color(mircColors[s.bg]))
-	}
-	return st
-}
-
-// mircFormat parses mIRC control codes and emits a lipgloss-styled string.
+// mircFormat renders mIRC-formatted text as a lipgloss-styled string.
+// Parsing is the shared server-side parser (mirc.Parse); this only maps
+// segments onto terminal styles.
 func mircFormat(input string) string {
-	if !strings.ContainsAny(input, "\x02\x03\x0f\x11\x1d\x1e\x1f") {
-		return input
+	segs := mirc.Parse(input)
+	if len(segs) == 1 && !segs[0].Styled() {
+		return segs[0].Text
 	}
-	var out, run strings.Builder
-	st := newMircState()
-
-	flush := func() {
-		if run.Len() == 0 {
-			return
-		}
-		if st.active() {
-			out.WriteString(st.style().Render(run.String()))
-		} else {
-			out.WriteString(run.String())
-		}
-		run.Reset()
-	}
-
-	i := 0
-	for i < len(input) {
-		ch := input[i]
-		if isToggleCode(ch) {
-			// Flush the in-progress run under the *current* style before
-			// the toggle takes effect — otherwise prior characters render
-			// with the next style.
-			flush()
-			applyToggleCode(&st, ch)
-			i++
+	var out strings.Builder
+	for _, seg := range segs {
+		if !seg.Styled() {
+			out.WriteString(seg.Text)
 			continue
 		}
-		if ch == mircColor {
-			flush()
-			i = applyColorCode(&st, input, i+1)
-			continue
-		}
-		run.WriteByte(ch)
-		i++
+		out.WriteString(segmentStyle(seg).Render(seg.Text))
 	}
-	flush()
 	return out.String()
 }
 
-func isToggleCode(ch byte) bool {
-	switch ch {
-	case mircBold, mircItalic, mircUnderline, mircStrike, mircMono, mircReset:
-		return true
+func segmentStyle(seg mirc.Segment) lipgloss.Style {
+	st := lipgloss.NewStyle()
+	if seg.Bold {
+		st = st.Bold(true)
 	}
-	return false
-}
-
-func applyToggleCode(st *mircState, ch byte) {
-	switch ch {
-	case mircBold:
-		st.bold = !st.bold
-	case mircItalic:
-		st.italic = !st.italic
-	case mircUnderline:
-		st.underline = !st.underline
-	case mircStrike:
-		st.strike = !st.strike
-	case mircMono:
-		st.mono = !st.mono
-	case mircReset:
-		*st = newMircState()
+	if seg.Italic {
+		st = st.Italic(true)
 	}
-}
-
-// applyColorCode parses a color spec at input[i:] and returns the new index.
-// Empty digit run resets colors; otherwise sets fg and optionally bg.
-func applyColorCode(st *mircState, input string, i int) int {
-	fg, next := parseMircDigits(input, i)
-	if fg < 0 {
-		st.fg = -1
-		st.bg = -1
-		return i
+	if seg.Underline {
+		st = st.Underline(true)
 	}
-	if fg < len(mircColors) {
-		st.fg = fg
+	if seg.Strike {
+		st = st.Strikethrough(true)
 	}
-	i = next
-	if i >= len(input) || input[i] != ',' {
-		return i
+	if seg.Fg != nil && *seg.Fg >= 0 && *seg.Fg < len(mircColors) {
+		st = st.Foreground(lipgloss.Color(mircColors[*seg.Fg]))
 	}
-	bg, nbg := parseMircDigits(input, i+1)
-	if bg < 0 {
-		return i
+	if seg.Bg != nil && *seg.Bg >= 0 && *seg.Bg < len(mircColors) {
+		st = st.Background(lipgloss.Color(mircColors[*seg.Bg]))
 	}
-	if bg < len(mircColors) {
-		st.bg = bg
-	}
-	return nbg
-}
-
-func parseMircDigits(s string, start int) (val, next int) {
-	val = 0
-	consumed := 0
-	for consumed < 2 && start+consumed < len(s) {
-		c := s[start+consumed]
-		if c < '0' || c > '9' {
-			break
-		}
-		val = val*10 + int(c-'0')
-		consumed++
-	}
-	if consumed == 0 {
-		return -1, start
-	}
-	return val, start + consumed
+	return st
 }
