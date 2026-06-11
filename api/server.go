@@ -77,6 +77,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/networks/{id}/connect-commands", s.putNetworkConnectCommands)
 	mux.HandleFunc("POST /api/networks/{id}/connect", s.connectNetwork)
 	mux.HandleFunc("POST /api/networks/{id}/disconnect", s.disconnectNetwork)
+	mux.HandleFunc("GET /api/settings/highlights", s.getHighlights)
+	mux.HandleFunc("PUT /api/settings/highlights", s.putHighlights)
 	mux.HandleFunc("GET /api/config/yaml/preview", s.configYAMLPreview)
 	mux.HandleFunc("POST /api/config/yaml/save", s.configYAMLSave)
 	mux.HandleFunc("GET /uploads/{name}", s.serveUpload)

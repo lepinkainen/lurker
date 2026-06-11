@@ -49,6 +49,12 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeoutCause(context.Background(), 10*time.Second, errors.New("shutdown timeout"))
 	defer shutdownCancel()
 
+	if patterns, err := db.ListHighlights(ctx, stores.Control); err != nil {
+		slog.Error("load highlight patterns", "err", err)
+	} else {
+		irc.SetHighlightPatterns(patterns)
+	}
+
 	evHub := hub.New()
 	previewSvc := preview.NewService(preview.Config{
 		Enabled:  cfg.Previews.Enabled,

@@ -49,26 +49,28 @@ type bufferDTO struct {
 }
 
 type messageDTO struct {
-	ID             uuid.UUID                 `json:"id"`
-	NetworkID      uuid.UUID                 `json:"network_id"`
-	BufferID       uuid.UUID                 `json:"buffer_id"`
-	MsgID          string                    `json:"msgid,omitzero"`
-	TS             string                    `json:"ts"`
-	Sender         string                    `json:"sender"`
-	Userhost       string                    `json:"userhost,omitzero"`
-	Account        string                    `json:"account,omitzero"`
-	Kind           string                    `json:"kind"`
-	Target         string                    `json:"target,omitzero"`
-	Content        string                    `json:"content"`
-	Previews       []preview.ResolvedPreview `json:"previews,omitzero"`
-	DisplayKind    string                    `json:"display_kind"`
-	IsSelf         bool                      `json:"is_self,omitzero"`
-	MentionsMe     bool                      `json:"mentions_me,omitzero"`
-	CountsAsUnread bool                      `json:"counts_as_unread,omitzero"`
-	SenderColor    *int                      `json:"sender_color,omitempty"`
-	TargetColor    *int                      `json:"target_color,omitempty"`
-	Netsplit       *irc.NetsplitMeta         `json:"netsplit,omitempty"`
-	Segments       []mirc.Segment            `json:"segments,omitempty"`
+	ID               uuid.UUID                 `json:"id"`
+	NetworkID        uuid.UUID                 `json:"network_id"`
+	BufferID         uuid.UUID                 `json:"buffer_id"`
+	MsgID            string                    `json:"msgid,omitzero"`
+	TS               string                    `json:"ts"`
+	Sender           string                    `json:"sender"`
+	Userhost         string                    `json:"userhost,omitzero"`
+	Account          string                    `json:"account,omitzero"`
+	Kind             string                    `json:"kind"`
+	Target           string                    `json:"target,omitzero"`
+	Content          string                    `json:"content"`
+	Previews         []preview.ResolvedPreview `json:"previews,omitzero"`
+	DisplayKind      string                    `json:"display_kind"`
+	IsSelf           bool                      `json:"is_self,omitzero"`
+	MentionsMe       bool                      `json:"mentions_me,omitzero"`
+	CountsAsUnread   bool                      `json:"counts_as_unread,omitzero"`
+	SenderColor      *int                      `json:"sender_color,omitempty"`
+	TargetColor      *int                      `json:"target_color,omitempty"`
+	Highlight        bool                      `json:"highlight,omitzero"`
+	HighlightPattern string                    `json:"highlight_pattern,omitzero"`
+	Netsplit         *irc.NetsplitMeta         `json:"netsplit,omitempty"`
+	Segments         []mirc.Segment            `json:"segments,omitempty"`
 }
 
 type channelMemberDTO struct {
@@ -226,13 +228,15 @@ func (s *Server) toMessageDTOs(ctx context.Context, in []ircdb.StoredMessage) []
 			ID: m.ID, NetworkID: m.NetworkID, BufferID: m.BufferID,
 			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Userhost: m.Userhost, Account: m.Account,
 			Kind: m.Kind, Target: m.Target, Content: m.Content,
-			DisplayKind:    sem.DisplayKind,
-			IsSelf:         sem.IsSelf,
-			MentionsMe:     sem.MentionsMe,
-			CountsAsUnread: sem.CountsAsUnread,
-			SenderColor:    sem.SenderColor,
-			TargetColor:    sem.TargetColor,
-			Segments:       mirc.SegmentsForWire(m.Content),
+			DisplayKind:      sem.DisplayKind,
+			IsSelf:           sem.IsSelf,
+			MentionsMe:       sem.MentionsMe,
+			CountsAsUnread:   sem.CountsAsUnread,
+			SenderColor:      sem.SenderColor,
+			TargetColor:      sem.TargetColor,
+			Highlight:        sem.Highlight,
+			HighlightPattern: sem.HighlightPattern,
+			Segments:         mirc.SegmentsForWire(m.Content),
 		})
 	}
 	s.attachPreviews(ctx, out)
@@ -386,7 +390,7 @@ func (s *Server) computeUnreadCounts(ctx context.Context, networkID, bufferID, l
 			continue
 		}
 		unread++
-		if sem.MentionsMe {
+		if sem.MentionsMe || sem.Highlight {
 			mentions++
 		}
 	}
