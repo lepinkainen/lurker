@@ -1,9 +1,11 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -203,6 +205,55 @@ func UpdateLogBufferLastSeen(ctx context.Context, d *sql.DB, name string, lastSe
 		LastSeenID: idBytes,
 		Name:       name,
 	})
+}
+
+// BatchRecentLogMessages returns the last limit messages for each buffer in
+// bufferIDs in a single round-trip. Each buffer's subquery uses ORDER BY id
+// DESC LIMIT so the index stops early rather than scanning full history.
+// Results are keyed by buffer ID in ascending message order. limit must be > 0.
+func BatchRecentLogMessages(ctx context.Context, d *sql.DB, bufferIDs []uuid.UUID, limit int) (map[uuid.UUID][]LogMessageRow, error) {
+	if len(bufferIDs) == 0 {
+		return map[uuid.UUID][]LogMessageRow{}, nil
+	}
+	const sel = `SELECT id, buffer_id, COALESCE(msgid,'') AS msgid, ts, sender,
+	  COALESCE(userhost,'') AS userhost, COALESCE(account,'') AS account,
+	  kind, COALESCE(target,'') AS target, content
+	  FROM (SELECT * FROM messages WHERE buffer_id = ? ORDER BY id DESC LIMIT ?)`
+	parts := make([]string, len(bufferIDs))
+	args := make([]any, 0, len(bufferIDs)*2)
+	for i, id := range bufferIDs {
+		parts[i] = sel
+		b := id
+		args = append(args, b[:], int64(limit))
+	}
+	rows, err := d.QueryContext(ctx, strings.Join(parts, "\nUNION ALL\n"), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := make(map[uuid.UUID][]LogMessageRow, len(bufferIDs))
+	for rows.Next() {
+		var idB, bufB []byte
+		var m logMessageRow
+		if err := rows.Scan(&idB, &bufB, &m.MsgID, &m.TS, &m.Sender,
+			&m.Userhost, &m.Account, &m.Kind, &m.Target, &m.Content); err != nil {
+			return nil, err
+		}
+		m.ID = scanUUID(idB)
+		m.BufferID = scanUUID(bufB)
+		out[m.BufferID] = append(out[m.BufferID], m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Each per-buffer sub-query returns rows DESC; sort each slice ASC.
+	for bufID, msgs := range out {
+		slices.SortFunc(msgs, func(a, b LogMessageRow) int {
+			return bytes.Compare(a.ID[:], b.ID[:])
+		})
+		out[bufID] = msgs
+	}
+	return out, nil
 }
 
 // SearchLogMessages searches a per-network log DB using FTS. Returns messages
