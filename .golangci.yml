@@ -31,6 +31,7 @@ linters:
     - noctx
     - gosec
     - gocyclo
+    - gocognit
   exclusions:
     paths:
       - llm-shared
@@ -50,6 +51,9 @@ linters:
         - shadow
     gocyclo:
       min-complexity: 40
+    gocognit:
+      # Same threshold as the old standalone `gocognit -over 20` task.
+      min-complexity: 20
     gosec:
       excludes:
         - G120
