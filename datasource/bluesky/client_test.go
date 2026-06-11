@@ -3,11 +3,14 @@ package bluesky
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/lepinkainen/lurker/internal/httpjson"
 )
 
 func TestParseXRPCErrorCode(t *testing.T) {
@@ -27,20 +30,24 @@ func TestParseXRPCErrorCode(t *testing.T) {
 	}
 }
 
+func xrpcBody(code string) []byte {
+	return []byte(fmt.Sprintf(`{"error":%q}`, code))
+}
+
 func TestIsExpiredAuthErr(t *testing.T) {
 	cases := []struct {
 		name string
 		err  error
 		want bool
 	}{
-		{"401 unauthorized", &httpError{Status: 401}, true},
-		{"400 ExpiredToken", &httpError{Status: 400, Code: "ExpiredToken"}, true},
-		{"400 InvalidToken", &httpError{Status: 400, Code: "InvalidToken"}, true},
-		{"400 AuthenticationRequired", &httpError{Status: 400, Code: "AuthenticationRequired"}, true},
-		{"400 other code", &httpError{Status: 400, Code: "InvalidRequest"}, false},
-		{"500", &httpError{Status: 500, Code: "ExpiredToken"}, false},
+		{"401 unauthorized", &httpjson.Error{Status: 401}, true},
+		{"400 ExpiredToken", &httpjson.Error{Status: 400, Body: xrpcBody("ExpiredToken")}, true},
+		{"400 InvalidToken", &httpjson.Error{Status: 400, Body: xrpcBody("InvalidToken")}, true},
+		{"400 AuthenticationRequired", &httpjson.Error{Status: 400, Body: xrpcBody("AuthenticationRequired")}, true},
+		{"400 other code", &httpjson.Error{Status: 400, Body: xrpcBody("InvalidRequest")}, false},
+		{"500", &httpjson.Error{Status: 500, Body: xrpcBody("ExpiredToken")}, false},
 		{"plain error", errors.New("dial tcp: refused"), false},
-		{"wrapped httpError", errOpWrap(&httpError{Status: 401}), true},
+		{"wrapped httpError", errOpWrap(&httpjson.Error{Status: 401}), true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

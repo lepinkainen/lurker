@@ -4,18 +4,18 @@
 package bluesky
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lepinkainen/lurker/internal/httpjson"
 )
 
 // DefaultPDS is bsky.social, the canonical entry PDS. Per-account PDS hosts
@@ -31,7 +31,7 @@ type Client struct {
 	identifier string
 	password   string
 
-	http *http.Client
+	hjc *httpjson.Client
 
 	mu         sync.Mutex
 	accessJwt  string
@@ -51,7 +51,7 @@ func NewClient(pds, identifier, password string) *Client {
 		pds:        pds,
 		identifier: identifier,
 		password:   password,
-		http:       &http.Client{Timeout: HTTPTimeout},
+		hjc:        &httpjson.Client{HTTP: &http.Client{Timeout: HTTPTimeout}},
 	}
 }
 
@@ -199,7 +199,7 @@ func (c *Client) callAuthed(ctx context.Context, method, nsid string, q url.Valu
 // access-JWT expiry, and 400 + error:"ExpiredToken"/"InvalidToken" on
 // refresh-JWT expiry; 401 also covers older/edge cases.
 func isExpiredAuthErr(err error) bool {
-	var herr *httpError
+	var herr *httpjson.Error
 	if !errors.As(err, &herr) {
 		return false
 	}
@@ -209,7 +209,7 @@ func isExpiredAuthErr(err error) bool {
 	if herr.Status != http.StatusBadRequest {
 		return false
 	}
-	switch herr.Code {
+	switch parseXRPCErrorCode(herr.Body) {
 	case "ExpiredToken", "InvalidToken", "AuthenticationRequired":
 		return true
 	}
@@ -228,17 +228,6 @@ func parseXRPCErrorCode(raw []byte) string {
 	return env.Error
 }
 
-// httpError carries non-2xx XRPC responses.
-type httpError struct {
-	Status int
-	Code   string
-	Body   string
-}
-
-func (e *httpError) Error() string {
-	return fmt.Sprintf("xrpc http %d: %s", e.Status, e.Body)
-}
-
 // doJSON is the unifying request helper. Pass bearer="" for unauthenticated
 // calls; body=nil for GET-style calls (query-string only).
 func (c *Client) doJSON(ctx context.Context, method, nsid string, q url.Values, bearer string, body, out any) error {
@@ -246,45 +235,14 @@ func (c *Client) doJSON(ctx context.Context, method, nsid string, q url.Values, 
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}
-
-	var reqBody io.Reader
-	if body != nil {
-		buf, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("marshal body: %w", err)
-		}
-		reqBody = bytes.NewReader(buf)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, u, reqBody)
-	if err != nil {
-		return err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	req.Header.Set("Accept", "application/json")
+	var auth string
 	if bearer != "" {
-		req.Header.Set("Authorization", "Bearer "+bearer)
+		auth = "Bearer " + bearer
 	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &httpError{Status: resp.StatusCode, Code: parseXRPCErrorCode(raw), Body: string(raw)}
-	}
-	if out == nil {
-		return nil
-	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("decode response: %w", err)
-	}
-	return nil
+	return c.hjc.DoJSON(ctx, httpjson.Request{
+		Method:        method,
+		URL:           u,
+		Body:          body,
+		Authorization: auth,
+	}, out)
 }

@@ -2,60 +2,44 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/google/uuid"
+	"github.com/lepinkainen/lurker/internal/httpjson"
 )
 
 type apiClient struct {
 	baseURL string
 	http    *http.Client
+	hjc     *httpjson.Client
 }
 
 func newAPIClient(baseURL string) *apiClient {
+	hc := &http.Client{}
 	return &apiClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		http:    &http.Client{},
+		http:    hc,
+		hjc:     &httpjson.Client{HTTP: hc},
 	}
 }
 
 func (c *apiClient) fetchState(ctx context.Context) (*stateResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/state", http.NoBody)
-	if err != nil {
-		return nil, fmt.Errorf("build state request: %w", err)
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetch state: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read state: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		preview := string(body)
-		if len(preview) > 200 {
-			preview = preview[:200]
-		}
-		return nil, fmt.Errorf("parse state: server returned %d: %s", resp.StatusCode, preview)
-	}
-
 	var state stateResponse
-	if err := json.Unmarshal(body, &state); err != nil {
-		preview := string(body)
-		if len(preview) > 200 {
-			preview = preview[:200]
+	if err := c.hjc.DoJSON(ctx, httpjson.Request{URL: c.baseURL + "/api/state"}, &state); err != nil {
+		var herr *httpjson.Error
+		if errors.As(err, &herr) {
+			preview := string(herr.Body)
+			if len(preview) > 200 {
+				preview = preview[:200]
+			}
+			return nil, fmt.Errorf("fetch state: server returned %d: %s", herr.Status, preview)
 		}
-		return nil, fmt.Errorf("parse state: %w (body: %s)", err, preview)
+		return nil, fmt.Errorf("fetch state: %w", err)
 	}
 	return &state, nil
 }
