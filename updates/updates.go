@@ -63,7 +63,6 @@ type Status struct {
 // Checker polls registry metadata and keeps last status in memory.
 type Checker struct {
 	cfg    Config
-	client *http.Client
 	hjc    *httpjson.Client
 	logger *slog.Logger
 
@@ -103,7 +102,6 @@ func New(cfg Config) *Checker {
 
 	c := &Checker{
 		cfg:    cfg,
-		client: cfg.Client,
 		hjc:    &httpjson.Client{HTTP: cfg.Client},
 		logger: cfg.Logger,
 	}

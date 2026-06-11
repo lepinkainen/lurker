@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
+	"slices"
 )
 
 const (
@@ -27,7 +27,7 @@ type Request struct {
 	Method        string // default: GET
 	URL           string
 	Body          any         // marshaled as JSON; sets Content-Type when non-nil
-	Header        http.Header // merged over defaults; caller wins (including Accept)
+	Header        http.Header // merged over defaults; overrides Accept, but Body's Content-Type and the Authorization field win
 	Authorization string      // full value: "Bearer x" or "Basic y"
 }
 
@@ -86,7 +86,9 @@ func (c *Client) Do(ctx context.Context, r Request) (*Response, error) {
 
 	// Default Accept; caller-supplied header overrides.
 	req.Header.Set("Accept", "application/json")
-	maps.Copy(req.Header, r.Header)
+	for k, vs := range r.Header {
+		req.Header[http.CanonicalHeaderKey(k)] = slices.Clone(vs)
+	}
 	if r.Body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -122,7 +124,11 @@ func (c *Client) DoJSON(ctx context.Context, r Request, out any) error {
 		return nil
 	}
 	if err := json.Unmarshal(resp.Body, out); err != nil {
-		return fmt.Errorf("decode response: %w", err)
+		preview := resp.Body
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		return fmt.Errorf("decode response: %w (body: %s)", err, preview)
 	}
 	return nil
 }

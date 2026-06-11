@@ -215,6 +215,44 @@ func TestDo_DefaultMethod_IsGET(t *testing.T) {
 	}
 }
 
+func TestDo_NonCanonicalHeaderKeyOverridesDefault(t *testing.T) {
+	const want = "application/activity+json"
+	var gotAccept []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAccept = r.Header.Values("Accept")
+	}))
+	defer srv.Close()
+
+	c := &httpjson.Client{HTTP: srv.Client()}
+	_, _ = c.Do(context.Background(), httpjson.Request{
+		URL:    srv.URL,
+		Header: http.Header{"accept": []string{want}},
+	})
+	if len(gotAccept) != 1 || gotAccept[0] != want {
+		t.Errorf("Accept = %v, want [%s]", gotAccept, want)
+	}
+}
+
+func TestDoJSON_DecodeErrorIncludesBodyPreview(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html>not json</html>` + strings.Repeat("x", 400)))
+	}))
+	defer srv.Close()
+
+	c := &httpjson.Client{HTTP: srv.Client()}
+	var out struct{}
+	err := c.DoJSON(context.Background(), httpjson.Request{URL: srv.URL}, &out)
+	if err == nil {
+		t.Fatal("expected decode error")
+	}
+	if !strings.Contains(err.Error(), "<html>not json</html>") {
+		t.Errorf("error missing body preview: %v", err)
+	}
+	if len(err.Error()) > 400 {
+		t.Errorf("error not truncated, len = %d", len(err.Error()))
+	}
+}
+
 func isErrorAs(err error, target **httpjson.Error) bool {
 	return errors.As(err, target)
 }

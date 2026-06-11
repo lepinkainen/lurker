@@ -28,7 +28,7 @@ func TestNewAppliesDefaults(t *testing.T) {
 	if c.cfg.Platform.OS != "linux" || c.cfg.Platform.Architecture != "amd64" {
 		t.Errorf("Platform default = %+v", c.cfg.Platform)
 	}
-	if c.client == nil || c.logger == nil {
+	if c.hjc == nil || c.hjc.HTTP == nil || c.logger == nil {
 		t.Fatal("client / logger should be defaulted")
 	}
 }

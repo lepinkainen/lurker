@@ -15,16 +15,13 @@ import (
 
 type apiClient struct {
 	baseURL string
-	http    *http.Client
 	hjc     *httpjson.Client
 }
 
 func newAPIClient(baseURL string) *apiClient {
-	hc := &http.Client{}
 	return &apiClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		http:    hc,
-		hjc:     &httpjson.Client{HTTP: hc},
+		hjc:     &httpjson.Client{HTTP: &http.Client{}},
 	}
 }
 
