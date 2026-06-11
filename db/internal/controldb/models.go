@@ -25,6 +25,12 @@ type BufferSetting struct {
 	UpdatedAt              string
 }
 
+type Highlight struct {
+	ID        []byte
+	Pattern   string
+	CreatedAt string
+}
+
 type Ignore struct {
 	ID        []byte
 	NetworkID []byte
