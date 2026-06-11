@@ -23,13 +23,15 @@ type resolvedGlobalBuffer struct {
 	logStore  *LogStore
 }
 
-// ChannelMember is runtime member state for a channel user.
+// ChannelMember is runtime member state for a channel user. Color is the
+// server-computed nickcolor palette index.
 type ChannelMember struct {
 	Nick     string
 	Prefix   string
 	Realname string
 	Away     bool
 	Self     bool
+	Color    int
 }
 
 // MultiStore owns the control DB plus zero or more per-network log DB handles.

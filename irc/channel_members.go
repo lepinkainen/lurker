@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/lepinkainen/lurker/mirc"
+	"github.com/lepinkainen/lurker/nickcolor"
 	"github.com/lrstanley/girc"
 )
 
@@ -13,6 +15,7 @@ type channelMember struct {
 	Realname string
 	Away     bool
 	Self     bool
+	Color    int
 }
 
 func buildChannelMembers(c *girc.Client, channel string) []channelMember {
@@ -33,7 +36,9 @@ func buildChannelMembers(c *girc.Client, channel string) []channelMember {
 		}
 		realname := ""
 		if user != nil {
-			realname = user.Extras.Name
+			// Some users put mIRC color/formatting codes in their realname;
+			// clients render it as plain text, so strip codes server-side.
+			realname = strings.TrimSpace(mirc.Strip(user.Extras.Name))
 		}
 		members = append(members, channelMember{
 			Nick:     displayNick,
@@ -41,6 +46,7 @@ func buildChannelMembers(c *girc.Client, channel string) []channelMember {
 			Realname: realname,
 			Away:     user != nil && user.Extras.Away != "",
 			Self:     strings.EqualFold(displayNick, selfNick),
+			Color:    nickcolor.Index(displayNick),
 		})
 	}
 	sort.Slice(members, func(i, j int) bool { return strings.ToLower(members[i].Nick) < strings.ToLower(members[j].Nick) })

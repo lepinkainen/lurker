@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/irc"
+	"github.com/lepinkainen/lurker/mirc"
 	"github.com/lepinkainen/lurker/preview"
 )
 
@@ -22,6 +24,7 @@ type networkDTO struct {
 	Port      int       `json:"port"`
 	TLS       bool      `json:"tls"`
 	Nick      string    `json:"nick"`
+	NickColor *int      `json:"nick_color,omitempty"`
 	Realname  string    `json:"realname,omitzero"`
 	Status    string    `json:"status,omitzero"`
 	SortOrder int       `json:"sort_order"`
@@ -62,6 +65,10 @@ type messageDTO struct {
 	IsSelf         bool                      `json:"is_self,omitzero"`
 	MentionsMe     bool                      `json:"mentions_me,omitzero"`
 	CountsAsUnread bool                      `json:"counts_as_unread,omitzero"`
+	SenderColor    *int                      `json:"sender_color,omitempty"`
+	TargetColor    *int                      `json:"target_color,omitempty"`
+	Netsplit       *irc.NetsplitMeta         `json:"netsplit,omitempty"`
+	Segments       []mirc.Segment            `json:"segments,omitempty"`
 }
 
 type channelMemberDTO struct {
@@ -70,6 +77,7 @@ type channelMemberDTO struct {
 	Realname string `json:"realname,omitzero"`
 	Away     bool   `json:"away"`
 	Self     bool   `json:"self"`
+	Color    int    `json:"color"`
 }
 
 type stateDTO struct {
@@ -132,7 +140,7 @@ func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb
 	unread, mentions := s.computeUnreadCounts(ctx, b.NetworkID, b.ID, b.LastSeenID, nick)
 	out.Buffers = append(out.Buffers, bufferDTO{
 		ID: b.ID, NetworkID: b.NetworkID, Name: b.Name, Kind: b.Kind,
-		Topic: b.Topic, Joined: joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
+		Topic: mirc.Strip(b.Topic), Joined: joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
 		ShowEmbeds: b.ShowEmbeds, ShowPresenceEvents: b.ShowPresenceEvents,
 		CollapsePresenceEvents: b.CollapsePresenceEvents, Pinned: b.Pinned,
 		Unread: unread, Mentions: mentions,
@@ -213,7 +221,7 @@ func (s *Server) toMessageDTOs(ctx context.Context, in []ircdb.StoredMessage) []
 			}
 			nicks[m.NetworkID] = nick
 		}
-		sem := irc.ComputeMessageSemantics(m.Kind, m.Sender, m.Content, nick)
+		sem := irc.ComputeMessageSemantics(m.Kind, m.Sender, m.Content, m.Target, nick)
 		out = append(out, messageDTO{
 			ID: m.ID, NetworkID: m.NetworkID, BufferID: m.BufferID,
 			MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Userhost: m.Userhost, Account: m.Account,
@@ -222,10 +230,52 @@ func (s *Server) toMessageDTOs(ctx context.Context, in []ircdb.StoredMessage) []
 			IsSelf:         sem.IsSelf,
 			MentionsMe:     sem.MentionsMe,
 			CountsAsUnread: sem.CountsAsUnread,
+			SenderColor:    sem.SenderColor,
+			TargetColor:    sem.TargetColor,
+			Segments:       mirc.SegmentsForWire(m.Content),
 		})
 	}
 	s.attachPreviews(ctx, out)
+	annotateNetsplits(out)
 	return out
+}
+
+// annotateNetsplits runs the server-side netsplit clustering over a batch of
+// message DTOs and stamps members with their group annotation, mirroring the
+// live tracker so clients render history and live events identically.
+// Batches are per-buffer at both call sites, but group by buffer anyway so a
+// mixed batch can't cross-cluster.
+func annotateNetsplits(msgs []messageDTO) {
+	byBuffer := map[uuid.UUID][]irc.PresenceEntry{}
+	dtoByID := map[string]*messageDTO{}
+	for i := range msgs {
+		m := &msgs[i]
+		if m.Kind != "quit" && m.Kind != "join" {
+			continue
+		}
+		ts, err := time.Parse(time.RFC3339, m.TS)
+		if err != nil {
+			continue
+		}
+		byBuffer[m.BufferID] = append(byBuffer[m.BufferID], irc.PresenceEntry{
+			ID: m.ID.String(), Kind: m.Kind, Sender: m.Sender, Content: m.Content, TS: ts,
+		})
+		dtoByID[m.ID.String()] = m
+	}
+	for _, entries := range byBuffer {
+		for _, g := range irc.GroupPresence(entries) {
+			if g.Netsplit == nil {
+				continue
+			}
+			meta := irc.MetaForNetsplit(g.Netsplit)
+			for _, e := range append(append([]irc.PresenceEntry{}, g.Netsplit.Quits...), g.Netsplit.Rejoins...) {
+				if dto := dtoByID[e.ID]; dto != nil {
+					m := meta
+					dto.Netsplit = &m
+				}
+			}
+		}
+	}
 }
 
 // attachPreviews populates Previews on every DTO by joining per-network
@@ -331,7 +381,7 @@ func (s *Server) computeUnreadCounts(ctx context.Context, networkID, bufferID, l
 		return 0, 0
 	}
 	for _, c := range cands {
-		sem := irc.ComputeMessageSemantics(c.Kind, c.Sender, c.Content, nick)
+		sem := irc.ComputeMessageSemantics(c.Kind, c.Sender, c.Content, "", nick)
 		if !sem.CountsAsUnread {
 			continue
 		}
@@ -346,7 +396,7 @@ func (s *Server) computeUnreadCounts(ctx context.Context, networkID, bufferID, l
 func toChannelMemberDTOs(in []ircdb.ChannelMember) []channelMemberDTO {
 	out := make([]channelMemberDTO, 0, len(in))
 	for _, m := range in {
-		out = append(out, channelMemberDTO{Nick: m.Nick, Prefix: m.Prefix, Realname: m.Realname, Away: m.Away, Self: m.Self})
+		out = append(out, channelMemberDTO{Nick: m.Nick, Prefix: m.Prefix, Realname: m.Realname, Away: m.Away, Self: m.Self, Color: m.Color})
 	}
 	return out
 }

@@ -1,6 +1,9 @@
 package irc
 
-import "github.com/google/uuid"
+import (
+	"github.com/google/uuid"
+	"github.com/lepinkainen/lurker/mirc"
+)
 
 // MessageEvent is published after a message row is successfully written.
 // The JSON tags match the wire shape sent to WebSocket clients.
@@ -23,18 +26,41 @@ type MessageEvent struct {
 	IsSelf         bool   `json:"is_self,omitzero"`
 	MentionsMe     bool   `json:"mentions_me,omitzero"`
 	CountsAsUnread bool   `json:"counts_as_unread,omitzero"`
+	SenderColor    *int   `json:"sender_color,omitempty"`
+	TargetColor    *int   `json:"target_color,omitempty"`
+	// Netsplit is set on quit/join messages that belong to a collapsed
+	// netsplit group (server-side clustering, see netsplitTracker).
+	Netsplit *NetsplitMeta `json:"netsplit,omitempty"`
+	// Segments is the parsed mIRC formatting of Content (nil for plain
+	// text). Clients render segments instead of parsing control codes.
+	Segments []mirc.Segment `json:"segments,omitempty"`
 }
 
 // WithSemantics fills the four semantic flag fields based on the event's
 // kind/sender/content and the network's current nick. Returns the receiver
 // for fluent use at the publish site.
 func (e *MessageEvent) WithSemantics(nick string) *MessageEvent {
-	sem := ComputeMessageSemantics(e.Kind, e.Sender, e.Content, nick)
+	sem := ComputeMessageSemantics(e.Kind, e.Sender, e.Content, e.Target, nick)
 	e.DisplayKind = sem.DisplayKind
 	e.IsSelf = sem.IsSelf
 	e.MentionsMe = sem.MentionsMe
 	e.CountsAsUnread = sem.CountsAsUnread
+	e.SenderColor = sem.SenderColor
+	e.TargetColor = sem.TargetColor
+	e.Segments = mirc.SegmentsForWire(e.Content)
 	return e
+}
+
+// NetsplitEvent retroactively annotates already-published messages with a
+// netsplit group. Published when a cluster reaches NetsplitMinQuits: the
+// earlier quits went out before the cluster qualified, so clients patch the
+// listed messages and re-render.
+type NetsplitEvent struct {
+	Type       string       `json:"type"`
+	NetworkID  uuid.UUID    `json:"network_id"`
+	BufferID   uuid.UUID    `json:"buffer_id"`
+	Netsplit   NetsplitMeta `json:"netsplit"`
+	MessageIDs []uuid.UUID  `json:"message_ids"`
 }
 
 // BufferCreatedEvent is published the first time we see activity in a
@@ -77,13 +103,15 @@ type MemberListEvent struct {
 	Members   []ChannelUser `json:"members"`
 }
 
-// ChannelUser is one user in a channel member list.
+// ChannelUser is one user in a channel member list. Color is the
+// server-computed nickcolor palette index.
 type ChannelUser struct {
 	Nick     string `json:"nick"`
 	Prefix   string `json:"prefix,omitzero"`
 	Realname string `json:"realname,omitzero"`
 	Away     bool   `json:"away"`
 	Self     bool   `json:"self"`
+	Color    int    `json:"color"`
 }
 
 // NetworkStateEvent announces connection state transitions.

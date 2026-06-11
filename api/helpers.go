@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/irc"
+	"github.com/lepinkainen/lurker/nickcolor"
 )
 
 func parsePathUUID(w http.ResponseWriter, r *http.Request, key, msg string) (uuid.UUID, bool) {
@@ -64,11 +65,16 @@ func toNetworkDTO(n ircdb.Network, status string) networkDTO {
 	if kind == "" {
 		kind = ircdb.NetworkKindIRC
 	}
-	return networkDTO{
+	out := networkDTO{
 		ID: n.ID, Name: n.Name, Kind: kind, Host: n.Host, Port: n.Port,
 		TLS: n.TLS, Nick: n.Nick, Realname: n.Realname, Status: status, SortOrder: n.SortOrder,
 		Disabled: n.Disabled,
 	}
+	if n.Nick != "" {
+		idx := nickcolor.Index(n.Nick)
+		out.NickColor = &idx
+	}
+	return out
 }
 
 // isNonIRCNetwork reports whether kind is a non-IRC network kind such as

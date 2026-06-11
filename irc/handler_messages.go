@@ -123,7 +123,8 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 	if h.nickFn != nil {
 		nick = h.nickFn()
 	}
-	h.hub.Publish((&MessageEvent{
+	nsMeta := h.trackNetsplit(bufID, id, bufKind, kind, sender, content, storedTS, ts)
+	ev := (&MessageEvent{
 		Type:      "message",
 		ID:        id,
 		NetworkID: h.networkID,
@@ -136,8 +137,38 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 		Kind:      kind,
 		Target:    target,
 		Content:   content,
-	}).WithSemantics(nick))
+	}).WithSemantics(nick)
+	ev.Netsplit = nsMeta
+	h.hub.Publish(ev)
 	h.enqueuePreviews(id, bufID, kind, content)
+}
+
+// trackNetsplit feeds stored channel quit/join messages through the live
+// netsplit tracker. Returns the annotation for the outgoing message event
+// (nil when it isn't part of a qualified netsplit) and publishes a
+// retroactive NetsplitEvent for earlier quits when a cluster qualifies.
+func (h *handler) trackNetsplit(bufID, msgID uuid.UUID, bufKind, kind, sender, content, storedTS string, fallbackTS time.Time) *NetsplitMeta {
+	if bufKind != ircdb.BufferChannel || (kind != "quit" && kind != "join") {
+		return nil
+	}
+	if h.netsplits == nil {
+		h.netsplits = newNetsplitTracker()
+	}
+	eventTS := parseStoredTS(storedTS, fallbackTS)
+	if kind == "join" {
+		return h.netsplits.OnJoin(bufID, sender, eventTS)
+	}
+	meta, retro := h.netsplits.OnQuit(bufID, msgID, sender, content, eventTS)
+	if meta != nil && len(retro) > 0 {
+		h.hub.Publish(&NetsplitEvent{
+			Type:       "netsplit",
+			NetworkID:  h.networkID,
+			BufferID:   bufID,
+			Netsplit:   *meta,
+			MessageIDs: retro,
+		})
+	}
+	return meta
 }
 
 // enqueuePreviews schedules URL-preview fetches for user-authored content.

@@ -517,6 +517,7 @@ func (m *Manager) ChannelMembers(networkID uuid.UUID, channel string) []ircdb.Ch
 			Realname: member.Realname,
 			Away:     member.Away,
 			Self:     member.Self,
+			Color:    member.Color,
 		})
 	}
 	return out

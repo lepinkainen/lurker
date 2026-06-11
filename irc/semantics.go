@@ -4,17 +4,27 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/lepinkainen/lurker/nickcolor"
 )
 
 // MessageSemantics is the IRC-level classification of a stored message,
 // derived from kind/sender/content plus the network's current nick. It is
 // the single source of truth for cross-client display semantics.
+// SenderColor/TargetColor are nickcolor palette indexes (nil when the field
+// isn't a nick): TargetColor is only set for kick/nick events, the kinds
+// whose target clients render as a colored nick.
 type MessageSemantics struct {
 	DisplayKind    string `json:"display_kind"`
 	IsSelf         bool   `json:"is_self"`
 	MentionsMe     bool   `json:"mentions_me"`
 	CountsAsUnread bool   `json:"counts_as_unread"`
+	SenderColor    *int   `json:"sender_color,omitempty"`
+	TargetColor    *int   `json:"target_color,omitempty"`
 }
+
+// nickTargetKinds are the event kinds whose target field holds a nick.
+var nickTargetKinds = map[string]struct{}{"kick": {}, "nick": {}}
 
 var sysKinds = map[string]struct{}{
 	"join": {}, "part": {}, "quit": {}, "nick": {}, "kick": {}, "mode": {},
@@ -92,13 +102,24 @@ func mentionRegexp(nick string) *regexp.Regexp {
 
 // ComputeMessageSemantics derives display flags for a stored message. nick
 // is the network's current nickname; pass "" when unknown (mention/self
-// detection are then both false). countsAsUnread is suppressed for
-// self-authored messages and for the active buffer in the caller; this
-// function returns the raw "would count" value.
-func ComputeMessageSemantics(kind, sender, content, nick string) MessageSemantics {
+// detection are then both false). target is the message's target field, used
+// only for nick-color annotation on kick/nick events. countsAsUnread is
+// suppressed for self-authored messages and for the active buffer in the
+// caller; this function returns the raw "would count" value.
+func ComputeMessageSemantics(kind, sender, content, target, nick string) MessageSemantics {
 	out := MessageSemantics{
 		DisplayKind:    classifyKind(kind),
 		CountsAsUnread: countsAsUnread(kind),
+	}
+	if sender != "" {
+		idx := nickcolor.Index(sender)
+		out.SenderColor = &idx
+	}
+	if target != "" {
+		if _, ok := nickTargetKinds[kind]; ok {
+			idx := nickcolor.Index(target)
+			out.TargetColor = &idx
+		}
 	}
 	if nick != "" && sender != "" && strings.EqualFold(sender, nick) {
 		out.IsSelf = true

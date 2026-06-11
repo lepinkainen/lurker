@@ -35,4 +35,7 @@ type handler struct {
 	// QUIT handler runs before ours and purges the user from its own
 	// state, so we have to track it ourselves.
 	userChannels *userChannels
+	// netsplits clusters live quit/join events so published messages carry
+	// their netsplit annotation (clients group by it instead of re-deriving).
+	netsplits *netsplitTracker
 }

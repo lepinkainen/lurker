@@ -351,6 +351,21 @@ func TestMemberListUsesDisplayNickCaseFromUser(t *testing.T) {
 	}
 }
 
+func TestMemberListStripsMircCodesFromRealname(t *testing.T) {
+	client := newTestClient(t)
+	runClientEvent(client, mustEvent(t, ":Shrike!u@h JOIN #test"))
+	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :shrike"))
+	runClientEvent(client, mustEvent(t, ":fake 352 tester #test u h fake Shrike H :0 \x02\x034,1Real\x03\x02 Name "))
+
+	members := buildChannelMembers(client, "#test")
+	if len(members) != 1 {
+		t.Fatalf("len(members) = %d, want 1", len(members))
+	}
+	if members[0].Realname != "Real Name" {
+		t.Fatalf("realname = %q, want mIRC codes stripped and trimmed %q", members[0].Realname, "Real Name")
+	}
+}
+
 func TestHashMemberListIsOrderAndFieldSensitive(t *testing.T) {
 	a := []ChannelUser{{Nick: "alice", Prefix: "@", Realname: "Alice"}, {Nick: "bob"}}
 	b := []ChannelUser{{Nick: "alice", Prefix: "@", Realname: "Alice"}, {Nick: "bob"}}

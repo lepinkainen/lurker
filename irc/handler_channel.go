@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/mirc"
 	"github.com/lrstanley/girc"
 )
 
@@ -233,5 +234,7 @@ func (h *handler) updateChannelTopic(channel, topic string) {
 	if err := ircdb.UpdateLogBufferTopic(ctx, h.db, channel, topic); err != nil {
 		slog.Error("update channel topic", "err", err, "network", h.networkName, "buffer", channel)
 	}
-	h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Topic: topic, Joined: true})
+	// DB keeps the raw topic; the wire carries plain text (clients render
+	// topics unstyled, and raw mIRC codes would leak as control chars).
+	h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Topic: mirc.Strip(topic), Joined: true})
 }
