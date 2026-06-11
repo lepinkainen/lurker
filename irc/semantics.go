@@ -21,6 +21,11 @@ type MessageSemantics struct {
 	CountsAsUnread bool   `json:"counts_as_unread"`
 	SenderColor    *int   `json:"sender_color,omitempty"`
 	TargetColor    *int   `json:"target_color,omitempty"`
+	// Highlight is set when content matches a user-defined highlight
+	// pattern (see SetHighlightPatterns); HighlightPattern names the
+	// first pattern that matched. Self-authored messages never highlight.
+	Highlight        bool   `json:"highlight,omitzero"`
+	HighlightPattern string `json:"highlight_pattern,omitzero"`
 }
 
 // nickTargetKinds are the event kinds whose target field holds a nick.
@@ -127,6 +132,12 @@ func ComputeMessageSemantics(kind, sender, content, target, nick string) Message
 	if nick != "" && content != "" {
 		if re := mentionRegexp(nick); re != nil && re.MatchString(content) {
 			out.MentionsMe = true
+		}
+	}
+	if content != "" && !out.IsSelf {
+		if pattern, ok := matchHighlight(content); ok {
+			out.Highlight = true
+			out.HighlightPattern = pattern
 		}
 	}
 	return out

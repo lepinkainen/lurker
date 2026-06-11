@@ -28,6 +28,10 @@ type MessageEvent struct {
 	CountsAsUnread bool   `json:"counts_as_unread,omitzero"`
 	SenderColor    *int   `json:"sender_color,omitempty"`
 	TargetColor    *int   `json:"target_color,omitempty"`
+	// Highlight/HighlightPattern are set when content matches a
+	// user-defined highlight pattern (custom hilight words).
+	Highlight        bool   `json:"highlight,omitzero"`
+	HighlightPattern string `json:"highlight_pattern,omitzero"`
 	// Netsplit is set on quit/join messages that belong to a collapsed
 	// netsplit group (server-side clustering, see netsplitTracker).
 	Netsplit *NetsplitMeta `json:"netsplit,omitempty"`
@@ -47,6 +51,8 @@ func (e *MessageEvent) WithSemantics(nick string) *MessageEvent {
 	e.CountsAsUnread = sem.CountsAsUnread
 	e.SenderColor = sem.SenderColor
 	e.TargetColor = sem.TargetColor
+	e.Highlight = sem.Highlight
+	e.HighlightPattern = sem.HighlightPattern
 	e.Segments = mirc.SegmentsForWire(e.Content)
 	return e
 }
