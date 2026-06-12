@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/lepinkainen/lurker/irc"
@@ -24,6 +28,9 @@ const (
 	statusHeight    = 1
 	headerHeight    = 2 // content row + BorderBottom row from styleHeader
 	separatorHeight = 1
+	// rows rendered above the buffer list in renderSidebar:
+	// connection-status row + separator row
+	sidebarChromeRows = 2
 )
 
 type focusArea int
@@ -228,6 +235,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 	}
 
 	// Forward other events to textarea when input is focused.
@@ -312,6 +322,125 @@ func (m *model) dispatchNavKey(key string) (tea.Model, tea.Cmd, bool) {
 		return model, cmd, true
 	}
 	return *m, nil, false
+}
+
+// handleMouse maps mouse input: left-click on a sidebar buffer row activates
+// that buffer; wheel scrolls the message viewport (mouse mode disables
+// terminal-native scrolling, so the wheel must be handled here).
+func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.switcher.open {
+		return *m, nil
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		var cmd tea.Cmd
+		if m.viewport.AtTop() {
+			cmd = m.requestHistory()
+		}
+		m.viewport.ScrollUp(3)
+		return *m, cmd
+	case tea.MouseButtonWheelDown:
+		m.viewport.ScrollDown(3)
+		return *m, nil
+	case tea.MouseButtonLeft:
+		if msg.Action != tea.MouseActionPress {
+			return *m, nil
+		}
+		if idx, ok := m.sidebarItemAt(msg.X, msg.Y); ok {
+			m.sidebarSel = idx
+			m.activateSidebarSel()
+			m.focus = focusInput
+			m.input.Focus()
+			return *m, nil
+		}
+		// Mouse capture disables Ghostty/iTerm native link clicking, so
+		// hit-test URLs in the viewport and open them ourselves.
+		if url, ok := m.urlAtClick(msg.X, msg.Y); ok {
+			m.status = "Opening " + url
+			return *m, openURLCmd(url)
+		}
+	}
+	return *m, nil
+}
+
+var urlRe = regexp.MustCompile(`https?://[^\s<>"']+`)
+
+// urlAtClick maps a screen coordinate into the message viewport and returns
+// the URL under it, if any. Viewport lines never wrap (viewport clips), so
+// one content line equals one screen row.
+func (m *model) urlAtClick(x, y int) (string, bool) {
+	if m.activeBuffer == nil {
+		return "", false
+	}
+	relX := x - (sidebarWidth + 1) // sidebar + its right border column
+	relY := y - headerHeight
+	if relX < 0 || relY < 0 || relY >= m.viewport.Height {
+		return "", false
+	}
+	msgs := m.messages[m.activeBuffer.ID]
+	if len(msgs) == 0 {
+		return "", false
+	}
+	ownNick := ""
+	if n := m.findNetwork(m.activeBuffer.NetworkID); n != nil {
+		ownNick = n.Nick
+	}
+	lines := groupAndFormatMessages(msgs, ownNick, m.activeBuffer)
+	lineIdx := m.viewport.YOffset + relY
+	if lineIdx < 0 || lineIdx >= len(lines) {
+		return "", false
+	}
+	return urlAtCol(lines[lineIdx], relX)
+}
+
+// urlAtCol hit-tests display column col against URL spans in an
+// ANSI-styled line.
+func urlAtCol(line string, col int) (string, bool) {
+	plain := ansi.Strip(line)
+	for _, loc := range urlRe.FindAllStringIndex(plain, -1) {
+		start := ansi.StringWidth(plain[:loc[0]])
+		end := start + ansi.StringWidth(plain[loc[0]:loc[1]])
+		if col >= start && col < end {
+			return plain[loc[0]:loc[1]], true
+		}
+	}
+	return "", false
+}
+
+// openURLCmd opens url in the OS default browser. The url is passed as a
+// single argv element (no shell) and urlRe pins the scheme to http/https,
+// so message content can't smuggle flags or other schemes.
+func openURLCmd(url string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		var c *exec.Cmd
+		switch runtime.GOOS {
+		case "darwin":
+			c = exec.CommandContext(ctx, "open", url) //nolint:gosec // argv-only, scheme pinned by urlRe
+		case "windows":
+			c = exec.CommandContext(ctx, "rundll32", "url.dll,FileProtocolHandler", url) //nolint:gosec // argv-only, scheme pinned by urlRe
+		default:
+			c = exec.CommandContext(ctx, "xdg-open", url) //nolint:gosec // argv-only, scheme pinned by urlRe
+		}
+		if err := c.Start(); err != nil {
+			return errMsg{err}
+		}
+		return nil
+	}
+}
+
+// sidebarItemAt resolves a screen coordinate to a selectable sidebar item
+// index. Returns false for clicks outside the sidebar, on chrome rows, or
+// on network headers.
+func (m *model) sidebarItemAt(x, y int) (int, bool) {
+	if x >= sidebarWidth {
+		return 0, false
+	}
+	idx := y - sidebarChromeRows
+	if idx < 0 || idx >= len(m.sidebarItems) || m.sidebarItems[idx].isHeader {
+		return 0, false
+	}
+	return idx, true
 }
 
 func (m *model) handleCtrlD() (tea.Model, tea.Cmd, bool) {

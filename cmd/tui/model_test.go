@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
 )
 
@@ -122,6 +123,76 @@ func TestRefreshActiveBufferAfterAppend(t *testing.T) {
 	// Final sanity: pointer must address the current slice.
 	if &m.buffers[0] != m.activeBuffer {
 		t.Errorf("activeBuffer does not address live slice element")
+	}
+}
+
+// Left-click on a sidebar channel row must activate that buffer. Sidebar
+// rows: 0 = connection status, 1 = separator, 2 = network header, 3+ =
+// buffers (matches renderSidebar layout via sidebarChromeRows).
+func TestMouseClickSidebarSelectsBuffer(t *testing.T) {
+	m := newModel(&Config{})
+	netID := uuid.New()
+	b1, b2 := uuid.New(), uuid.New()
+	m.networks = []networkDTO{{ID: netID, Name: "ircnet"}}
+	m.buffers = []bufferDTO{
+		{ID: b1, NetworkID: netID, Name: "#a", Kind: "channel"},
+		{ID: b2, NetworkID: netID, Name: "#b", Kind: "channel"},
+	}
+	m.rebuildSidebar()
+
+	click := func(x, y int) model {
+		updated, _ := m.Update(tea.MouseMsg{
+			X: x, Y: y,
+			Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+		})
+		return updated.(model)
+	}
+
+	// Click second buffer row (y=4 → #b).
+	mm := click(3, 4)
+	if mm.activeBuffer == nil || mm.activeBuffer.ID != b2 {
+		t.Fatalf("click on #b row: activeBuffer = %v, want %s", mm.activeBuffer, b2)
+	}
+	// sidebarItems: [0]=header, [1]=#a, [2]=#b
+	if mm.sidebarSel != 2 {
+		t.Errorf("sidebarSel = %d, want 2", mm.sidebarSel)
+	}
+
+	// Click on network header (y=2) must not change selection.
+	m = mm
+	mm = click(3, 2)
+	if mm.activeBuffer == nil || mm.activeBuffer.ID != b2 {
+		t.Errorf("header click changed active buffer to %v", mm.activeBuffer)
+	}
+
+	// Click outside the sidebar (x >= sidebarWidth) must not change selection.
+	mm = click(sidebarWidth+5, 3)
+	if mm.activeBuffer == nil || mm.activeBuffer.ID != b2 {
+		t.Errorf("viewport click changed active buffer to %v", mm.activeBuffer)
+	}
+}
+
+// urlAtCol must hit-test display columns against URL spans in an
+// ANSI-styled line (mouse capture blocks Ghostty's native link click, so
+// the TUI opens URLs itself).
+func TestURLAtCol(t *testing.T) {
+	line := "\x1b[38;2;91;101;115m[12:00]\x1b[0m <nick> see https://example.com/x now"
+	// plain: "[12:00] <nick> see https://example.com/x now"
+	// URL spans display cols 19–39 (21 chars).
+	if url, ok := urlAtCol(line, 19); !ok || url != "https://example.com/x" {
+		t.Errorf("col 19: got (%q, %v), want URL hit", url, ok)
+	}
+	if url, ok := urlAtCol(line, 39); !ok || url != "https://example.com/x" {
+		t.Errorf("col 39 (last char): got (%q, %v), want URL hit", url, ok)
+	}
+	if _, ok := urlAtCol(line, 18); ok {
+		t.Errorf("col 18 (space before URL): unexpected hit")
+	}
+	if _, ok := urlAtCol(line, 40); ok {
+		t.Errorf("col 40 (space after URL): unexpected hit")
+	}
+	if _, ok := urlAtCol("no links here", 3); ok {
+		t.Errorf("line without URL: unexpected hit")
 	}
 }
 
