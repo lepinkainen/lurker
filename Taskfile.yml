@@ -90,6 +90,11 @@ tasks:
     cmds:
       - go run ./cmd/seedtest --data-dir ./data-test --reset
 
+  fake-ircd:
+    desc: Run minimal IRC server on :6667 with message injection on :6668
+    cmds:
+      - go run ./cmd/fakeircd
+
   dev-test:
     desc: Build the frontend then run backend against seeded ./data-test
     deps: [web-build]
