@@ -26,7 +26,7 @@ func newCommandTestManager(t *testing.T) (*Manager, uuid.UUID) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewManager(stores, hub.New()), n.ID
+	return NewManager(t.Context(), stores, hub.New()), n.ID
 }
 
 func TestManagerCommandsReturnErrNotConnectedWhenNoClient(t *testing.T) {

@@ -514,7 +514,7 @@ func TestManagerStartAndStopNetworkIndividually(t *testing.T) {
 
 	ctx := t.Context()
 	h := hub.New()
-	m := NewManager(stores, h)
+	m := NewManager(t.Context(), stores, h)
 	f := &fakeConnector{waitForClose: true, attempts: make(chan ServerConfig, 16)}
 	m.connector = f.connect
 
@@ -530,10 +530,10 @@ func TestManagerStartAndStopNetworkIndividually(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := m.StartNetwork(ctx, n1.ID, NetworkConfig{Name: n1.Name, Servers: []ServerConfig{{Host: "127.0.0.1", Port: 6667}}, Nick: "a", User: "a", Realname: "a"}); err != nil {
+	if err := m.StartNetwork(n1.ID, NetworkConfig{Name: n1.Name, Servers: []ServerConfig{{Host: "127.0.0.1", Port: 6667}}, Nick: "a", User: "a", Realname: "a"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.StartNetwork(ctx, n2.ID, NetworkConfig{Name: n2.Name, Servers: []ServerConfig{{Host: "127.0.0.1", Port: 6668}}, Nick: "b", User: "b", Realname: "b"}); err != nil {
+	if err := m.StartNetwork(n2.ID, NetworkConfig{Name: n2.Name, Servers: []ServerConfig{{Host: "127.0.0.1", Port: 6668}}, Nick: "b", User: "b", Realname: "b"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -569,7 +569,7 @@ func TestYAMLStyleNetworkUsesOneLogicalConnectionConfigWithMultipleServers(t *te
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	m := NewManager(stores, nil)
+	m := NewManager(ctx, stores, nil)
 	f := &fakeConnector{returnErr: errors.New("boom"), attempts: make(chan ServerConfig, 16)}
 	m.connector = f.connect
 
@@ -618,7 +618,7 @@ func TestManagerFallsBackToTLS12AfterTLSError(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	m := NewManager(stores, nil)
+	m := NewManager(ctx, stores, nil)
 	f := &fakeConnector{returnErr: errors.New("tls handshake failed"), attempts: make(chan ServerConfig, 16)}
 	m.connector = f.connect
 
@@ -664,7 +664,7 @@ func TestBuildClientConfiguresTLSInsecureSkipVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := NewManager(stores, nil)
+	m := NewManager(t.Context(), stores, nil)
 	client := m.buildClient(ctx, netrow.ID, NetworkConfig{Name: "ircnet", Nick: "tester", User: "tester", Realname: "tester"}, ServerConfig{Host: "irc.example", Port: 6697, TLS: true, TLSInsecure: true})
 	if client.Config.TLSConfig == nil {
 		t.Fatal("expected TLS config")
@@ -789,3 +789,73 @@ func (f *fakeConnector) awaitCalls(t *testing.T, n int, timeout time.Duration) {
 }
 
 var _ = sql.ErrNoRows
+
+// Regression for the connect-endpoint context bug: runtimes must be bound
+// to the manager's base context, never a caller's short-lived one, and a
+// runtime that exits must remove its m.runtime entry so a later
+// StartNetwork isn't a silent no-op.
+func TestRuntimeEntryRemovedAfterBaseContextCancel(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
+		}
+	}()
+
+	baseCtx, cancel := context.WithCancel(t.Context())
+	m := NewManager(baseCtx, stores, nil)
+	f := &fakeConnector{waitForClose: true, attempts: make(chan ServerConfig, 16)}
+	m.connector = f.connect
+
+	n, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "NetOne", Host: "127.0.0.1", Port: 6667, Nick: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.StartNetwork(n.ID, NetworkConfig{Name: n.Name, Servers: []ServerConfig{{Host: "127.0.0.1", Port: 6667}}, Nick: "a", User: "a", Realname: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	f.awaitCalls(t, 1, time.Second)
+
+	cancel()
+	m.Wait()
+
+	m.mu.Lock()
+	entries := len(m.runtime)
+	m.mu.Unlock()
+	if entries != 0 {
+		t.Fatalf("runtime entries after base ctx cancel = %d, want 0 (stale entry blocks restart)", entries)
+	}
+}
+
+// Regression: markDisconnected from a stale (pre-restart) runtime must not
+// clobber the conn/state the newer runtime installed for the same network.
+func TestMarkDisconnectedStaleGenDoesNotClobberNewRuntime(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stores.Close() }()
+
+	m := NewManager(t.Context(), stores, nil)
+	id := uuid.New()
+	m.mu.Lock()
+	m.runtimeGen = 2
+	m.runtime[id] = networkRuntime{gen: 2, cancel: func() {}}
+	m.conn[id] = &girc.Client{}
+	m.state[id] = StateConnecting.String()
+	m.mu.Unlock()
+
+	m.markDisconnected(id, 1) // stale gen: exiting pre-restart runtime
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.conn[id] == nil {
+		t.Error("stale markDisconnected deleted the new runtime's conn")
+	}
+	if m.state[id] != StateConnecting.String() {
+		t.Errorf("state = %q, want %q", m.state[id], StateConnecting.String())
+	}
+}

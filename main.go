@@ -65,7 +65,7 @@ func main() {
 	}, stores, evHub)
 	previewSvc.Start(ctx)
 	defer closeutil.Ignore(previewSvc, "component", "preview")
-	mgr := irc.NewManager(stores, evHub)
+	mgr := irc.NewManager(ctx, stores, evHub)
 	mgr.SetPreviewEnqueuer(previewSvc)
 	loadFixtureRuntimeState(ctx, mgr)
 

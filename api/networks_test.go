@@ -24,7 +24,7 @@ func newNetworkTestServer(t *testing.T) (*ircdb.MultiStore, http.Handler) {
 	}
 	t.Cleanup(func() { _ = stores.Close() })
 
-	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(stores, hub.New())}
+	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(t.Context(), stores, hub.New())}
 	return stores, srv.Handler()
 }
 
@@ -63,7 +63,7 @@ func newNetworkTestServerInDir(t *testing.T) (string, *ircdb.MultiStore, http.Ha
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = stores.Close() })
-	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(stores, hub.New())}
+	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(t.Context(), stores, hub.New())}
 	return dataDir, stores, srv.Handler()
 }
 
@@ -152,7 +152,7 @@ func TestReorderNetworksEndpointPersistsOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(stores, hub.New())}
+	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(t.Context(), stores, hub.New())}
 	h := srv.Handler()
 
 	rec := httptest.NewRecorder()
@@ -187,7 +187,7 @@ func TestReorderNetworksEndpointRejectsInvalidPermutation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(stores, hub.New())}
+	srv := &Server{Stores: stores, Hub: hub.New(), Manager: irc.NewManager(t.Context(), stores, hub.New())}
 	h := srv.Handler()
 
 	otherID := uuid.New()
@@ -273,7 +273,7 @@ func TestConnectDisconnectEndpointsUpdateState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgr := irc.NewManager(stores, hub.New())
+	mgr := irc.NewManager(t.Context(), stores, hub.New())
 	srv := &Server{Stores: stores, Hub: hub.New(), Manager: mgr}
 	h := srv.Handler()
 

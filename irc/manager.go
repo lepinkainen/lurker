@@ -69,12 +69,16 @@ func (n NetworkConfig) serverAt(i int) ServerConfig {
 type networkRuntime struct {
 	cfg    NetworkConfig
 	cancel context.CancelFunc
+	// gen disambiguates restarts: the exit cleanup of an old runtime must
+	// not delete a newer entry for the same network.
+	gen uint64
 }
 
 type connectorFunc func(ctx context.Context, client *girc.Client, server ServerConfig) error
 
 // Manager owns IRC clients and connection lifecycle for all networks.
 type Manager struct {
+	baseCtx        context.Context
 	stores         *ircdb.MultiStore
 	hub            *hub.Hub
 	previews       PreviewEnqueuer
@@ -83,15 +87,21 @@ type Manager struct {
 	conn           map[uuid.UUID]*girc.Client
 	state          map[uuid.UUID]string
 	runtime        map[uuid.UUID]networkRuntime
+	runtimeGen     uint64
 	membersLoaded  map[uuid.UUID]map[string]bool
 	joined         map[uuid.UUID]map[string]bool
 	fixtureMembers map[uuid.UUID]map[string][]ChannelUser
 	connector      connectorFunc
 }
 
-// NewManager constructs a Manager.
-func NewManager(stores *ircdb.MultiStore, h *hub.Hub) *Manager {
+// NewManager constructs a Manager. Every network runtime it starts is bound
+// to baseCtx: canceling it stops them all (process shutdown). Individual
+// runtimes stop via StopNetwork. Callers of StartNetwork deliberately cannot
+// supply a context — a request-scoped one would kill the connection the
+// moment the request ends.
+func NewManager(baseCtx context.Context, stores *ircdb.MultiStore, h *hub.Hub) *Manager {
 	return &Manager{
+		baseCtx:        baseCtx,
 		stores:         stores,
 		hub:            h,
 		conn:           map[uuid.UUID]*girc.Client{},
@@ -130,27 +140,40 @@ func (m *Manager) Start(ctx context.Context, nets []NetworkConfig) error {
 		if err := ircdb.SetNetworkConnectCommands(ctx, m.stores.Control, nrow.ID, nc.ConnectCommands); err != nil {
 			return err
 		}
-		if err := m.StartNetwork(ctx, nrow.ID, nc); err != nil {
+		if err := m.StartNetwork(nrow.ID, nc); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// StartNetwork starts managing one network runtime.
-func (m *Manager) StartNetwork(parent context.Context, networkID uuid.UUID, nc NetworkConfig) error {
+// StartNetwork starts managing one network runtime. The runtime's lifetime
+// is bound to the manager's base context, never the caller's.
+func (m *Manager) StartNetwork(networkID uuid.UUID, nc NetworkConfig) error {
 	m.mu.Lock()
 	if _, ok := m.runtime[networkID]; ok {
 		m.mu.Unlock()
 		return nil
 	}
-	ctx, cancel := context.WithCancel(parent)
-	m.runtime[networkID] = networkRuntime{cfg: nc, cancel: cancel}
+	ctx, cancel := context.WithCancel(m.baseCtx)
+	m.runtimeGen++
+	gen := m.runtimeGen
+	m.runtime[networkID] = networkRuntime{cfg: nc, cancel: cancel, gen: gen}
 	m.state[networkID] = StateDisconnected.String()
 	m.mu.Unlock()
 
 	m.wg.Go(func() {
-		m.runNetwork(ctx, networkID, nc)
+		defer func() {
+			// Remove our own entry so a later StartNetwork isn't a no-op.
+			// gen check: StopNetwork + restart may have installed a newer
+			// runtime under the same network ID.
+			m.mu.Lock()
+			if rt, ok := m.runtime[networkID]; ok && rt.gen == gen {
+				delete(m.runtime, networkID)
+			}
+			m.mu.Unlock()
+		}()
+		m.runNetwork(ctx, networkID, nc, gen)
 	})
 	return nil
 }
@@ -576,7 +599,7 @@ func (m *Manager) clearChannelMembersLoaded(networkID uuid.UUID, channel string)
 	}
 }
 
-func (m *Manager) runNetwork(ctx context.Context, networkID uuid.UUID, nc NetworkConfig) {
+func (m *Manager) runNetwork(ctx context.Context, networkID uuid.UUID, nc NetworkConfig, gen uint64) {
 	log := slog.With("network", nc.Name, "network_id", networkID)
 	backoff := time.Second
 	const maxBackoff = 5 * time.Minute
@@ -588,7 +611,7 @@ func (m *Manager) runNetwork(ctx context.Context, networkID uuid.UUID, nc Networ
 		}
 		server := nc.serverAt(serverIndex)
 		m.refreshConnectCommands(ctx, log, networkID, &nc)
-		err := m.attemptConnect(ctx, log, networkID, nc, server)
+		err := m.attemptConnect(ctx, log, networkID, nc, server, gen)
 		if ctx.Err() != nil {
 			log.Info("connection closed on shutdown")
 			return
@@ -625,7 +648,7 @@ func (m *Manager) refreshConnectCommands(ctx context.Context, log *slog.Logger, 
 // attemptConnect builds and dials the IRC client, transparently retrying once
 // with TLS 1.2 forced when the initial dial fails and TLS downgrade is
 // possible. Tracks connection state in the manager and publishes hub events.
-func (m *Manager) attemptConnect(ctx context.Context, log *slog.Logger, networkID uuid.UUID, nc NetworkConfig, server ServerConfig) error {
+func (m *Manager) attemptConnect(ctx context.Context, log *slog.Logger, networkID uuid.UUID, nc NetworkConfig, server ServerConfig, gen uint64) error {
 	client := m.buildClient(ctx, networkID, nc, server)
 	m.setConnectingState(networkID, client)
 
@@ -634,7 +657,7 @@ func (m *Manager) attemptConnect(ctx context.Context, log *slog.Logger, networkI
 	if err != nil && ctx.Err() == nil && shouldFallbackToTLS12(server) {
 		err = m.connectWithTLS12Fallback(ctx, log, networkID, nc, server, err)
 	}
-	m.markDisconnected(networkID)
+	m.markDisconnected(networkID, gen)
 	return err
 }
 
@@ -658,8 +681,15 @@ func (m *Manager) connectWithTLS12Fallback(ctx context.Context, log *slog.Logger
 	return m.connector(ctx, fallbackClient, fallbackServer)
 }
 
-func (m *Manager) markDisconnected(networkID uuid.UUID) {
+func (m *Manager) markDisconnected(networkID uuid.UUID, gen uint64) {
 	m.mu.Lock()
+	if rt, ok := m.runtime[networkID]; ok && rt.gen != gen {
+		// A newer runtime owns this network (StopNetwork + restart): its
+		// conn/state entries are not ours to clobber, and publishing
+		// Disconnected would contradict its live connection.
+		m.mu.Unlock()
+		return
+	}
 	delete(m.conn, networkID)
 	delete(m.membersLoaded, networkID)
 	if _, ok := m.runtime[networkID]; ok {

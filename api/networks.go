@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -36,7 +35,7 @@ type reorderNetworksRequest struct {
 // handlers.
 type networkManager interface {
 	StateSnapshot() map[uuid.UUID]string
-	StartNetwork(ctx context.Context, networkID uuid.UUID, nc irc.NetworkConfig) error
+	StartNetwork(networkID uuid.UUID, nc irc.NetworkConfig) error
 	StopNetwork(networkID uuid.UUID) error
 }
 
@@ -312,7 +311,7 @@ func (s *Server) connectNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nc.ConnectCommands = commands
-	if err := s.Manager.StartNetwork(r.Context(), id, nc); err != nil {
+	if err := s.Manager.StartNetwork(id, nc); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

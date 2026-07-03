@@ -249,7 +249,7 @@ func (m *mockState) Nick(networkID uuid.UUID) string {
 // networkManager. StateSnapshot is supplied by mockState.
 type mockLifecycle struct{ *callRecorder }
 
-func (m *mockLifecycle) StartNetwork(_ context.Context, networkID uuid.UUID, cfg irc.NetworkConfig) error {
+func (m *mockLifecycle) StartNetwork(networkID uuid.UUID, cfg irc.NetworkConfig) error {
 	return m.record("StartNetwork", networkID, cfg)
 }
 
