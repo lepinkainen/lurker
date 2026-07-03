@@ -83,7 +83,7 @@ export function openHelpOverlay() {
     helpSection("General", [
       ["?", "Open keyboard shortcuts"],
       [combo("K"), "Open channel switcher"],
-      ["Esc", "Close active overlay"],
+      ["Esc", "Close active overlay / clear new-messages marker"],
     ]),
     helpSection("Buffer navigation", [
       ["Alt+↑", "Previous buffer"],

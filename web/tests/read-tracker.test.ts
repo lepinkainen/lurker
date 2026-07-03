@@ -113,7 +113,7 @@ describe("read-tracker", () => {
       expect(sendCmd).not.toHaveBeenCalled();
     });
 
-    it("clears marker anchor on mark-read", () => {
+    it("keeps marker anchor on mark-read (marker persists while viewing)", () => {
       seedBuffer();
       state.wsReady = true;
       state.messages.set("b1", [{ id: "m9", buffer_id: "b1" }]);
@@ -121,28 +121,49 @@ describe("read-tracker", () => {
       const sendCmd = vi.fn();
       const view = { renderSidebar: vi.fn() };
       createReadTracker({ getView: () => view as never, sendCmd }).maybeMarkActiveRead();
-      expect(state.markerAnchorId.has("b1")).toBe(false);
+      expect(state.markerAnchorId.get("b1")).toBe("m5");
+      expect(sendCmd).toHaveBeenCalledWith({ type: "mark_read", buffer_id: "b1", message_id: "m9" });
     });
+  });
 
-    it("re-renders active view when anchor cleared on active buffer", () => {
+  describe("clearActiveMarker", () => {
+    it("clears anchor on active buffer and re-renders active view", () => {
       seedBuffer();
       state.wsReady = true;
       state.messages.set("b1", [{ id: "m9", buffer_id: "b1" }]);
       state.markerAnchorId.set("b1", "m5");
       const sendCmd = vi.fn();
       const view = { renderSidebar: vi.fn(), renderActiveView: vi.fn() };
-      createReadTracker({ getView: () => view as never, sendCmd }).maybeMarkActiveRead();
+      createReadTracker({ getView: () => view as never, sendCmd }).clearActiveMarker();
+      expect(state.markerAnchorId.has("b1")).toBe(false);
       expect(view.renderActiveView).toHaveBeenCalledOnce();
     });
 
-    it("does not re-render active view when no anchor was present", () => {
+    it("also marks the buffer read", () => {
       seedBuffer();
+      state.wsReady = true;
+      state.messages.set("b1", [{ id: "m9", buffer_id: "b1" }]);
+      state.markerAnchorId.set("b1", "m5");
+      const sendCmd = vi.fn();
+      createReadTracker({ getView: () => null, sendCmd }).clearActiveMarker();
+      expect(sendCmd).toHaveBeenCalledWith({ type: "mark_read", buffer_id: "b1", message_id: "m9" });
+    });
+
+    it("no-op render when no anchor present", () => {
+      seedBuffer("b1", "m9");
       state.wsReady = true;
       state.messages.set("b1", [{ id: "m9", buffer_id: "b1" }]);
       const sendCmd = vi.fn();
       const view = { renderSidebar: vi.fn(), renderActiveView: vi.fn() };
-      createReadTracker({ getView: () => view as never, sendCmd }).maybeMarkActiveRead();
+      createReadTracker({ getView: () => view as never, sendCmd }).clearActiveMarker();
       expect(view.renderActiveView).not.toHaveBeenCalled();
+    });
+
+    it("no-op when no active buffer", () => {
+      state.wsReady = true;
+      const sendCmd = vi.fn();
+      expect(() => createReadTracker({ getView: () => null, sendCmd }).clearActiveMarker()).not.toThrow();
+      expect(sendCmd).not.toHaveBeenCalled();
     });
   });
 
@@ -176,6 +197,42 @@ describe("read-tracker", () => {
       createReadTracker({ getView: () => view as never, sendCmd }).markBufferReadOnExit("b1");
       expect(sendCmd).toHaveBeenCalledWith({ type: "mark_read", buffer_id: "b1", message_id: "m9" });
       expect(state.markerAnchorId.has("b1")).toBe(false);
+    });
+
+    it("clears anchor even when read position was already sent", () => {
+      seedBuffer();
+      state.wsReady = true;
+      state.activeFocusedSinceEnter = true;
+      state.lastMarkedReadId.set("b1", "m9");
+      state.messages.set("b1", [{ id: "m9", buffer_id: "b1" }]);
+      state.markerAnchorId.set("b1", "m5");
+      const sendCmd = vi.fn();
+      createReadTracker({ getView: () => null, sendCmd }).markBufferReadOnExit("b1");
+      expect(sendCmd).not.toHaveBeenCalled();
+      expect(state.markerAnchorId.has("b1")).toBe(false);
+    });
+
+    it("keeps anchor when WS is down (read boundary would be unrecoverable)", () => {
+      seedBuffer();
+      state.wsReady = false;
+      state.activeFocusedSinceEnter = true;
+      state.messages.set("b1", [{ id: "m9", buffer_id: "b1" }]);
+      state.markerAnchorId.set("b1", "m5");
+      const sendCmd = vi.fn();
+      createReadTracker({ getView: () => null, sendCmd }).markBufferReadOnExit("b1");
+      expect(sendCmd).not.toHaveBeenCalled();
+      expect(state.markerAnchorId.get("b1")).toBe("m5");
+    });
+
+    it("keeps anchor when never focused since enter", () => {
+      seedBuffer();
+      state.wsReady = true;
+      state.activeFocusedSinceEnter = false;
+      state.messages.set("b1", [{ id: "m9", buffer_id: "b1" }]);
+      state.markerAnchorId.set("b1", "m5");
+      const sendCmd = vi.fn();
+      createReadTracker({ getView: () => null, sendCmd }).markBufferReadOnExit("b1");
+      expect(state.markerAnchorId.get("b1")).toBe("m5");
     });
   });
 

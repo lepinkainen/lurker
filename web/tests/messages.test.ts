@@ -515,6 +515,15 @@ describe("onBufferUpdate", () => {
     expect(state.markerAnchorId.has("1")).toBe(false);
   });
 
+  it("keeps marker anchor on the active buffer despite catch-up (user is viewing the marker)", () => {
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "5", unread: 3 }));
+    state.activeId = "1";
+    state.markerAnchorId.set("1", "10");
+    const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
+    onBufferUpdate({ id: "1", last_seen_id: "12", unread: 0 }, handlers);
+    expect(state.markerAnchorId.get("1")).toBe("10");
+  });
+
   it("keeps marker anchor when last_seen_id is still below anchor", () => {
     state.buffers.set("1", buf({ id: "1", last_seen_id: "05", unread: 3 }));
     state.markerAnchorId.set("1", "10");

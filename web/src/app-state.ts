@@ -210,6 +210,11 @@ export function reconcileAnchor(bufferId: string) {
   if (!buffer) return;
   const anchor = state.markerAnchorId.get(bufferId);
   if (!anchor) return;
+  // Never reconcile away the active buffer's anchor: entering a buffer sends
+  // mark_read, and the server's buffer_update echo (last_seen caught up,
+  // unread=0) must not kill the marker the user is currently looking at.
+  // The anchor clears on exit or Esc instead.
+  if (bufferId === state.activeId) return;
   if ((buffer.last_seen_id || "") >= anchor || (buffer.unread || 0) === 0) {
     state.markerAnchorId.delete(bufferId);
   }

@@ -16,6 +16,7 @@ export type KeyboardShortcutsDeps = {
   // Keyboard-driven buffer switches focus the input so typing continues
   // uninterrupted, even on touch devices with a hardware keyboard (e.g. iPad).
   setActive: (id: string) => void;
+  clearActiveMarker: () => void;
 };
 
 let cleanupKeydown: (() => void) | null = null;
@@ -48,8 +49,16 @@ export function initKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
         e.preventDefault();
         return;
       }
+      // A modal <dialog> (settings, network form, sidebar dialogs) is about
+      // to be closed by the native Esc — that consumes the keypress.
+      if (document.querySelector("dialog[open]")) return;
+      // Likewise a mobile drawer: closing it is the whole action. Only a
+      // bare Esc clears the new-messages marker (behavior doc, Case C).
+      const drawerOpen = document.body.dataset.sidebarOpen === "true" || document.body.dataset.membersOpen === "true";
       setSidebarDrawer(false);
       setMembersDrawer(false);
+      if (drawerOpen) return;
+      deps.clearActiveMarker();
       return;
     }
 

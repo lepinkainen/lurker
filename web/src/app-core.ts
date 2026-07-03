@@ -29,7 +29,7 @@ export function start() {
   dom = captureDom();
   domReady = true;
   const d = dom;
-  const { maybeMarkActiveRead, markBufferReadOnExit, loadOlderHistory } = createReadTracker({
+  const { maybeMarkActiveRead, markBufferReadOnExit, clearActiveMarker, loadOlderHistory } = createReadTracker({
     getView: () => appView,
     sendCmd,
   });
@@ -77,7 +77,11 @@ export function start() {
   document.getElementById("settings-btn")?.addEventListener("click", () => openSettingsDialog());
   document.addEventListener("click", onBackdropClick);
   initTouchGestures({ sidebarEl: d.sidebarEl });
-  initKeyboardShortcuts({ inputEl: d.inputEl, setActive: (id: string) => setActive(id, { focusInput: true }) });
+  initKeyboardShortcuts({
+    inputEl: d.inputEl,
+    setActive: (id: string) => setActive(id, { focusInput: true }),
+    clearActiveMarker,
+  });
   initFocusTracking({ renderSidebar: view.renderSidebar, maybeMarkActiveRead });
   const onHash = () => onHashChange(setActive);
   window.addEventListener("hashchange", onHash);
