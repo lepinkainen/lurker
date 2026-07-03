@@ -83,8 +83,10 @@ type wsEvent struct {
 	Highlight      bool      `json:"highlight"`
 	CountsAsUnread bool      `json:"counts_as_unread"`
 	// buffer_update
-	Topic      string    `json:"topic"`
-	Joined     bool      `json:"joined"`
+	Topic string `json:"topic"`
+	// Pointer: the mark_read echo variant of buffer_update carries no
+	// joined field, and absent must not read as false (parted).
+	Joined     *bool     `json:"joined"`
 	LastSeenID uuid.UUID `json:"last_seen_id"`
 	Unread     int       `json:"unread"`
 	Mentions   int       `json:"mentions"`

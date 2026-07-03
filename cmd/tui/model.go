@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -52,6 +53,8 @@ type model struct {
 	members             map[uuid.UUID][]channelMember // buffer_id -> members
 	unread              map[uuid.UUID]int             // buffer_id -> unread count (client-side accumulated)
 	mentions            map[uuid.UUID]int             // buffer_id -> mention count
+	markerAnchor        map[uuid.UUID]uuid.UUID       // buffer_id -> first unseen message ("New messages" line)
+	lastMarkedRead      map[uuid.UUID]uuid.UUID       // buffer_id -> last message_id sent via mark_read
 	sidebarItems        []sidebarItem
 	sidebarSel          int
 	activeBuffer        *bufferDTO
@@ -70,6 +73,17 @@ type model struct {
 	wsChan    <-chan wsEvent
 	wsStatus  string // "connecting" | "connected" | "reconnecting" | "offline"
 	backendOK bool
+	// sendWS overrides the outbound WS command path when non-nil (tests).
+	// Production leaves it nil and sendCmdAsync enqueues on wsSendChan.
+	sendWS func(cmd wsCmd) error
+	// wsSendChan feeds the single writer goroutine for the current
+	// connection, so outbound commands keep their order (an out-of-order
+	// mark_read would regress the server-side read position).
+	wsSendChan chan wsCmd
+	// mark_read throttle: at most one send per debounce window while
+	// messages stream into the active buffer.
+	markReadPending bool
+	lastMarkReadAt  time.Time
 
 	// quit state: ctrl+d double-tap
 	lastCtrlD time.Time
@@ -117,6 +131,8 @@ func newModel(cfg *Config) model {
 		members:        make(map[uuid.UUID][]channelMember),
 		unread:         make(map[uuid.UUID]int),
 		mentions:       make(map[uuid.UUID]int),
+		markerAnchor:   make(map[uuid.UUID]uuid.UUID),
+		lastMarkedRead: make(map[uuid.UUID]uuid.UUID),
 		input:          ta,
 		focus:          focusInput,
 		wsStatus:       "connecting",
@@ -208,14 +224,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.wsConn = msg.conn
 		m.wsCancel = msg.cancel
 		m.wsChan = msg.ch
+		if m.wsSendChan != nil {
+			close(m.wsSendChan)
+		}
+		m.wsSendChan = make(chan wsCmd, 64)
+		go wsWriter(msg.conn, m.wsSendChan)
 		m.backendOK = true
 		m.wsStatus = "connected"
 		m.status = ""
+		// Startup buffer was activated before the WS existed; report its
+		// read position now that we can.
+		m.markActiveRead()
 		return m, waitForWSEvent(m.wsChan)
 
 	case wsEventMsg:
-		m.handleWSEvent(wsEvent(msg))
-		return m, waitForWSEvent(m.wsChan)
+		cmd := m.handleWSEvent(wsEvent(msg))
+		return m, tea.Batch(cmd, waitForWSEvent(m.wsChan))
+
+	case markReadFlushMsg:
+		m.markReadPending = false
+		m.markActiveRead()
+		return m, nil
 
 	case wsErrorMsg:
 		m.backendOK = false
@@ -223,6 +252,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("WS error: %v — reconnecting in 5s…", msg.err)
 		m.wsConn = nil
 		m.wsChan = nil
+		if m.wsSendChan != nil {
+			close(m.wsSendChan)
+			m.wsSendChan = nil
+		}
+		// Commands queued on the dead conn may never have reached the
+		// server; forget what we think we sent so the post-reconnect
+		// markActiveRead resends the read position.
+		clear(m.lastMarkedRead)
 		return m, reconnectWSCmd(m.client, 5*time.Second)
 
 	case errMsg:
@@ -283,6 +320,8 @@ func (m *model) dispatchControlKey(key string) (tea.Model, tea.Cmd, bool) {
 		m.refreshViewport()
 		return *m, nil, true
 	case "esc":
+		// Web parity: Esc also dismisses the "New messages" line.
+		m.clearActiveMarker()
 		m.toggleFocus()
 		return *m, nil, true
 	case "tab":
@@ -726,6 +765,114 @@ func (m *model) requestHistory() tea.Cmd {
 	}
 }
 
+// ── read tracking / new-messages marker ───────────────────────────────────────
+// Parity with the web client (web/src/read-tracker.ts); semantics in
+// ai-docs/behaviors/new-messages-marker.md. Read position (badges +
+// mark_read) advances on entry; the marker anchor stays until the buffer
+// is exited or Esc is pressed.
+
+// uuidLTE compares message UUIDs by byte order (UUIDv7 is time-ordered,
+// matching the web client's lexicographic string compare).
+func uuidLTE(a, b uuid.UUID) bool {
+	return bytes.Compare(a[:], b[:]) <= 0
+}
+
+// sendCmdAsync enqueues a WS command without blocking the update loop.
+// Returns false when no connection (or a full queue) can take it.
+func (m *model) sendCmdAsync(cmd wsCmd) bool {
+	if m.sendWS != nil {
+		return m.sendWS(cmd) == nil
+	}
+	if m.wsSendChan == nil {
+		return false
+	}
+	select {
+	case m.wsSendChan <- cmd:
+		return true
+	default:
+		return false
+	}
+}
+
+// wsWriter is the single outbound writer for one connection: commands go
+// out in enqueue order, and a stalled peer can't accumulate goroutines.
+// Exits when the channel is closed (reconnect) or a write fails.
+func wsWriter(conn *websocket.Conn, ch <-chan wsCmd) {
+	for cmd := range ch {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := sendWSCmd(ctx, conn, cmd)
+		cancel()
+		if err != nil {
+			// Conn is dead; the read loop will surface wsErrorMsg. Drain
+			// so late enqueues don't back up until the channel closes.
+			for range ch { //nolint:revive // intentional drain
+			}
+			return
+		}
+	}
+}
+
+// markReadDebounce caps mark_read frequency while messages stream into the
+// active buffer. Entry and Esc still report immediately.
+const markReadDebounce = time.Second
+
+type markReadFlushMsg struct{}
+
+// throttledMarkActiveRead is markActiveRead for the message-arrival hot
+// path: leading-edge send, trailing flush for suppressed calls.
+func (m *model) throttledMarkActiveRead() tea.Cmd {
+	if time.Since(m.lastMarkReadAt) >= markReadDebounce {
+		m.markActiveRead()
+		return nil
+	}
+	if m.markReadPending {
+		return nil
+	}
+	m.markReadPending = true
+	return tea.Tick(markReadDebounce, func(time.Time) tea.Msg { return markReadFlushMsg{} })
+}
+
+// markActiveRead zeroes the active buffer's badges and tells the server.
+// The marker anchor is deliberately left alone. The buffer's LastSeenID is
+// not advanced locally: the server's buffer_update echo is the authority,
+// and an optimistic advance would suppress the post-reconnect resend when
+// the write was lost.
+func (m *model) markActiveRead() {
+	b := m.activeBuffer
+	if b == nil {
+		return
+	}
+	m.unread[b.ID] = 0
+	m.mentions[b.ID] = 0
+	msgs := m.messages[b.ID]
+	if len(msgs) == 0 {
+		return
+	}
+	last := msgs[len(msgs)-1].ID
+	if uuidLTE(last, b.LastSeenID) || uuidLTE(last, m.lastMarkedRead[b.ID]) {
+		return
+	}
+	if !m.sendCmdAsync(wsCmd{"type": "mark_read", "buffer_id": b.ID, "message_id": last}) {
+		return
+	}
+	m.lastMarkedRead[b.ID] = last
+	m.lastMarkReadAt = time.Now()
+}
+
+// clearActiveMarker removes the active buffer's "New messages" line (Esc).
+func (m *model) clearActiveMarker() {
+	b := m.activeBuffer
+	if b == nil {
+		return
+	}
+	m.markActiveRead()
+	if _, ok := m.markerAnchor[b.ID]; !ok {
+		return
+	}
+	delete(m.markerAnchor, b.ID)
+	m.refreshViewport()
+}
+
 // ── state helpers ─────────────────────────────────────────────────────────────
 
 // findNetwork resolves a network by ID. Returns nil if unknown.
@@ -739,6 +886,18 @@ func (m *model) findNetwork(id uuid.UUID) *networkDTO {
 	return nil
 }
 
+// findBuffer resolves a buffer by ID against the live slice. Returns nil
+// if unknown. The pointer aliases m.buffers — do not hold it across
+// anything that may replace or grow the slice.
+func (m *model) findBuffer(id uuid.UUID) *bufferDTO {
+	for i := range m.buffers {
+		if m.buffers[i].ID == id {
+			return &m.buffers[i]
+		}
+	}
+	return nil
+}
+
 // refreshActiveBuffer re-resolves the m.activeBuffer pointer to the
 // current m.buffers slice. Call after any operation that may have
 // replaced or reslized m.buffers (applyState, buffer_created append) —
@@ -747,14 +906,7 @@ func (m *model) refreshActiveBuffer() {
 	if m.activeBuffer == nil {
 		return
 	}
-	id := m.activeBuffer.ID
-	for i := range m.buffers {
-		if m.buffers[i].ID == id {
-			m.activeBuffer = &m.buffers[i]
-			return
-		}
-	}
-	m.activeBuffer = nil
+	m.activeBuffer = m.findBuffer(m.activeBuffer.ID)
 }
 
 func (m *model) applyState(s *stateResponse) {
@@ -907,18 +1059,17 @@ func (m *model) activateSidebarSel() {
 	if item.isHeader {
 		return
 	}
-	for i := range m.buffers {
-		if m.buffers[i].ID == item.bufferID {
-			m.activeBuffer = &m.buffers[i]
-			break
-		}
+	prev := m.activeBuffer
+	if b := m.findBuffer(item.bufferID); b != nil {
+		m.activeBuffer = b
 	}
-	// Clear unread when buffer becomes active.
-	// TODO: wire mark_read ws cmd once TUI is stable; for now we only clear
-	// local counters so badges disappear visually.
+	// Exiting a buffer clears its marker; entering advances the read
+	// position but keeps the new buffer's marker visible.
+	if prev != nil && (m.activeBuffer == nil || prev.ID != m.activeBuffer.ID) {
+		delete(m.markerAnchor, prev.ID)
+	}
 	if m.activeBuffer != nil {
-		m.unread[m.activeBuffer.ID] = 0
-		m.mentions[m.activeBuffer.ID] = 0
+		m.markActiveRead()
 		if m.activeBuffer.ID != m.lastPersistedBuffer {
 			if err := savePersistedBufferID(m.activeBuffer.ID); err == nil {
 				m.lastPersistedBuffer = m.activeBuffer.ID
@@ -929,10 +1080,10 @@ func (m *model) activateSidebarSel() {
 	m.viewport.GotoBottom()
 }
 
-func (m *model) handleWSEvent(ev wsEvent) {
+func (m *model) handleWSEvent(ev wsEvent) tea.Cmd {
 	switch ev.Type {
 	case "message":
-		m.applyMessageEvent(ev)
+		return m.applyMessageEvent(ev)
 	case "buffer_update":
 		m.applyBufferUpdate(ev)
 	case "buffer_settings":
@@ -961,6 +1112,7 @@ func (m *model) handleWSEvent(ev wsEvent) {
 	case "channel_list":
 		m.applyChannelList(ev)
 	}
+	return nil
 }
 
 func (m *model) applyChannelList(ev wsEvent) {
@@ -980,7 +1132,7 @@ func (m *model) applyChannelList(ev wsEvent) {
 	m.status = fmt.Sprintf("/list %s: %d channels", netName, len(entries))
 }
 
-func (m *model) applyMessageEvent(ev wsEvent) {
+func (m *model) applyMessageEvent(ev wsEvent) tea.Cmd {
 	parsed, _ := time.Parse(time.RFC3339Nano, ev.TS)
 	msg := messageDTO{
 		ID: ev.ID, NetworkID: ev.NetworkID, BufferID: ev.BufferID,
@@ -997,15 +1149,27 @@ func (m *model) applyMessageEvent(ev wsEvent) {
 		if ev.MentionsMe || ev.Highlight {
 			m.mentions[ev.BufferID]++
 		}
-		return
+		if _, ok := m.markerAnchor[ev.BufferID]; !ok && m.msgUnseen(ev.BufferID, ev.ID) {
+			m.markerAnchor[ev.BufferID] = ev.ID
+		}
+		return nil
 	}
 	if !isActive {
-		return
+		return nil
 	}
+	cmd := m.throttledMarkActiveRead()
 	m.refreshViewport()
 	if atBottom {
 		m.viewport.GotoBottom()
 	}
+	return cmd
+}
+
+// msgUnseen reports whether msgID is newer than the buffer's read position,
+// so history replays never spawn a marker.
+func (m *model) msgUnseen(bufID, msgID uuid.UUID) bool {
+	b := m.findBuffer(bufID)
+	return b != nil && !uuidLTE(msgID, b.LastSeenID)
 }
 
 func (m *model) applyBufferUpdate(ev wsEvent) {
@@ -1013,36 +1177,50 @@ func (m *model) applyBufferUpdate(ev wsEvent) {
 	if ev.Topic != "" {
 		m.topics[bufID] = ev.Topic
 	}
-	for i := range m.buffers {
-		if m.buffers[i].ID != bufID {
-			continue
-		}
-		if ev.Topic != "" {
-			m.buffers[i].Topic = ev.Topic
-		}
-		m.buffers[i].Joined = ev.Joined
-		if ev.LastSeenID != uuid.Nil {
-			m.buffers[i].LastSeenID = ev.LastSeenID
-			m.unread[bufID] = ev.Unread
-			m.mentions[bufID] = ev.Mentions
-		}
+	b := m.findBuffer(bufID)
+	if b == nil {
 		return
+	}
+	if ev.Topic != "" {
+		b.Topic = ev.Topic
+	}
+	if ev.Joined != nil {
+		b.Joined = *ev.Joined
+	}
+	if ev.LastSeenID != uuid.Nil {
+		b.LastSeenID = ev.LastSeenID
+		m.unread[bufID] = ev.Unread
+		m.mentions[bufID] = ev.Mentions
+		m.reconcileAnchor(b)
+	}
+}
+
+// reconcileAnchor drops a stale marker when the server says the buffer is
+// caught up (e.g. another client marked it read). Never touches the active
+// buffer: our own entry mark_read echoes back as caught-up, and that must
+// not kill the marker the user is currently looking at (web parity:
+// web/src/app-state.ts reconcileAnchor).
+func (m *model) reconcileAnchor(b *bufferDTO) {
+	anchor, ok := m.markerAnchor[b.ID]
+	if !ok {
+		return
+	}
+	if m.activeBuffer != nil && m.activeBuffer.ID == b.ID {
+		return
+	}
+	if uuidLTE(anchor, b.LastSeenID) || m.unread[b.ID] == 0 {
+		delete(m.markerAnchor, b.ID)
 	}
 }
 
 func (m *model) applyBufferSettings(ev wsEvent) {
-	bufID := ev.ID
-	for i := range m.buffers {
-		if m.buffers[i].ID != bufID {
-			continue
-		}
-		m.buffers[i].ShowPresenceEvents = ev.ShowPresenceEvents
-		m.buffers[i].CollapsePresenceEvents = ev.CollapsePresenceEvents
-		if m.activeBuffer != nil && m.activeBuffer.ID == bufID {
-			m.activeBuffer = &m.buffers[i]
+	if b := m.findBuffer(ev.ID); b != nil {
+		b.ShowPresenceEvents = ev.ShowPresenceEvents
+		b.CollapsePresenceEvents = ev.CollapsePresenceEvents
+		if m.activeBuffer != nil && m.activeBuffer.ID == ev.ID {
+			m.activeBuffer = b
 			m.refreshViewport()
 		}
-		return
 	}
 }
 
@@ -1073,13 +1251,8 @@ func (m *model) resizeComponents() {
 	if m.showMembers {
 		rightW -= membersWidth + 1
 	}
-	if rightW < 1 {
-		rightW = 1
-	}
-	vpH := m.height - headerHeight - separatorHeight - inputLines - statusHeight
-	if vpH < 1 {
-		vpH = 1
-	}
+	rightW = max(rightW, 1)
+	vpH := max(m.height-headerHeight-separatorHeight-inputLines-statusHeight, 1)
 
 	if !m.ready {
 		m.viewport = viewport.New(rightW, vpH)
@@ -1110,11 +1283,40 @@ func (m *model) refreshViewport() {
 	}
 
 	var sb strings.Builder
-	for _, line := range groupAndFormatMessages(msgs, ownNick, m.activeBuffer) {
+	anchor := m.markerAnchor[m.activeBuffer.ID]
+	for _, line := range renderBufferLines(msgs, ownNick, m.activeBuffer, anchor, m.viewport.Width) {
 		sb.WriteString(line)
 		sb.WriteByte('\n')
 	}
 	m.viewport.SetContent(sb.String())
+}
+
+// renderBufferLines renders msgs with the "New messages" marker line above
+// the anchored message. anchor == uuid.Nil (or an ID not in msgs) renders
+// without a marker. The marker splits presence grouping — a netsplit run
+// never spans the read boundary.
+func renderBufferLines(msgs []messageDTO, ownNick string, buf *bufferDTO, anchor uuid.UUID, width int) []string {
+	if anchor != uuid.Nil {
+		for i := range msgs {
+			if msgs[i].ID == anchor {
+				out := groupAndFormatMessages(msgs[:i], ownNick, buf)
+				out = append(out, markerLine(width))
+				return append(out, groupAndFormatMessages(msgs[i:], ownNick, buf)...)
+			}
+		}
+	}
+	return groupAndFormatMessages(msgs, ownNick, buf)
+}
+
+// markerLine renders the horizontal "New messages" divider at width cols.
+func markerLine(width int) string {
+	const label = " New messages "
+	fill := width - len(label)
+	if fill < 4 {
+		return styleMarker.Render(strings.TrimSpace(label))
+	}
+	left := fill / 2
+	return styleMarker.Render(strings.Repeat("─", left) + label + strings.Repeat("─", fill-left))
 }
 
 // groupAndFormatMessages renders a buffer slice with netsplit collapsing.

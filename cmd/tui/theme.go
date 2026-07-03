@@ -66,6 +66,10 @@ var (
 				Bold(true).
 				PaddingLeft(2)
 
+	// "New messages" divider in the message viewport (web parity).
+	styleMarker = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorMention))
+
 	styleSelected = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(colorUnread)).
 			Background(lipgloss.Color(colorBorder)).

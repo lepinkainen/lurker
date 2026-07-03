@@ -17,8 +17,10 @@ The marker is inserted at the position of the first unseen message for that chan
 
 - Marker is per-channel, not global. Every channel tracks its own "last read" position.
 - Marker is visible on **all** channels that have unread messages, not only the active one.
-- Marker disappears once the channel is marked as read.
-- A channel is marked as read when the user views it **while the web UI is focused** and then navigates away from it (switches to another channel, or the buffer otherwise loses active status). Re-entry to that channel should show no marker unless new messages have arrived since.
+- The read *position* (sidebar unread badge + server `mark_read`) and the marker *line* have separate lifecycles:
+  - Read position advances as soon as the user views a channel while the web UI is focused. This clears the unread badge immediately.
+  - The marker line stays visible while the user remains on the channel, so they can still see where new messages began. It clears when the channel loses active status after having been viewed focused (switch away and back → no marker unless new messages arrived since), or when the user presses **Esc** (IRCCloud-style explicit clear).
+- The server's `buffer_update` echo of a mark_read (last_seen caught up, unread=0) must **not** clear the active channel's marker — the user is looking at it (`reconcileAnchor` skips the active buffer).
 - If the tab is unfocused, viewing a channel does not mark it as read — the user might not actually be looking.
 
 ## Cases
@@ -33,9 +35,14 @@ The marker is inserted at the position of the first unseen message for that chan
 ### Case B — channel switch while focused
 
 1. User is focused on the web UI, viewing channel A. New messages arrive in channel B → channel B gets a "New messages" marker at the first unseen message.
-2. User switches to channel B. Marker is visible. Channel B is **not** marked read on entry.
-3. User switches to channel A. Channel B is now marked read; marker cleared.
+2. User switches to channel B. Marker is visible. Read position advances on entry (badge clears), but the marker line stays.
+3. User switches to channel A. Channel B's marker is cleared.
 4. User switches back to channel B. No marker if no new messages arrived since step 3. If new messages did arrive, a new marker appears at the first of those.
+
+### Case C — explicit clear with Esc
+
+1. User is viewing a channel with a visible marker.
+2. User presses Esc (with no overlay/drawer open on top). Marker clears immediately and the channel is marked read.
 
 ## Edge cases
 
@@ -44,13 +51,17 @@ The marker is inserted at the position of the first unseen message for that chan
 - **Initial load**: on first load of the UI, no markers. The first time a channel is viewed establishes its read position.
 - **Reconnect / history replay**: messages arriving via history backfill (older than known position) must not trigger a marker.
 - **Empty channel becomes non-empty**: marker appears above the very first message if the channel was never visited; otherwise above the first new one.
-- **Marker position is sticky**: once placed, the marker does not move as more messages arrive — it represents the position at the moment unread state began. Only mark-read clears it.
+- **Marker position is sticky**: once placed, the marker does not move as more messages arrive — it represents the position at the moment unread state began. Only exit-after-focused-view or Esc clears it.
 
 ## Non-goals
 
 - No persistence across reloads is required for v1 (mark-read state may live in memory only). Document this as a known limitation; revisit if users complain.
 - No per-message read receipts. Only one marker per channel.
 - No notification badges interaction defined here (see separate behavior if/when added).
+
+## TUI parity
+
+The TUI client (`cmd/tui/`) implements the same semantics with one simplification: a running TUI is always considered "focused" (no reliable terminal-focus signal), so entry always advances the read position. Esc clears the active buffer's marker *and* toggles sidebar/input focus (its pre-existing binding). Marker state lives in `model.markerAnchor`; read-position logic in `markActiveRead` / `reconcileAnchor` mirrors `web/src/read-tracker.ts` and `web/src/app-state.ts`.
 
 ## Related
 

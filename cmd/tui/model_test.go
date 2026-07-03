@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,6 +21,8 @@ func testModel() *model {
 		members:        map[uuid.UUID][]channelMember{},
 		unread:         map[uuid.UUID]int{},
 		mentions:       map[uuid.UUID]int{},
+		markerAnchor:   map[uuid.UUID]uuid.UUID{},
+		lastMarkedRead: map[uuid.UUID]uuid.UUID{},
 		historyLoading: map[uuid.UUID]bool{},
 		historyExhaust: map[uuid.UUID]bool{},
 		channelList:    map[uuid.UUID][]channelListEntry{},
@@ -139,6 +144,10 @@ func TestMouseClickSidebarSelectsBuffer(t *testing.T) {
 		{ID: b2, NetworkID: netID, Name: "#b", Kind: "channel"},
 	}
 	m.rebuildSidebar()
+	// Buffer activation persists tui-state.json under os.UserConfigDir —
+	// point HOME at a temp dir so tests never touch the user's real config.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	click := func(x, y int) model {
 		updated, _ := m.Update(tea.MouseMsg{
@@ -217,5 +226,268 @@ func TestPresenceModeChannelHonorsFlags(t *testing.T) {
 	show, collapse = presenceMode(buf)
 	if show {
 		t.Errorf("channel hidden: show=%v, want false", show)
+	}
+}
+
+// ── new-messages marker (parity with web; see ai-docs/behaviors/new-messages-marker.md) ──
+
+// seqUUID builds deterministic, byte-ordered UUIDs so tests can rely on
+// message-ID ordering the way UUIDv7 provides it in production.
+func seqUUID(n int) uuid.UUID {
+	return uuid.MustParse(fmt.Sprintf("00000000-0000-7000-8000-%012d", n))
+}
+
+// markerModel returns a model with two channel buffers on one network,
+// sidebar built, buffer A active, and a WS send recorder installed.
+func markerModel(t *testing.T) (*model, uuid.UUID, uuid.UUID, *[]wsCmd) {
+	t.Helper()
+	m := testModel()
+	netID := uuid.New()
+	a, b := seqUUID(1), seqUUID(2)
+	m.networks = []networkDTO{{ID: netID, Name: "ircnet"}}
+	m.buffers = []bufferDTO{
+		{ID: a, NetworkID: netID, Name: "#a", Kind: "channel"},
+		{ID: b, NetworkID: netID, Name: "#b", Kind: "channel"},
+	}
+	m.rebuildSidebar()
+	var sent []wsCmd
+	m.sendWS = func(cmd wsCmd) error {
+		sent = append(sent, cmd)
+		return nil
+	}
+	m.activateBufferByID(a)
+	sent = sent[:0] // drop mark_read from initial activation
+	return m, a, b, &sent
+}
+
+// activateBufferByID selects the sidebar row for id and activates it.
+func (m *model) activateBufferByID(id uuid.UUID) {
+	m.lastPersistedBuffer = id // skip tui-state.json write in tests
+	for i, item := range m.sidebarItems {
+		if !item.isHeader && item.bufferID == id {
+			m.sidebarSel = i
+			m.activateSidebarSel()
+			return
+		}
+	}
+	panic("buffer not in sidebar: " + id.String())
+}
+
+func msgEvent(bufID, msgID uuid.UUID) wsEvent {
+	return wsEvent{
+		Type: "message", ID: msgID, BufferID: bufID,
+		Sender: "alice", Kind: "privmsg", Content: "hi",
+		CountsAsUnread: true,
+	}
+}
+
+func TestMarkerAnchorSetOnInactiveArrivalAndSticky(t *testing.T) {
+	m, _, b, _ := markerModel(t)
+	first, second := seqUUID(100), seqUUID(101)
+	m.handleWSEvent(msgEvent(b, first))
+	if got := m.markerAnchor[b]; got != first {
+		t.Fatalf("anchor = %v, want %v", got, first)
+	}
+	m.handleWSEvent(msgEvent(b, second))
+	if got := m.markerAnchor[b]; got != first {
+		t.Errorf("anchor moved to %v after second arrival, want sticky %v", got, first)
+	}
+	if m.unread[b] != 2 {
+		t.Errorf("unread = %d, want 2", m.unread[b])
+	}
+}
+
+func TestMarkerAnchorNotSetOnActiveArrival(t *testing.T) {
+	m, a, _, _ := markerModel(t)
+	m.handleWSEvent(msgEvent(a, seqUUID(100)))
+	if _, ok := m.markerAnchor[a]; ok {
+		t.Errorf("anchor set on active buffer arrival")
+	}
+}
+
+func TestActiveArrivalAdvancesReadPosition(t *testing.T) {
+	m, a, _, sent := markerModel(t)
+	msgID := seqUUID(100)
+	m.handleWSEvent(msgEvent(a, msgID))
+	if len(*sent) != 1 {
+		t.Fatalf("sent %d cmds, want 1 mark_read", len(*sent))
+	}
+	cmd := (*sent)[0]
+	if cmd["type"] != "mark_read" || cmd["message_id"] != msgID {
+		t.Errorf("cmd = %v, want mark_read for %v", cmd, msgID)
+	}
+}
+
+func TestEntryMarksReadKeepsAnchor(t *testing.T) {
+	m, _, b, sent := markerModel(t)
+	first, second := seqUUID(100), seqUUID(101)
+	m.handleWSEvent(msgEvent(b, first))
+	m.handleWSEvent(msgEvent(b, second))
+
+	m.activateBufferByID(b)
+	if got := m.markerAnchor[b]; got != first {
+		t.Errorf("anchor = %v after entry, want kept at %v", got, first)
+	}
+	if m.unread[b] != 0 || m.mentions[b] != 0 {
+		t.Errorf("badges not zeroed: unread=%d mentions=%d", m.unread[b], m.mentions[b])
+	}
+	if len(*sent) != 1 {
+		t.Fatalf("sent %d cmds, want 1", len(*sent))
+	}
+	cmd := (*sent)[0]
+	if cmd["type"] != "mark_read" || cmd["buffer_id"] != b || cmd["message_id"] != second {
+		t.Errorf("cmd = %v, want mark_read buffer=%v message=%v", cmd, b, second)
+	}
+}
+
+func TestExitClearsAnchorAndReentryShowsNone(t *testing.T) {
+	m, a, b, _ := markerModel(t)
+	m.handleWSEvent(msgEvent(b, seqUUID(100)))
+	m.activateBufferByID(b) // enter: anchor kept
+	m.activateBufferByID(a) // exit b: anchor cleared
+	if _, ok := m.markerAnchor[b]; ok {
+		t.Errorf("anchor survived exit from buffer")
+	}
+}
+
+func TestMarkReadNotResentWhenCaughtUp(t *testing.T) {
+	m, a, b, sent := markerModel(t)
+	m.handleWSEvent(msgEvent(b, seqUUID(100)))
+	m.activateBufferByID(b)
+	m.activateBufferByID(a)
+	m.activateBufferByID(b) // nothing new since last mark_read
+	var markReads int
+	for _, c := range *sent {
+		if c["type"] == "mark_read" {
+			markReads++
+		}
+	}
+	if markReads != 1 {
+		t.Errorf("mark_read sent %d times, want 1", markReads)
+	}
+}
+
+func TestEscClearsActiveMarker(t *testing.T) {
+	m, _, b, _ := markerModel(t)
+	m.handleWSEvent(msgEvent(b, seqUUID(100)))
+	m.activateBufferByID(b)
+	if _, ok := m.markerAnchor[b]; !ok {
+		t.Fatalf("precondition: anchor missing after entry")
+	}
+	m.dispatchControlKey("esc")
+	if _, ok := m.markerAnchor[b]; ok {
+		t.Errorf("anchor survived esc")
+	}
+}
+
+func TestBufferUpdateEchoKeepsActiveAnchor(t *testing.T) {
+	m, _, b, _ := markerModel(t)
+	msgID := seqUUID(100)
+	m.handleWSEvent(msgEvent(b, msgID))
+	m.activateBufferByID(b)
+	// server echo of our entry mark_read: caught up, unread=0
+	m.handleWSEvent(wsEvent{Type: "buffer_update", ID: b, LastSeenID: msgID, Unread: 0})
+	if _, ok := m.markerAnchor[b]; !ok {
+		t.Errorf("buffer_update echo cleared the active buffer's anchor")
+	}
+}
+
+func TestBufferUpdateReconcilesInactiveAnchor(t *testing.T) {
+	m, _, b, _ := markerModel(t)
+	msgID := seqUUID(100)
+	m.handleWSEvent(msgEvent(b, msgID))
+	// another client marked b read; b is not active here
+	m.handleWSEvent(wsEvent{Type: "buffer_update", ID: b, LastSeenID: msgID, Unread: 0})
+	if _, ok := m.markerAnchor[b]; ok {
+		t.Errorf("stale anchor kept on inactive caught-up buffer")
+	}
+}
+
+func TestRenderBufferLinesInsertsMarker(t *testing.T) {
+	buf := &bufferDTO{Kind: "channel", ShowPresenceEvents: true}
+	anchor := seqUUID(2)
+	msgs := []messageDTO{
+		{ID: seqUUID(1), Sender: "alice", Kind: "privmsg", Content: "old"},
+		{ID: anchor, Sender: "bob", Kind: "privmsg", Content: "first new"},
+		{ID: seqUUID(3), Sender: "bob", Kind: "privmsg", Content: "second new"},
+	}
+	lines := renderBufferLines(msgs, "me", buf, anchor, 40)
+	if len(lines) != 4 {
+		t.Fatalf("got %d lines, want 4 (3 messages + marker)", len(lines))
+	}
+	if !strings.Contains(lines[1], "New messages") {
+		t.Errorf("line[1] = %q, want marker line", lines[1])
+	}
+	// no anchor -> no marker
+	lines = renderBufferLines(msgs, "me", buf, uuid.Nil, 40)
+	if len(lines) != 3 {
+		t.Errorf("got %d lines without anchor, want 3", len(lines))
+	}
+	// anchor not in slice (history trimmed) -> no marker
+	lines = renderBufferLines(msgs, "me", buf, seqUUID(99), 40)
+	if len(lines) != 3 {
+		t.Errorf("got %d lines with unknown anchor, want 3", len(lines))
+	}
+}
+
+func TestBufferUpdateEchoDoesNotStompJoined(t *testing.T) {
+	m, _, b, _ := markerModel(t)
+	m.findBuffer(b).Joined = true
+
+	// mark_read echo: the JSON carries no "joined" key, which must not
+	// read as "parted".
+	raw := fmt.Sprintf(`{"type":"buffer_update","id":%q,"last_seen_id":%q,"unread":0}`, b, seqUUID(100))
+	var ev wsEvent
+	if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+		t.Fatal(err)
+	}
+	m.handleWSEvent(ev)
+	if !m.findBuffer(b).Joined {
+		t.Errorf("mark_read echo stomped Joined to false")
+	}
+
+	// An explicit joined=false (real part) still applies.
+	joined := false
+	m.handleWSEvent(wsEvent{Type: "buffer_update", ID: b, Joined: &joined})
+	if m.findBuffer(b).Joined {
+		t.Errorf("explicit joined=false not applied")
+	}
+}
+
+func TestMarkReadResentAfterReconnect(t *testing.T) {
+	m, a, _, sent := markerModel(t)
+	m.handleWSEvent(msgEvent(a, seqUUID(100)))
+	if len(*sent) != 1 {
+		t.Fatalf("precondition: sent %d cmds, want 1", len(*sent))
+	}
+
+	// WS drops: the queued mark_read may never have reached the server, so
+	// the reconnect-time markActiveRead must resend the read position.
+	updated, _ := m.Update(wsErrorMsg{errors.New("gone")})
+	*m = updated.(model)
+	m.markActiveRead()
+	if len(*sent) != 2 {
+		t.Fatalf("mark_read not resent after reconnect: sent %d cmds", len(*sent))
+	}
+}
+
+func TestActiveArrivalMarkReadThrottled(t *testing.T) {
+	m, a, _, sent := markerModel(t)
+	m.handleWSEvent(msgEvent(a, seqUUID(100))) // leading edge sends
+	cmd := m.handleWSEvent(msgEvent(a, seqUUID(101)))
+	if len(*sent) != 1 {
+		t.Fatalf("sent %d cmds, want 1 (second mark_read throttled)", len(*sent))
+	}
+	if cmd == nil {
+		t.Fatal("no trailing flush scheduled for the throttled mark_read")
+	}
+
+	updated, _ := m.Update(markReadFlushMsg{})
+	*m = updated.(model)
+	if len(*sent) != 2 {
+		t.Fatalf("flush did not send: %d cmds", len(*sent))
+	}
+	if got := (*sent)[1]["message_id"]; got != seqUUID(101) {
+		t.Errorf("flush marked %v, want final message %v", got, seqUUID(101))
 	}
 }
