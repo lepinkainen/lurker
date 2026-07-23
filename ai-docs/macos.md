@@ -66,6 +66,8 @@ task build-macos
 open build/DerivedData/Build/Products/Debug/Lurker.app
 ```
 
+The app icon PNGs in `macos/Lurker/Assets.xcassets/AppIcon.appiconset/` are committed and used as-is by the build. They are generated from `web/public/favicon.svg`; regenerate them with `task macos-icon` only when that source changes (requires `rsvg-convert` — `brew install librsvg`).
+
 Run checks:
 
 ```bash

@@ -87,7 +87,6 @@ tasks:
   build-macos:
     desc: Build the native macOS app (Apple silicon)
     platforms: [darwin]
-    deps: [macos-icon]
     cmds:
       - >-
         xcodebuild -quiet
