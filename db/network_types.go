@@ -14,6 +14,7 @@ type Network struct {
 	Realname        string
 	SASLUser        string
 	SASLPass        string
+	ServerPass      string
 	ConnectCommands []string
 	SortOrder       int
 	Disabled        bool

@@ -11,24 +11,25 @@ import (
 )
 
 const createNetwork = `-- name: CreateNetwork :exec
-INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
+INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, realname, sasl_user, sasl_pass, server_pass, autoconnect, sort_order, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
         (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks), ?)
 `
 
 type CreateNetworkParams struct {
-	ID        []byte
-	Name      string
-	NameCi    string
-	Kind      string
-	Host      string
-	Port      int64
-	Tls       int64
-	Nick      string
-	Realname  sql.NullString
-	SaslUser  sql.NullString
-	SaslPass  sql.NullString
-	CreatedAt string
+	ID         []byte
+	Name       string
+	NameCi     string
+	Kind       string
+	Host       string
+	Port       int64
+	Tls        int64
+	Nick       string
+	Realname   sql.NullString
+	SaslUser   sql.NullString
+	SaslPass   sql.NullString
+	ServerPass sql.NullString
+	CreatedAt  string
 }
 
 func (q *Queries) CreateNetwork(ctx context.Context, arg CreateNetworkParams) error {
@@ -44,6 +45,7 @@ func (q *Queries) CreateNetwork(ctx context.Context, arg CreateNetworkParams) er
 		arg.Realname,
 		arg.SaslUser,
 		arg.SaslPass,
+		arg.ServerPass,
 		arg.CreatedAt,
 	)
 	return err
@@ -63,23 +65,24 @@ func (q *Queries) DeleteNetwork(ctx context.Context, id []byte) (int64, error) {
 
 const getNetwork = `-- name: GetNetwork :one
 SELECT id, name, kind, host, port, tls, nick, COALESCE(realname,'') AS realname,
-       sasl_user, sasl_pass, sort_order, disabled
+       sasl_user, sasl_pass, server_pass, sort_order, disabled
 FROM networks WHERE id = ?
 `
 
 type GetNetworkRow struct {
-	ID        []byte
-	Name      string
-	Kind      string
-	Host      string
-	Port      int64
-	Tls       int64
-	Nick      string
-	Realname  string
-	SaslUser  sql.NullString
-	SaslPass  sql.NullString
-	SortOrder int64
-	Disabled  int64
+	ID         []byte
+	Name       string
+	Kind       string
+	Host       string
+	Port       int64
+	Tls        int64
+	Nick       string
+	Realname   string
+	SaslUser   sql.NullString
+	SaslPass   sql.NullString
+	ServerPass sql.NullString
+	SortOrder  int64
+	Disabled   int64
 }
 
 func (q *Queries) GetNetwork(ctx context.Context, id []byte) (GetNetworkRow, error) {
@@ -96,6 +99,7 @@ func (q *Queries) GetNetwork(ctx context.Context, id []byte) (GetNetworkRow, err
 		&i.Realname,
 		&i.SaslUser,
 		&i.SaslPass,
+		&i.ServerPass,
 		&i.SortOrder,
 		&i.Disabled,
 	)
@@ -194,22 +198,23 @@ func (q *Queries) ListNetworks(ctx context.Context) ([]ListNetworksRow, error) {
 
 const listNetworksWithSASL = `-- name: ListNetworksWithSASL :many
 SELECT id, name, kind, host, port, tls, nick, COALESCE(realname,'') AS realname,
-       sasl_user, sasl_pass, sort_order
+       sasl_user, sasl_pass, server_pass, sort_order
 FROM networks WHERE disabled=0 ORDER BY sort_order, id
 `
 
 type ListNetworksWithSASLRow struct {
-	ID        []byte
-	Name      string
-	Kind      string
-	Host      string
-	Port      int64
-	Tls       int64
-	Nick      string
-	Realname  string
-	SaslUser  sql.NullString
-	SaslPass  sql.NullString
-	SortOrder int64
+	ID         []byte
+	Name       string
+	Kind       string
+	Host       string
+	Port       int64
+	Tls        int64
+	Nick       string
+	Realname   string
+	SaslUser   sql.NullString
+	SaslPass   sql.NullString
+	ServerPass sql.NullString
+	SortOrder  int64
 }
 
 func (q *Queries) ListNetworksWithSASL(ctx context.Context) ([]ListNetworksWithSASLRow, error) {
@@ -232,6 +237,7 @@ func (q *Queries) ListNetworksWithSASL(ctx context.Context) ([]ListNetworksWithS
 			&i.Realname,
 			&i.SaslUser,
 			&i.SaslPass,
+			&i.ServerPass,
 			&i.SortOrder,
 		); err != nil {
 			return nil, err
@@ -280,21 +286,22 @@ func (q *Queries) SetNetworkSortOrder(ctx context.Context, arg SetNetworkSortOrd
 
 const updateNetwork = `-- name: UpdateNetwork :execrows
 UPDATE networks
-SET name = ?, name_ci = ?, host = ?, port = ?, tls = ?, nick = ?, realname = ?, sasl_user = ?, sasl_pass = ?
+SET name = ?, name_ci = ?, host = ?, port = ?, tls = ?, nick = ?, realname = ?, sasl_user = ?, sasl_pass = ?, server_pass = ?
 WHERE id = ?
 `
 
 type UpdateNetworkParams struct {
-	Name     string
-	NameCi   string
-	Host     string
-	Port     int64
-	Tls      int64
-	Nick     string
-	Realname sql.NullString
-	SaslUser sql.NullString
-	SaslPass sql.NullString
-	ID       []byte
+	Name       string
+	NameCi     string
+	Host       string
+	Port       int64
+	Tls        int64
+	Nick       string
+	Realname   sql.NullString
+	SaslUser   sql.NullString
+	SaslPass   sql.NullString
+	ServerPass sql.NullString
+	ID         []byte
 }
 
 func (q *Queries) UpdateNetwork(ctx context.Context, arg UpdateNetworkParams) (int64, error) {
@@ -308,6 +315,7 @@ func (q *Queries) UpdateNetwork(ctx context.Context, arg UpdateNetworkParams) (i
 		arg.Realname,
 		arg.SaslUser,
 		arg.SaslPass,
+		arg.ServerPass,
 		arg.ID,
 	)
 	if err != nil {
@@ -317,29 +325,30 @@ func (q *Queries) UpdateNetwork(ctx context.Context, arg UpdateNetworkParams) (i
 }
 
 const upsertNetwork = `-- name: UpsertNetwork :exec
-INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, sort_order, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
+INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, realname, sasl_user, sasl_pass, server_pass, autoconnect, sort_order, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
         (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks), ?)
 ON CONFLICT(name_ci) DO UPDATE SET
   name=excluded.name, kind=excluded.kind, host=excluded.host, port=excluded.port,
   tls=excluded.tls, nick=excluded.nick, realname=excluded.realname,
-  sasl_user=excluded.sasl_user, sasl_pass=excluded.sasl_pass,
+  sasl_user=excluded.sasl_user, sasl_pass=excluded.sasl_pass, server_pass=excluded.server_pass,
   disabled=0
 `
 
 type UpsertNetworkParams struct {
-	ID        []byte
-	Name      string
-	NameCi    string
-	Kind      string
-	Host      string
-	Port      int64
-	Tls       int64
-	Nick      string
-	Realname  sql.NullString
-	SaslUser  sql.NullString
-	SaslPass  sql.NullString
-	CreatedAt string
+	ID         []byte
+	Name       string
+	NameCi     string
+	Kind       string
+	Host       string
+	Port       int64
+	Tls        int64
+	Nick       string
+	Realname   sql.NullString
+	SaslUser   sql.NullString
+	SaslPass   sql.NullString
+	ServerPass sql.NullString
+	CreatedAt  string
 }
 
 func (q *Queries) UpsertNetwork(ctx context.Context, arg UpsertNetworkParams) error {
@@ -355,6 +364,7 @@ func (q *Queries) UpsertNetwork(ctx context.Context, arg UpsertNetworkParams) er
 		arg.Realname,
 		arg.SaslUser,
 		arg.SaslPass,
+		arg.ServerPass,
 		arg.CreatedAt,
 	)
 	return err

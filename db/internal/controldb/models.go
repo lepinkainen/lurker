@@ -54,6 +54,7 @@ type Network struct {
 	SortOrder   int64
 	Disabled    int64
 	Kind        string
+	ServerPass  sql.NullString
 }
 
 type NetworkConnectCommand struct {
