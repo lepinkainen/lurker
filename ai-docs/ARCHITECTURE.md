@@ -9,6 +9,7 @@ This document is for AI agents and other technical readers. It gives the system 
 - [websocket-protocol.md](websocket-protocol.md) — `/api/stream` commands, acks, event shapes
 - [irc-runtime.md](irc-runtime.md) — `irc.Manager`, handler, event persistence, URL preview pipeline, event hub
 - [frontend.md](frontend.md) — web UI layout, source-of-truth rules, hydration model
+- [macos.md](macos.md) — native SwiftUI client, endpoint policy, state model, packaging
 - [theming.md](theming.md) — YAML themes, loader, `GET /api/themes`, how to add a theme
 - [tui.md](tui.md) — terminal UI client, configuration, keyboard controls, API usage
 - [keyboard-shortcuts.md](keyboard-shortcuts.md) — channel switcher and keyboard shortcut UX spec
@@ -23,6 +24,8 @@ Current in-repo scope:
 
 - Go backend service
 - disk-served web UI
+- native SwiftUI macOS client
+- terminal UI client
 - control-plane SQLite database
 - one SQLite log database per network
 - REST API for state, history, search, and network management
@@ -47,6 +50,7 @@ Main components:
 - `hub/`: in-process pub/sub used to fan live events to WebSocket clients
 - `updates/`: background checker for published Linux container image metadata
 - `web/`: Vite + TypeScript frontend
+- `macos/`: Xcode project for the native SwiftUI client
 - `cmd/tui/`: terminal UI client for the backend
 
 Runtime flow:
@@ -57,7 +61,8 @@ Runtime flow:
 4. HTTP API and web UI are served from the same Go process
 5. IRC events resolve buffers through `MultiStore.EnsureBuffer`, persist to SQLite with UUIDv7 IDs, and publish to the hub
 6. background update checker polls GHCR image metadata and caches latest status in memory
-7. WebSocket clients receive hub events and issue commands back to the backend
+7. web, terminal, and macOS clients consume the existing REST and WebSocket APIs
+8. WebSocket clients receive hub events and issue commands back to the backend
 
 ## Configuration model
 
