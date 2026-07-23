@@ -1,0 +1,338 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* AppModel.swift */; };
+		A10000000000000000000002 /* ChannelSwitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* ChannelSwitcher.swift */; };
+		A10000000000000000000003 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* ConversationView.swift */; };
+		A10000000000000000000004 /* EndpointPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* EndpointPolicy.swift */; };
+		A10000000000000000000005 /* FixtureTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* FixtureTransport.swift */; };
+		A10000000000000000000006 /* LurkerAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* LurkerAPI.swift */; };
+		A10000000000000000000007 /* LurkerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000007 /* LurkerApp.swift */; };
+		A10000000000000000000008 /* MembersInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* MembersInspector.swift */; };
+		A10000000000000000000009 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* Models.swift */; };
+		A1000000000000000000000A /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000A /* NotificationManager.swift */; };
+		A1000000000000000000000B /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000B /* RootView.swift */; };
+		A1000000000000000000000C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000C /* SettingsView.swift */; };
+		A1000000000000000000000D /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000D /* SidebarView.swift */; };
+		A1000000000000000000000E /* SlashCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000E /* SlashCommands.swift */; };
+		A1000000000000000000000F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* Assets.xcassets */; };
+		A20000000000000000000001 /* EndpointPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* EndpointPolicyTests.swift */; };
+		A20000000000000000000002 /* SlashCommandsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* SlashCommandsTests.swift */; };
+		A20000000000000000000003 /* WireModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* WireModelTests.swift */; };
+		A20000000000000000000004 /* AppModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000004 /* AppModelTests.swift */; };
+		A30000000000000000000001 /* LurkerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000001 /* LurkerUITests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C20000000000000000000001 = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D10000000000000000000001;
+			remoteInfo = Lurker;
+		};
+		C30000000000000000000001 = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D10000000000000000000001;
+			remoteInfo = Lurker;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		B10000000000000000000001 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		B10000000000000000000002 /* ChannelSwitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelSwitcher.swift; sourceTree = "<group>"; };
+		B10000000000000000000003 /* ConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationView.swift; sourceTree = "<group>"; };
+		B10000000000000000000004 /* EndpointPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndpointPolicy.swift; sourceTree = "<group>"; };
+		B10000000000000000000005 /* FixtureTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixtureTransport.swift; sourceTree = "<group>"; };
+		B10000000000000000000006 /* LurkerAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LurkerAPI.swift; sourceTree = "<group>"; };
+		B10000000000000000000007 /* LurkerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LurkerApp.swift; sourceTree = "<group>"; };
+		B10000000000000000000008 /* MembersInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembersInspector.swift; sourceTree = "<group>"; };
+		B10000000000000000000009 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		B1000000000000000000000A /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		B1000000000000000000000B /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		B1000000000000000000000C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B1000000000000000000000D /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		B1000000000000000000000E /* SlashCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommands.swift; sourceTree = "<group>"; };
+		B1000000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10000000000000000000010 /* Lurker.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Lurker.entitlements; sourceTree = "<group>"; };
+		B10000000000000000000011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B20000000000000000000001 /* EndpointPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndpointPolicyTests.swift; sourceTree = "<group>"; };
+		B20000000000000000000002 /* SlashCommandsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommandsTests.swift; sourceTree = "<group>"; };
+		B20000000000000000000003 /* WireModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireModelTests.swift; sourceTree = "<group>"; };
+		B20000000000000000000004 /* AppModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelTests.swift; sourceTree = "<group>"; };
+		B30000000000000000000001 /* LurkerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LurkerUITests.swift; sourceTree = "<group>"; };
+		B40000000000000000000001 /* Lurker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Lurker.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B40000000000000000000002 /* LurkerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LurkerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B40000000000000000000003 /* LurkerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LurkerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		E10000000000000000000001 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		E20000000000000000000001 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		E30000000000000000000001 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		F00000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				F10000000000000000000001 /* Lurker */,
+				F20000000000000000000001 /* LurkerTests */,
+				F30000000000000000000001 /* LurkerUITests */,
+				F40000000000000000000001 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		F10000000000000000000001 /* Lurker */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000001 /* AppModel.swift */,
+				B10000000000000000000002 /* ChannelSwitcher.swift */,
+				B10000000000000000000003 /* ConversationView.swift */,
+				B10000000000000000000004 /* EndpointPolicy.swift */,
+				B10000000000000000000005 /* FixtureTransport.swift */,
+				B10000000000000000000006 /* LurkerAPI.swift */,
+				B10000000000000000000007 /* LurkerApp.swift */,
+				B10000000000000000000008 /* MembersInspector.swift */,
+				B10000000000000000000009 /* Models.swift */,
+				B1000000000000000000000A /* NotificationManager.swift */,
+				B1000000000000000000000B /* RootView.swift */,
+				B1000000000000000000000C /* SettingsView.swift */,
+				B1000000000000000000000D /* SidebarView.swift */,
+				B1000000000000000000000E /* SlashCommands.swift */,
+				B1000000000000000000000F /* Info.plist */,
+				B10000000000000000000010 /* Lurker.entitlements */,
+				B10000000000000000000011 /* Assets.xcassets */,
+			);
+			path = Lurker;
+			sourceTree = "<group>";
+		};
+		F20000000000000000000001 /* LurkerTests */ = {
+			isa = PBXGroup;
+			children = (
+				B20000000000000000000001 /* EndpointPolicyTests.swift */,
+				B20000000000000000000002 /* SlashCommandsTests.swift */,
+				B20000000000000000000003 /* WireModelTests.swift */,
+				B20000000000000000000004 /* AppModelTests.swift */,
+			);
+			path = LurkerTests;
+			sourceTree = "<group>";
+		};
+		F30000000000000000000001 /* LurkerUITests */ = {
+			isa = PBXGroup;
+			children = (B30000000000000000000001 /* LurkerUITests.swift */);
+			path = LurkerUITests;
+			sourceTree = "<group>";
+		};
+		F40000000000000000000001 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B40000000000000000000001 /* Lurker.app */,
+				B40000000000000000000002 /* LurkerTests.xctest */,
+				B40000000000000000000003 /* LurkerUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		D10000000000000000000001 /* Lurker */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D50000000000000000000002;
+			buildPhases = (
+				E10000000000000000000002 /* Sources */,
+				E10000000000000000000001 /* Frameworks */,
+				E10000000000000000000003 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = Lurker;
+			productName = Lurker;
+			productReference = B40000000000000000000001 /* Lurker.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D20000000000000000000001 /* LurkerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D50000000000000000000003;
+			buildPhases = (
+				E20000000000000000000002 /* Sources */,
+				E20000000000000000000001 /* Frameworks */,
+				E20000000000000000000003 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = (C20000000000000000000002 /* PBXTargetDependency */);
+			name = LurkerTests;
+			productName = LurkerTests;
+			productReference = B40000000000000000000002 /* LurkerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		D30000000000000000000001 /* LurkerUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D50000000000000000000004;
+			buildPhases = (
+				E30000000000000000000002 /* Sources */,
+				E30000000000000000000001 /* Frameworks */,
+				E30000000000000000000003 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = (C30000000000000000000002 /* PBXTargetDependency */);
+			name = LurkerUITests;
+			productName = LurkerUITests;
+			productReference = B40000000000000000000003 /* LurkerUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					D10000000000000000000001 = {CreatedOnToolsVersion = 26.0; };
+					D20000000000000000000001 = {CreatedOnToolsVersion = 26.0; TestTargetID = D10000000000000000000001; };
+					D30000000000000000000001 = {CreatedOnToolsVersion = 26.0; TestTargetID = D10000000000000000000001; };
+				};
+			};
+			buildConfigurationList = D50000000000000000000001;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base);
+			mainGroup = F00000000000000000000001;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = F40000000000000000000001 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D10000000000000000000001 /* Lurker */,
+				D20000000000000000000001 /* LurkerTests */,
+				D30000000000000000000001 /* LurkerUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		E10000000000000000000003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000F /* Assets.xcassets in Resources */); runOnlyForDeploymentPostprocessing = 0; };
+		E20000000000000000000003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		E30000000000000000000003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E10000000000000000000002 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000001, A10000000000000000000002, A10000000000000000000003,
+				A10000000000000000000004, A10000000000000000000005, A10000000000000000000006,
+				A10000000000000000000007, A10000000000000000000008, A10000000000000000000009,
+				A1000000000000000000000A, A1000000000000000000000B, A1000000000000000000000C,
+				A1000000000000000000000D, A1000000000000000000000E,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E20000000000000000000002 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003, A20000000000000000000004);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E30000000000000000000002 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A30000000000000000000001);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C20000000000000000000002 = {isa = PBXTargetDependency; target = D10000000000000000000001 /* Lurker */; targetProxy = C20000000000000000000001; };
+		C30000000000000000000002 = {isa = PBXTargetDependency; target = D10000000000000000000001 /* Lurker */; targetProxy = C30000000000000000000001; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		11A000000000000000000001 = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; GCC_OPTIMIZATION_LEVEL = 0; MACOSX_DEPLOYMENT_TARGET = 26.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_VERSION = 6.0; }; name = Debug; };
+		11A000000000000000000002 = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 26.0; SWIFT_VERSION = 6.0; }; name = Release; };
+		11B000000000000000000001 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Lurker/Lurker.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Lurker/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.endymion.lurker;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		11B000000000000000000002 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Lurker/Lurker.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Lurker/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.endymion.lurker;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		11C000000000000000000001 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.endymion.lurker.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Lurker.app/Contents/MacOS/Lurker";
+			};
+			name = Debug;
+		};
+		11C000000000000000000002 = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = xyz.endymion.lurker.tests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Lurker.app/Contents/MacOS/Lurker"; }; name = Release; };
+		11D000000000000000000001 = {isa = XCBuildConfiguration; buildSettings = {GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = xyz.endymion.lurker.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TEST_TARGET_NAME = Lurker; }; name = Debug; };
+		11D000000000000000000002 = {isa = XCBuildConfiguration; buildSettings = {GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = xyz.endymion.lurker.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; TEST_TARGET_NAME = Lurker; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		D50000000000000000000001 = {isa = XCConfigurationList; buildConfigurations = (11A000000000000000000001, 11A000000000000000000002); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		D50000000000000000000002 = {isa = XCConfigurationList; buildConfigurations = (11B000000000000000000001, 11B000000000000000000002); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		D50000000000000000000003 = {isa = XCConfigurationList; buildConfigurations = (11C000000000000000000001, 11C000000000000000000002); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		D50000000000000000000004 = {isa = XCConfigurationList; buildConfigurations = (11D000000000000000000001, 11D000000000000000000002); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = D00000000000000000000001 /* Project object */;
+}
