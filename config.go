@@ -100,6 +100,7 @@ type NetworkFileConfig struct {
 	ConnectCommands []string           `yaml:"connect_commands,omitempty"`
 	SASLUser        string             `yaml:"sasl_user,omitempty"`
 	SASLPass        string             `yaml:"sasl_pass,omitempty"`
+	Password        string             `yaml:"server_password,omitempty"`
 	Servers         []ServerFileConfig `yaml:"servers"`
 }
 
@@ -296,6 +297,7 @@ func buildNetworks(fc FileConfig) ([]irc.NetworkConfig, error) {
 			ConnectCommands: n.ConnectCommands,
 			SASLUser:        n.SASLUser,
 			SASLPass:        n.SASLPass,
+			ServerPass:      n.Password,
 		})
 	}
 	return out, nil
@@ -406,6 +408,7 @@ func mergeNetworkEntry(existing map[string]NetworkFileConfig, n ircdb.Network, g
 	entry.ConnectCommands = n.ConnectCommands
 	entry.SASLUser = n.SASLUser
 	entry.SASLPass = n.SASLPass
+	entry.Password = n.ServerPass
 	useTLS := n.TLS
 	if len(entry.Servers) > 0 {
 		tlsMaxVersion := entry.Servers[0].TLSMaxVersion

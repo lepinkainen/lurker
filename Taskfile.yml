@@ -34,9 +34,14 @@ tasks:
         step test-web  task test-web
         step web-build task web-build
         step build-tui task build-tui
+        if [ "$(uname -s)" = "Darwin" ]; then
+          step mac-lint  task lint-macos
+          step mac-test  task test-macos
+          step mac-app   task build-macos
+        fi
         mkdir -p {{.BUILD_DIR}}
         step binary    go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
-        echo "Build OK — lint, Go + web tests, web build, TUI + server binaries"
+        echo "Build OK — lint, tests, web build, and local applications"
 
   build-linux:
     desc: Build the Linux binary into build/
@@ -78,6 +83,82 @@ tasks:
     cmds:
       - mkdir -p {{.BUILD_DIR}}
       - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/lurker-tui-linux-amd64 ./cmd/tui
+
+  build-macos:
+    desc: Build the native macOS app (Apple silicon)
+    platforms: [darwin]
+    deps: [macos-icon]
+    cmds:
+      - >-
+        xcodebuild -quiet
+        -project macos/Lurker.xcodeproj
+        -scheme Lurker
+        -configuration Debug
+        -destination 'platform=macOS,arch=arm64'
+        -derivedDataPath {{.BUILD_DIR}}/DerivedData
+        CODE_SIGNING_ALLOWED=NO
+        ONLY_ACTIVE_ARCH=YES
+        build
+
+  macos-icon:
+    desc: Generate the native macOS icon from the project icon
+    platforms: [darwin]
+    sources:
+      - web/public/favicon.svg
+      - scripts/generate-macos-icon.sh
+    generates:
+      - macos/Lurker/Assets.xcassets/AppIcon.appiconset/icon_512x512@2x.png
+    cmds:
+      - ./scripts/generate-macos-icon.sh
+
+  test-macos:
+    desc: Run native macOS unit tests
+    platforms: [darwin]
+    cmds:
+      - >-
+        xcodebuild -quiet
+        -project macos/Lurker.xcodeproj
+        -scheme Lurker
+        -configuration Debug
+        -destination 'platform=macOS,arch=arm64'
+        -derivedDataPath {{.BUILD_DIR}}/DerivedData
+        CODE_SIGNING_ALLOWED=NO
+        ONLY_ACTIVE_ARCH=YES
+        -only-testing:LurkerTests
+        test
+
+  test-macos-ui:
+    desc: Run native macOS UI smoke tests with fixture data
+    platforms: [darwin]
+    cmds:
+      - >-
+        xcodebuild -quiet
+        -project macos/Lurker.xcodeproj
+        -scheme Lurker
+        -configuration Debug
+        -destination 'platform=macOS,arch=arm64'
+        -derivedDataPath {{.BUILD_DIR}}/DerivedData
+        ONLY_ACTIVE_ARCH=YES
+        CODE_SIGN_IDENTITY=-
+        CODE_SIGNING_REQUIRED=YES
+        AD_HOC_CODE_SIGNING_ALLOWED=YES
+        -only-testing:LurkerUITests
+        test
+
+  lint-macos:
+    desc: Check native macOS Swift formatting
+    platforms: [darwin]
+    cmds:
+      - xcrun swift-format lint --strict --recursive macos/Lurker macos/LurkerTests macos/LurkerUITests
+
+  package-macos:
+    desc: Build, Developer ID sign, notarize, and staple a macOS DMG
+    platforms: [darwin]
+    deps: [macos-icon]
+    env:
+      LURKER_VERSION: '{{.VERSION}}'
+    cmds:
+      - ./scripts/package-macos.sh
 
   dev-web:
     desc: Build the frontend then run backend via air (restarts 5s after Go edits settle)
@@ -142,6 +223,10 @@ tasks:
     cmds:
       - goimports -w $(find . -path ./llm-shared -prune -o -name '*.go' -print)
       - golangci-lint run ./...
+      - |
+        if [ "$(uname -s)" = "Darwin" ]; then
+          task lint-macos
+        fi
 
   vuln-go:
     desc: Scan import graph against the Go vulnerability DB (advisory, not gated on lint)

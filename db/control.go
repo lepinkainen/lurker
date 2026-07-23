@@ -37,18 +37,19 @@ func GetNetwork(ctx context.Context, d *sql.DB, id uuid.UUID) (Network, error) {
 		return Network{}, err
 	}
 	return Network{
-		ID:        rid,
-		Name:      row.Name,
-		Kind:      row.Kind,
-		Host:      row.Host,
-		Port:      int(row.Port),
-		TLS:       row.Tls == 1,
-		Nick:      row.Nick,
-		Realname:  row.Realname,
-		SASLUser:  row.SaslUser.String,
-		SASLPass:  row.SaslPass.String,
-		SortOrder: int(row.SortOrder),
-		Disabled:  row.Disabled == 1,
+		ID:         rid,
+		Name:       row.Name,
+		Kind:       row.Kind,
+		Host:       row.Host,
+		Port:       int(row.Port),
+		TLS:        row.Tls == 1,
+		Nick:       row.Nick,
+		Realname:   row.Realname,
+		SASLUser:   row.SaslUser.String,
+		SASLPass:   row.SaslPass.String,
+		ServerPass: row.ServerPass.String,
+		SortOrder:  int(row.SortOrder),
+		Disabled:   row.Disabled == 1,
 	}, nil
 }
 
@@ -67,18 +68,19 @@ func CreateNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 		tls = 1
 	}
 	if err := controldb.New(d).CreateNetwork(ctx, controldb.CreateNetworkParams{
-		ID:        id[:],
-		Name:      n.Name,
-		NameCi:    NormalizeNetworkName(n.Name),
-		Kind:      kind,
-		Host:      n.Host,
-		Port:      int64(n.Port),
-		Tls:       tls,
-		Nick:      n.Nick,
-		Realname:  nullStr(n.Realname),
-		SaslUser:  nullStr(n.SASLUser),
-		SaslPass:  nullStr(n.SASLPass),
-		CreatedAt: Now(),
+		ID:         id[:],
+		Name:       n.Name,
+		NameCi:     NormalizeNetworkName(n.Name),
+		Kind:       kind,
+		Host:       n.Host,
+		Port:       int64(n.Port),
+		Tls:        tls,
+		Nick:       n.Nick,
+		Realname:   nullStr(n.Realname),
+		SaslUser:   nullStr(n.SASLUser),
+		SaslPass:   nullStr(n.SASLPass),
+		ServerPass: nullStr(n.ServerPass),
+		CreatedAt:  Now(),
 	}); err != nil {
 		return Network{}, err
 	}
@@ -110,6 +112,9 @@ func UpdateNetwork(ctx context.Context, d *sql.DB, id uuid.UUID, n Network) (Net
 		n.SASLUser = current.SASLUser
 		n.SASLPass = current.SASLPass
 	}
+	if n.ServerPass == "" && current.ServerPass != "" {
+		n.ServerPass = current.ServerPass
+	}
 	if vErr := ValidateNetworkName(n.Name); vErr != nil {
 		return Network{}, vErr
 	}
@@ -118,16 +123,17 @@ func UpdateNetwork(ctx context.Context, d *sql.DB, id uuid.UUID, n Network) (Net
 		tls = 1
 	}
 	affected, err := controldb.New(d).UpdateNetwork(ctx, controldb.UpdateNetworkParams{
-		Name:     n.Name,
-		NameCi:   NormalizeNetworkName(n.Name),
-		Host:     n.Host,
-		Port:     int64(n.Port),
-		Tls:      tls,
-		Nick:     n.Nick,
-		Realname: nullStr(n.Realname),
-		SaslUser: nullStr(n.SASLUser),
-		SaslPass: nullStr(n.SASLPass),
-		ID:       id[:],
+		Name:       n.Name,
+		NameCi:     NormalizeNetworkName(n.Name),
+		Host:       n.Host,
+		Port:       int64(n.Port),
+		Tls:        tls,
+		Nick:       n.Nick,
+		Realname:   nullStr(n.Realname),
+		SaslUser:   nullStr(n.SASLUser),
+		SaslPass:   nullStr(n.SASLPass),
+		ServerPass: nullStr(n.ServerPass),
+		ID:         id[:],
 	})
 	if err != nil {
 		return Network{}, err

@@ -27,18 +27,19 @@ func UpsertNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 	newId := newID()
 	q := controldb.New(d)
 	if err := q.UpsertNetwork(ctx, controldb.UpsertNetworkParams{
-		ID:        newId[:],
-		Name:      n.Name,
-		NameCi:    nameCI,
-		Kind:      kind,
-		Host:      n.Host,
-		Port:      int64(n.Port),
-		Tls:       tls,
-		Nick:      n.Nick,
-		Realname:  nullStr(n.Realname),
-		SaslUser:  nullStr(n.SASLUser),
-		SaslPass:  nullStr(n.SASLPass),
-		CreatedAt: Now(),
+		ID:         newId[:],
+		Name:       n.Name,
+		NameCi:     nameCI,
+		Kind:       kind,
+		Host:       n.Host,
+		Port:       int64(n.Port),
+		Tls:        tls,
+		Nick:       n.Nick,
+		Realname:   nullStr(n.Realname),
+		SaslUser:   nullStr(n.SASLUser),
+		SaslPass:   nullStr(n.SASLPass),
+		ServerPass: nullStr(n.ServerPass),
+		CreatedAt:  Now(),
 	}); err != nil {
 		return Network{}, err
 	}
@@ -141,17 +142,18 @@ func ListNetworksWithSASL(ctx context.Context, d *sql.DB) ([]Network, error) {
 			return nil, err
 		}
 		out = append(out, Network{
-			ID:        id,
-			Name:      r.Name,
-			Kind:      r.Kind,
-			Host:      r.Host,
-			Port:      int(r.Port),
-			TLS:       r.Tls == 1,
-			Nick:      r.Nick,
-			Realname:  r.Realname,
-			SASLUser:  r.SaslUser.String,
-			SASLPass:  r.SaslPass.String,
-			SortOrder: int(r.SortOrder),
+			ID:         id,
+			Name:       r.Name,
+			Kind:       r.Kind,
+			Host:       r.Host,
+			Port:       int(r.Port),
+			TLS:        r.Tls == 1,
+			Nick:       r.Nick,
+			Realname:   r.Realname,
+			SASLUser:   r.SaslUser.String,
+			SASLPass:   r.SaslPass.String,
+			ServerPass: r.ServerPass.String,
+			SortOrder:  int(r.SortOrder),
 		})
 	}
 	for i := range out {

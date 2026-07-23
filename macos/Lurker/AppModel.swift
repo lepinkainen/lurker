@@ -1,0 +1,606 @@
+import AppKit
+import Foundation
+import Observation
+import SwiftUI
+
+enum ConnectionState: Equatable {
+  case notConfigured
+  case connecting
+  case connected
+  case reconnecting(Int)
+  case offline(String)
+
+  var label: String {
+    switch self {
+    case .notConfigured: "Not configured"
+    case .connecting: "Connecting"
+    case .connected: "Connected"
+    case .reconnecting(let seconds): "Retrying in \(seconds)s"
+    case .offline: "Offline"
+    }
+  }
+
+  var symbol: String {
+    switch self {
+    case .connected: "checkmark.circle.fill"
+    case .connecting, .reconnecting: "arrow.trianglehead.2.clockwise.rotate.90"
+    case .notConfigured, .offline: "exclamationmark.circle.fill"
+    }
+  }
+}
+
+struct SidebarBufferGroups {
+  let status: [Buffer]
+  let joined: [Buffer]
+  let queries: [Buffer]
+  let archived: [Buffer]
+
+  var primary: [Buffer] {
+    status + joined + queries
+  }
+
+  var all: [Buffer] {
+    primary + archived
+  }
+}
+
+@MainActor
+@Observable
+final class AppModel {
+  private enum Defaults {
+    static let serverURL = "mac.serverURL"
+    static let selectedBuffer = "mac.selectedBuffer"
+    static let collapsedNetworks = "mac.collapsedNetworks"
+    static let inspectorVisible = "mac.inspectorVisible"
+    static let notifications = "mac.notifications"
+  }
+
+  var networks: [UUID: Network] = [:]
+  var buffers: [UUID: Buffer] = [:]
+  var messages: [UUID: [Message]] = [:]
+  var members: [UUID: [Member]] = [:]
+  var selectedBufferID: UUID?
+  var markerAnchors: [UUID: UUID] = [:]
+  var collapsedNetworks: Set<UUID> = []
+  var historyExhausted: Set<UUID> = []
+  var historyLoading: Set<UUID> = []
+  var connectionState: ConnectionState = .notConfigured
+  var serviceIdentity: ServiceIdentity?
+  var inspectorVisible = true
+  var applicationActive = true
+  var showingConnectionEditor = false
+  var showingChannelSwitcher = false
+  var composerText = ""
+  var composerError: String?
+  var notificationsEnabled = true
+  var columnVisibility: NavigationSplitViewVisibility = .all
+  var focusComposerRequest = 0
+
+  @ObservationIgnored private var transport: (any LurkerTransport)?
+  @ObservationIgnored private var connectionTask: Task<Void, Never>?
+  @ObservationIgnored private var queuedEvents: [ServerEvent] = []
+  @ObservationIgnored private var hydrated = false
+  @ObservationIgnored private let defaults: UserDefaults
+
+  init(transport: (any LurkerTransport)? = nil, defaults: UserDefaults = .standard) {
+    self.transport = transport
+    self.defaults = defaults
+    selectedBufferID = defaults.string(forKey: Defaults.selectedBuffer).flatMap(
+      UUID.init(uuidString:))
+    inspectorVisible = defaults.object(forKey: Defaults.inspectorVisible) as? Bool ?? true
+    notificationsEnabled = defaults.object(forKey: Defaults.notifications) as? Bool ?? true
+    if let values = defaults.array(forKey: Defaults.collapsedNetworks) as? [String] {
+      collapsedNetworks = Set(values.compactMap(UUID.init(uuidString:)))
+    }
+    if transport != nil {
+      connectionState = .connecting
+    }
+  }
+
+  var configuredURL: URL? {
+    guard let raw = defaults.string(forKey: Defaults.serverURL) else { return nil }
+    return try? EndpointPolicy.normalize(raw)
+  }
+
+  var orderedNetworks: [Network] {
+    networks.values.sorted {
+      $0.sortOrder == $1.sortOrder
+        ? $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        : $0.sortOrder < $1.sortOrder
+    }
+  }
+
+  var selectedBuffer: Buffer? {
+    selectedBufferID.flatMap { buffers[$0] }
+  }
+
+  var selectedNetwork: Network? {
+    selectedBuffer.flatMap { networks[$0.networkID] }
+  }
+
+  var selectedMessages: [Message] {
+    guard let selectedBufferID else { return [] }
+    return visibleMessages(messages[selectedBufferID] ?? [], in: buffers[selectedBufferID])
+  }
+
+  var selectedMembers: [Member] {
+    guard let selectedBufferID else { return [] }
+    return (members[selectedBufferID] ?? []).sorted {
+      if $0.prefix != $1.prefix {
+        return memberRank($0.prefix) < memberRank($1.prefix)
+      }
+      return $0.nick.localizedCaseInsensitiveCompare($1.nick) == .orderedAscending
+    }
+  }
+
+  var mentionTotal: Int {
+    buffers.values.reduce(0) { $0 + $1.mentions }
+  }
+
+  func start() {
+    guard connectionTask == nil else { return }
+    if transport == nil {
+      guard let url = configuredURL else {
+        connectionState = .notConfigured
+        showingConnectionEditor = true
+        return
+      }
+      transport = LurkerAPI(baseURL: url)
+    }
+    if !ProcessInfo.processInfo.arguments.contains("-ui-testing") {
+      NotificationManager.shared.configure { [weak self] id in
+        self?.selectBuffer(id)
+      }
+    }
+    connectionTask = Task { [weak self] in
+      await self?.connectionLoop()
+    }
+  }
+
+  func stop() {
+    connectionTask?.cancel()
+    connectionTask = nil
+    if let transport {
+      Task { await transport.disconnect() }
+    }
+  }
+
+  func saveServer(_ raw: String) async throws {
+    let url = try EndpointPolicy.normalize(raw)
+    let candidate = LurkerAPI(baseURL: url)
+    let identity = try await candidate.validateServer()
+    defaults.set(url.absoluteString, forKey: Defaults.serverURL)
+    stop()
+    resetServerState()
+    transport = candidate
+    serviceIdentity = identity
+    showingConnectionEditor = false
+    start()
+  }
+
+  func selectBuffer(_ id: UUID) {
+    guard buffers[id] != nil, selectedBufferID != id else { return }
+    if applicationActive, let previous = selectedBufferID {
+      markRead(previous)
+    }
+    selectedBufferID = id
+    defaults.set(id.uuidString, forKey: Defaults.selectedBuffer)
+    if applicationActive {
+      markRead(id)
+    }
+  }
+
+  func setApplicationActive(_ active: Bool) {
+    applicationActive = active
+    if active, let selectedBufferID {
+      markRead(selectedBufferID)
+    }
+  }
+
+  func toggleNetwork(_ id: UUID) {
+    if collapsedNetworks.contains(id) {
+      collapsedNetworks.remove(id)
+    } else {
+      collapsedNetworks.insert(id)
+    }
+    defaults.set(collapsedNetworks.map(\.uuidString), forKey: Defaults.collapsedNetworks)
+  }
+
+  func setInspectorVisible(_ visible: Bool) {
+    inspectorVisible = visible
+    defaults.set(visible, forKey: Defaults.inspectorVisible)
+  }
+
+  func toggleSidebar() {
+    columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+  }
+
+  func focusComposer() {
+    focusComposerRequest += 1
+  }
+
+  func setNotificationsEnabled(_ enabled: Bool) {
+    notificationsEnabled = enabled
+    defaults.set(enabled, forKey: Defaults.notifications)
+  }
+
+  func sendComposer() {
+    guard let buffer = selectedBuffer else { return }
+    let value = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !value.isEmpty else { return }
+    switch SlashCommands.parse(value, buffer: buffer) {
+    case .invalid(let error):
+      composerError = error
+    case .command(let command):
+      composerError = nil
+      composerText = ""
+      send(command)
+    }
+  }
+
+  func command(_ command: ClientCommand) {
+    send(command)
+  }
+
+  func loadOlderHistory() {
+    guard let id = selectedBufferID,
+      !historyLoading.contains(id),
+      !historyExhausted.contains(id),
+      let transport
+    else {
+      return
+    }
+    historyLoading.insert(id)
+    let before = messages[id]?.first?.id
+    Task {
+      do {
+        let older = try await transport.fetchHistory(bufferID: id, before: before)
+        mergeMessages(older, into: id)
+        if older.isEmpty {
+          historyExhausted.insert(id)
+        }
+      } catch {
+        composerError = error.localizedDescription
+      }
+      historyLoading.remove(id)
+    }
+  }
+
+  func updateBuffer(_ id: UUID, _ patch: BufferSettingsPatch) {
+    guard let transport else { return }
+    Task {
+      do {
+        apply(try await transport.updateBuffer(id: id, patch: patch))
+      } catch {
+        composerError = error.localizedDescription
+      }
+    }
+  }
+
+  func nextBuffer(unreadOnly: Bool = false, mentionsOnly: Bool = false, direction: Int = 1) {
+    var candidates = sidebarBufferOrder()
+    if unreadOnly {
+      candidates = candidates.filter { buffers[$0]?.unread ?? 0 > 0 }
+    }
+    if mentionsOnly {
+      candidates = candidates.filter { buffers[$0]?.mentions ?? 0 > 0 }
+    }
+    guard !candidates.isEmpty else { return }
+    let index =
+      selectedBufferID.flatMap { candidates.firstIndex(of: $0) } ?? (direction > 0 ? -1 : 0)
+    let next = (index + direction + candidates.count) % candidates.count
+    selectBuffer(candidates[next])
+  }
+
+  func focusStatusBuffer() {
+    guard let networkID = selectedBuffer?.networkID,
+      let status = buffers.values.first(where: { $0.networkID == networkID && $0.kind == "status" })
+    else {
+      return
+    }
+    selectBuffer(status.id)
+  }
+
+  func previewImageURL(_ preview: Preview) -> URL? {
+    guard let raw = preview.imageURL, !raw.isEmpty else { return nil }
+    if let absolute = URL(string: raw), absolute.scheme == "https" {
+      return absolute
+    }
+    guard raw.hasPrefix("/"), let base = configuredURL else { return nil }
+    return URL(string: raw, relativeTo: base)?.absoluteURL
+  }
+
+  private func connectionLoop() async {
+    guard let transport else { return }
+    var attempt = 0
+    while !Task.isCancelled {
+      do {
+        connectionState = attempt == 0 ? .connecting : .reconnecting(0)
+        hydrated = false
+        queuedEvents.removeAll(keepingCapacity: true)
+        let stream = await transport.openEvents()
+        let receiver = Task { @MainActor [weak self] in
+          for try await event in stream {
+            self?.receive(event)
+          }
+        }
+        defer { receiver.cancel() }
+        serviceIdentity = try await transport.validateServer()
+        applySnapshot(try await transport.fetchState())
+        hydrated = true
+        for event in queuedEvents {
+          apply(event)
+        }
+        queuedEvents.removeAll(keepingCapacity: true)
+        connectionState = .connected
+        attempt = 0
+        try await receiver.value
+        throw LurkerAPIError.disconnected
+      } catch is CancellationError {
+        return
+      } catch {
+        await transport.disconnect()
+        hydrated = false
+        attempt += 1
+        let delay = min(30, 1 << min(attempt - 1, 5))
+        connectionState = .offline(error.localizedDescription)
+        for remaining in stride(from: delay, through: 1, by: -1) {
+          connectionState = .reconnecting(remaining)
+          try? await Task.sleep(for: .seconds(1))
+          if Task.isCancelled { return }
+        }
+      }
+    }
+  }
+
+  private func receive(_ event: ServerEvent) {
+    guard hydrated else {
+      queuedEvents.append(event)
+      return
+    }
+    apply(event)
+  }
+
+  func applySnapshot(_ snapshot: StateSnapshot) {
+    historyExhausted.removeAll(keepingCapacity: true)
+    historyLoading.removeAll(keepingCapacity: true)
+    networks = Dictionary(uniqueKeysWithValues: snapshot.networks.map { ($0.id, $0) })
+    buffers = Dictionary(uniqueKeysWithValues: snapshot.buffers.map { ($0.id, $0) })
+    messages = Dictionary(
+      uniqueKeysWithValues: snapshot.initialMessages.compactMap { key, value in
+        UUID(uuidString: key).map { ($0, value.sorted(by: messageOrder)) }
+      })
+    members = Dictionary(
+      uniqueKeysWithValues: (snapshot.members ?? [:]).compactMap { key, value in
+        UUID(uuidString: key).map { ($0, value) }
+      })
+    establishUnreadMarkers()
+    restoreSelection()
+    updateDockBadge()
+  }
+
+  private func apply(_ event: ServerEvent) {
+    switch event {
+    case .message(let message):
+      apply(message)
+    case .bufferCreated(let event):
+      if buffers[event.id] == nil {
+        buffers[event.id] = Buffer(
+          id: event.id,
+          networkID: event.networkID,
+          name: event.name,
+          kind: event.kind,
+          topic: nil,
+          joined: event.kind == "channel",
+          lastSeenID: nil,
+          createdAt: event.createdAt,
+          showEmbeds: true,
+          showPresenceEvents: true,
+          collapsePresenceEvents: false,
+          pinned: false,
+          unread: 0,
+          mentions: 0
+        )
+      }
+    case .bufferUpdate(let event):
+      guard var buffer = buffers[event.id] else { return }
+      if let topic = event.topic { buffer.topic = topic }
+      if let joined = event.joined { buffer.joined = joined }
+      if let lastSeenID = event.lastSeenID { buffer.lastSeenID = lastSeenID }
+      if let unread = event.unread { buffer.unread = unread }
+      if let mentions = event.mentions { buffer.mentions = mentions }
+      buffers[event.id] = buffer
+      updateDockBadge()
+    case .bufferSettings(let event):
+      apply(event)
+    case .networkState(let event):
+      guard var network = networks[event.networkID] else { return }
+      network.status = event.state
+      networks[event.networkID] = network
+    case .history(let event):
+      mergeMessages(event.messages, into: event.bufferID)
+      if event.messages.isEmpty { historyExhausted.insert(event.bufferID) }
+    case .preview(let event):
+      guard var list = messages[event.bufferID],
+        let index = list.firstIndex(where: { $0.id == event.messageID })
+      else {
+        return
+      }
+      list[index].previews = event.previews
+      messages[event.bufferID] = list
+    case .members(let event):
+      members[event.bufferID] = event.members
+    case .netsplit(let event):
+      guard var list = messages[event.bufferID] else { return }
+      let ids = Set(event.messageIDs)
+      for index in list.indices where ids.contains(list[index].id) {
+        list[index].netsplit = event.netsplit
+      }
+      messages[event.bufferID] = list
+    case .error(let response):
+      composerError = response.message ?? "The server rejected the command."
+    case .ack, .ignored:
+      break
+    }
+  }
+
+  private func apply(_ event: BufferSettingsEvent) {
+    guard var buffer = buffers[event.id] else { return }
+    buffer.showEmbeds = event.showEmbeds
+    buffer.showPresenceEvents = event.showPresenceEvents
+    buffer.collapsePresenceEvents = event.collapsePresenceEvents
+    buffer.pinned = event.pinned
+    buffers[event.id] = buffer
+  }
+
+  private func apply(_ message: Message) {
+    let wasKnown = messages[message.bufferID]?.contains(where: { $0.id == message.id }) == true
+    mergeMessages([message], into: message.bufferID)
+    guard !wasKnown, var buffer = buffers[message.bufferID] else { return }
+
+    if selectedBufferID == message.bufferID, applicationActive {
+      markRead(message.bufferID)
+      return
+    }
+    if message.countsAsUnread == true, message.isSelf != true {
+      if buffer.unread == 0 {
+        markerAnchors[buffer.id] = message.id
+      }
+      buffer.unread += 1
+      if message.mentionsMe == true || message.highlight == true {
+        buffer.mentions += 1
+        if !applicationActive, notificationsEnabled {
+          NotificationManager.shared.post(
+            message: message,
+            buffer: buffer,
+            network: networks[buffer.networkID]
+          )
+        }
+      }
+      buffers[buffer.id] = buffer
+      updateDockBadge()
+    }
+  }
+
+  private func mergeMessages(_ incoming: [Message], into bufferID: UUID) {
+    var byID = Dictionary(uniqueKeysWithValues: (messages[bufferID] ?? []).map { ($0.id, $0) })
+    for message in incoming {
+      byID[message.id] = message
+    }
+    messages[bufferID] = byID.values.sorted(by: messageOrder)
+  }
+
+  private func markRead(_ bufferID: UUID) {
+    guard var buffer = buffers[bufferID], let last = messages[bufferID]?.last else { return }
+    buffer.lastSeenID = last.id
+    buffer.unread = 0
+    buffer.mentions = 0
+    buffers[bufferID] = buffer
+    markerAnchors.removeValue(forKey: bufferID)
+    updateDockBadge()
+    send(ClientCommand(type: "mark_read", bufferID: bufferID, messageID: last.id))
+  }
+
+  private func send(_ command: ClientCommand) {
+    guard let transport else { return }
+    Task {
+      do {
+        try await transport.send(command)
+      } catch {
+        composerError = error.localizedDescription
+      }
+    }
+  }
+
+  private func establishUnreadMarkers() {
+    markerAnchors.removeAll(keepingCapacity: true)
+    for buffer in buffers.values where buffer.unread > 0 {
+      let anchor = messages[buffer.id]?.first {
+        guard let seen = buffer.lastSeenID else { return true }
+        return $0.id.uuidString > seen.uuidString
+      }
+      if let anchor {
+        markerAnchors[buffer.id] = anchor.id
+      }
+    }
+  }
+
+  private func restoreSelection() {
+    if let selectedBufferID, buffers[selectedBufferID] != nil {
+      return
+    }
+    selectedBufferID = sidebarBufferOrder().first
+  }
+
+  private func sidebarBufferOrder() -> [UUID] {
+    var result = pinnedBuffers.map(\.id)
+    for network in orderedNetworks where !network.disabled {
+      result.append(contentsOf: sidebarBuffers(for: network.id).all.map(\.id))
+    }
+    var seen = Set<UUID>()
+    return result.filter { seen.insert($0).inserted }
+  }
+
+  var pinnedBuffers: [Buffer] {
+    buffers.values
+      .filter { $0.pinned && $0.kind == "channel" }
+      .sorted(by: bufferOrder)
+  }
+
+  func sidebarBuffers(for networkID: UUID) -> SidebarBufferGroups {
+    let values = buffers.values.filter {
+      $0.networkID == networkID && !($0.kind == "channel" && $0.pinned)
+    }
+    return SidebarBufferGroups(
+      status: values.filter { $0.kind == "status" }.sorted(by: bufferOrder),
+      joined:
+        values
+        .filter { $0.kind == "channel" && $0.joined }
+        .sorted(by: bufferOrder),
+      queries: values.filter { $0.kind == "query" }.sorted(by: bufferOrder),
+      archived:
+        values
+        .filter { $0.kind == "channel" && !$0.joined }
+        .sorted(by: bufferOrder)
+    )
+  }
+
+  private func visibleMessages(_ values: [Message], in buffer: Buffer?) -> [Message] {
+    guard let buffer else { return values }
+    if buffer.showPresenceEvents { return values }
+    let presence = Set(["join", "part", "quit", "nick"])
+    return values.filter { !presence.contains($0.kind) }
+  }
+
+  private func updateDockBadge() {
+    NotificationManager.shared.setDockBadge(mentionTotal)
+  }
+
+  private func resetServerState() {
+    networks.removeAll()
+    buffers.removeAll()
+    messages.removeAll()
+    members.removeAll()
+    markerAnchors.removeAll()
+    historyExhausted.removeAll()
+    selectedBufferID = nil
+    hydrated = false
+  }
+}
+
+private func memberRank(_ prefix: String?) -> Int {
+  switch prefix {
+  case "@", "&", "~": 0
+  case "%": 1
+  case "+": 2
+  default: 3
+  }
+}
+
+private func messageOrder(_ lhs: Message, _ rhs: Message) -> Bool {
+  lhs.id.uuidString < rhs.id.uuidString
+}
+
+private func bufferOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
+  lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+}

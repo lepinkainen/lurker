@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"slices"
 	"sync"
@@ -48,6 +49,7 @@ type NetworkConfig struct {
 	ConnectCommands []string       // raw IRC lines sent after registration, before autojoin
 	SASLUser        string         // empty disables SASL
 	SASLPass        string
+	ServerPass      string
 }
 
 // PrimaryServer returns the first configured server, if any.
@@ -125,14 +127,15 @@ func (m *Manager) Start(ctx context.Context, nets []NetworkConfig) error {
 	for _, nc := range nets {
 		server := nc.PrimaryServer()
 		nrow, err := m.stores.UpsertNetwork(ctx, ircdb.Network{
-			Name:     nc.Name,
-			Host:     server.Host,
-			Port:     server.Port,
-			TLS:      server.TLS,
-			Nick:     nc.Nick,
-			Realname: nc.Realname,
-			SASLUser: nc.SASLUser,
-			SASLPass: nc.SASLPass,
+			Name:       nc.Name,
+			Host:       server.Host,
+			Port:       server.Port,
+			TLS:        server.TLS,
+			Nick:       nc.Nick,
+			Realname:   nc.Realname,
+			SASLUser:   nc.SASLUser,
+			SASLPass:   nc.SASLPass,
+			ServerPass: nc.ServerPass,
 		})
 		if err != nil {
 			return err
@@ -506,9 +509,7 @@ func (m *Manager) StateSnapshot() map[uuid.UUID]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make(map[uuid.UUID]string, len(m.state))
-	for id, state := range m.state {
-		out[id] = state
-	}
+	maps.Copy(out, m.state)
 	return out
 }
 
@@ -774,6 +775,7 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 	if nc.SASLUser != "" {
 		cfg.SASL = &girc.SASLPlain{User: nc.SASLUser, Pass: nc.SASLPass}
 	}
+	cfg.ServerPass = nc.ServerPass
 
 	client := girc.New(cfg)
 	logStore, err := m.stores.LogStore(networkID)
