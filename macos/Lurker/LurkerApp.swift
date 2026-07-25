@@ -5,7 +5,13 @@ struct LurkerApp: App {
   @State private var model: AppModel
 
   init() {
-    if ProcessInfo.processInfo.arguments.contains("-ui-testing") {
+    #if DEBUG
+      if ProcessInfo.isPreview {
+        _model = State(initialValue: AppModel.preview())
+        return
+      }
+    #endif
+    if ProcessInfo.isUITest {
       _model = State(initialValue: AppModel(transport: FixtureTransport()))
     } else {
       _model = State(initialValue: AppModel())
