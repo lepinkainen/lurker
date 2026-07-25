@@ -4,6 +4,66 @@ actor FixtureTransport: LurkerTransport {
   private let networkID = UUID(uuidString: "0198F5F2-8F2A-7A8B-9B42-4D6E72C4D8F1")!
   private let channelID = UUID(uuidString: "0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20")!
   private let queryID = UUID(uuidString: "0198F5F2-9448-7ED6-B3B4-CD8A1A6E8B21")!
+  private let fullChannelID = UUID(uuidString: "0198F5F3-0000-7A8B-9B42-4D6E72C4D8F2")!
+
+  private let fullTotal = 400
+  private let fullPageSize = 50
+  private let fullUnread = 10
+
+  private lazy var fullMessages: [Message] = buildFullMessages()
+
+  private func buildFullMessages() -> [Message] {
+    let pool: [(String, Int)] = [
+      ("shrike", 19),
+      ("tove", 4),
+      ("ava", 7),
+      ("ircfriend", 31),
+    ]
+    let contentTemplates: [(Int) -> String] = [
+      { i in "backlog line #\(i): checking in on the pagination work" },
+      { i in "backlog line #\(i)" },
+      { i in "backlog line #\(i): see https://example.com/thread/\(i) for context" },
+      { i in "backlog line #\(i): that build finally went green after the flaky test fix" },
+      { i in "backlog line #\(i): lol" },
+      { i in
+        "backlog line #\(i): can someone review the PR when they get a chance? https://example.com/thread/\(i)"
+      },
+      { i in "backlog line #\(i): scrolling through history to make sure everything renders correctly" },
+      { i in "backlog line #\(i): +1" },
+      { i in "backlog line #\(i): the timeline should merge and dedupe by id so this should be smooth" },
+      { i in "backlog line #\(i): brb, coffee" },
+    ]
+
+    let formatter = ISO8601DateFormatter()
+    guard let base = formatter.date(from: "2026-07-23T01:33:00Z") else {
+      return []
+    }
+
+    var messages: [Message] = []
+    messages.reserveCapacity(fullTotal)
+    for i in 0..<fullTotal {
+      let (sender, color) = pool[i % pool.count]
+      let content = contentTemplates[i % contentTemplates.count](i)
+      let ts = formatter.string(from: base.addingTimeInterval(Double(i) * 60))
+      let id = UUID(uuidString: String(format: "0198F5F3-B000-7000-8000-%012X", i))!
+      let isMention = sender != "shrike" && i % 17 == 0
+      messages.append(
+        Message(
+          id: id,
+          networkID: networkID,
+          bufferID: fullChannelID,
+          ts: ts,
+          sender: sender,
+          kind: "privmsg",
+          content: content,
+          displayKind: "message",
+          mentionsMe: isMention,
+          countsAsUnread: isMention,
+          senderColor: color
+        ))
+    }
+    return messages
+  }
 
   func validateServer() async throws -> ServiceIdentity {
     ServiceIdentity(
@@ -43,26 +103,42 @@ actor FixtureTransport: LurkerTransport {
       unread: 0,
       mentions: 0
     )
+    let fullChannel = Buffer(
+      id: fullChannelID,
+      networkID: networkID,
+      name: "#lurker-full",
+      kind: "channel",
+      topic: "Procedurally generated backlog for pagination testing",
+      joined: true,
+      lastSeenID: fullMessages[fullTotal - fullUnread - 1].id,
+      createdAt: "2026-01-01T00:00:00Z",
+      showEmbeds: true,
+      showPresenceEvents: true,
+      collapsePresenceEvents: true,
+      pinned: false,
+      unread: fullUnread,
+      mentions: 0
+    )
     let messages = [
-      Message(
-        id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000001")!,
-        networkID: networkID,
-        bufferID: channelID,
-        ts: "2026-07-23T08:12:00Z",
-        sender: "tove",
-        kind: "privmsg",
-        content: "The native client is connected.",
-        displayKind: "message",
-        senderColor: 4
-      ),
-      Message(
+        Message(
+          id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000001")!,
+          networkID: networkID,
+          bufferID: channelID,
+          ts: "2026-07-23T08:12:00Z",
+          sender: "tove",
+          kind: "privmsg",
+          content: "The native client is connected.",
+          displayKind: "message",
+          senderColor: 4
+        ),
+        Message(
         id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000002")!,
         networkID: networkID,
         bufferID: channelID,
         ts: "2026-07-23T08:13:00Z",
         sender: "shrike",
         kind: "privmsg",
-        content: "Nice — the inspector and unread state look right.",
+        content: "Nice — the inspector and unread state look right. This is a longer row",
         displayKind: "message",
         mentionsMe: true,
         countsAsUnread: true,
@@ -84,21 +160,42 @@ actor FixtureTransport: LurkerTransport {
           disabled: false
         )
       ],
-      buffers: [channel, query],
-      initialMessages: [channelID.uuidString: messages],
+      buffers: [channel, query, fullChannel],
+      initialMessages: [
+        channelID.uuidString: messages,
+        fullChannelID.uuidString: Array(fullMessages.suffix(fullPageSize)),
+      ],
       members: [
         channelID.uuidString: [
           Member(
             nick: "shrike", prefix: "@", realname: "Shrike", away: false, self: true, color: 19),
           Member(nick: "tove", prefix: "+", realname: "Tove", away: false, self: false, color: 4),
+          Member(nick: "ava", prefix: nil, realname: "Tove", away: false, self: false, color: 7),
           Member(nick: "ircfriend", prefix: nil, realname: nil, away: true, self: false, color: 31),
-        ]
+        ],
+        fullChannelID.uuidString: [
+          Member(
+            nick: "shrike", prefix: "@", realname: "Shrike", away: false, self: true, color: 19),
+          Member(nick: "tove", prefix: "+", realname: "Tove", away: false, self: false, color: 4),
+          Member(nick: "ava", prefix: nil, realname: "Tove", away: false, self: false, color: 7),
+          Member(nick: "ircfriend", prefix: nil, realname: nil, away: true, self: false, color: 31),
+        ],
       ]
     )
   }
 
-  func fetchHistory(bufferID _: UUID, before _: UUID?) async throws -> [Message] {
-    []
+  func fetchHistory(bufferID: UUID, before: UUID?) async throws -> [Message] {
+    guard bufferID == fullChannelID else { return [] }
+    let all = fullMessages
+    let beforeIndex: Int
+    if let before, let idx = all.firstIndex(where: { $0.id == before }) {
+      beforeIndex = idx
+    } else {
+      beforeIndex = all.count
+    }
+    let lower = max(0, beforeIndex - fullPageSize)
+    guard lower < beforeIndex else { return [] }
+    return Array(all[lower..<beforeIndex])
   }
 
   func updateBuffer(id: UUID, patch: BufferSettingsPatch) async throws -> BufferSettingsEvent {
