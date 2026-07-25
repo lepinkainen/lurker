@@ -7,7 +7,7 @@ import {
   resetEmojiAutocomplete,
   updateEmojiPop,
 } from "../src/emoji-autocomplete";
-import { bindInputHandlers, handleFormatKey, updateInputEnabled, updateInputPopups } from "../src/input";
+import { bindInputHandlers, handleFormatKey, onSubmit, updateInputEnabled, updateInputPopups } from "../src/input";
 import { updateCmdPop } from "../src/input-command-popup";
 import { handleHistoryKey, recordSentInput, restoreInputDraft, saveInputDraft } from "../src/input-history";
 import { insertTextAtCursor, uploadFile } from "../src/input-upload";
@@ -99,13 +99,13 @@ describe("updateInputEnabled", () => {
     expect(i.disabled).toBe(true);
   });
 
-  it("disables input on status buffer", () => {
+  it("enables input on status buffer for commands", () => {
     state.wsReady = true;
     state.activeId = "1";
     state.buffers.set("1", makeBuffer({ kind: "status" }));
     const i = el();
     updateInputEnabled(i);
-    expect(i.disabled).toBe(true);
+    expect(i.disabled).toBe(false);
   });
 
   it("disables input on parted channel", () => {
@@ -133,6 +133,56 @@ describe("updateInputEnabled", () => {
     const i = el();
     updateInputEnabled(i);
     expect(i.disabled).toBe(false);
+  });
+});
+
+describe("onSubmit", () => {
+  beforeEach(() => {
+    resetAppState();
+    state.wsReady = true;
+  });
+
+  function deps(buffer: Buffer, send = vi.fn()) {
+    const inputEl = document.createElement("input");
+    return {
+      inputEl,
+      cmdPopEl: document.createElement("div"),
+      emojiPopEl: document.createElement("div"),
+      nickPopEl: document.createElement("div"),
+      uploadButtonEl: document.createElement("button"),
+      uploadInputEl: document.createElement("input"),
+      inputForm: document.createElement("form"),
+      getActiveBuffer: () => buffer,
+      sendCmd: send,
+    };
+  }
+
+  function submit() {
+    return new Event("submit") as SubmitEvent;
+  }
+
+  it("drops plain text on status buffer (no send)", () => {
+    const send = vi.fn();
+    const d = deps(makeBuffer({ kind: "status" }), send);
+    d.inputEl.value = "hello world";
+    onSubmit(submit(), d);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("routes slash commands from status buffer", () => {
+    const send = vi.fn();
+    const d = deps(makeBuffer({ kind: "status" }), send);
+    d.inputEl.value = "/nick newnick";
+    onSubmit(submit(), d);
+    expect(send).toHaveBeenCalledWith({ type: "nick", network_id: "10", content: "newnick" });
+  });
+
+  it("sends plain text on a channel buffer", () => {
+    const send = vi.fn();
+    const d = deps(makeBuffer({ kind: "channel" }), send);
+    d.inputEl.value = "hi";
+    onSubmit(submit(), d);
+    expect(send).toHaveBeenCalledWith({ type: "send", buffer_id: "1", content: "hi" });
   });
 });
 

@@ -94,7 +94,7 @@ export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
   edit.appendChild(deps.iconEl("ic-pencil", 12));
   dom.bufferTopicEl.appendChild(edit);
 
-  dom.inputEl.placeholder = "";
+  dom.inputEl.placeholder = buffer.kind === "status" ? "Commands only, e.g. /nick, /list, /msg NickServ …" : "";
 }
 
 export function renderActiveView(dom: MessagesDom, deps: MessageDeps) {

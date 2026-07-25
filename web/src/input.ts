@@ -15,12 +15,7 @@ export type InputDeps = InputUploadDeps & {
 
 export function updateInputEnabled(inputEl: HTMLInputElement) {
   const buffer = activeBuffer();
-  inputEl.disabled = !(
-    state.wsReady &&
-    buffer &&
-    buffer.kind !== "status" &&
-    !(buffer.kind === "channel" && buffer.joined !== true)
-  );
+  inputEl.disabled = !(state.wsReady && buffer && !(buffer.kind === "channel" && buffer.joined !== true));
 }
 
 export function onSubmit(ev: SubmitEvent, deps: InputDeps) {
@@ -37,6 +32,10 @@ export function onSubmit(ev: SubmitEvent, deps: InputDeps) {
     }
     return;
   }
+  // Status buffer has no channel/query target: only slash commands
+  // (/nick, /list, /msg, /raw, NickServ via /msg, …) make sense there.
+  // The backend rejects plain "send" to a status buffer, so drop it here.
+  if (buffer.kind === "status") return;
   deps.sendCmd({ type: "send", buffer_id: buffer.id, content: text });
   recordSentInput(buffer.id, text);
   deps.inputEl.value = "";
