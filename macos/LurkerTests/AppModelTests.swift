@@ -6,6 +6,30 @@ import Testing
 @Suite
 @MainActor
 struct AppModelTests {
+  @Test func previewUsesSynchronousConnectedFixture() {
+    let model = AppModel.preview()
+
+    #expect(model.connectionState == .connected)
+    #expect(model.networks[FixtureTransport.networkID]?.status == "connected")
+    #expect(model.selectedBufferID == FixtureTransport.channelID)
+
+    model.start()
+
+    #expect(model.connectionState == .connected)
+  }
+
+  @Test func recognizesCurrentAndLegacyXcodePreviewEnvironments() {
+    #expect(
+      ProcessInfo.isPreviewEnvironment([
+        "XCODE_RUNNING_FOR_PLAYGROUNDS": "1"
+      ]))
+    #expect(
+      ProcessInfo.isPreviewEnvironment([
+        "XCODE_RUNNING_FOR_PREVIEWS": "1"
+      ]))
+    #expect(!ProcessInfo.isPreviewEnvironment([:]))
+  }
+
   @Test func sidebarAndKeyboardNavigationShareOneOrder() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
