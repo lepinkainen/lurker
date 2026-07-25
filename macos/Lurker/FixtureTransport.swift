@@ -2,6 +2,7 @@ import Foundation
 
 actor FixtureTransport: LurkerTransport {
   static let networkID = UUID(uuidString: "0198F5F2-8F2A-7A8B-9B42-4D6E72C4D8F1")!
+  static let statusID = UUID(uuidString: "0198F5F2-8F2A-7A8B-9B42-4D6E72C4D8F0")!
   static let channelID = UUID(uuidString: "0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20")!
   static let queryID = UUID(uuidString: "0198F5F2-9448-7ED6-B3B4-CD8A1A6E8B21")!
   static let fullChannelID = UUID(uuidString: "0198F5F3-0000-7A8B-9B42-4D6E72C4D8F2")!
@@ -28,9 +29,13 @@ actor FixtureTransport: LurkerTransport {
       { i in
         "backlog line #\(i): can someone review the PR when they get a chance? https://example.com/thread/\(i)"
       },
-      { i in "backlog line #\(i): scrolling through history to make sure everything renders correctly" },
+      { i in
+        "backlog line #\(i): scrolling through history to make sure everything renders correctly"
+      },
       { i in "backlog line #\(i): +1" },
-      { i in "backlog line #\(i): the timeline should merge and dedupe by id so this should be smooth" },
+      { i in
+        "backlog line #\(i): the timeline should merge and dedupe by id so this should be smooth"
+      },
       { i in "backlog line #\(i): brb, coffee" },
     ]
 
@@ -77,6 +82,19 @@ actor FixtureTransport: LurkerTransport {
   }
 
   nonisolated static func snapshot() -> StateSnapshot {
+    let status = Buffer(
+      id: statusID,
+      networkID: networkID,
+      name: "Libera",
+      kind: "status",
+      joined: true,
+      showEmbeds: false,
+      showPresenceEvents: true,
+      collapsePresenceEvents: false,
+      pinned: false,
+      unread: 0,
+      mentions: 0
+    )
     let channel = Buffer(
       id: channelID,
       networkID: networkID,
@@ -126,18 +144,18 @@ actor FixtureTransport: LurkerTransport {
       mentions: 0
     )
     let messages = [
-        Message(
-          id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000001")!,
-          networkID: networkID,
-          bufferID: channelID,
-          ts: "2026-07-23T08:12:00Z",
-          sender: "tove",
-          kind: "privmsg",
-          content: "The native client is connected.",
-          displayKind: "message",
-          senderColor: 4
-        ),
-        Message(
+      Message(
+        id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000001")!,
+        networkID: networkID,
+        bufferID: channelID,
+        ts: "2026-07-23T08:12:00Z",
+        sender: "tove",
+        kind: "privmsg",
+        content: "The native client is connected.",
+        displayKind: "message",
+        senderColor: 4
+      ),
+      Message(
         id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000002")!,
         networkID: networkID,
         bufferID: channelID,
