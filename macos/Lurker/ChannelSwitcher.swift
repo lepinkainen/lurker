@@ -24,14 +24,19 @@ struct ChannelSwitcher: View {
 
       List(results, selection: $selection) { result in
         HStack {
-          Image(
-            systemName: result.buffer.kind == "query"
-              ? "person" : result.buffer.kind == "status" ? "server.rack" : "number"
-          )
-          .foregroundStyle(.secondary)
-          .frame(width: 16)
+          if let icon = switcherIcon(for: result.buffer.kind) {
+            Image(systemName: icon)
+              .foregroundStyle(.secondary)
+              .frame(width: 16)
+          } else {
+            Color.clear.frame(width: 16)
+          }
           VStack(alignment: .leading, spacing: 1) {
             Text(result.buffer.kind == "status" ? "Status" : result.buffer.name)
+              .foregroundStyle(
+                result.buffer.kind == "channel" && !result.buffer.joined
+                  ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)
+              )
             Text(result.network.name)
               .font(.footnote)
               .foregroundStyle(.secondary)
@@ -109,8 +114,22 @@ struct ChannelSwitcher: View {
   }
 }
 
+private func switcherIcon(for kind: String) -> String? {
+  switch kind {
+  case "status": "server.rack"
+  case "query": "person"
+  default: nil
+  }
+}
+
 private struct SwitcherResult: Identifiable {
   var id: UUID { buffer.id }
   let buffer: Buffer
   let network: Network
+}
+
+#Preview {
+  ChannelSwitcher()
+    .environment(AppModel.preview())
+    .tint(.mint)
 }

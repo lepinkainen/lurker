@@ -1,18 +1,18 @@
 import Foundation
 
 actor FixtureTransport: LurkerTransport {
-  private let networkID = UUID(uuidString: "0198F5F2-8F2A-7A8B-9B42-4D6E72C4D8F1")!
-  private let channelID = UUID(uuidString: "0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20")!
-  private let queryID = UUID(uuidString: "0198F5F2-9448-7ED6-B3B4-CD8A1A6E8B21")!
-  private let fullChannelID = UUID(uuidString: "0198F5F3-0000-7A8B-9B42-4D6E72C4D8F2")!
+  static let networkID = UUID(uuidString: "0198F5F2-8F2A-7A8B-9B42-4D6E72C4D8F1")!
+  static let channelID = UUID(uuidString: "0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20")!
+  static let queryID = UUID(uuidString: "0198F5F2-9448-7ED6-B3B4-CD8A1A6E8B21")!
+  static let fullChannelID = UUID(uuidString: "0198F5F3-0000-7A8B-9B42-4D6E72C4D8F2")!
 
-  private let fullTotal = 400
-  private let fullPageSize = 50
-  private let fullUnread = 10
+  static let fullTotal = 400
+  static let fullPageSize = 50
+  static let fullUnread = 10
 
-  private lazy var fullMessages: [Message] = buildFullMessages()
+  static let fullMessages: [Message] = buildFullMessages()
 
-  private func buildFullMessages() -> [Message] {
+  nonisolated static func buildFullMessages() -> [Message] {
     let pool: [(String, Int)] = [
       ("shrike", 19),
       ("tove", 4),
@@ -65,12 +65,18 @@ actor FixtureTransport: LurkerTransport {
     return messages
   }
 
+  nonisolated static let identity = ServiceIdentity(
+    name: "lurker", version: "ui-test", hash: "fixture", buildTime: "2026-01-01T00:00:00Z")
+
   func validateServer() async throws -> ServiceIdentity {
-    ServiceIdentity(
-      name: "lurker", version: "ui-test", hash: "fixture", buildTime: "2026-01-01T00:00:00Z")
+    Self.identity
   }
 
   func fetchState() async throws -> StateSnapshot {
+    Self.snapshot()
+  }
+
+  nonisolated static func snapshot() -> StateSnapshot {
     let channel = Buffer(
       id: channelID,
       networkID: networkID,
@@ -185,15 +191,15 @@ actor FixtureTransport: LurkerTransport {
   }
 
   func fetchHistory(bufferID: UUID, before: UUID?) async throws -> [Message] {
-    guard bufferID == fullChannelID else { return [] }
-    let all = fullMessages
+    guard bufferID == Self.fullChannelID else { return [] }
+    let all = Self.fullMessages
     let beforeIndex: Int
     if let before, let idx = all.firstIndex(where: { $0.id == before }) {
       beforeIndex = idx
     } else {
       beforeIndex = all.count
     }
-    let lower = max(0, beforeIndex - fullPageSize)
+    let lower = max(0, beforeIndex - Self.fullPageSize)
     guard lower < beforeIndex else { return [] }
     return Array(all[lower..<beforeIndex])
   }

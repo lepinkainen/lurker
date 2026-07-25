@@ -31,16 +31,11 @@ enum ConnectionState: Equatable {
 
 struct SidebarBufferGroups {
   let status: [Buffer]
-  let joined: [Buffer]
+  let channels: [Buffer]
   let queries: [Buffer]
-  let archived: [Buffer]
-
-  var primary: [Buffer] {
-    status + joined + queries
-  }
 
   var all: [Buffer] {
-    primary + archived
+    status + channels + queries
   }
 }
 
@@ -147,7 +142,7 @@ final class AppModel {
       }
       transport = LurkerAPI(baseURL: url)
     }
-    if !ProcessInfo.processInfo.arguments.contains("-ui-testing") {
+    if !ProcessInfo.isPreviewOrUITest {
       NotificationManager.shared.configure { [weak self] id in
         self?.selectBuffer(id)
       }
@@ -553,15 +548,8 @@ final class AppModel {
     }
     return SidebarBufferGroups(
       status: values.filter { $0.kind == "status" }.sorted(by: bufferOrder),
-      joined:
-        values
-        .filter { $0.kind == "channel" && $0.joined }
-        .sorted(by: bufferOrder),
-      queries: values.filter { $0.kind == "query" }.sorted(by: bufferOrder),
-      archived:
-        values
-        .filter { $0.kind == "channel" && !$0.joined }
-        .sorted(by: bufferOrder)
+      channels: values.filter { $0.kind == "channel" }.sorted(by: bufferOrder),
+      queries: values.filter { $0.kind == "query" }.sorted(by: bufferOrder)
     )
   }
 
@@ -608,10 +596,29 @@ private func bufferOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
 #if DEBUG
 @MainActor
 extension AppModel {
+  /// A fully hydrated, "connected and joined" model for SwiftUI previews.
+  /// Populates state synchronously instead of running the async connection loop,
+  /// so the sidebar `List` renders its rows in a single pass. Driving it through
+  /// `start()` instead makes the outline view diff an empty→populated transition
+  /// mid-animation, which crashes `TableViewListCore` in the Previews agent.
   static func preview() -> AppModel {
     let model = AppModel(transport: FixtureTransport())
-    model.start()
+    model.applySnapshot(FixtureTransport.snapshot())
+    model.serviceIdentity = FixtureTransport.identity
+    model.connectionState = .connected
+    model.hydrated = true
+    model.selectBuffer(FixtureTransport.channelID)
     return model
   }
 }
 #endif
+
+extension ProcessInfo {
+  /// True in Xcode Previews or UI tests, where AppKit/UserNotifications APIs
+  /// (`UNUserNotificationCenter.current()`, `NSApp.dockTile`) crash or misbehave.
+  static var isPreviewOrUITest: Bool {
+    let env = processInfo.environment
+    return env["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+      || processInfo.arguments.contains("-ui-testing")
+  }
+}

@@ -38,6 +38,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
   }
 
   func setDockBadge(_ count: Int) {
+    guard !ProcessInfo.isPreviewOrUITest else { return }
     NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
   }
 
