@@ -12,7 +12,7 @@ struct SettingsView: View {
         TextField("Lurker server", text: $server, prompt: Text("http://localhost:8080"))
           .textFieldStyle(.roundedBorder)
         Text("Only localhost, Tailnet 100.64.0.0/10 addresses, and MagicDNS names are accepted.")
-          .font(.caption)
+          .font(.footnote)
           .foregroundStyle(.secondary)
         HStack {
           connectionLabel
@@ -24,7 +24,7 @@ struct SettingsView: View {
         }
         if let error {
           Text(error)
-            .font(.caption)
+            .font(.footnote)
             .foregroundStyle(.red)
         }
       }
@@ -59,7 +59,7 @@ struct SettingsView: View {
         .controlSize(.small)
     } else {
       Label(model.connectionState.label, systemImage: model.connectionState.symbol)
-        .font(.caption)
+        .font(.footnote)
         .foregroundStyle(.secondary)
     }
   }
@@ -96,7 +96,7 @@ struct ConnectionEditor: View {
           .symbolRenderingMode(.hierarchical)
         VStack(alignment: .leading, spacing: 5) {
           Text(required ? "Connect to Lurker" : "Change Lurker Server")
-            .font(.title2.weight(.semibold))
+            .font(.title.weight(.semibold))
           Text("Enter the private HTTP address of your bouncer.")
             .foregroundStyle(.secondary)
         }
@@ -104,7 +104,7 @@ struct ConnectionEditor: View {
 
       TextField("Server address", text: $server, prompt: Text("http://localhost:8080"))
         .textFieldStyle(.roundedBorder)
-        .font(.body.monospaced())
+        .font(.title3.monospaced())
         .onSubmit(connect)
 
       VStack(alignment: .leading, spacing: 5) {
@@ -113,12 +113,12 @@ struct ConnectionEditor: View {
           "Tailscale 100.64.0.0/10 addresses", systemImage: "point.3.connected.trianglepath.dotted")
         Label("MagicDNS names and *.ts.net hosts", systemImage: "network")
       }
-      .font(.caption)
+      .font(.footnote)
       .foregroundStyle(.secondary)
 
       if let error {
         Label(error, systemImage: "exclamationmark.triangle.fill")
-          .font(.caption)
+          .font(.footnote)
           .foregroundStyle(.red)
       }
 
@@ -158,4 +158,11 @@ struct ConnectionEditor: View {
       saving = false
     }
   }
+}
+
+#Preview {
+  SettingsView()
+    .environment(AppModel.preview())
+    .tint(.mint)
+    .frame(width: 500, height: 330)
 }

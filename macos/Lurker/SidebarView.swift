@@ -71,7 +71,7 @@ struct SidebarView: View {
           .buttonStyle(.plain)
           .help("Settings")
         }
-        .font(.caption)
+        .font(.footnote)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
@@ -107,13 +107,13 @@ private struct NetworkHeader: View {
     Button(action: toggle) {
       HStack(spacing: 7) {
         Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-          .font(.caption2.weight(.semibold))
+          .font(.caption.weight(.semibold))
           .frame(width: 8)
         Circle()
           .fill(statusColor)
           .frame(width: 7, height: 7)
         Text(network.name)
-          .font(.caption.weight(.semibold))
+          .font(.footnote.weight(.semibold))
           .lineLimit(1)
         Spacer()
         if mentions > 0 {
@@ -143,7 +143,7 @@ private struct BufferRow: View {
   var body: some View {
     HStack(spacing: 7) {
       Image(systemName: icon)
-        .font(.caption)
+        .font(.footnote)
         .foregroundStyle(buffer.joined || buffer.kind != "channel" ? .secondary : .tertiary)
         .frame(width: 12)
       Text(label)
@@ -178,7 +178,7 @@ private struct CountBadge: View {
 
   var body: some View {
     Text(count.formatted())
-      .font(.caption2.monospacedDigit().weight(.semibold))
+      .font(.caption.monospacedDigit().weight(.semibold))
       .padding(.horizontal, 5)
       .padding(.vertical, 1)
       .foregroundStyle(mention ? Color.white : Color.secondary)
@@ -216,4 +216,11 @@ extension View {
       }
     }
   }
+}
+
+#Preview {
+  SidebarView()
+    .environment(AppModel.preview())
+    .tint(.mint)
+    .frame(width: 260, height: 600)
 }

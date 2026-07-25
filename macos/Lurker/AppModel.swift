@@ -604,3 +604,14 @@ private func messageOrder(_ lhs: Message, _ rhs: Message) -> Bool {
 private func bufferOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
   lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
 }
+
+#if DEBUG
+@MainActor
+extension AppModel {
+  static func preview() -> AppModel {
+    let model = AppModel(transport: FixtureTransport())
+    model.start()
+    return model
+  }
+}
+#endif

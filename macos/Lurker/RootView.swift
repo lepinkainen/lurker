@@ -80,3 +80,10 @@ private struct ConnectionStatusButton: View {
       ?? model.connectionState.label
   }
 }
+
+#Preview {
+  RootView()
+    .environment(AppModel.preview())
+    .tint(.mint)
+    .frame(minWidth: 1180, minHeight: 760)
+}

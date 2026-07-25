@@ -8,10 +8,10 @@ struct MembersInspector: View {
     VStack(spacing: 0) {
       HStack {
         Text("Members")
-          .font(.headline)
+          .font(.title3)
         Spacer()
         Text(filtered.count.formatted())
-          .font(.caption.monospacedDigit())
+          .font(.footnote.monospacedDigit())
           .foregroundStyle(.secondary)
       }
       .padding(12)
@@ -68,7 +68,7 @@ private struct MemberRow: View {
   var body: some View {
     HStack(spacing: 7) {
       Text(member.prefix ?? " ")
-        .font(.caption.monospaced().weight(.bold))
+        .font(.footnote.monospaced().weight(.bold))
         .foregroundStyle(prefixColor)
         .frame(width: 10)
       Circle()
@@ -76,12 +76,12 @@ private struct MemberRow: View {
         .frame(width: 6, height: 6)
       VStack(alignment: .leading, spacing: 1) {
         Text(member.nick)
-          .font(.callout.monospaced().weight(member.`self` ? .bold : .regular))
+          .font(.body.monospaced().weight(member.`self` ? .bold : .regular))
           .foregroundStyle(member.away ? .secondary : .primary)
           .lineLimit(1)
         if let realname = member.realname, !realname.isEmpty {
           Text(realname)
-            .font(.caption2)
+            .font(.caption)
             .foregroundStyle(.tertiary)
             .lineLimit(1)
         }

@@ -44,10 +44,10 @@ private struct ConversationHeader: View {
       VStack(alignment: .leading, spacing: 3) {
         HStack(spacing: 6) {
           Text(buffer.kind == "status" ? network?.name ?? "Status" : buffer.name)
-            .font(.headline)
+            .font(.title3)
           if buffer.kind == "channel", !buffer.joined {
             Text("ARCHIVED")
-              .font(.caption2.weight(.bold))
+              .font(.caption.weight(.bold))
               .foregroundStyle(.secondary)
               .padding(.horizontal, 5)
               .padding(.vertical, 2)
@@ -55,7 +55,7 @@ private struct ConversationHeader: View {
           }
         }
         Text(subtitle)
-          .font(.caption)
+          .font(.footnote)
           .foregroundStyle(.secondary)
           .lineLimit(1)
           .textSelection(.enabled)
@@ -116,6 +116,9 @@ private struct TimelineView: View {
         }
       }
     }
+    // Rebuild the scroll container per buffer so switching channels always
+    // re-applies the bottom anchor and lands at the end of the backlog.
+    .id(buffer.id)
     .background(Color(nsColor: .textBackgroundColor))
   }
 
@@ -179,7 +182,7 @@ private struct DaySeparator: View {
     HStack {
       line
       Text(title)
-        .font(.caption.weight(.medium))
+        .font(.footnote.weight(.medium))
         .foregroundStyle(.secondary)
       line
     }
@@ -200,7 +203,7 @@ private struct UnreadSeparator: View {
     HStack {
       Rectangle().frame(height: 1)
       Text("New Messages")
-        .font(.caption.weight(.semibold))
+        .font(.footnote.weight(.semibold))
       Rectangle().frame(height: 1)
     }
     .foregroundStyle(.orange)
@@ -220,7 +223,7 @@ private struct PresenceSummary: View {
       }
     } label: {
       Label(summary, systemImage: "person.2.wave.2")
-        .font(.caption.monospaced())
+        .font(.footnote.monospaced())
         .foregroundStyle(.secondary)
         .padding(.vertical, 3)
     }
@@ -245,30 +248,30 @@ private struct MessageRow: View {
   var body: some View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
       Text(displayTime(message.ts))
-        .font(.caption2.monospacedDigit())
+        .font(.caption.monospacedDigit())
         .foregroundStyle(.tertiary)
         .frame(width: 42, alignment: .trailing)
         .accessibilityHidden(true)
 
       if message.displayKind == "sys" {
         Image(systemName: systemSymbol)
-          .font(.caption2)
+          .font(.caption)
           .foregroundStyle(.secondary)
           .frame(width: 14)
         Text(systemText)
-          .font(.caption.monospaced())
+          .font(.footnote.monospaced())
           .foregroundStyle(.secondary)
           .textSelection(.enabled)
       } else {
         Text(message.sender)
-          .font(.callout.monospaced().weight(message.isSelf == true ? .bold : .medium))
+          .font(.body.monospaced().weight(message.isSelf == true ? .bold : .medium))
           .foregroundStyle(nickColor(message.senderColor))
           .frame(width: 104, alignment: .trailing)
           .lineLimit(1)
           .help(message.userhost ?? message.sender)
         VStack(alignment: .leading, spacing: 6) {
           Text(attributedBody(message))
-            .font(.callout.monospaced())
+            .font(.body.monospaced())
             .foregroundStyle(message.displayKind == "action" ? .purple : .primary)
             .textSelection(.enabled)
           if buffer?.showEmbeds != false {
@@ -352,10 +355,10 @@ private struct PreviewCard: View {
       }
       VStack(alignment: .leading, spacing: 2) {
         Text(preview.siteName ?? URL(string: preview.url)?.host() ?? "Link")
-          .font(.caption2.weight(.semibold))
+          .font(.caption.weight(.semibold))
           .foregroundStyle(.secondary)
         Text(preview.title ?? preview.description ?? preview.url)
-          .font(.caption)
+          .font(.footnote)
           .foregroundStyle(.primary)
           .lineLimit(2)
       }
@@ -381,25 +384,25 @@ private struct ComposerView: View {
     VStack(alignment: .leading, spacing: 4) {
       if let error = model.composerError {
         Text(error)
-          .font(.caption)
+          .font(.footnote)
           .foregroundStyle(.red)
           .transition(.move(edge: .bottom).combined(with: .opacity))
       }
       HStack(alignment: .bottom, spacing: 8) {
         Text(model.selectedNetwork?.nick ?? "you")
-          .font(.caption.monospaced().weight(.semibold))
-          .foregroundStyle(.mint)
-          .padding(.bottom, 6)
+              .font(.body.monospaced().weight(.semibold))
+          .foregroundStyle(.white)
+//          .padding(.bottom, 6)
         TextField(placeholder, text: $model.composerText, axis: .vertical)
           .textFieldStyle(.plain)
-          .font(.callout.monospaced())
+          .font(.body.monospaced())
           .lineLimit(1...5)
           .focused($focused)
           .onSubmit(model.sendComposer)
           .disabled(!canSend)
         Button(action: model.sendComposer) {
           Image(systemName: "arrow.up.circle.fill")
-            .font(.title3)
+            .font(.title2)
         }
         .buttonStyle(.plain)
         .disabled(
@@ -433,7 +436,7 @@ private struct ComposerView: View {
       return model.connectionState == .connected
         ? "This conversation is read-only" : "Waiting for connection…"
     }
-    return "Message \(buffer.name)"
+    return "\(buffer.name)"
   }
 }
 
@@ -454,8 +457,8 @@ func attributedBody(_ message: Message) -> AttributedString {
   let plainText = segments.map(\.text).joined()
   for segment in segments {
     var value = AttributedString(segment.text)
-    if segment.bold == true { value.font = .callout.monospaced().bold() }
-    if segment.italic == true { value.font = .callout.monospaced().italic() }
+    if segment.bold == true { value.font = .body.monospaced().bold() }
+    if segment.italic == true { value.font = .body.monospaced().italic() }
     if segment.underline == true { value.underlineStyle = .single }
     if segment.strike == true { value.strikethroughStyle = .single }
     if let foreground = segment.fg { value.foregroundColor = mircColor(foreground) }
@@ -518,4 +521,11 @@ private enum TimelineFormatters {
   static let linkDetector = try? NSDataDetector(
     types: NSTextCheckingResult.CheckingType.link.rawValue)
   static let iso8601 = ISO8601DateFormatter()
+}
+
+#Preview {
+  ConversationView()
+    .environment(AppModel.preview())
+    .tint(.mint)
+    .frame(width: 700, height: 600)
 }

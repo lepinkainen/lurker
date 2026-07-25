@@ -17,7 +17,7 @@ struct ChannelSwitcher: View {
           .focused($focused)
           .onSubmit(openSelection)
       }
-      .font(.title3)
+      .font(.title2)
       .padding(14)
 
       Divider()
@@ -33,17 +33,17 @@ struct ChannelSwitcher: View {
           VStack(alignment: .leading, spacing: 1) {
             Text(result.buffer.kind == "status" ? "Status" : result.buffer.name)
             Text(result.network.name)
-              .font(.caption)
+              .font(.footnote)
               .foregroundStyle(.secondary)
           }
           Spacer()
           if result.buffer.mentions > 0 {
             Text(result.buffer.mentions.formatted())
-              .font(.caption2.weight(.bold))
+              .font(.caption.weight(.bold))
               .foregroundStyle(.orange)
           } else if result.buffer.unread > 0 {
             Text(result.buffer.unread.formatted())
-              .font(.caption2)
+              .font(.caption)
               .foregroundStyle(.secondary)
           }
         }
