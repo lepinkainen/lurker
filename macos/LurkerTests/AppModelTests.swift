@@ -13,24 +13,23 @@ struct AppModelTests {
     let pinned = buffer("#zeta", networkID: networkID, pinned: true)
     let joined = buffer("#alpha", networkID: networkID)
     let query = buffer("bob", kind: "query", networkID: networkID)
-    let archived = buffer("#old", networkID: networkID, joined: false)
+    let notJoined = buffer("#old", networkID: networkID, joined: false)
 
     model.networks[networkID] = network(id: networkID)
     model.buffers = Dictionary(
-      uniqueKeysWithValues: [status, pinned, joined, query, archived].map { ($0.id, $0) })
+      uniqueKeysWithValues: [status, pinned, joined, query, notJoined].map { ($0.id, $0) })
 
     #expect(model.pinnedBuffers.map(\.id) == [pinned.id])
     let groups = model.sidebarBuffers(for: networkID)
-    #expect(groups.primary.map(\.id) == [status.id, joined.id, query.id])
-    #expect(groups.archived.map(\.id) == [archived.id])
+    #expect(groups.all.map(\.id) == [status.id, joined.id, notJoined.id, query.id])
 
     model.selectedBufferID = status.id
     model.nextBuffer()
     #expect(model.selectedBufferID == joined.id)
     model.nextBuffer()
-    #expect(model.selectedBufferID == query.id)
+    #expect(model.selectedBufferID == notJoined.id)
     model.nextBuffer()
-    #expect(model.selectedBufferID == archived.id)
+    #expect(model.selectedBufferID == query.id)
   }
 
   @Test func freshSnapshotResetsPaginationState() {

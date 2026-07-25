@@ -23,7 +23,13 @@ struct MembersInspector: View {
 
       List(filtered) { member in
         MemberRow(member: member)
+              .listRowSeparator(.hidden)
           .contextMenu {
+            Text(member.nick)
+              if let realname = member.realname, !realname.isEmpty {
+                  Text(realname)
+              }
+              Divider()
             Button("Message \(member.nick)") {
               sendTarget("query", member.nick)
             }
@@ -71,20 +77,11 @@ private struct MemberRow: View {
         .font(.footnote.monospaced().weight(.bold))
         .foregroundStyle(prefixColor)
         .frame(width: 10)
-      Circle()
-        .fill(member.away ? Color.secondary.opacity(0.35) : .green)
-        .frame(width: 6, height: 6)
       VStack(alignment: .leading, spacing: 1) {
         Text(member.nick)
           .font(.body.monospaced().weight(member.`self` ? .bold : .regular))
           .foregroundStyle(member.away ? .secondary : .primary)
           .lineLimit(1)
-        if let realname = member.realname, !realname.isEmpty {
-          Text(realname)
-            .font(.caption)
-            .foregroundStyle(.tertiary)
-            .lineLimit(1)
-        }
       }
     }
     .help(member.realname ?? member.nick)

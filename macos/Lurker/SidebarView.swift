@@ -18,24 +18,6 @@ struct SidebarView: View {
       ForEach(model.orderedNetworks.filter { !$0.disabled }) { network in
         let groups = model.sidebarBuffers(for: network.id)
         Section {
-          if !model.collapsedNetworks.contains(network.id) {
-            ForEach(groups.primary) { buffer in
-              BufferRow(buffer: buffer, network: network)
-                .tag(buffer.id)
-                .bufferMenu(buffer, model: model)
-            }
-            if !groups.archived.isEmpty {
-              DisclosureGroup("Archive") {
-                ForEach(groups.archived) { buffer in
-                  BufferRow(buffer: buffer, network: network)
-                    .tag(buffer.id)
-                    .bufferMenu(buffer, model: model)
-                }
-              }
-              .foregroundStyle(.secondary)
-            }
-          }
-        } header: {
           NetworkHeader(
             network: network,
             collapsed: model.collapsedNetworks.contains(network.id),
@@ -43,6 +25,13 @@ struct SidebarView: View {
             mentions: networkMentions(network.id)
           ) {
             model.toggleNetwork(network.id)
+          }
+          if !model.collapsedNetworks.contains(network.id) {
+            ForEach(groups.all) { buffer in
+              BufferRow(buffer: buffer, network: network)
+                .tag(buffer.id)
+                .bufferMenu(buffer, model: model)
+            }
           }
         }
       }
@@ -142,13 +131,15 @@ private struct BufferRow: View {
 
   var body: some View {
     HStack(spacing: 7) {
-      Image(systemName: icon)
-        .font(.footnote)
-        .foregroundStyle(buffer.joined || buffer.kind != "channel" ? .secondary : .tertiary)
-        .frame(width: 12)
+      if let icon {
+        Image(systemName: icon)
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+          .frame(width: 12)
+      }
       Text(label)
         .lineLimit(1)
-        .foregroundStyle(buffer.unread > 0 ? .primary : .secondary)
+        .foregroundStyle(textStyle)
       Spacer(minLength: 4)
       if buffer.mentions > 0 {
         CountBadge(count: buffer.mentions, mention: true)
@@ -163,12 +154,19 @@ private struct BufferRow: View {
     buffer.kind == "status" ? "Status" : buffer.name
   }
 
-  private var icon: String {
+  private var icon: String? {
     switch buffer.kind {
     case "status": "server.rack"
     case "query": "person"
-    default: buffer.joined ? "number" : "archivebox"
+    default: nil
     }
+  }
+
+  private var textStyle: some ShapeStyle {
+    if buffer.kind == "channel" {
+      return buffer.joined ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
+    }
+    return buffer.unread > 0 ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
   }
 }
 
