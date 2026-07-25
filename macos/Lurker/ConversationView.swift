@@ -390,9 +390,9 @@ private struct ComposerView: View {
       }
       HStack(alignment: .bottom, spacing: 8) {
         Text(model.selectedNetwork?.nick ?? "you")
-              .font(.body.monospaced().weight(.semibold))
+          .font(.body.monospaced().weight(.semibold))
           .foregroundStyle(.white)
-//          .padding(.bottom, 6)
+        //          .padding(.bottom, 6)
         TextField(placeholder, text: $model.composerText, axis: .vertical)
           .textFieldStyle(.plain)
           .font(.body.monospaced())

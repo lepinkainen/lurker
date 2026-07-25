@@ -23,13 +23,13 @@ struct MembersInspector: View {
 
       List(filtered) { member in
         MemberRow(member: member)
-              .listRowSeparator(.hidden)
+          .listRowSeparator(.hidden)
           .contextMenu {
             Text(member.nick)
-              if let realname = member.realname, !realname.isEmpty {
-                  Text(realname)
-              }
-              Divider()
+            if let realname = member.realname, !realname.isEmpty {
+              Text(realname)
+            }
+            Divider()
             Button("Message \(member.nick)") {
               sendTarget("query", member.nick)
             }
