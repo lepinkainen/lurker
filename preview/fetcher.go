@@ -49,6 +49,10 @@ func NewFetcher(cfg FetcherConfig) *Fetcher {
 	if cfg.MaxBytes <= 0 {
 		cfg.MaxBytes = 512 * 1024
 	}
+	// Whether the caller supplied a custom SSRFCheck (test override reaching
+	// httptest.Server on 127.0.0.1). If so, skip installing the pinning
+	// transport, which would otherwise block loopback.
+	customCheck := cfg.SSRFCheck != nil
 	if cfg.SSRFCheck == nil {
 		resolver := cfg.Resolver
 		cfg.SSRFCheck = func(ctx context.Context, u string) error {
@@ -64,6 +68,12 @@ func NewFetcher(cfg FetcherConfig) *Fetcher {
 			}
 			return cfg.SSRFCheck(req.Context(), req.URL.String())
 		},
+	}
+	// Pin DNS resolution to the validated IP so the dialed address is the one
+	// CheckURL vetted, closing the DNS-rebinding TOCTOU. Gated on the absence
+	// of a test SSRFCheck override so httptest loopback targets still work.
+	if !customCheck {
+		f.client.Transport = pinningTransport(cfg.Resolver)
 	}
 	return f
 }
