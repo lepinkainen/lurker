@@ -31,9 +31,13 @@
 	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<!-- iPad multitasking (TARGETED_DEVICE_FAMILY includes iPad, no
+	     UIRequiresFullScreen) requires all four orientations or App Store
+	     validation rejects the archive with ITMS-90474. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
