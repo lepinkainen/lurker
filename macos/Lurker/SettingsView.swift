@@ -176,5 +176,7 @@ struct ConnectionEditor: View {
   SettingsView()
     .environment(AppModel.preview())
     .tint(.mint)
-    .frame(width: 500, height: 330)
+    #if os(macOS)
+      .frame(width: 500, height: 330)
+    #endif
 }
