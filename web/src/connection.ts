@@ -50,7 +50,6 @@ export type StateSyncDeps = {
 
 export type HydrateDeps = {
   renderer: Pick<Renderer, "renderStatus">;
-  transport: Pick<Transport, "syncState">;
   scheduleReconnect: (delayMs: number) => void;
 };
 
@@ -62,7 +61,7 @@ export type ConnectionDeps = {
 };
 
 export type Connection = {
-  hydrate: () => Promise<void>;
+  hydrate: () => void;
   connect: () => void;
   scheduleReconnect: (delayMs: number) => void;
 };
@@ -148,19 +147,17 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
   }
 }
 
-export async function hydrate(deps: HydrateDeps) {
-  try {
-    state.backendStatus = "connecting";
-    deps.renderer.renderStatus();
-    await deps.transport.syncState();
-    state.reconnectAttempts = 0;
-    deps.scheduleReconnect(0);
-  } catch (err) {
-    state.backendStatus = "offline";
-    deps.renderer.renderStatus();
-    console.error("hydrate failed", err);
-    deps.scheduleReconnect(nextReconnectDelay());
-  }
+export function hydrate(deps: HydrateDeps) {
+  // Open the WebSocket first, then let the `open` handler run syncState once the
+  // socket has subscribed. Fetching the /api/state snapshot before subscribing
+  // would drop any events published between the snapshot (T0) and the WS
+  // subscribe (T0+delay). Flagging needsStateSyncOnConnect makes first load use
+  // the same open-then-sync ordering as reconnect, which is already correct.
+  state.backendStatus = "connecting";
+  deps.renderer.renderStatus();
+  state.needsStateSyncOnConnect = true;
+  state.reconnectAttempts = 0;
+  deps.scheduleReconnect(0);
 }
 
 export function createConnection(deps: ConnectionDeps): Connection {
@@ -185,7 +182,6 @@ export function createConnection(deps: ConnectionDeps): Connection {
     hydrate: () =>
       hydrate({
         renderer: { renderStatus: deps.renderer.renderStatus },
-        transport: { syncState: deps.transport.syncState },
         scheduleReconnect,
       }),
     connect,

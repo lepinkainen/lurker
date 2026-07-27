@@ -198,6 +198,30 @@ describe("connection recovery", () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
 
+  it("opens the websocket first on hydrate and syncs from the open handler", async () => {
+    const d = deps();
+    state.needsStateSyncOnConnect = false;
+    const connection = createConnection(asConnectionDeps(d));
+
+    await connection.hydrate();
+
+    // hydrate must NOT pre-fetch the snapshot before the socket subscribes.
+    expect(d.transport.syncState).not.toHaveBeenCalled();
+    expect(state.needsStateSyncOnConnect).toBe(true);
+    expect(state.reconnectAttempts).toBe(0);
+
+    // scheduleReconnect(0) opens the socket; the open handler then syncs.
+    vi.advanceTimersByTime(0);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    FakeWebSocket.instances[0].open();
+
+    await vi.waitFor(() => {
+      expect(state.messages.get("10")).toEqual([{ id: "99", buffer_id: "10", content: "missed while asleep" }]);
+    });
+    expect(d.transport.syncState).toHaveBeenCalledOnce();
+    expect(state.needsStateSyncOnConnect).toBe(false);
+  });
+
   it("skips state refresh on first websocket open when no sync is pending", () => {
     const d = deps();
     state.needsStateSyncOnConnect = false;

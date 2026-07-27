@@ -105,6 +105,9 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
   disabledWrap.className = "nf-checkbox-wrap nf-disabled-wrap";
   disabledWrap.append(disabledEl, disabledLabel);
 
+  // The SASL username is not prefilled on edit because the API never ships SASL
+  // credentials to clients (see networkDTO in api/state.go). Leaving it blank on
+  // edit is safe: the backend treats a blank username as "keep existing".
   const saslUserEl = textInput("nf-sasl-user", "");
   saslUserEl.autocomplete = "username";
 
@@ -230,11 +233,19 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
       tls: tlsEl.checked,
       nick,
       realname,
-      sasl_user: saslUser,
-      sasl_pass: saslPass,
       connect_commands: connectCommands,
     };
-    if (isEdit) body.disabled = disabledEl.checked;
+    if (isEdit) {
+      body.disabled = disabledEl.checked;
+      // On edit, blank SASL fields mean "keep existing" (backend contract), so
+      // only send them when the user actually typed a value. This prevents an
+      // edit that doesn't touch SASL from wiping stored credentials.
+      if (saslUser) body.sasl_user = saslUser;
+      if (saslPass) body.sasl_pass = saslPass;
+    } else {
+      body.sasl_user = saslUser;
+      body.sasl_pass = saslPass;
+    }
 
     submitBtn.disabled = true;
     submitBtn.textContent = isEdit ? "Saving…" : "Adding…";
