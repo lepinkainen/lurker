@@ -108,9 +108,16 @@ func UpdateNetwork(ctx context.Context, d *sql.DB, id uuid.UUID, n Network) (Net
 	if n.Realname == "" {
 		n.Realname = current.Realname
 	}
+	// Blank SASL fields mean "keep existing" per-field. A blank password never
+	// wipes the stored one — the UI clears SASL by clearing the user, and
+	// partial programmatic updates (e.g. the connectedHook passing only Nick)
+	// must not clobber stored credentials. Consequence: a password cannot be
+	// cleared via update while a user is set, which is acceptable here.
+	if n.SASLPass == "" {
+		n.SASLPass = current.SASLPass
+	}
 	if n.SASLUser == "" && current.SASLUser != "" {
 		n.SASLUser = current.SASLUser
-		n.SASLPass = current.SASLPass
 	}
 	if n.ServerPass == "" && current.ServerPass != "" {
 		n.ServerPass = current.ServerPass

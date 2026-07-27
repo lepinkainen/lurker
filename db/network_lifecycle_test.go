@@ -121,6 +121,71 @@ func TestUpdateNetworkPreservesUnsetFields(t *testing.T) {
 	}
 }
 
+func TestUpdateNetworkSASLMergeSemantics(t *testing.T) {
+	ctx := t.Context()
+
+	newStore := func(t *testing.T) *MultiStore {
+		t.Helper()
+		ms, err := OpenMultiStore(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = ms.Close() })
+		return ms
+	}
+	seed := func(t *testing.T, ms *MultiStore) Network {
+		t.Helper()
+		orig, err := ms.UpsertNetwork(ctx, Network{
+			Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true,
+			Nick: "tester", SASLUser: "tester", SASLPass: "hunter2",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return orig
+	}
+
+	// (1) blank user + blank pass keeps both existing (partial-update safety,
+	// e.g. connectedHook passing only Nick).
+	t.Run("blank both keeps existing", func(t *testing.T) {
+		ms := newStore(t)
+		orig := seed(t, ms)
+		got, err := UpdateNetwork(ctx, ms.Control, orig.ID, Network{Nick: "renamed"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.SASLUser != "tester" || got.SASLPass != "hunter2" {
+			t.Fatalf("blank both: user=%q pass=%q, want tester/hunter2", got.SASLUser, got.SASLPass)
+		}
+	})
+
+	// (2) new pass + blank user keeps existing user and saves the new pass.
+	t.Run("new pass blank user", func(t *testing.T) {
+		ms := newStore(t)
+		orig := seed(t, ms)
+		got, err := UpdateNetwork(ctx, ms.Control, orig.ID, Network{SASLPass: "newsecret"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.SASLUser != "tester" || got.SASLPass != "newsecret" {
+			t.Fatalf("new pass blank user: user=%q pass=%q, want tester/newsecret", got.SASLUser, got.SASLPass)
+		}
+	})
+
+	// (3) new user + blank pass keeps existing pass.
+	t.Run("new user blank pass", func(t *testing.T) {
+		ms := newStore(t)
+		orig := seed(t, ms)
+		got, err := UpdateNetwork(ctx, ms.Control, orig.ID, Network{SASLUser: "newuser"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.SASLUser != "newuser" || got.SASLPass != "hunter2" {
+			t.Fatalf("new user blank pass: user=%q pass=%q, want newuser/hunter2", got.SASLUser, got.SASLPass)
+		}
+	})
+}
+
 func TestSetNetworkDisabledRoundtrip(t *testing.T) {
 	ctx := t.Context()
 	ms, err := OpenMultiStore(t.TempDir())

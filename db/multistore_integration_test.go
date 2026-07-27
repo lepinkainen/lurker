@@ -154,3 +154,72 @@ func TestEnsureBufferRejectsRegistryLogIDMismatch(t *testing.T) {
 		t.Fatalf("err = %v, want ErrBufferIDMismatch", err)
 	}
 }
+
+// TestEnsureBufferAdoptsSurvivingLogUUIDOnNetworkRecreate reproduces the wedge
+// where deleting a network cascades away its buffer_registry rows but keeps the
+// per-network log DB file (an intentional invariant). Recreating a network with
+// the same name must not hard-fail with ErrBufferIDMismatch; the new registry
+// row adopts the surviving log-row UUID so history stays reachable.
+func TestEnsureBufferAdoptsSurvivingLogUUIDOnNetworkRecreate(t *testing.T) {
+	ctx := t.Context()
+	dataDir := t.TempDir()
+	ms, err := OpenMultiStore(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ms.Close() }()
+
+	n, err := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	origID, _, _, err := ms.EnsureBuffer(ctx, n.ID, "#go", BufferChannel)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete the network: this cascades buffer_registry rows away but keeps the
+	// log DB file (which still holds the #go buffer row with origID).
+	if err := ms.DeleteNetwork(ctx, n.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Belt-and-braces: ensure no registry row survives for the buffer name,
+	// simulating the cascade even if FK enforcement were absent.
+	if _, err := ms.Control.ExecContext(ctx, `DELETE FROM buffer_registry WHERE name = '#go'`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Recreate with the same name. The log DB path is name-derived, so the same
+	// file (with the surviving #go row) is reopened. A fresh network UUID is
+	// expected and fine.
+	n2, err := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	adoptedID, _, _, err := ms.EnsureBuffer(ctx, n2.ID, "#go", BufferChannel)
+	if err != nil {
+		t.Fatalf("EnsureBuffer after recreate failed (wedge not fixed): %v", err)
+	}
+	if adoptedID != origID {
+		t.Fatalf("recreated buffer id = %s, want adopted surviving log id %s", adoptedID, origID)
+	}
+
+	// The adopted buffer must accept message inserts and round-trip them.
+	logStore, err := ms.LogStore(n2.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := InsertLogMessage(ctx, logStore.DB, LogMessageInput{
+		BufferID: adoptedID, Sender: "alice", Kind: "privmsg", Content: "back again",
+	}); err != nil {
+		t.Fatalf("insert into adopted buffer: %v", err)
+	}
+	msgs, err := ms.RecentMessages(ctx, adoptedID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].Content != "back again" {
+		t.Fatalf("unexpected messages after recreate: %+v", msgs)
+	}
+}

@@ -222,7 +222,16 @@ var ErrBufferIDMismatch = errors.New("db: buffer id mismatch between registry an
 // ensures a row exists in both buffer_registry (control DB) and buffers
 // (per-network log DB) with the SAME UUID. If the log row is missing while
 // the registry row exists, it self-heals by inserting with the registry id.
-// If the log row exists with a different UUID, returns ErrBufferIDMismatch.
+//
+// The per-network log DB is the durable source of message history, so when the
+// registry row is absent but a log row for the same name already exists (the
+// deleted-then-recreated-network case: deleting a network cascades away its
+// buffer_registry rows but intentionally keeps the log DB file), the new
+// registry row adopts the surviving log row's UUID instead of minting a fresh
+// one. This reconnects the recreated network to its preserved history.
+//
+// The genuine-corruption path is unchanged: if BOTH a registry row and a log
+// row exist with divergent UUIDs, EnsureBuffer returns ErrBufferIDMismatch.
 func (ms *MultiStore) EnsureBuffer(ctx context.Context, networkID uuid.UUID, name, kind string) (id uuid.UUID, created bool, buf Buffer, err error) {
 	name, kind = normalizeBufferIdentity(name, kind)
 	logStore, err := ms.LogStore(networkID)
@@ -230,9 +239,16 @@ func (ms *MultiStore) EnsureBuffer(ctx context.Context, networkID uuid.UUID, nam
 		return uuid.Nil, false, Buffer{}, err
 	}
 
+	// Peek at the log DB first so a registry insert can adopt the surviving
+	// log-row UUID rather than minting a fresh one that would then collide.
+	adoptedID, adopt, err := ms.peekLogBufferID(ctx, logStore, name)
+	if err != nil {
+		return uuid.Nil, false, Buffer{}, err
+	}
+
 	now := Now()
 	buf = Buffer{NetworkID: networkID, Name: name, Kind: kind, CreatedAt: now}
-	if created, err = ms.ensureBufferRegistryRow(ctx, networkID, name, kind, now, &buf); err != nil {
+	if created, err = ms.ensureBufferRegistryRow(ctx, networkID, name, kind, now, adoptedID, adopt, &buf); err != nil {
 		return uuid.Nil, false, Buffer{}, err
 	}
 	if err := ms.ensureBufferLogRow(ctx, logStore, name, &buf); err != nil {
@@ -243,10 +259,29 @@ func (ms *MultiStore) EnsureBuffer(ctx context.Context, networkID uuid.UUID, nam
 	return buf.ID, created, buf, nil
 }
 
-// ensureBufferRegistryRow looks up the registry row by (network_id, name) and
-// inserts a fresh UUIDv7 row when absent. If another writer wins the insert
-// race, it re-selects to adopt the winning ID.
-func (ms *MultiStore) ensureBufferRegistryRow(ctx context.Context, networkID uuid.UUID, name, kind, now string, buf *Buffer) (bool, error) {
+// peekLogBufferID returns the UUID of an existing per-network log buffer row by
+// name. found is false (with nil error) when no such row exists.
+func (ms *MultiStore) peekLogBufferID(ctx context.Context, logStore *LogStore, name string) (id uuid.UUID, found bool, err error) {
+	row, err := logdb.New(logStore.DB).LookupLogBufferByName(ctx, name)
+	switch {
+	case err == nil:
+		id, perr := parseUUID(row.ID)
+		if perr != nil {
+			return uuid.Nil, false, perr
+		}
+		return id, true, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return uuid.Nil, false, nil
+	default:
+		return uuid.Nil, false, err
+	}
+}
+
+// ensureBufferRegistryRow looks up the registry row by (network_id, name). When
+// absent it inserts a new row: it adopts adoptedID (the surviving log-row UUID)
+// when adopt is true, otherwise mints a fresh UUIDv7. If another writer wins the
+// insert race, it re-selects to adopt the winning ID.
+func (ms *MultiStore) ensureBufferRegistryRow(ctx context.Context, networkID uuid.UUID, name, kind, now string, adoptedID uuid.UUID, adopt bool, buf *Buffer) (bool, error) {
 	q := controldb.New(ms.Control)
 	lookup := controldb.LookupBufferRegistryByNameParams{NetworkID: networkID[:], Name: name}
 	row, err := q.LookupBufferRegistryByName(ctx, lookup)
@@ -261,7 +296,11 @@ func (ms *MultiStore) ensureBufferRegistryRow(ctx context.Context, networkID uui
 		buf.CreatedAt = row.CreatedAt
 		return false, nil
 	case errors.Is(err, sql.ErrNoRows):
-		buf.ID = newID()
+		if adopt {
+			buf.ID = adoptedID
+		} else {
+			buf.ID = newID()
+		}
 		ierr := q.InsertBufferRegistry(ctx, controldb.InsertBufferRegistryParams{
 			ID:        buf.ID[:],
 			NetworkID: networkID[:],
