@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import Observation
 import SwiftUI
@@ -63,6 +62,8 @@ final class AppModel {
   var applicationActive = true
   var showingConnectionEditor = false
   var showingChannelSwitcher = false
+  // iOS has no `Settings` scene; settings is presented as an in-app sheet.
+  var showingSettings = false
   var composerText = ""
   var composerError: String?
   var notificationsEnabled = true
@@ -364,7 +365,7 @@ final class AppModel {
       })
     establishUnreadMarkers()
     restoreSelection()
-    updateDockBadge()
+    updateBadge()
   }
 
   private func apply(_ event: ServerEvent) {
@@ -398,7 +399,7 @@ final class AppModel {
       if let unread = event.unread { buffer.unread = unread }
       if let mentions = event.mentions { buffer.mentions = mentions }
       buffers[event.id] = buffer
-      updateDockBadge()
+      updateBadge()
     case .bufferSettings(let event):
       apply(event)
     case .networkState(let event):
@@ -466,7 +467,7 @@ final class AppModel {
         }
       }
       buffers[buffer.id] = buffer
-      updateDockBadge()
+      updateBadge()
     }
   }
 
@@ -485,7 +486,7 @@ final class AppModel {
     buffer.mentions = 0
     buffers[bufferID] = buffer
     markerAnchors.removeValue(forKey: bufferID)
-    updateDockBadge()
+    updateBadge()
     send(ClientCommand(type: "mark_read", bufferID: bufferID, messageID: last.id))
   }
 
@@ -553,8 +554,8 @@ final class AppModel {
     return values.filter { !presence.contains($0.kind) }
   }
 
-  private func updateDockBadge() {
-    NotificationManager.shared.setDockBadge(mentionTotal)
+  private func updateBadge() {
+    NotificationManager.shared.setBadge(mentionTotal)
   }
 
   private func resetServerState() {

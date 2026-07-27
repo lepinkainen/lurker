@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import SwiftUI
 
@@ -119,7 +118,7 @@ private struct TimelineView: View {
     // Rebuild the scroll container per buffer so switching channels always
     // re-applies the bottom anchor and lands at the end of the backlog.
     .id(buffer.id)
-    .background(Color(nsColor: .textBackgroundColor))
+    .background(Color.lurkerTimelineBackground)
   }
 
   private var items: [TimelineItem] {
@@ -193,7 +192,7 @@ private struct DaySeparator: View {
 
   private var line: some View {
     Rectangle()
-      .fill(Color(nsColor: .separatorColor))
+      .fill(Color.lurkerSeparator)
       .frame(height: 1)
   }
 }
@@ -288,13 +287,11 @@ private struct MessageRow: View {
     .background(highlightColor)
     .contextMenu {
       Button("Copy Message") {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(message.content, forType: .string)
+        Clipboard.copy(message.content)
       }
       if !message.sender.isEmpty {
         Button("Copy Nickname") {
-          NSPasteboard.general.clearContents()
-          NSPasteboard.general.setString(message.sender, forType: .string)
+          Clipboard.copy(message.sender)
         }
       }
     }
@@ -412,11 +409,11 @@ private struct ComposerView: View {
       }
       .padding(.horizontal, 10)
       .padding(.vertical, 7)
-      .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 8))
+      .background(Color.lurkerControlBackground, in: .rect(cornerRadius: 8))
       .overlay {
         RoundedRectangle(cornerRadius: 8)
           .stroke(
-            focused ? Color.accentColor : Color(nsColor: .separatorColor),
+            focused ? Color.accentColor : Color.lurkerSeparator,
             lineWidth: focused ? 1.5 : 0.5)
       }
     }
@@ -475,7 +472,7 @@ func attributedBody(_ message: Message) -> AttributedString {
         continue
       }
       result[attributedRange].link = url
-      result[attributedRange].foregroundColor = NSColor.linkColor
+      result[attributedRange].foregroundColor = Color.lurkerLink
       result[attributedRange].underlineStyle = .single
     }
   }

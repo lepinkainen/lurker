@@ -1,4 +1,6 @@
-import AppKit
+#if os(macOS)
+  import AppKit
+#endif
 import Foundation
 import UserNotifications
 
@@ -37,9 +39,15 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     UNUserNotificationCenter.current().add(request)
   }
 
-  func setDockBadge(_ count: Int) {
+  /// Reflect the unread-mention total on the app icon. macOS uses the dock tile
+  /// badge; iOS uses the notification-center badge count.
+  func setBadge(_ count: Int) {
     guard !ProcessInfo.isPreviewOrUITest else { return }
-    NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
+    #if os(macOS)
+      NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
+    #else
+      UNUserNotificationCenter.current().setBadgeCount(count)
+    #endif
   }
 
   nonisolated func userNotificationCenter(
@@ -59,7 +67,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
       return
     }
     await MainActor.run {
-      NSApp.activate()
+      #if os(macOS)
+        NSApp.activate()
+      #endif
       openBuffer?(id)
     }
   }

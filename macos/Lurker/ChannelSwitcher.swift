@@ -54,9 +54,15 @@ struct ChannelSwitcher: View {
         }
         .tag(result.buffer.id)
         .contentShape(.rect)
-        .onTapGesture(count: 2) {
-          open(result.buffer.id)
-        }
+        #if os(macOS)
+          .onTapGesture(count: 2) {
+            open(result.buffer.id)
+          }
+        #else
+          .onTapGesture {
+            open(result.buffer.id)
+          }
+        #endif
       }
       .listStyle(.inset)
       .overlay {
@@ -65,7 +71,9 @@ struct ChannelSwitcher: View {
         }
       }
     }
-    .frame(width: 520, height: 430)
+    #if os(macOS)
+      .frame(width: 520, height: 430)
+    #endif
     .onAppear {
       selection = results.first?.buffer.id
       focused = true

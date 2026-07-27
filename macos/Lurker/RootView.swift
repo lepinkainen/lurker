@@ -46,6 +46,21 @@ struct RootView: View {
       ChannelSwitcher()
         .environment(model)
     }
+    #if os(iOS)
+      .sheet(isPresented: $model.showingSettings) {
+        NavigationStack {
+          SettingsView()
+            .environment(model)
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+              ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { model.showingSettings = false }
+              }
+            }
+        }
+      }
+    #endif
     .onChange(of: scenePhase) { _, phase in
       model.setApplicationActive(phase == .active)
     }
