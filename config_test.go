@@ -84,6 +84,95 @@ networks:
 	}
 }
 
+func TestBuildServersTLSVerify(t *testing.T) {
+	cases := []struct {
+		name         string
+		tlsVerify    bool
+		wantInsecure bool
+	}{
+		{"verify off by default -> insecure true", false, true},
+		{"verify on -> insecure false", true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			servers, err := buildServers(NetworkFileConfig{
+				Network:   "Ircnet",
+				TLSVerify: tc.tlsVerify,
+				Servers:   []ServerFileConfig{{Host: "irc.example", Port: 6697}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(servers) != 1 {
+				t.Fatalf("servers len = %d, want 1", len(servers))
+			}
+			if servers[0].TLSInsecure != tc.wantInsecure {
+				t.Fatalf("TLSInsecure = %v, want %v", servers[0].TLSInsecure, tc.wantInsecure)
+			}
+		})
+	}
+}
+
+func TestParseYAMLConfigTLSVerify(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+networks:
+  - network: Verified
+    tls_verify: true
+    servers:
+      - host: irc.verified.example
+        port: 6697
+        tls: true
+  - network: Insecure
+    servers:
+      - host: irc.insecure.example
+        port: 6697
+        tls: true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nets, _, _, err := parseYAMLConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nets) != 2 {
+		t.Fatalf("len = %d, want 2", len(nets))
+	}
+	if nets[0].Servers[0].TLSInsecure {
+		t.Fatal("tls_verify:true should set TLSInsecure=false")
+	}
+	if !nets[1].Servers[0].TLSInsecure {
+		t.Fatal("absent tls_verify should leave TLSInsecure=true")
+	}
+}
+
+func TestParseYAMLConfigRejectsInvalidNetwork(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	// Network with no servers is invalid; buildNetworks must return an
+	// error so loadConfig's hard-quit path is exercised.
+	if err := os.WriteFile(path, []byte(`
+networks:
+  - network: NoServers
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := parseYAMLConfig(path); err == nil {
+		t.Fatal("expected error for network with no servers")
+	}
+}
+
+func TestParseYAMLConfigMissingFileIsNotError(t *testing.T) {
+	nets, pv, _, err := parseYAMLConfig(filepath.Join(t.TempDir(), "does-not-exist.yaml"))
+	if err != nil {
+		t.Fatalf("missing file should not be an error, got %v", err)
+	}
+	if nets != nil || pv != nil {
+		t.Fatalf("missing file should yield nil config, got nets=%v pv=%v", nets, pv)
+	}
+}
+
 func TestBuildBlueskyConfigEnvExpansion(t *testing.T) {
 	t.Setenv("LURKER_TEST_BSKY_PASS", "s3cret-app-pass")
 	cfg, err := buildBlueskyConfig(BlueskyFileConfig{

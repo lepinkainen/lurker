@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"os"
 	"regexp"
 	"strconv"
@@ -92,16 +93,20 @@ type BlueskyChannelFileConfig struct {
 }
 
 type NetworkFileConfig struct {
-	Network         string             `yaml:"network"`
-	Nick            string             `yaml:"nick,omitempty"`
-	User            string             `yaml:"user,omitempty"`
-	Realname        string             `yaml:"realname,omitempty"`
-	Channels        []string           `yaml:"channels,omitempty"`
-	ConnectCommands []string           `yaml:"connect_commands,omitempty"`
-	SASLUser        string             `yaml:"sasl_user,omitempty"`
-	SASLPass        string             `yaml:"sasl_pass,omitempty"`
-	Password        string             `yaml:"server_password,omitempty"`
-	Servers         []ServerFileConfig `yaml:"servers"`
+	Network         string   `yaml:"network"`
+	Nick            string   `yaml:"nick,omitempty"`
+	User            string   `yaml:"user,omitempty"`
+	Realname        string   `yaml:"realname,omitempty"`
+	Channels        []string `yaml:"channels,omitempty"`
+	ConnectCommands []string `yaml:"connect_commands,omitempty"`
+	SASLUser        string   `yaml:"sasl_user,omitempty"`
+	SASLPass        string   `yaml:"sasl_pass,omitempty"`
+	Password        string   `yaml:"server_password,omitempty"`
+	// TLSVerify enables TLS certificate verification for this network's
+	// servers. Defaults to false (verification OFF) to tolerate networks
+	// with broken round-robin certs.
+	TLSVerify bool               `yaml:"tls_verify,omitempty"`
+	Servers   []ServerFileConfig `yaml:"servers"`
 }
 
 type ServerFileConfig struct {
@@ -140,24 +145,30 @@ func loadConfig() Config {
 			BaseURL:  strings.TrimSpace(os.Getenv("UPLOAD_BASE_URL")),
 		},
 	}
-	if nets, pv, ds, err := parseYAMLConfig(cfg.ConfigPath); err == nil {
-		cfg.Networks = nets
-		cfg.DataSources = ds
-		if pv != nil {
-			if pv.MaxBytes > 0 {
-				cfg.Previews.MaxBytes = pv.MaxBytes
-			}
-			if pv.TimeoutMs > 0 {
-				cfg.Previews.TimeoutMs = pv.TimeoutMs
-			}
-			if pv.CacheTTLHours > 0 {
-				cfg.Previews.CacheTTLHours = pv.CacheTTLHours
-			}
-			if pv.Workers > 0 {
-				cfg.Previews.Workers = pv.Workers
-			}
-			cfg.Previews.Enabled = pv.Enabled
+	nets, pv, ds, err := parseYAMLConfig(cfg.ConfigPath)
+	if err != nil {
+		// A long-running bouncer must never boot on a partially-valid
+		// config. Any parse/validation failure is fatal; a missing file is
+		// not an error (parseYAMLConfig returns nils for os.IsNotExist).
+		slog.Error("invalid config", "path", cfg.ConfigPath, "err", err)
+		os.Exit(1)
+	}
+	cfg.Networks = nets
+	cfg.DataSources = ds
+	if pv != nil {
+		if pv.MaxBytes > 0 {
+			cfg.Previews.MaxBytes = pv.MaxBytes
 		}
+		if pv.TimeoutMs > 0 {
+			cfg.Previews.TimeoutMs = pv.TimeoutMs
+		}
+		if pv.CacheTTLHours > 0 {
+			cfg.Previews.CacheTTLHours = pv.CacheTTLHours
+		}
+		if pv.Workers > 0 {
+			cfg.Previews.Workers = pv.Workers
+		}
+		cfg.Previews.Enabled = pv.Enabled
 	}
 	return cfg
 }
@@ -334,7 +345,7 @@ func buildServers(n NetworkFileConfig) ([]irc.ServerConfig, error) {
 			Host:          s.Host,
 			Port:          defaultServerPort(s.Port, useTLS),
 			TLS:           useTLS,
-			TLSInsecure:   true,
+			TLSInsecure:   !n.TLSVerify,
 			TLSMaxVersion: tlsMaxVersion,
 		})
 	}
