@@ -24,7 +24,7 @@ Current in-repo scope:
 
 - Go backend service
 - disk-served web UI
-- native SwiftUI macOS client
+- native SwiftUI client for macOS and iOS (shared sources)
 - terminal UI client
 - control-plane SQLite database
 - one SQLite log database per network
@@ -50,7 +50,7 @@ Main components:
 - `hub/`: in-process pub/sub used to fan live events to WebSocket clients
 - `updates/`: background checker for published Linux container image metadata
 - `web/`: Vite + TypeScript frontend
-- `macos/`: Xcode project for the native SwiftUI client
+- `macos/`: Xcode project for the native SwiftUI client (one target builds macOS and iOS)
 - `cmd/tui/`: terminal UI client for the backend
 
 Runtime flow:
@@ -61,7 +61,7 @@ Runtime flow:
 4. HTTP API and web UI are served from the same Go process
 5. IRC events resolve buffers through `MultiStore.EnsureBuffer`, persist to SQLite with UUIDv7 IDs, and publish to the hub
 6. background update checker polls GHCR image metadata and caches latest status in memory
-7. web, terminal, and macOS clients consume the existing REST and WebSocket APIs
+7. web, terminal, and native (macOS/iOS) clients consume the existing REST and WebSocket APIs
 8. WebSocket clients receive hub events and issue commands back to the backend
 
 ## Configuration model
