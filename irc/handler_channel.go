@@ -165,8 +165,18 @@ func (h *handler) onEndOfWho(c *girc.Client, e girc.Event) {
 	if user == nil {
 		return
 	}
+	// girc stores user.ChannelList names RFC1459-folded (see state.go
+	// addChannel -> ToRFC1459). publishMemberList -> ensureBuffer does NOT
+	// case-fold, so passing a folded name like "#foo" would spawn a phantom
+	// second buffer for a channel tracked as "#Foo". Resolve each folded name
+	// back to girc's canonical display casing via LookupChannel (which folds
+	// its lookup key internally and returns the server-cased Channel.Name).
 	for _, channel := range user.ChannelList {
-		h.publishMemberList(c, channel)
+		name := channel
+		if ch := c.LookupChannel(channel); ch != nil {
+			name = ch.Name
+		}
+		h.publishMemberList(c, name)
 	}
 }
 func (h *handler) touchChannelBuffer(channel, action string) {

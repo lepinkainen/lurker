@@ -222,9 +222,11 @@ func (m *Manager) Send(networkID uuid.UUID, target, content string) error {
 }
 
 // LogOutbound persists a user-sent message to the per-network log and
-// publishes it on the hub. Necessary because the IRC servers we talk to
-// don't honor the echo-message capability, so outbound PRIVMSGs would
-// otherwise be missing from history and from other connected clients.
+// publishes it on the hub. Necessary because we deliberately do NOT request
+// the echo-message capability (see SupportedCaps in buildClient), so outbound
+// PRIVMSGs are never echoed back to us and would otherwise be missing from
+// history and from other connected clients. This keeps LogOutbound as the
+// single source of truth for outbound messages.
 func (m *Manager) LogOutbound(ctx context.Context, networkID uuid.UUID, target, kind, content string) error {
 	if m.stores == nil {
 		return errors.New("irc: stores unavailable")
@@ -757,7 +759,12 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 		RecoverFunc: girc.DefaultRecoverHandler,
 		Debug:       debugWriter(),
 		SupportedCaps: map[string][]string{
-			"echo-message":     nil,
+			// Deliberately do NOT request echo-message: LogOutbound is the
+			// single source of truth for outbound messages. Servers that honor
+			// echo-message would echo our PRIVMSGs back (carrying a msgid the
+			// LogOutbound row lacks), producing duplicate rows the
+			// (buffer_id,msgid) unique index can't dedupe, plus mis-filed
+			// self-PMs.
 			"labeled-response": nil,
 		},
 	}
