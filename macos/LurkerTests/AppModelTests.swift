@@ -56,6 +56,32 @@ struct AppModelTests {
     #expect(model.selectedBufferID == query.id)
   }
 
+  @Test func selectBufferPushesCompactConversation() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let channel = buffer("#alpha", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [channel.id: channel]
+
+    #expect(!model.compactConversationVisible)
+    model.selectBuffer(channel.id)
+    #expect(model.compactConversationVisible)
+
+    // After back-navigation pops, reselecting the same buffer must push again.
+    model.compactConversationVisible = false
+    model.selectBuffer(channel.id)
+    #expect(model.compactConversationVisible)
+  }
+
+  @Test func inspectorDismissalPersistsAcrossRelaunch() {
+    let defaults = isolatedDefaults()
+    let first = AppModel(transport: FixtureTransport(), defaults: defaults)
+    first.setInspectorVisible(false)
+
+    let second = AppModel(transport: FixtureTransport(), defaults: defaults)
+    #expect(!second.inspectorVisible)
+  }
+
   @Test func freshSnapshotResetsPaginationState() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let bufferID = UUID()
