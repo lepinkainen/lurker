@@ -3,53 +3,25 @@ import SwiftUI
 struct RootView: View {
   @Environment(AppModel.self) private var model
   @Environment(\.scenePhase) private var scenePhase
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
 
   var body: some View {
     @Bindable var model = model
-    NavigationSplitView(columnVisibility: $model.columnVisibility) {
-      SidebarView()
-        .navigationSplitViewColumnWidth(min: 190, ideal: 230, max: 320)
-    } detail: {
-      ConversationView()
-    }
-    .navigationSplitViewStyle(.balanced)
-    .inspector(isPresented: $model.inspectorVisible) {
-      MembersInspector()
-        .inspectorColumnWidth(min: 170, ideal: 210, max: 300)
-    }
-    .toolbar {
-      ToolbarItem(placement: .navigation) {
-        ConnectionStatusButton()
+    layout
+      .sheet(isPresented: $model.showingConnectionEditor) {
+        ConnectionEditor(required: model.configuredURL == nil)
+          .environment(model)
       }
-      ToolbarItemGroup(placement: .primaryAction) {
-        Button {
-          model.showingChannelSwitcher = true
-        } label: {
-          Label("Switch Channel", systemImage: "magnifyingglass")
-        }
-        .help("Switch channel (⌘K)")
-
-        Button {
-          model.setInspectorVisible(!model.inspectorVisible)
-        } label: {
-          Label("Members", systemImage: "person.2")
-        }
-        .help("Show or hide channel members")
-        .disabled(model.selectedBuffer?.kind != "channel")
+      .sheet(isPresented: $model.showingChannelSwitcher) {
+        ChannelSwitcher()
+          .environment(model)
       }
-    }
-    .sheet(isPresented: $model.showingConnectionEditor) {
-      ConnectionEditor(required: model.configuredURL == nil)
-        .environment(model)
-    }
-    .sheet(isPresented: $model.showingChannelSwitcher) {
-      ChannelSwitcher()
-        .environment(model)
-    }
-    #if os(iOS)
-      .sheet(isPresented: $model.showingSettings) {
-        NavigationStack {
-          SettingsView()
+      #if os(iOS)
+        .sheet(isPresented: $model.showingSettings) {
+          NavigationStack {
+            SettingsView()
             .environment(model)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -58,12 +30,145 @@ struct RootView: View {
                 Button("Done") { model.showingSettings = false }
               }
             }
+          }
+        }
+      #endif
+      .onChange(of: scenePhase) { _, phase in
+        model.setApplicationActive(phase == .active)
+      }
+  }
+
+  // iPhone (compact width) gets a NavigationStack that pushes the conversation:
+  // NavigationSplitView only auto-pushes its detail column when the sidebar is a
+  // `List(selection:)`, which the custom sidebar is not.
+  @ViewBuilder private var layout: some View {
+    #if os(iOS)
+      if horizontalSizeClass == .compact {
+        CompactRootView()
+      } else {
+        splitView
+      }
+    #else
+      splitView
+    #endif
+  }
+
+  // macOS renders the toolbar attached to the split view itself in the unified
+  // window toolbar; iOS drops toolbars attached outside a navigation container,
+  // so on iPad the buttons live inside the columns' navigation bars instead.
+  private var splitView: some View {
+    @Bindable var model = model
+    return NavigationSplitView(columnVisibility: $model.columnVisibility) {
+      SidebarView()
+        .navigationSplitViewColumnWidth(min: 190, ideal: 230, max: 320)
+        #if os(iOS)
+          .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+              ConnectionStatusButton()
+            }
+          }
+        #endif
+    } detail: {
+      ConversationView()
+        #if os(iOS)
+          .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+              ChannelSwitcherButton()
+              MembersToggleButton()
+            }
+          }
+        #endif
+    }
+    .navigationSplitViewStyle(.balanced)
+    .inspector(isPresented: model.membersPresented) {
+      MembersInspector()
+        .inspectorColumnWidth(min: 170, ideal: 210, max: 300)
+    }
+    #if os(macOS)
+      .toolbar {
+        ToolbarItem(placement: .navigation) {
+          ConnectionStatusButton()
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+          ChannelSwitcherButton()
+          MembersToggleButton()
         }
       }
     #endif
-    .onChange(of: scenePhase) { _, phase in
-      model.setApplicationActive(phase == .active)
+  }
+}
+
+#if os(iOS)
+  private struct CompactRootView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+      @Bindable var model = model
+      NavigationStack {
+        SidebarView()
+          .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+              ConnectionStatusButton()
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+              ChannelSwitcherButton()
+            }
+          }
+          .navigationDestination(isPresented: $model.compactConversationVisible) {
+            ConversationView()
+              .navigationTitle(model.selectedBuffer?.name ?? "")
+              .navigationBarTitleDisplayMode(.inline)
+              .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                  MembersToggleButton()
+                }
+              }
+          }
+      }
+      .sheet(isPresented: model.membersPresented) {
+        MembersInspector()
+          .environment(model)
+          .presentationDetents([.medium, .large])
+      }
     }
+  }
+#endif
+
+extension AppModel {
+  /// Presents the members inspector; writes route through `setInspectorVisible`
+  /// so interactive dismissal (sheet swipe, inspector close) is persisted.
+  fileprivate var membersPresented: Binding<Bool> {
+    Binding(
+      get: { self.inspectorVisible },
+      set: { self.setInspectorVisible($0) }
+    )
+  }
+}
+
+private struct ChannelSwitcherButton: View {
+  @Environment(AppModel.self) private var model
+
+  var body: some View {
+    Button {
+      model.showingChannelSwitcher = true
+    } label: {
+      Label("Switch Channel", systemImage: "magnifyingglass")
+    }
+    .help("Switch channel (⌘K)")
+  }
+}
+
+private struct MembersToggleButton: View {
+  @Environment(AppModel.self) private var model
+
+  var body: some View {
+    Button {
+      model.setInspectorVisible(!model.inspectorVisible)
+    } label: {
+      Label("Members", systemImage: "person.2")
+    }
+    .help("Show or hide channel members")
+    .disabled(model.selectedBuffer?.kind != "channel")
   }
 }
 
@@ -100,5 +205,9 @@ private struct ConnectionStatusButton: View {
   RootView()
     .environment(AppModel.preview())
     .tint(.mint)
-    .frame(minWidth: 1180, minHeight: 760)
+    // Desktop window sizing only: a fixed frame wider than the device breaks
+    // the iOS preview canvas (content lays out past the screen edges).
+    #if os(macOS)
+      .frame(minWidth: 1180, minHeight: 760)
+    #endif
 }

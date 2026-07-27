@@ -58,7 +58,7 @@ final class AppModel {
   var historyLoading: Set<UUID> = []
   var connectionState: ConnectionState = .notConfigured
   var serviceIdentity: ServiceIdentity?
-  var inspectorVisible = true
+  var inspectorVisible = AppModel.defaultInspectorVisible
   var applicationActive = true
   var showingConnectionEditor = false
   var showingChannelSwitcher = false
@@ -68,7 +68,17 @@ final class AppModel {
   var composerError: String?
   var notificationsEnabled = true
   var columnVisibility: NavigationSplitViewVisibility = .all
+  // iOS compact width: whether ConversationView is pushed over the sidebar.
+  var compactConversationVisible = false
   var focusComposerRequest = 0
+
+  // The members inspector starts hidden on iOS: `.inspector` presents as a
+  // full-screen sheet on iPhone, which would cover the app on first launch.
+  #if os(macOS)
+    static let defaultInspectorVisible = true
+  #else
+    static let defaultInspectorVisible = false
+  #endif
 
   @ObservationIgnored private var transport: (any LurkerTransport)?
   @ObservationIgnored private var connectionTask: Task<Void, Never>?
@@ -87,7 +97,8 @@ final class AppModel {
     self.runsConnectionLoop = runsConnectionLoop
     selectedBufferID = defaults.string(forKey: Defaults.selectedBuffer).flatMap(
       UUID.init(uuidString:))
-    inspectorVisible = defaults.object(forKey: Defaults.inspectorVisible) as? Bool ?? true
+    inspectorVisible =
+      defaults.object(forKey: Defaults.inspectorVisible) as? Bool ?? Self.defaultInspectorVisible
     notificationsEnabled = defaults.object(forKey: Defaults.notifications) as? Bool ?? true
     if transport != nil {
       connectionState = .connecting
@@ -177,7 +188,11 @@ final class AppModel {
   }
 
   func selectBuffer(_ id: UUID) {
-    guard buffers[id] != nil, selectedBufferID != id else { return }
+    guard buffers[id] != nil else { return }
+    // Every open path (sidebar tap, channel switcher, notification, next-buffer)
+    // funnels here, so this is where the compact-width conversation push happens.
+    compactConversationVisible = true
+    guard selectedBufferID != id else { return }
     if applicationActive, let previous = selectedBufferID {
       markRead(previous)
     }
