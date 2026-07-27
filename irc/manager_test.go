@@ -311,7 +311,7 @@ func TestPublishMemberListUsesTrackedMembers(t *testing.T) {
 	runClientEvent(client, mustEvent(t, ":tester!u@h JOIN #test"))
 	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :tester"))
 
-	events, unsub := h.Subscribe(16)
+	events, _, unsub := h.Subscribe(16)
 	defer unsub()
 	handler.onEndOfNames(client, mustEvent(t, ":fake 366 tester #test :End of NAMES"))
 
@@ -396,7 +396,7 @@ func TestPublishMemberListDedupSuppressesIdenticalRepublish(t *testing.T) {
 	runClientEvent(client, mustEvent(t, ":tester!u@h JOIN #test"))
 	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :tester"))
 
-	events, unsub := h.Subscribe(16)
+	events, _, unsub := h.Subscribe(16)
 	defer unsub()
 
 	handler.onEndOfNames(client, mustEvent(t, ":fake 366 tester #test :End of NAMES"))
@@ -431,7 +431,7 @@ func TestOnEndOfWhoBackfillsRealname(t *testing.T) {
 	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :tester"))
 	handler.onEndOfNames(client, mustEvent(t, ":fake 366 tester #test :End of NAMES"))
 
-	events, unsub := h.Subscribe(16)
+	events, _, unsub := h.Subscribe(16)
 	defer unsub()
 
 	// girc auto-WHOs the joined channel; feed a RPL_WHOREPLY then RPL_ENDOFWHO.
@@ -467,7 +467,7 @@ func TestOnEndOfWhoNickTargetRepublishesChannels(t *testing.T) {
 	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :tester alice"))
 	handler.onEndOfNames(client, mustEvent(t, ":fake 366 tester #test :End of NAMES"))
 
-	events, unsub := h.Subscribe(16)
+	events, _, unsub := h.Subscribe(16)
 	defer unsub()
 
 	// girc per-nick WHO (remote JOIN path): target is the nick, not the channel.
@@ -518,7 +518,7 @@ func TestManagerStartAndStopNetworkIndividually(t *testing.T) {
 	f := &fakeConnector{waitForClose: true, attempts: make(chan ServerConfig, 16)}
 	m.connector = f.connect
 
-	events, unsub := h.Subscribe(16)
+	events, _, unsub := h.Subscribe(16)
 	defer unsub()
 
 	n1, err := stores.UpsertNetwork(ctx, ircdb.Network{Name: "NetOne", Host: "127.0.0.1", Port: 6667, TLS: false, Nick: "a"})

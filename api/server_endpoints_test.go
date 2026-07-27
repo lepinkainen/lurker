@@ -143,7 +143,7 @@ func TestPatchBufferSettingsPersistsAndPublishes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, unsub := s.Hub.Subscribe(4)
+	events, _, unsub := s.Hub.Subscribe(4)
 	defer unsub()
 
 	w := httptest.NewRecorder()

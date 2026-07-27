@@ -9,7 +9,7 @@ import (
 func TestRPLListPublishesAccumulatedEntriesAndClears(t *testing.T) {
 	h := hub.New()
 	f := newTestHandlerFixture(t, withTestHandlerHub(h))
-	events, unsub := h.Subscribe(16)
+	events, _, unsub := h.Subscribe(16)
 	defer unsub()
 
 	f.Handler.onRPLList(nil, mustEvent(t, ":irc.example 322 tester #go 42 :Go talk"))

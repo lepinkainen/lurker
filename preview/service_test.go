@@ -146,7 +146,7 @@ func TestServiceWorkerProcessesCacheMissEndToEnd(t *testing.T) {
 	defer server.Close()
 
 	h := hub.New()
-	ch, unsub := h.Subscribe(1)
+	ch, _, unsub := h.Subscribe(1)
 	defer unsub()
 	svc := NewService(Config{Enabled: true, Workers: 1, QueueCapacity: 4, CacheTTL: time.Hour, Timeout: time.Second}, env.stores, h)
 	svc.fetcher = NewFetcher(FetcherConfig{Timeout: time.Second, SSRFCheck: func(context.Context, string) error { return nil }})
@@ -192,7 +192,7 @@ func TestServiceProcessUsesCacheHit(t *testing.T) {
 	}
 
 	h := hub.New()
-	ch, unsub := h.Subscribe(1)
+	ch, _, unsub := h.Subscribe(1)
 	defer unsub()
 	svc := NewService(Config{Enabled: true, CacheTTL: time.Hour}, env.stores, h)
 	var fetcherCalled atomic.Bool
@@ -227,7 +227,7 @@ func TestServiceProcessFiltersNonDisplayablePreviews(t *testing.T) {
 	}
 
 	h := hub.New()
-	ch, unsub := h.Subscribe(1)
+	ch, _, unsub := h.Subscribe(1)
 	defer unsub()
 	svc := NewService(Config{Enabled: true, CacheTTL: time.Hour}, env.stores, h)
 	svc.process(ctx, job{NetworkID: env.networkID, BufferID: env.bufferID, MessageID: env.messageID, Content: urls[0] + " " + urls[1]})
@@ -251,7 +251,7 @@ func TestServiceProcessPublishesOnlyDisplayablePreviews(t *testing.T) {
 	}
 
 	h := hub.New()
-	ch, unsub := h.Subscribe(1)
+	ch, _, unsub := h.Subscribe(1)
 	defer unsub()
 	svc := NewService(Config{Enabled: true, CacheTTL: time.Hour}, env.stores, h)
 	svc.process(ctx, job{NetworkID: env.networkID, BufferID: env.bufferID, MessageID: env.messageID, Content: displayableURL + " " + noneURL})

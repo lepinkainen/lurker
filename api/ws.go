@@ -138,22 +138,27 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	events, unsub := s.Hub.Subscribe(256)
+	events, overflow, unsub := s.Hub.Subscribe(256)
 	defer unsub()
 
 	done := make(chan struct{})
-	go runStreamWriter(ctx, c, events, done)
+	go runStreamWriter(ctx, c, events, overflow, done)
 	s.runStreamReader(ctx, c, cancel, done)
 }
 
 // runStreamWriter forwards every event published on the hub channel to the
 // WebSocket. The 10s write timeout is per-message; a stalled client tears
-// down the connection rather than backing up the hub.
-func runStreamWriter(ctx context.Context, c *websocket.Conn, events <-chan any, done chan<- struct{}) {
+// down the connection rather than backing up the hub. If the hub signals
+// overflow (this subscriber fell behind and an event was dropped) the
+// writer returns, tearing down the connection so the client reconnects and
+// resyncs from a fresh snapshot.
+func runStreamWriter(ctx context.Context, c *websocket.Conn, events <-chan any, overflow <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-overflow:
 			return
 		case ev, ok := <-events:
 			if !ok {

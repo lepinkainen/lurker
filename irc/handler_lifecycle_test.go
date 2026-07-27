@@ -65,7 +65,7 @@ func awaitLine(t *testing.T, lines <-chan string, match func(string) bool) strin
 func TestOnConnectedSendsConnectCommandsThenAutojoin(t *testing.T) {
 	h := hub.New()
 	f := newTestHandlerFixture(t, withTestHandlerHub(h))
-	events, unsub := h.Subscribe(16)
+	events, _, unsub := h.Subscribe(16)
 	defer unsub()
 
 	hookCalled := false
@@ -103,7 +103,7 @@ func TestOnConnectedSendsConnectCommandsThenAutojoin(t *testing.T) {
 func TestOnDisconnectedMarksChannelsPartedAndResetsState(t *testing.T) {
 	h := hub.New()
 	f := newTestHandlerFixture(t, withTestHandlerHub(h))
-	events, unsub := h.Subscribe(32)
+	events, _, unsub := h.Subscribe(32)
 	defer unsub()
 
 	var cleared []string
@@ -140,7 +140,7 @@ func TestOnDisconnectedMarksChannelsPartedAndResetsState(t *testing.T) {
 func TestOnDisconnectedWithoutJoinedChannelsStillLogsStatus(t *testing.T) {
 	h := hub.New()
 	f := newTestHandlerFixture(t, withTestHandlerHub(h))
-	events, unsub := h.Subscribe(16)
+	events, _, unsub := h.Subscribe(16)
 	defer unsub()
 
 	f.Handler.onDisconnected(nil, mustEvent(t, "ERROR :Ping timeout"))

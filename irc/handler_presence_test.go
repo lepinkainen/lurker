@@ -9,7 +9,7 @@ import (
 func TestNickPublishesPresenceAndUpdatesSelfNick(t *testing.T) {
 	h := hub.New()
 	f := newTestHandlerFixture(t, withTestHandlerHub(h))
-	events, unsub := h.Subscribe(16)
+	events, _, unsub := h.Subscribe(16)
 	defer unsub()
 	client := newTestClient(t)
 	var currentNick string

@@ -131,7 +131,7 @@ func TestUnreadCountsIncludeHighlights(t *testing.T) {
 
 func TestHighlightsPutPublishesEventAndUpdatesMatcher(t *testing.T) {
 	evHub, h := newHighlightsTestServer(t)
-	events, unsub := evHub.Subscribe(1)
+	events, _, unsub := evHub.Subscribe(1)
 	defer unsub()
 
 	rec := doNetworkRequest(h, http.MethodPut, "/api/settings/highlights", `{"patterns":["deploy"]}`)

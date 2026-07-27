@@ -462,7 +462,7 @@ func TestMarkReadBroadcastsBufferUpdate(t *testing.T) {
 	ts := newTestWSServer(t)
 	nID, bufID := ts.defaultNetwork(t)
 
-	events, unsub := ts.hub.Subscribe(8)
+	events, _, unsub := ts.hub.Subscribe(8)
 	defer unsub()
 
 	c := ts.dial(t)
@@ -523,7 +523,7 @@ func TestMarkReadComputesResidualUnread(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, unsub := ts.hub.Subscribe(8)
+	events, _, unsub := ts.hub.Subscribe(8)
 	defer unsub()
 
 	c := ts.dial(t)
