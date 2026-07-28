@@ -71,8 +71,6 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => null,
-      markBufferReadOnExit: vi.fn(),
-      maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
     expect(() => setActive("b1")).toThrow(NOT_INITIALIZED_RE);
@@ -84,8 +82,6 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
-      markBufferReadOnExit: vi.fn(),
-      maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
 
@@ -99,8 +95,6 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
-      markBufferReadOnExit: vi.fn(),
-      maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
     const focusSpy = vi.spyOn(dom.inputEl, "focus");
@@ -110,22 +104,31 @@ describe("createSetActive", () => {
     focusSpy.mockRestore();
   });
 
-  it("invokes markBufferReadOnExit when leaving a previous buffer", () => {
+  it("never touches read state when switching buffers (no implicit mark_read)", () => {
     const dom = makeDom();
     const view = makeView(dom);
-    const markRead = vi.fn();
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
-      markBufferReadOnExit: markRead,
-      maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
     seedBuffer("b2");
+    const b1 = state.buffers.get("b1");
+    if (!b1) throw new Error("missing b1");
+    b1.unread = 7;
+    b1.mentions = 2;
+    b1.marker_id = "m5";
+    b1.marker_ts = "2024-05-01T10:00:00Z";
+    b1.last_seen_id = "m1";
 
     state.activeId = "b1";
     setActive("b2", { skipHash: true });
-    expect(markRead).toHaveBeenCalled();
+    // Exiting b1 (and entering b2) is not an ack: badge, divider, and unread
+    // bar clear only on explicit Esc / unread-bar click.
+    expect(b1.unread).toBe(7);
+    expect(b1.mentions).toBe(2);
+    expect(b1.marker_id).toBe("m5");
+    expect(b1.last_seen_id).toBe("m1");
   });
 
   it("persists the active buffer to localStorage", () => {
@@ -134,8 +137,6 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
-      markBufferReadOnExit: vi.fn(),
-      maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
 
@@ -149,8 +150,6 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
-      markBufferReadOnExit: vi.fn(),
-      maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
     const focusSpy = vi.spyOn(dom.inputEl, "focus");
@@ -170,8 +169,6 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
-      markBufferReadOnExit: vi.fn(),
-      maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
     const focusSpy = vi.spyOn(dom.inputEl, "focus");
@@ -191,8 +188,6 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
-      markBufferReadOnExit: vi.fn(),
-      maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
     state.channelList = { network_id: "n1", entries: [], done: true };
@@ -207,8 +202,6 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
-      markBufferReadOnExit: vi.fn(),
-      maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
     const pushSpy = vi.spyOn(history, "pushState");
@@ -224,8 +217,6 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
-      markBufferReadOnExit: vi.fn(),
-      maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
     const replaceSpy = vi.spyOn(history, "replaceState");
@@ -244,8 +235,6 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
-      markBufferReadOnExit: vi.fn(),
-      maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
     const pushSpy = vi.spyOn(history, "pushState");
@@ -264,8 +253,6 @@ describe("createSetActive", () => {
     const setActive = createSetActive({
       getDom: () => dom,
       getView: () => view,
-      markBufferReadOnExit: vi.fn(),
-      maybeMarkActiveRead: vi.fn(),
     });
     seedBuffer("b1");
     seedBuffer("b2");

@@ -13,8 +13,6 @@ export type SetActive = (id: string, opts?: SetActiveOpts) => void;
 export type SetActiveDeps = {
   getDom: () => DomRefs | null;
   getView: () => AppView | null;
-  markBufferReadOnExit: (bufferId: string | null, opts?: { render?: boolean }) => void;
-  maybeMarkActiveRead: (opts?: { render?: boolean }) => void;
 };
 
 export function createSetActive(deps: SetActiveDeps): SetActive {
@@ -23,15 +21,10 @@ export function createSetActive(deps: SetActiveDeps): SetActive {
     if (!view) throw new Error("app view not initialized");
     const dom = deps.getDom();
     if (dom && state.activeId !== null) saveInputDraft(state.activeId, dom.inputEl.value, true);
-    // Swap activeId before mark-exit so anchor cleanup keys off the right id.
-    // activeFocusedSinceEnter still holds the prior buffer's accumulator until
-    // after the exit call. {render:false} skips redundant sidebar/active
-    // renders here — setActive renders both unconditionally below.
-    const prevId = state.activeId;
+    // Switching buffers never sends mark_read: the marker clears only on an
+    // explicit user ack (Esc / unread bar click). See
+    // ai-docs/behaviors/new-messages-marker.md.
     state.activeId = id;
-    deps.markBufferReadOnExit(prevId, { render: false });
-    state.activeFocusedSinceEnter = state.uiFocused;
-    deps.maybeMarkActiveRead({ render: false });
     saveLastActive(id);
     state.channelList = null;
     setSidebarDrawer(false);

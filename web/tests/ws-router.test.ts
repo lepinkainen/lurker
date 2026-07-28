@@ -149,11 +149,27 @@ describe("ws-router dispatch contract", () => {
     expect(view.updateBuffer).toHaveBeenCalledWith(m, { rerenderActive: true });
   });
 
-  it("buffer_update does not force rerenderActive", () => {
+  it("buffer_update for a non-active buffer does not force rerenderActive", () => {
     const view = fakeView();
+    state.activeId = "other";
     const m = { type: "buffer_update" as const, id: "b1", topic: "new" };
     createWSRouter(view)(m);
     expect(view.updateBuffer).toHaveBeenCalledWith(m, { rerenderActive: false });
+  });
+
+  it("buffer_update for the active buffer forces rerenderActive (marker/divider are server state)", () => {
+    const view = fakeView();
+    state.activeId = "b1";
+    const m = {
+      type: "buffer_update" as const,
+      id: "b1",
+      last_seen_id: "12",
+      marker_id: null,
+      unread: 0,
+      mentions: 0,
+    };
+    createWSRouter(view)(m);
+    expect(view.updateBuffer).toHaveBeenCalledWith(m, { rerenderActive: true });
   });
 });
 

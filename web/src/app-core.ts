@@ -5,7 +5,6 @@ import { activeBuffer, state } from "./app-state";
 import { type AppView, createAppView } from "./app-view";
 import { createConnection, type StateSyncDeps, syncStateFromServer } from "./connection";
 import { captureDom, type DomRefs } from "./dom";
-import { cleanupFocusTracking, initFocusTracking } from "./focus";
 import { bindInputHandlers } from "./input";
 import { cleanupKeyboardShortcuts, initKeyboardShortcuts } from "./keyboard-routing";
 import { onHashChange } from "./navigation";
@@ -29,18 +28,16 @@ export function start() {
   dom = captureDom();
   domReady = true;
   const d = dom;
-  const { maybeMarkActiveRead, markBufferReadOnExit, clearActiveMarker, loadOlderHistory } = createReadTracker({
+  const { ackBufferRead, loadOlderHistory } = createReadTracker({
     getView: () => appView,
     sendCmd,
   });
   const setActive = createSetActive({
     getDom: () => dom,
     getView: () => appView,
-    markBufferReadOnExit,
-    maybeMarkActiveRead,
   });
   const stick = createScrollStick(d.messagesEl);
-  const view = createAppView(d, { sendCmd, setActive, maybeMarkActiveRead, stick });
+  const view = createAppView(d, { sendCmd, setActive, ackBufferRead, stick });
   appView = view;
   routeWSMessage = createWSRouter(view);
   view.renderStatus();
@@ -59,7 +56,6 @@ export function start() {
   });
   d.messagesEl.addEventListener("scroll", () => {
     if (d.messagesEl.scrollTop <= 40) loadOlderHistory();
-    maybeMarkActiveRead();
   });
   d.toggleMembersEl.addEventListener("click", () => {
     if (isMobileViewport()) {
@@ -80,9 +76,10 @@ export function start() {
   initKeyboardShortcuts({
     inputEl: d.inputEl,
     setActive: (id: string) => setActive(id, { focusInput: true }),
-    clearActiveMarker,
+    ackActiveBuffer: () => {
+      if (state.activeId !== null) ackBufferRead(state.activeId);
+    },
   });
-  initFocusTracking({ renderSidebar: view.renderSidebar, maybeMarkActiveRead });
   const onHash = () => onHashChange(setActive);
   window.addEventListener("hashchange", onHash);
   window.addEventListener("popstate", onHash);
@@ -103,7 +100,6 @@ export function start() {
       renderSidebar: view.renderSidebar,
       updateInputEnabled: view.updateInputEnabled,
     },
-    navigation: { maybeMarkActiveRead },
     transport: {
       syncState: () => syncStateFromServer(syncStateDeps),
       handleMessage: (msg) => routeWSMessage?.(msg),
@@ -121,7 +117,6 @@ function sendCmd(cmd: Record<string, unknown>) {
 
 export function resetForTests() {
   cleanupKeyboardShortcuts();
-  cleanupFocusTracking();
   resetAppState();
   if (domReady) appView?.renderPromptNick();
   dom = null;

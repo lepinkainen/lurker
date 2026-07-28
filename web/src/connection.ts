@@ -2,7 +2,6 @@ import {
   loadLastActive,
   type Member,
   type Message,
-  reconcileAnchor,
   type StateResponse,
   state,
   type TailscaleStatus,
@@ -32,7 +31,6 @@ export type Renderer = {
 export type Navigation = {
   setActive: (id: string, opts?: { skipHash?: boolean; replaceHash?: boolean }) => void;
   bufferFromHash: (hash: string) => { id: string } | null;
-  maybeMarkActiveRead: () => void;
 };
 
 export type Transport = {
@@ -56,7 +54,6 @@ export type HydrateDeps = {
 export type ConnectionDeps = {
   domReady: () => boolean;
   renderer: Pick<Renderer, "renderStatus" | "renderSidebar" | "updateInputEnabled">;
-  navigation: Pick<Navigation, "maybeMarkActiveRead">;
   transport: Transport;
 };
 
@@ -96,13 +93,14 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
     registerNetworkNickColor(network);
   }
   deps.renderer.renderPromptNick();
+  // Full replace per buffer: marker_id/marker_ts are omitted server-side when
+  // the buffer is caught up, so absent fields land as undefined (no marker).
   for (const buffer of s.buffers || []) {
     state.buffers.set(buffer.id, {
       ...buffer,
       unread: buffer.unread ?? 0,
       mentions: buffer.mentions ?? 0,
     });
-    reconcileAnchor(buffer.id);
   }
   for (const [id, msgs] of Object.entries(s.initial_messages || {})) {
     const existing = state.messages.get(id) || [];
@@ -230,7 +228,6 @@ function connectWS(deps: WebSocketRuntimeDeps) {
     state.reconnectAttempts = 0;
     deps.renderer.renderStatus();
     deps.renderer.updateInputEnabled();
-    deps.navigation.maybeMarkActiveRead();
     deps.renderer.renderSidebar();
     if (state.needsStateSyncOnConnect) {
       deps.transport

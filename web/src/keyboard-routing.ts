@@ -16,7 +16,9 @@ export type KeyboardShortcutsDeps = {
   // Keyboard-driven buffer switches focus the input so typing continues
   // uninterrupted, even on touch devices with a hardware keyboard (e.g. iPad).
   setActive: (id: string) => void;
-  clearActiveMarker: () => void;
+  // Explicit read ack for the active buffer (Esc): clears badge + divider +
+  // unread bar everywhere via mark_read.
+  ackActiveBuffer: () => void;
 };
 
 let cleanupKeydown: (() => void) | null = null;
@@ -53,12 +55,12 @@ export function initKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
       // to be closed by the native Esc — that consumes the keypress.
       if (document.querySelector("dialog[open]")) return;
       // Likewise a mobile drawer: closing it is the whole action. Only a
-      // bare Esc clears the new-messages marker (behavior doc, Case C).
+      // bare Esc acks the buffer read (new-messages-marker behavior doc).
       const drawerOpen = document.body.dataset.sidebarOpen === "true" || document.body.dataset.membersOpen === "true";
       setSidebarDrawer(false);
       setMembersDrawer(false);
       if (drawerOpen) return;
-      deps.clearActiveMarker();
+      deps.ackActiveBuffer();
       return;
     }
 

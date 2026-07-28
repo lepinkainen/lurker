@@ -1,12 +1,8 @@
-import { activeBuffer, state } from "./app-state";
+import { state } from "./app-state";
 import type { AppView } from "./app-view";
 
-export type MarkReadOpts = { render?: boolean };
-
 export type ReadTracker = {
-  maybeMarkActiveRead: (opts?: MarkReadOpts) => void;
-  markBufferReadOnExit: (bufferId: string | null, opts?: MarkReadOpts) => void;
-  clearActiveMarker: () => void;
+  ackBufferRead: (bufferId: string) => void;
   loadOlderHistory: () => void;
 };
 
@@ -16,56 +12,29 @@ export type ReadTrackerDeps = {
 };
 
 export function createReadTracker(deps: ReadTrackerDeps): ReadTracker {
-  // Advances the read position (sidebar badge + server mark_read) but leaves
-  // the marker anchor alone: the "New messages" line stays visible while the
-  // user views the buffer and only clears on exit or explicit Esc.
-  function markBufferRead(bufferId: string, opts: MarkReadOpts = {}) {
-    const render = opts.render ?? true;
+  // The ONLY path that clears the "New messages" marker (badge + divider +
+  // unread bar share one lifecycle; see ai-docs/behaviors/new-messages-marker.md).
+  // Triggered exclusively by explicit user acks: Esc or clicking the unread
+  // bar. Never call this implicitly (buffer switch, scroll, focus, reconnect).
+  function ackBufferRead(bufferId: string) {
     const b = state.buffers.get(bufferId);
+    // With the WS down this is a no-op: server state stays authoritative and
+    // the resync on reconnect restores the truthful marker.
     if (!(state.wsReady && b)) return;
     const list = state.messages.get(bufferId) || [];
-    if (list.length === 0) return;
     const lastId = list[list.length - 1]?.id;
     if (lastId === undefined) return;
-    const current = b.last_seen_id || "";
-    const sent = state.lastMarkedReadId.get(b.id) || "";
-    if (lastId <= current || lastId <= sent) return;
+    // Optimistic local clear; the server persists last_seen_id, recomputes,
+    // and broadcasts buffer_update to every client (including this one).
     b.last_seen_id = lastId;
+    b.marker_id = undefined;
+    b.marker_ts = undefined;
     b.unread = 0;
     b.mentions = 0;
-    state.lastMarkedReadId.set(b.id, lastId);
-    if (render) deps.getView()?.renderSidebar();
     deps.sendCmd({ type: "mark_read", buffer_id: b.id, message_id: lastId });
-  }
-
-  function clearMarkerAnchor(bufferId: string, render: boolean) {
-    if (!state.markerAnchorId.delete(bufferId)) return;
-    if (render && bufferId === state.activeId) deps.getView()?.renderActiveView?.();
-  }
-
-  function maybeMarkActiveRead(opts?: MarkReadOpts) {
-    if (!state.uiFocused) return;
-    const b = activeBuffer();
-    if (!b) return;
-    markBufferRead(b.id, opts);
-  }
-
-  function markBufferReadOnExit(bufferId: string | null, opts?: MarkReadOpts) {
-    if (!bufferId) return;
-    if (!state.activeFocusedSinceEnter) return;
-    markBufferRead(bufferId, opts);
-    // With the WS down the read position was NOT reported above; deleting
-    // the anchor now would lose the read boundary forever (anchors are only
-    // recreated by live arrivals). Keep it until we can actually mark read.
-    if (!(state.wsReady && state.buffers.get(bufferId))) return;
-    clearMarkerAnchor(bufferId, opts?.render ?? true);
-  }
-
-  function clearActiveMarker() {
-    const b = activeBuffer();
-    if (!b) return;
-    markBufferRead(b.id);
-    clearMarkerAnchor(b.id, true);
+    const view = deps.getView();
+    view?.renderSidebar();
+    if (bufferId === state.activeId) view?.renderActiveView();
   }
 
   function loadOlderHistory() {
@@ -78,5 +47,5 @@ export function createReadTracker(deps: ReadTrackerDeps): ReadTracker {
     deps.sendCmd({ type: "history", buffer_id: bufferId, before: list[0]?.id, limit: 100 });
   }
 
-  return { maybeMarkActiveRead, markBufferReadOnExit, clearActiveMarker, loadOlderHistory };
+  return { ackBufferRead, loadOlderHistory };
 }

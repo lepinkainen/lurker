@@ -19,7 +19,9 @@ import { renderSidebarStatus } from "./status";
 export type AppViewDeps = {
   sendCmd: (cmd: Record<string, unknown>) => void;
   setActive: (id: string) => void;
-  maybeMarkActiveRead?: () => void;
+  // Explicit read ack for the unread bar. Optional so view-only tests can
+  // omit it; production wiring passes ReadTracker.ackBufferRead.
+  ackBufferRead?: (bufferId: string) => void;
   stick: ScrollStick;
 };
 
@@ -33,7 +35,8 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
     bufferTopicEl: d.bufferTopicEl,
     inputEl: d.inputEl,
   };
-  const markRead = () => deps.maybeMarkActiveRead?.();
+  const ackBufferRead = (bufferId: string) => deps.ackBufferRead?.(bufferId);
+  const messageDeps = () => ({ renderPromptNick: view.renderPromptNick, iconEl, stick: deps.stick, ackBufferRead });
   const view = {
     dom: d,
     renderStatus: () => renderSidebarStatus(d),
@@ -41,8 +44,7 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
       const nick = activePromptNick();
       d.inputNickEl.replaceChildren(nickAvatar(nick), nick);
     },
-    renderHeader: () =>
-      renderHeader(messageArea, { renderPromptNick: view.renderPromptNick, iconEl, stick: deps.stick }),
+    renderHeader: () => renderHeader(messageArea, messageDeps()),
     renderActiveView: () => {
       if (
         tryRenderActiveChannelList(d.messagesEl, d.statusViewEl, {
@@ -51,7 +53,7 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
         })
       )
         return;
-      renderMessagesView(messageArea, { renderPromptNick: view.renderPromptNick, iconEl, stick: deps.stick });
+      renderMessagesView(messageArea, messageDeps());
     },
     renderMembers: () =>
       renderMembers({
@@ -68,7 +70,6 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
     appendMessage: (msg: Message) => {
       onMessage(msg, {
         renderActiveView: view.renderActiveView,
-        maybeMarkActiveRead: markRead,
         renderSidebar: view.renderSidebar,
       });
     },

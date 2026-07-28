@@ -50,7 +50,6 @@ type FakeRenderer = {
 type FakeNavigation = {
   setActive: ReturnType<typeof vi.fn>;
   bufferFromHash: ReturnType<typeof vi.fn>;
-  maybeMarkActiveRead: ReturnType<typeof vi.fn>;
 };
 type FakeTransport = {
   syncState: ReturnType<typeof vi.fn<() => Promise<void>>>;
@@ -76,7 +75,6 @@ const deps = (): Fakes => {
   const navigation: FakeNavigation = {
     setActive: vi.fn(),
     bufferFromHash: vi.fn(() => null),
-    maybeMarkActiveRead: vi.fn(),
   };
   const transport: FakeTransport = {
     syncState: vi.fn<() => Promise<void>>(),
@@ -96,7 +94,6 @@ function asConnectionDeps(f: Fakes): ConnectionDeps {
   return {
     domReady: f.domReady,
     renderer: f.renderer,
-    navigation: { maybeMarkActiveRead: f.navigation.maybeMarkActiveRead },
     transport: f.transport,
   };
 }

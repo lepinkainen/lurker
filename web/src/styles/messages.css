@@ -53,6 +53,31 @@
     opacity: 0.3;
   }
 
+  /* Pinned unread bar: sits at the top of the message scrollport whenever the
+     active buffer has a server-derived marker. Clicking it acks the read
+     position (same lifecycle as the .unreadbar divider and sidebar badges). */
+  .unread-banner {
+    position: sticky;
+    top: 4px;
+    z-index: 4;
+    display: block;
+    width: fit-content;
+    margin: 0 auto 4px;
+    padding: 3px 14px;
+    border: 1px solid color-mix(in srgb, var(--orange) 45%, transparent);
+    border-radius: 999px;
+    background: var(--bg-2);
+    color: var(--orange);
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+  }
+
+  .unread-banner:hover {
+    background: color-mix(in srgb, var(--orange) 15%, var(--bg-2));
+  }
+
   .msg {
     display: flex;
     flex-wrap: wrap;

@@ -1,4 +1,4 @@
-import { activeBuffer, type Message, reconcileAnchor, state } from "./app-state";
+import { activeBuffer, type Buffer, type Message, state } from "./app-state";
 import { dayKeyOf, escapeHTML, formatTime, highlightMentions, inlineCode, linkify, type MessageKind } from "./format";
 import { renderSegmentsHTML } from "./mirc";
 import { nickEl, sysBodyDOM } from "./nick";
@@ -45,6 +45,8 @@ type MessageDeps = {
   renderPromptNick: () => void;
   iconEl: (symbolId: string, size: number, opts?: { className?: string; label?: string }) => SVGSVGElement;
   stick: ScrollStick;
+  // Explicit read ack (unread bar click). Wired to ReadTracker.ackBufferRead.
+  ackBufferRead: (bufferId: string) => void;
 };
 
 const LEADING_HASH_RE = /^#/u;
@@ -111,37 +113,33 @@ export function renderActiveView(dom: MessagesDom, deps: MessageDeps) {
   } else {
     dom.statusViewEl.hidden = true;
     dom.messagesEl.hidden = false;
-    renderMessages(dom.messagesEl, deps.stick);
+    renderMessages(dom.messagesEl, deps.stick, deps.ackBufferRead);
   }
 }
 
-export function onMessage(
-  msg: Message,
-  handlers: { renderActiveView: () => void; maybeMarkActiveRead: () => void; renderSidebar: () => void },
-) {
+export function onMessage(msg: Message, handlers: { renderActiveView: () => void; renderSidebar: () => void }) {
   const list = state.messages.get(msg.buffer_id) || [];
   const idx = list.findIndex((message) => message.id === msg.id);
-  if (idx >= 0) list[idx] = msg;
-  else list.push(msg);
+  const isNew = idx < 0;
+  if (isNew) list.push(msg);
+  else list[idx] = msg;
   list.sort((a, b) => a.id.localeCompare(b.id));
   state.messages.set(msg.buffer_id, list);
   const buffer = state.buffers.get(msg.buffer_id);
-  const isActive = msg.buffer_id === state.activeId;
-  const activeAndFocused = isActive && state.uiFocused;
-  // Spec: marker appears for unread arrivals in any buffer except the active
-  // one viewed with focus. Once placed, the anchor is sticky until mark-read
-  // clears it.
-  if (buffer && !activeAndFocused && msgCountsAsUnread(msg) && msg.id > (buffer.last_seen_id || "")) {
+  // Local bookkeeping between server syncs, for EVERY buffer including the
+  // active focused one: unread arrivals count up and the marker sticks to the
+  // first of them. No auto-ack, no focus gating — the marker clears only on an
+  // explicit ack (spec: ai-docs/behaviors/new-messages-marker.md). Re-delivered
+  // messages (isNew false) never double-count.
+  if (buffer && isNew && msgCountsAsUnread(msg) && !msgIsSelf(msg) && msg.id > (buffer.last_seen_id || "")) {
     buffer.unread = (buffer.unread || 0) + 1;
     if (msgMentionsMe(msg) || msgHighlight(msg)) buffer.mentions = (buffer.mentions || 0) + 1;
-    if (!state.markerAnchorId.has(buffer.id)) {
-      state.markerAnchorId.set(buffer.id, msg.id);
+    if (buffer.marker_id === undefined) {
+      buffer.marker_id = msg.id;
+      buffer.marker_ts = msg.ts;
     }
   }
-  if (isActive) {
-    handlers.renderActiveView();
-    if (activeAndFocused) handlers.maybeMarkActiveRead();
-  }
+  if (msg.buffer_id === state.activeId) handlers.renderActiveView();
   handlers.renderSidebar();
 }
 
@@ -176,6 +174,10 @@ export function onBufferUpdate(
     topic_set_at?: string;
     joined?: boolean;
     last_seen_id?: string;
+    // mark_read variant: marker_id is ALWAYS present (null = caught up →
+    // clear). The topic/joined variant omits the key entirely = unchanged.
+    marker_id?: string | null;
+    marker_ts?: string;
     show_embeds?: boolean;
     show_presence_events?: boolean;
     collapse_presence_events?: boolean;
@@ -192,6 +194,10 @@ export function onBufferUpdate(
   if (Object.hasOwn(msg, "topic_set_at")) buffer.topic_set_at = msg.topic_set_at || "";
   if (Object.hasOwn(msg, "joined")) buffer.joined = Boolean(msg.joined);
   if (Object.hasOwn(msg, "last_seen_id")) buffer.last_seen_id = msg.last_seen_id || "";
+  if (Object.hasOwn(msg, "marker_id")) {
+    buffer.marker_id = msg.marker_id || undefined;
+    buffer.marker_ts = msg.marker_ts || undefined;
+  }
   if (Object.hasOwn(msg, "show_embeds")) buffer.show_embeds = Boolean(msg.show_embeds);
   if (Object.hasOwn(msg, "show_presence_events")) buffer.show_presence_events = Boolean(msg.show_presence_events);
   if (Object.hasOwn(msg, "collapse_presence_events")) {
@@ -200,7 +206,6 @@ export function onBufferUpdate(
   if (Object.hasOwn(msg, "pinned")) buffer.pinned = Boolean(msg.pinned);
   if (typeof msg.unread === "number") buffer.unread = msg.unread;
   if (typeof msg.mentions === "number") buffer.mentions = msg.mentions;
-  reconcileAnchor(buffer.id);
   handlers.renderHeader();
   handlers.renderSidebar();
 }
@@ -279,11 +284,17 @@ const expandedPresenceGroups = new Set<string>();
 // render as one author group: only the first row shows the nick.
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
-function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
+function renderMessages(messagesEl: HTMLElement, stick: ScrollStick, ackBufferRead: (bufferId: string) => void) {
   messagesEl.replaceChildren();
   const list = state.messages.get(state.activeId ?? "") || [];
   const buffer = activeBuffer();
-  const anchorId = buffer ? state.markerAnchorId.get(buffer.id) || "" : "";
+  // The divider and the pinned unread bar are pure functions of the
+  // server-derived buffer.marker_id — no client-side marker state exists.
+  const anchorId = buffer?.marker_id || "";
+  if (buffer && anchorId && list.length > 0) {
+    const markerLoaded = list.some((message) => message.id === anchorId);
+    messagesEl.appendChild(unreadBarEl(buffer, markerLoaded, ackBufferRead));
+  }
   const collapsePresence = shouldCollapsePresence(buffer);
   let unreadInserted = false;
   let lastDayKey: string | null = null;
@@ -298,7 +309,7 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
 
   const rerender = () => {
     const scrollTop = messagesEl.scrollTop;
-    renderMessages(messagesEl, stick);
+    renderMessages(messagesEl, stick, ackBufferRead);
     messagesEl.scrollTop = scrollTop;
   };
   const renderPlainRun = (items: Message[]) => {
@@ -380,6 +391,49 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick) {
   flushPresenceGroup();
   stick.snap();
   stick.watch(messagesEl);
+}
+
+// Server caps unread counting at 1000; at the cap the exact count is unknown.
+const UNREAD_COUNT_CAP = 1000;
+
+// Pinned bar at the top of the message area, shown whenever the active buffer
+// has a server-derived marker. Activating it is one of the only two explicit
+// read acks (the other is Esc).
+function unreadBarEl(buffer: Buffer, markerLoaded: boolean, ackBufferRead: (bufferId: string) => void) {
+  const bar = document.createElement("button");
+  bar.type = "button";
+  bar.className = "unread-banner";
+  bar.textContent = unreadBarLabel(buffer, markerLoaded);
+  bar.title = "Mark as read";
+  bar.addEventListener("click", () => ackBufferRead(buffer.id));
+  return bar;
+}
+
+function unreadBarLabel(buffer: Buffer, markerLoaded: boolean): string {
+  const unread = buffer.unread || 0;
+  // Count is unreliable at the server cap or when the marker message sits
+  // outside loaded history — fall back to the age of the boundary.
+  if (unread >= UNREAD_COUNT_CAP || !markerLoaded) {
+    const since = formatMarkerTs(buffer.marker_ts);
+    return since ? `new since ${since}` : "new messages";
+  }
+  return unread === 1 ? "1 new message" : `${unread} new messages`;
+}
+
+// Marker boundary timestamp in local time: today → HH:MM, yesterday →
+// "yesterday HH:MM", older → short date + HH:MM.
+function formatMarkerTs(ts: string | undefined): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  const time = formatTime(ts);
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return time;
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return `yesterday ${time}`;
+  const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${date} ${time}`;
 }
 
 function messageRow(message: Message, kind: MessageKind, continued = false) {

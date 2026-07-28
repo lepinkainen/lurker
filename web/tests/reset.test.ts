@@ -17,10 +17,6 @@ describe("resetAppState", () => {
     state.inputHistory.set(2, { entries: ["hello"], draft: "draft", index: 0 });
     state.loadingHistory.add(2);
     state.historyExhausted.add(2);
-    state.lastMarkedReadId.set(2, 10);
-    state.markerAnchorId.set("2", "10");
-    state.uiFocused = false;
-    state.activeFocusedSinceEnter = false;
     state.me.nick = "shrike";
     state.showMemberList = false;
     state.drag = { id: "1", over: 2 };
@@ -44,8 +40,6 @@ describe("resetAppState", () => {
     ["inputHistory", () => state.inputHistory.size, 0],
     ["loadingHistory", () => state.loadingHistory.size, 0],
     ["historyExhausted", () => state.historyExhausted.size, 0],
-    ["lastMarkedReadId", () => state.lastMarkedReadId.size, 0],
-    ["markerAnchorId", () => state.markerAnchorId.size, 0],
   ])("clears collection %s", (_name, getter, expected) => {
     it("becomes empty", () => {
       expect(getter()).toBe(expected);
@@ -56,8 +50,6 @@ describe("resetAppState", () => {
     ["activeId", () => state.activeId, null],
     ["ws", () => state.ws, null],
     ["wsReady", () => state.wsReady, false],
-    ["uiFocused", () => state.uiFocused, true],
-    ["activeFocusedSinceEnter", () => state.activeFocusedSinceEnter, true],
     ["me.nick", () => state.me.nick, "you"],
     ["showMemberList", () => state.showMemberList, true],
   ])("restores scalar %s", (_name, getter, expected) => {

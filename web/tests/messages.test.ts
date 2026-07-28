@@ -38,6 +38,7 @@ const deps = {
     snap: vi.fn(),
     watch: vi.fn(),
   },
+  ackBufferRead: vi.fn(),
 };
 
 describe("renderHeader", () => {
@@ -157,35 +158,41 @@ describe("renderActiveView", () => {
     expect(d.messagesEl.querySelector(".msg.mention")).not.toBeNull();
   });
 
-  it("inserts unread bar above anchored message id", () => {
+  it("inserts divider above the message whose id equals buffer.marker_id", () => {
     state.activeId = "1";
-    state.buffers.set("1", buf({ id: "1", name: "#x", last_seen_id: "5" }));
+    state.buffers.set(
+      "1",
+      buf({ id: "1", name: "#x", last_seen_id: "5", marker_id: "6", marker_ts: "2024-05-01T10:01:00Z", unread: 1 }),
+    );
     state.messages.set("1", [
       { id: "4", buffer_id: "1", sender: "a", content: "old", ts: "2024-05-01T10:00:00Z" },
       { id: "6", buffer_id: "1", sender: "a", content: "new", ts: "2024-05-01T10:01:00Z" },
     ]);
-    state.markerAnchorId.set("1", "6");
     const d = dom();
     renderActiveView(d, deps);
-    expect(d.messagesEl.querySelector(".unreadbar")).not.toBeNull();
+    const divider = d.messagesEl.querySelector(".unreadbar");
+    expect(divider).not.toBeNull();
+    // Divider sits directly above the marker message row.
+    expect(divider?.nextElementSibling?.getAttribute("data-id")).toBe("6");
   });
 
-  it("does not insert unread bar when no anchor is set", () => {
+  it("does not insert divider when the buffer has no marker_id", () => {
     state.activeId = "1";
     state.buffers.set("1", buf({ id: "1", name: "#x", last_seen_id: "5" }));
     state.messages.set("1", [{ id: "6", buffer_id: "1", sender: "a", content: "new", ts: "2024-05-01T10:01:00Z" }]);
     const d = dom();
     renderActiveView(d, deps);
     expect(d.messagesEl.querySelector(".unreadbar")).toBeNull();
+    expect(d.messagesEl.querySelector(".unread-banner")).toBeNull();
   });
 
-  it("does not insert unread bar for only state-change noise past last_seen_id", () => {
+  it("does not insert divider when the marker message is not in the loaded list", () => {
     state.activeId = "1";
-    state.buffers.set("1", buf({ id: "1", name: "#x", last_seen_id: "5" }));
-    state.messages.set("1", [
-      { id: "6", buffer_id: "1", sender: "a", content: "joined", kind: "join", ts: "2024-05-01T10:01:00Z" },
-      { id: "7", buffer_id: "1", sender: "a", content: "+o a", kind: "mode", ts: "2024-05-01T10:02:00Z" },
-    ]);
+    state.buffers.set(
+      "1",
+      buf({ id: "1", name: "#x", last_seen_id: "1", marker_id: "2", marker_ts: "2024-05-01T09:00:00Z", unread: 500 }),
+    );
+    state.messages.set("1", [{ id: "6", buffer_id: "1", sender: "a", content: "new", ts: "2024-05-01T10:01:00Z" }]);
     const d = dom();
     renderActiveView(d, deps);
     expect(d.messagesEl.querySelector(".unreadbar")).toBeNull();
@@ -272,6 +279,70 @@ describe("renderActiveView", () => {
       ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     expect(d.messagesEl.querySelector<HTMLElement>(".presence-summary")?.dataset.expanded).toBe("false");
     expect(d.messagesEl.querySelectorAll(".presence-expanded").length).toBe(0);
+  });
+});
+
+const NEW_SINCE_RE = /^new since /u;
+
+describe("unread bar (pinned)", () => {
+  beforeEach(() => {
+    resetAppState();
+    deps.ackBufferRead.mockClear();
+  });
+
+  function seed(bufferOverrides: Partial<Buffer>, messages: Message[]) {
+    state.activeId = "1";
+    state.buffers.set("1", buf({ id: "1", name: "#x", ...bufferOverrides }));
+    state.messages.set("1", messages);
+    const d = dom();
+    renderActiveView(d, deps);
+    return d.messagesEl;
+  }
+
+  const msgs = (): Message[] => [
+    { id: "4", buffer_id: "1", sender: "a", content: "old", ts: "2024-05-01T10:00:00Z" },
+    { id: "6", buffer_id: "1", sender: "a", content: "new", ts: "2024-05-01T10:01:00Z" },
+  ];
+
+  it("renders the unread count when the marker message is loaded", () => {
+    const el = seed({ last_seen_id: "5", marker_id: "6", marker_ts: "2024-05-01T10:01:00Z", unread: 12 }, msgs());
+    const bar = el.querySelector<HTMLButtonElement>("button.unread-banner");
+    expect(bar?.textContent).toBe("12 new messages");
+  });
+
+  it("uses singular form for one unread message", () => {
+    const el = seed({ last_seen_id: "5", marker_id: "6", marker_ts: "2024-05-01T10:01:00Z", unread: 1 }, msgs());
+    expect(el.querySelector(".unread-banner")?.textContent).toBe("1 new message");
+  });
+
+  it("falls back to 'new since' when the marker message is outside loaded history", () => {
+    const el = seed({ last_seen_id: "1", marker_id: "2", marker_ts: "2024-05-01T09:00:00Z", unread: 500 }, [
+      { id: "6", buffer_id: "1", sender: "a", content: "new", ts: "2024-05-01T10:01:00Z" },
+    ]);
+    // Exact date/time rendering is locale/timezone dependent; the prefix is
+    // the contract.
+    expect(el.querySelector(".unread-banner")?.textContent).toMatch(NEW_SINCE_RE);
+  });
+
+  it("falls back to 'new since' at the server count cap even when the marker is loaded", () => {
+    const el = seed({ last_seen_id: "5", marker_id: "6", marker_ts: "2024-05-01T10:01:00Z", unread: 1000 }, msgs());
+    expect(el.querySelector(".unread-banner")?.textContent).toMatch(NEW_SINCE_RE);
+  });
+
+  it("is hidden when the buffer has no marker", () => {
+    const el = seed({ last_seen_id: "6" }, msgs());
+    expect(el.querySelector(".unread-banner")).toBeNull();
+  });
+
+  it("is hidden when no messages are loaded (nothing to ack)", () => {
+    const el = seed({ last_seen_id: "", marker_id: "2", marker_ts: "2024-05-01T09:00:00Z", unread: 3 }, []);
+    expect(el.querySelector(".unread-banner")).toBeNull();
+  });
+
+  it("clicking the bar acks the buffer read", () => {
+    const el = seed({ last_seen_id: "5", marker_id: "6", marker_ts: "2024-05-01T10:01:00Z", unread: 2 }, msgs());
+    el.querySelector<HTMLButtonElement>(".unread-banner")?.click();
+    expect(deps.ackBufferRead).toHaveBeenCalledWith("1");
   });
 });
 
@@ -363,7 +434,7 @@ describe("onMessage", () => {
     state.activeId = "99";
     state.me.nick = "you";
     state.buffers.set("1", buf({ id: "1" }));
-    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
     onMessage(
       line({ id: "10", buffer_id: "1", sender: "alice", content: "hey you here?", mentions_me: true }),
       handlers,
@@ -380,20 +451,34 @@ describe("onMessage", () => {
     state.activeId = "99";
     state.me.nick = "you";
     state.buffers.set("1", buf({ id: "1" }));
-    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
     // Server matched a custom highlight pattern; mentions_me stays false.
     onMessage(line({ id: "10", buffer_id: "1", sender: "alice", content: "deploy done", highlight: true }), handlers);
     expect(state.buffers.get("1")?.unread).toBe(1);
     expect(state.buffers.get("1")?.mentions).toBe(1);
   });
 
-  it("does not bump unread for active buffer", () => {
+  it("bumps unread and places the marker on the active buffer too (no watching suppression)", () => {
     state.activeId = "1";
-    state.buffers.set("1", buf({ id: "1" }));
-    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage(line({ id: "10", buffer_id: "1" }), handlers);
-    expect(state.buffers.get("1")?.unread).toBe(0);
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "05" }));
+    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
+    onMessage(line({ id: "10", buffer_id: "1", ts: "2024-05-01T10:00:00Z" }), handlers);
+    const b = state.buffers.get("1");
+    expect(b?.unread).toBe(1);
+    expect(b?.marker_id).toBe("10");
+    expect(b?.marker_ts).toBe("2024-05-01T10:00:00Z");
     expect(handlers.renderActiveView).toHaveBeenCalled();
+  });
+
+  it("never bumps counters or anchors the marker for self-authored messages", () => {
+    state.activeId = "99";
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "05" }));
+    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
+    onMessage(line({ id: "10", buffer_id: "1", is_self: true, mentions_me: true }), handlers);
+    const b = state.buffers.get("1");
+    expect(b?.unread).toBe(0);
+    expect(b?.mentions).toBe(0);
+    expect(b?.marker_id).toBeUndefined();
   });
 
   it.each([
@@ -410,7 +495,7 @@ describe("onMessage", () => {
     state.activeId = "99";
     state.me.nick = "you";
     state.buffers.set("1", buf({ id: "1", show_presence_events: true }));
-    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
     // Server marks presence/system kinds not-unread; mentions only count on
     // unread-eligible messages, so neither counter moves even though the body
     // contains the nick.
@@ -430,62 +515,55 @@ describe("onMessage", () => {
     expect(state.buffers.get("1")?.mentions).toBe(0);
   });
 
-  it("sets marker anchor on inactive buffer when last_seen_id exists", () => {
+  it("sets marker on inactive buffer when last_seen_id exists", () => {
     state.activeId = "99";
     state.buffers.set("1", buf({ id: "1", last_seen_id: "01" }));
-    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
     onMessage(line({ id: "10", buffer_id: "1" }), handlers);
-    expect(state.markerAnchorId.get("1")).toBe("10");
+    expect(state.buffers.get("1")?.marker_id).toBe("10");
   });
 
-  it("sets marker anchor on never-visited buffer (Empty channel becomes non-empty)", () => {
+  it("sets marker on never-visited buffer (empty channel becomes non-empty)", () => {
     state.activeId = "99";
     state.buffers.set("1", buf({ id: "1", last_seen_id: "" }));
-    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
     onMessage(line({ id: "10", buffer_id: "1" }), handlers);
-    expect(state.markerAnchorId.get("1")).toBe("10");
+    expect(state.buffers.get("1")?.marker_id).toBe("10");
     expect(state.buffers.get("1")?.unread).toBe(1);
   });
 
-  it("does not set marker anchor on active focused buffer", () => {
-    state.activeId = "1";
-    state.uiFocused = true;
-    state.buffers.set("1", buf({ id: "1", last_seen_id: "5" }));
-    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage(line({ id: "10", buffer_id: "1" }), handlers);
-    expect(state.markerAnchorId.has("1")).toBe(false);
-    expect(handlers.maybeMarkActiveRead).toHaveBeenCalled();
+  it("does not re-bump for a replayed message at or below last_seen_id", () => {
+    state.activeId = "99";
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "10" }));
+    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
+    onMessage(line({ id: "09", buffer_id: "1" }), handlers);
+    expect(state.buffers.get("1")?.unread).toBe(0);
+    expect(state.buffers.get("1")?.marker_id).toBeUndefined();
   });
 
-  it("sets marker anchor on active unfocused buffer", () => {
-    state.activeId = "1";
-    state.uiFocused = false;
-    state.buffers.set("1", buf({ id: "1", last_seen_id: "01" }));
-    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage(line({ id: "10", buffer_id: "1" }), handlers);
-    expect(state.markerAnchorId.get("1")).toBe("10");
-    expect(handlers.maybeMarkActiveRead).not.toHaveBeenCalled();
-  });
-
-  it("marker anchor sticks to first unread arrival", () => {
+  it("marker sticks to the first unread arrival", () => {
     state.activeId = "99";
     state.buffers.set("1", buf({ id: "1", last_seen_id: "01" }));
-    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
-    onMessage(line({ id: "10", buffer_id: "1", content: "first" }), handlers);
-    onMessage(line({ id: "11", buffer_id: "1", content: "second" }), handlers);
-    expect(state.markerAnchorId.get("1")).toBe("10");
+    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
+    onMessage(line({ id: "10", buffer_id: "1", content: "first", ts: "2024-05-01T10:00:00Z" }), handlers);
+    onMessage(line({ id: "11", buffer_id: "1", content: "second", ts: "2024-05-01T10:01:00Z" }), handlers);
+    expect(state.buffers.get("1")?.marker_id).toBe("10");
+    expect(state.buffers.get("1")?.marker_ts).toBe("2024-05-01T10:00:00Z");
+    expect(state.buffers.get("1")?.unread).toBe(2);
   });
 
   it("dedupes by id and keeps sorted", () => {
     state.activeId = "99";
     state.buffers.set("1", buf({ id: "1" }));
-    const handlers = { renderActiveView: vi.fn(), maybeMarkActiveRead: vi.fn(), renderSidebar: vi.fn() };
+    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
     onMessage(line({ id: "2", buffer_id: "1", content: "two" }), handlers);
     onMessage(line({ id: "1", buffer_id: "1", content: "one" }), handlers);
     onMessage(line({ id: "2", buffer_id: "1", content: "two-dup" }), handlers);
     const stored = state.messages.get("1") || [];
     expect(stored.map((m) => m.id)).toEqual(["1", "2"]);
     expect(stored[1].content).toBe("two-dup");
+    // Re-delivered "2" must not double-count.
+    expect(state.buffers.get("1")?.unread).toBe(2);
   });
 });
 
@@ -513,37 +591,46 @@ describe("onBufferUpdate", () => {
     expect(b?.mentions).toBe(0);
   });
 
-  it("clears marker anchor when last_seen_id catches up", () => {
-    state.buffers.set("1", buf({ id: "1", last_seen_id: "5", unread: 3 }));
-    state.markerAnchorId.set("1", "10");
+  it("applies a set marker_id/marker_ts from the mark_read variant", () => {
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "05" }));
     const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
-    onBufferUpdate({ id: "1", last_seen_id: "12" }, handlers);
-    expect(state.markerAnchorId.has("1")).toBe(false);
+    onBufferUpdate(
+      { id: "1", last_seen_id: "05", marker_id: "10", marker_ts: "2024-05-01T10:00:00Z", unread: 3, mentions: 1 },
+      handlers,
+    );
+    const b = state.buffers.get("1");
+    expect(b?.marker_id).toBe("10");
+    expect(b?.marker_ts).toBe("2024-05-01T10:00:00Z");
+    expect(b?.unread).toBe(3);
+    expect(b?.mentions).toBe(1);
   });
 
-  it("clears marker anchor when unread is zeroed without last_seen_id update", () => {
-    state.buffers.set("1", buf({ id: "1", last_seen_id: "05", unread: 3 }));
-    state.markerAnchorId.set("1", "10");
+  it("clears the marker when marker_id is null (remote ack)", () => {
+    state.buffers.set(
+      "1",
+      buf({ id: "1", last_seen_id: "05", marker_id: "10", marker_ts: "2024-05-01T10:00:00Z", unread: 3, mentions: 1 }),
+    );
     const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
-    onBufferUpdate({ id: "1", unread: 0, mentions: 0 }, handlers);
-    expect(state.markerAnchorId.has("1")).toBe(false);
+    onBufferUpdate({ id: "1", last_seen_id: "12", marker_id: null, unread: 0, mentions: 0 }, handlers);
+    const b = state.buffers.get("1");
+    expect(b?.marker_id).toBeUndefined();
+    expect(b?.marker_ts).toBeUndefined();
+    expect(b?.last_seen_id).toBe("12");
+    expect(b?.unread).toBe(0);
+    expect(b?.mentions).toBe(0);
   });
 
-  it("keeps marker anchor on the active buffer despite catch-up (user is viewing the marker)", () => {
-    state.buffers.set("1", buf({ id: "1", last_seen_id: "5", unread: 3 }));
-    state.activeId = "1";
-    state.markerAnchorId.set("1", "10");
+  it("preserves the marker when the marker_id key is absent (topic/joined variant)", () => {
+    state.buffers.set(
+      "1",
+      buf({ id: "1", last_seen_id: "05", marker_id: "10", marker_ts: "2024-05-01T10:00:00Z", unread: 3 }),
+    );
     const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
-    onBufferUpdate({ id: "1", last_seen_id: "12", unread: 0 }, handlers);
-    expect(state.markerAnchorId.get("1")).toBe("10");
-  });
-
-  it("keeps marker anchor when last_seen_id is still below anchor", () => {
-    state.buffers.set("1", buf({ id: "1", last_seen_id: "05", unread: 3 }));
-    state.markerAnchorId.set("1", "10");
-    const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
-    onBufferUpdate({ id: "1", last_seen_id: "07" }, handlers);
-    expect(state.markerAnchorId.get("1")).toBe("10");
+    onBufferUpdate({ id: "1", topic: "new topic", joined: true }, handlers);
+    const b = state.buffers.get("1");
+    expect(b?.marker_id).toBe("10");
+    expect(b?.marker_ts).toBe("2024-05-01T10:00:00Z");
+    expect(b?.unread).toBe(3);
   });
 
   it("preserves existing counts when buffer_update omits them", () => {

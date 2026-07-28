@@ -9,11 +9,18 @@ type WSMessage =
   | {
       type: "buffer_update";
       id: string;
+      network_id?: string;
       topic?: string;
       topic_set_by?: string;
       topic_set_at?: string;
       joined?: boolean;
       last_seen_id?: string;
+      // mark_read variant: marker_id always present (null = clear); the
+      // topic/joined variant omits it entirely (= unchanged).
+      marker_id?: string | null;
+      marker_ts?: string;
+      unread?: number;
+      mentions?: number;
     }
   | {
       type: "buffer_settings";
@@ -63,7 +70,10 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
       }
       case "buffer_update":
       case "buffer_settings":
-        view.updateBuffer(m, { rerenderActive: m.type === "buffer_settings" });
+        // Updates targeting the active buffer must rerender the message view:
+        // the divider and unread bar are server state (marker_id) and a remote
+        // ack has to clear them here too.
+        view.updateBuffer(m, { rerenderActive: m.type === "buffer_settings" || m.id === state.activeId });
         break;
       case "network_state": {
         const n = state.networks.get(m.network_id);

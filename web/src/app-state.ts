@@ -38,6 +38,12 @@ export type Buffer = {
   topic_set_by?: string;
   topic_set_at?: string;
   last_seen_id?: string;
+  // Server-derived "New messages" marker: id/ts of the first unread message
+  // that counts (skipping non-unread kinds and self-authored). Absent when the
+  // buffer is caught up. Clients hold no marker state of their own — the
+  // divider and unread bar are pure functions of these fields.
+  marker_id?: string | undefined;
+  marker_ts?: string | undefined;
   unread: number;
   mentions: number;
   show_embeds: boolean;
@@ -150,10 +156,6 @@ export type AppState = {
   needsStateSyncOnConnect: boolean;
   loadingHistory: Set<string>;
   historyExhausted: Set<string>;
-  lastMarkedReadId: Map<string, string>;
-  markerAnchorId: Map<string, string>;
-  uiFocused: boolean;
-  activeFocusedSinceEnter: boolean;
   me: { nick: string };
   showMemberList: boolean;
   layout: LayoutSettings;
@@ -203,30 +205,6 @@ export function saveLastActive(id: string) {
   }
 }
 
-export function isUIFocused(): boolean {
-  if (typeof document === "undefined") return true;
-  const hasFocus = typeof document.hasFocus === "function" ? document.hasFocus() : true;
-  const visible = typeof document.visibilityState === "string" ? document.visibilityState !== "hidden" : true;
-  return hasFocus && visible;
-}
-
-export function reconcileAnchor(bufferId: string) {
-  const buffer = state.buffers.get(bufferId);
-  if (!buffer) return;
-  const anchor = state.markerAnchorId.get(bufferId);
-  if (!anchor) return;
-  // Never reconcile away the active buffer's anchor: entering a buffer sends
-  // mark_read, and the server's buffer_update echo (last_seen caught up,
-  // unread=0) must not kill the marker the user is currently looking at.
-  // The anchor clears on exit or Esc instead.
-  if (bufferId === state.activeId) return;
-  if ((buffer.last_seen_id || "") >= anchor || (buffer.unread || 0) === 0) {
-    state.markerAnchorId.delete(bufferId);
-  }
-}
-
-const initialFocus = isUIFocused();
-
 export const state: AppState = {
   networks: new Map(),
   buffers: new Map(),
@@ -246,10 +224,6 @@ export const state: AppState = {
   needsStateSyncOnConnect: false,
   loadingHistory: new Set(),
   historyExhausted: new Set(),
-  lastMarkedReadId: new Map(),
-  markerAnchorId: new Map(),
-  uiFocused: initialFocus,
-  activeFocusedSinceEnter: initialFocus,
   me: { nick: "you" },
   showMemberList: true,
   layout: loadLayout(),
