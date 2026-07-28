@@ -218,6 +218,11 @@ func (ms *MultiStore) UpsertNetwork(ctx context.Context, n Network) (Network, er
 // normal operation; it indicates external corruption or a bug.
 var ErrBufferIDMismatch = errors.New("db: buffer id mismatch between registry and log DB")
 
+// ErrMessageNotFound indicates a mark-read referenced a message id that does
+// not exist in the target buffer (fabricated, cross-buffer, or not yet
+// persisted). The read position is left untouched.
+var ErrMessageNotFound = errors.New("db: message not found in buffer")
+
 // EnsureBuffer is the single authoritative path for buffer creation. It
 // ensures a row exists in both buffer_registry (control DB) and buffers
 // (per-network log DB) with the SAME UUID. If the log row is missing while
@@ -499,13 +504,27 @@ func (ms *MultiStore) MessagesBefore(ctx context.Context, globalBufferID, before
 	return toStoredMessages(buf.networkID, globalBufferID, msgs), nil
 }
 
-// MarkBufferLastSeen updates the last seen message ID for a global buffer.
-func (ms *MultiStore) MarkBufferLastSeen(ctx context.Context, globalBufferID, lastSeenID uuid.UUID) error {
+// MarkBufferLastSeen advances the last seen message ID for a global buffer
+// and returns the effective read position afterwards. The message must exist
+// in that buffer (ErrMessageNotFound otherwise), and the position never
+// regresses: a stale ack from a racing client is a no-op and the newer stored
+// position is returned, so callers broadcast the winning state.
+func (ms *MultiStore) MarkBufferLastSeen(ctx context.Context, globalBufferID, lastSeenID uuid.UUID) (uuid.UUID, error) {
 	buf, err := ms.resolveGlobalBuffer(ctx, globalBufferID)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
-	return UpdateLogBufferLastSeen(ctx, buf.logStore.DB, buf.name, lastSeenID)
+	ok, err := LogMessageInBuffer(ctx, buf.logStore.DB, globalBufferID, lastSeenID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if !ok {
+		return uuid.Nil, fmt.Errorf("%w: %s in buffer %s", ErrMessageNotFound, lastSeenID, buf.name)
+	}
+	if err := UpdateLogBufferLastSeen(ctx, buf.logStore.DB, buf.name, lastSeenID); err != nil {
+		return uuid.Nil, err
+	}
+	return LogBufferLastSeen(ctx, buf.logStore.DB, buf.name)
 }
 
 // Search searches stored messages and maps results back to global buffer IDs.

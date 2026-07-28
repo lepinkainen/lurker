@@ -15,7 +15,11 @@ UPDATE buffers SET
 WHERE name = sqlc.arg('name');
 
 -- name: UpdateLogBufferLastSeen :exec
-UPDATE buffers SET last_seen_id = ? WHERE name = ?;
+-- Monotonic: never regresses the read position (BLOB memcmp order matches
+-- UUIDv7 time order). A stale ack from a racing client is a silent no-op.
+UPDATE buffers SET last_seen_id = sqlc.arg('last_seen_id')
+WHERE name = sqlc.arg('name')
+  AND (last_seen_id IS NULL OR last_seen_id < sqlc.arg('last_seen_id'));
 
 -- name: LookupLogBufferByName :one
 SELECT id, COALESCE(topic,'') AS topic, last_seen_id, created_at FROM buffers WHERE name = ?;

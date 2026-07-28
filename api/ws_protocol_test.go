@@ -462,11 +462,21 @@ func TestMarkReadBroadcastsBufferUpdate(t *testing.T) {
 	ts := newTestWSServer(t)
 	nID, bufID := ts.defaultNetwork(t)
 
+	logStore, err := ts.stores.LogStore(nID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lastSeenID, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "hi",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	events, _, unsub := ts.hub.Subscribe(8)
 	defer unsub()
 
 	c := ts.dial(t)
-	lastSeenID := uuid.Must(uuid.NewV7())
 
 	sendCmd(t, ctx, c, clientCmd{
 		Type: "mark_read", ReqID: "r1", BufferID: bufID, MessageID: lastSeenID,
@@ -486,7 +496,10 @@ func TestMarkReadBroadcastsBufferUpdate(t *testing.T) {
 			t.Fatalf("unexpected event: %+v", got)
 		}
 		if got.Unread != 0 || got.Mentions != 0 {
-			t.Fatalf("expected unread=0 mentions=0 on empty buffer, got %+v", got)
+			t.Fatalf("expected unread=0 mentions=0 on caught-up buffer, got %+v", got)
+		}
+		if got.MarkerID != nil {
+			t.Fatalf("expected null marker_id on caught-up buffer, got %v", got.MarkerID)
 		}
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
@@ -512,9 +525,10 @@ func TestMarkReadComputesResidualUnread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	second, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
 		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "ping tester",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
@@ -545,6 +559,70 @@ func TestMarkReadComputesResidualUnread(t *testing.T) {
 		if got.Mentions != 0 {
 			t.Fatalf("mentions = %d, want 0 (no Manager wired -> nick lookup empty)", got.Mentions)
 		}
+		// Marker anchors at the first residual unread message.
+		if got.MarkerID == nil || *got.MarkerID != second {
+			t.Fatalf("marker_id = %v, want %v", got.MarkerID, second)
+		}
+		if got.MarkerTS == "" {
+			t.Fatal("marker_ts empty, want RFC3339 timestamp of marker message")
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+}
+
+// TestMarkReadStaleAckDoesNotRegress verifies max-wins semantics: a mark_read
+// with an id older than the stored position is acked but the broadcast echo
+// carries the newer effective position, so all clients converge forward.
+func TestMarkReadStaleAckDoesNotRegress(t *testing.T) {
+	ctx := t.Context()
+	ts := newTestWSServer(t)
+	nID, bufID := ts.defaultNetwork(t)
+
+	logStore, err := ts.stores.LogStore(nID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	older, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "one",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "two",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, _, unsub := ts.hub.Subscribe(8)
+	defer unsub()
+
+	c := ts.dial(t)
+	sendCmd(t, ctx, c, clientCmd{Type: "mark_read", ReqID: "r1", BufferID: bufID, MessageID: newer})
+	_ = recvAck(t, ctx, c)
+	<-events // discard first echo
+
+	// Stale ack from a client with a shorter history window.
+	sendCmd(t, ctx, c, clientCmd{Type: "mark_read", ReqID: "r2", BufferID: bufID, MessageID: older})
+	ack := recvAck(t, ctx, c)
+	if ack.Type != "ack" || ack.ReqID != "r2" {
+		t.Fatalf("stale ack rejected: %+v", ack)
+	}
+
+	select {
+	case ev := <-events:
+		got, ok := ev.(bufferLastSeenEvent)
+		if !ok {
+			t.Fatalf("event type = %T", ev)
+		}
+		if got.LastSeenID != newer {
+			t.Fatalf("echoed last_seen_id = %v, want %v (must not regress)", got.LastSeenID, newer)
+		}
+		if got.Unread != 0 || got.MarkerID != nil {
+			t.Fatalf("expected caught-up echo, got %+v", got)
+		}
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
@@ -557,8 +635,19 @@ func TestMarkReadComputesResidualUnread(t *testing.T) {
 func TestWSCmdMarkRead(t *testing.T) {
 	ctx := t.Context()
 	ts := newTestWSServer(t)
-	_, bufID := ts.defaultNetwork(t)
+	nID, bufID := ts.defaultNetwork(t)
 	unknownID := uuid.Must(uuid.NewV7())
+
+	logStore, err := ts.stores.LogStore(nID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgID, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "hi",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name    string
@@ -567,7 +656,7 @@ func TestWSCmdMarkRead(t *testing.T) {
 	}{
 		{
 			name: "success",
-			cmd:  clientCmd{Type: "mark_read", ReqID: "r1", BufferID: bufID, MessageID: uuid.Must(uuid.NewV7())},
+			cmd:  clientCmd{Type: "mark_read", ReqID: "r1", BufferID: bufID, MessageID: msgID},
 		},
 		{
 			name:    "missing buffer_id",
@@ -583,6 +672,11 @@ func TestWSCmdMarkRead(t *testing.T) {
 			name:    "unknown buffer",
 			cmd:     clientCmd{Type: "mark_read", ReqID: "r4", BufferID: unknownID, MessageID: uuid.Must(uuid.NewV7())},
 			wantErr: "no rows",
+		},
+		{
+			name:    "fabricated message_id",
+			cmd:     clientCmd{Type: "mark_read", ReqID: "r5", BufferID: bufID, MessageID: uuid.Must(uuid.NewV7())},
+			wantErr: "message not found",
 		},
 	}
 

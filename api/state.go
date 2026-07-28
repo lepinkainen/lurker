@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -46,6 +47,8 @@ type bufferDTO struct {
 	TopicSetAt             string    `json:"topic_set_at,omitzero"`
 	Joined                 bool      `json:"joined"`
 	LastSeenID             uuid.UUID `json:"last_seen_id,omitzero"`
+	MarkerID               uuid.UUID `json:"marker_id,omitzero"`
+	MarkerTS               string    `json:"marker_ts,omitzero"`
 	CreatedAt              string    `json:"created_at"`
 	ShowEmbeds             bool      `json:"show_embeds"`
 	ShowPresenceEvents     bool      `json:"show_presence_events"`
@@ -125,16 +128,17 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb.Buffer, kinds map[uuid.UUID]string, recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID][2]int) {
+func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb.Buffer, kinds map[uuid.UUID]string, recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID]unreadTally) {
 	joined := s.bufferJoined(b, kinds)
 	counts := unreadByBuf[b.ID]
 	out.Buffers = append(out.Buffers, bufferDTO{
 		ID: b.ID, NetworkID: b.NetworkID, Name: b.Name, Kind: b.Kind,
 		Topic: mirc.Strip(b.Topic), TopicSetBy: b.TopicSetBy, TopicSetAt: b.TopicSetAt,
 		Joined: joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
+		MarkerID: counts.MarkerID, MarkerTS: markerTS(counts.MarkerID),
 		ShowEmbeds: b.ShowEmbeds, ShowPresenceEvents: b.ShowPresenceEvents,
 		CollapsePresenceEvents: b.CollapsePresenceEvents, Pinned: b.Pinned,
-		Unread: counts[0], Mentions: counts[1],
+		Unread: counts.Unread, Mentions: counts.Mentions,
 	})
 	if b.Kind == ircdb.BufferChannel && s.Manager != nil {
 		if members := s.Manager.ChannelMembers(b.NetworkID, b.Name); members != nil {
@@ -146,9 +150,9 @@ func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb
 
 // prefetchNetworkState issues one batch recent-messages query and one batch
 // unread-candidates query per network, returning maps keyed by buffer ID.
-func (s *Server) prefetchNetworkState(ctx context.Context, byNetwork map[uuid.UUID][]ircdb.Buffer, totalBufs int) (recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID][2]int) {
+func (s *Server) prefetchNetworkState(ctx context.Context, byNetwork map[uuid.UUID][]ircdb.Buffer, totalBufs int) (recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID]unreadTally) {
 	recentByBuf = make(map[uuid.UUID][]ircdb.StoredMessage, totalBufs)
-	unreadByBuf = make(map[uuid.UUID][2]int, totalBufs)
+	unreadByBuf = make(map[uuid.UUID]unreadTally, totalBufs)
 	for netID, netBufs := range byNetwork {
 		nick := ""
 		if s.Manager != nil {
@@ -173,7 +177,7 @@ func (s *Server) prefetchRecentMessages(ctx context.Context, netID uuid.UUID, bu
 	maps.Copy(out, batchMsgs)
 }
 
-func (s *Server) prefetchUnreadCounts(ctx context.Context, netID uuid.UUID, netBufs []ircdb.Buffer, nick string, out map[uuid.UUID][2]int) {
+func (s *Server) prefetchUnreadCounts(ctx context.Context, netID uuid.UUID, netBufs []ircdb.Buffer, nick string, out map[uuid.UUID]unreadTally) {
 	cutoffs := make(map[uuid.UUID]uuid.UUID, len(netBufs))
 	for _, b := range netBufs {
 		cutoffs[b.ID] = b.LastSeenID
@@ -188,19 +192,46 @@ func (s *Server) prefetchUnreadCounts(ctx context.Context, netID uuid.UUID, netB
 	}
 }
 
-func tallyUnread(cands []ircdb.UnreadCandidate, nick string) [2]int {
-	var unread, mentions int
+// unreadTally is the server-derived read state of one buffer: unread and
+// mention counts plus the "New messages" marker position (the id of the
+// oldest unread message that counts; uuid.Nil when the buffer is caught up).
+type unreadTally struct {
+	Unread   int
+	Mentions int
+	MarkerID uuid.UUID
+}
+
+// tallyUnread folds unread candidates through ComputeMessageSemantics.
+// Self-authored messages never count and never anchor the marker; with an
+// unknown nick self-detection degrades to counting everything, same as
+// mention detection.
+func tallyUnread(cands []ircdb.UnreadCandidate, nick string) unreadTally {
+	var t unreadTally
 	for _, c := range cands {
 		sem := irc.ComputeMessageSemantics(c.Kind, c.Sender, c.Content, "", nick)
-		if !sem.CountsAsUnread {
+		if !sem.CountsAsUnread || sem.IsSelf {
 			continue
 		}
-		unread++
+		t.Unread++
 		if sem.MentionsMe || sem.Highlight {
-			mentions++
+			t.Mentions++
+		}
+		if t.MarkerID == uuid.Nil || bytes.Compare(c.ID[:], t.MarkerID[:]) < 0 {
+			t.MarkerID = c.ID
 		}
 	}
-	return [2]int{unread, mentions}
+	return t
+}
+
+// markerTS renders the timestamp embedded in a UUIDv7 marker id as RFC3339,
+// so clients can show "new since 14:02" without having the message loaded.
+// Empty for uuid.Nil or non-v7 ids.
+func markerTS(id uuid.UUID) string {
+	if id == uuid.Nil || id.Version() != 7 {
+		return ""
+	}
+	sec, nsec := id.Time().UnixTime()
+	return time.Unix(sec, nsec).UTC().Format(time.RFC3339)
 }
 
 func (s *Server) bufferJoined(b ircdb.Buffer, kinds map[uuid.UUID]string) bool {
@@ -399,33 +430,23 @@ const unreadCountsCap = 1000
 
 // computeUnreadCounts queries the per-network log DB for messages newer than
 // lastSeenID, then folds each through ComputeMessageSemantics to derive unread
-// + mention counts. Used for single-buffer updates (e.g. mark-last-seen).
-// Failures degrade silently to (0, 0).
-func (s *Server) computeUnreadCounts(ctx context.Context, networkID, bufferID, lastSeenID uuid.UUID, nick string) (unread, mentions int) {
+// + mention counts and the marker position. Used for single-buffer updates
+// (e.g. mark-last-seen). Failures degrade silently to a zero tally.
+func (s *Server) computeUnreadCounts(ctx context.Context, networkID, bufferID, lastSeenID uuid.UUID, nick string) unreadTally {
 	if s.Stores == nil {
-		return 0, 0
+		return unreadTally{}
 	}
 	logStore, err := s.Stores.LogStore(networkID)
 	if err != nil {
 		slog.Warn("unread log store", "err", err, "network_id", networkID)
-		return 0, 0
+		return unreadTally{}
 	}
 	cands, err := ircdb.UnreadCandidates(ctx, logStore.DB, bufferID, lastSeenID, unreadCountsCap)
 	if err != nil {
 		slog.Warn("unread candidates", "err", err, "buffer_id", bufferID)
-		return 0, 0
+		return unreadTally{}
 	}
-	for _, c := range cands {
-		sem := irc.ComputeMessageSemantics(c.Kind, c.Sender, c.Content, "", nick)
-		if !sem.CountsAsUnread {
-			continue
-		}
-		unread++
-		if sem.MentionsMe || sem.Highlight {
-			mentions++
-		}
-	}
-	return unread, mentions
+	return tallyUnread(cands, nick)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

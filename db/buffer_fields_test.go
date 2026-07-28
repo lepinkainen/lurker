@@ -76,8 +76,11 @@ func TestMarkBufferLastSeenPersists(t *testing.T) {
 	n, _ := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
 	globalID, _, _, _ := ms.EnsureBuffer(ctx, n.ID, "#go", BufferChannel)
 	logStore, _ := ms.LogStore(n.ID)
-	want := uuid.Must(uuid.NewV7())
-	if err := ms.MarkBufferLastSeen(ctx, globalID, want); err != nil {
+	want, _, _, err := InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: globalID, Sender: "alice", Kind: "privmsg", Content: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ms.MarkBufferLastSeen(ctx, globalID, want); err != nil {
 		t.Fatal(err)
 	}
 

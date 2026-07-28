@@ -63,8 +63,13 @@ type bufferLastSeenEvent struct {
 	ID         uuid.UUID `json:"id"`
 	NetworkID  uuid.UUID `json:"network_id"`
 	LastSeenID uuid.UUID `json:"last_seen_id"`
-	Unread     int       `json:"unread"`
-	Mentions   int       `json:"mentions"`
+	// MarkerID is always present on this variant of buffer_update: null means
+	// the buffer is caught up and clients must drop the "New messages" marker.
+	// (The topic/joined variant omits the key entirely = unchanged.)
+	MarkerID *uuid.UUID `json:"marker_id"`
+	MarkerTS string     `json:"marker_ts,omitzero"`
+	Unread   int        `json:"unread"`
+	Mentions int        `json:"mentions"`
 }
 
 type ignoreListResult struct {
@@ -395,7 +400,11 @@ func (s *Server) cmdMarkRead(ctx context.Context, c *websocket.Conn, cmd clientC
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return
 	}
-	if err := s.Stores.MarkBufferLastSeen(ctx, cmd.BufferID, cmd.MessageID); err != nil {
+	// effective may differ from cmd.MessageID: the store enforces existence
+	// and monotonicity, so a stale ack yields the newer stored position and
+	// the broadcast below carries the winning state.
+	effective, err := s.Stores.MarkBufferLastSeen(ctx, cmd.BufferID, cmd.MessageID)
+	if err != nil {
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return
 	}
@@ -404,10 +413,16 @@ func (s *Server) cmdMarkRead(ctx context.Context, c *websocket.Conn, cmd clientC
 		if s.Manager != nil {
 			nick = s.Manager.Nick(networkID)
 		}
-		unread, mentions := s.computeUnreadCounts(ctx, networkID, cmd.BufferID, cmd.MessageID, nick)
+		tally := s.computeUnreadCounts(ctx, networkID, cmd.BufferID, effective, nick)
+		var markerID *uuid.UUID
+		if tally.MarkerID != uuid.Nil {
+			m := tally.MarkerID
+			markerID = &m
+		}
 		s.Hub.Publish(bufferLastSeenEvent{
 			Type: "buffer_update", ID: cmd.BufferID, NetworkID: networkID,
-			LastSeenID: cmd.MessageID, Unread: unread, Mentions: mentions,
+			LastSeenID: effective, MarkerID: markerID, MarkerTS: markerTS(tally.MarkerID),
+			Unread: tally.Unread, Mentions: tally.Mentions,
 		})
 	}
 	writeWSAck(ctx, c, cmd.ReqID)

@@ -137,7 +137,9 @@ func (q *Queries) LookupLogBufferByName(ctx context.Context, name string) (Looku
 }
 
 const updateLogBufferLastSeen = `-- name: UpdateLogBufferLastSeen :exec
-UPDATE buffers SET last_seen_id = ? WHERE name = ?
+UPDATE buffers SET last_seen_id = ?1
+WHERE name = ?2
+  AND (last_seen_id IS NULL OR last_seen_id < ?1)
 `
 
 type UpdateLogBufferLastSeenParams struct {
@@ -145,6 +147,8 @@ type UpdateLogBufferLastSeenParams struct {
 	Name       string
 }
 
+// Monotonic: never regresses the read position (BLOB memcmp order matches
+// UUIDv7 time order). A stale ack from a racing client is a silent no-op.
 func (q *Queries) UpdateLogBufferLastSeen(ctx context.Context, arg UpdateLogBufferLastSeenParams) error {
 	_, err := q.db.ExecContext(ctx, updateLogBufferLastSeen, arg.LastSeenID, arg.Name)
 	return err

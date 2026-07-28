@@ -11,17 +11,18 @@ import (
 // UnreadCandidate is a minimal projection of a message used to compute
 // unread/mention counts without loading full message rows.
 type UnreadCandidate struct {
+	ID      uuid.UUID
 	Kind    string
 	Sender  string
 	Content string
 }
 
-// UnreadCandidates returns the kind/sender/content of every message in a
+// UnreadCandidates returns the id/kind/sender/content of every message in a
 // per-network log buffer with id > lastSeenID, capped at limit. limit <= 0
-// means no cap. Used by /api/state to compute unread + mention counts
-// server-side from the full stored history.
+// means no cap. Used by /api/state to compute unread + mention counts and the
+// "New messages" marker position server-side from the full stored history.
 func UnreadCandidates(ctx context.Context, d *sql.DB, bufferID uuid.UUID, lastSeenID uuid.UUID, limit int) ([]UnreadCandidate, error) {
-	q := `SELECT kind, sender, content FROM messages WHERE buffer_id = ?`
+	q := `SELECT id, kind, sender, content FROM messages WHERE buffer_id = ?`
 	args := []any{bufferID[:]}
 	if lastSeenID != uuid.Nil {
 		q += ` AND id > ?`
@@ -40,9 +41,11 @@ func UnreadCandidates(ctx context.Context, d *sql.DB, bufferID uuid.UUID, lastSe
 	var out []UnreadCandidate
 	for rows.Next() {
 		var c UnreadCandidate
-		if err := rows.Scan(&c.Kind, &c.Sender, &c.Content); err != nil {
+		var idB []byte
+		if err := rows.Scan(&idB, &c.Kind, &c.Sender, &c.Content); err != nil {
 			return nil, err
 		}
+		c.ID = scanUUID(idB)
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -61,14 +64,14 @@ func BatchUnreadCandidates(ctx context.Context, d *sql.DB, cutoffs map[uuid.UUID
 	for bufID, cutID := range cutoffs {
 		b := bufID
 		if cutID == uuid.Nil {
-			parts = append(parts, `SELECT buffer_id, kind, sender, content
-			  FROM (SELECT buffer_id, kind, sender, content FROM messages
+			parts = append(parts, `SELECT buffer_id, id, kind, sender, content
+			  FROM (SELECT buffer_id, id, kind, sender, content FROM messages
 			        WHERE buffer_id = ? ORDER BY id ASC LIMIT ?)`)
 			args = append(args, b[:], int64(limit))
 		} else {
 			c := cutID
-			parts = append(parts, `SELECT buffer_id, kind, sender, content
-			  FROM (SELECT buffer_id, kind, sender, content FROM messages
+			parts = append(parts, `SELECT buffer_id, id, kind, sender, content
+			  FROM (SELECT buffer_id, id, kind, sender, content FROM messages
 			        WHERE buffer_id = ? AND id > ? ORDER BY id ASC LIMIT ?)`)
 			args = append(args, b[:], c[:], int64(limit))
 		}
@@ -80,11 +83,12 @@ func BatchUnreadCandidates(ctx context.Context, d *sql.DB, cutoffs map[uuid.UUID
 	defer func() { _ = rows.Close() }()
 	out := make(map[uuid.UUID][]UnreadCandidate, len(cutoffs))
 	for rows.Next() {
-		var bufB []byte
+		var bufB, idB []byte
 		var c UnreadCandidate
-		if err := rows.Scan(&bufB, &c.Kind, &c.Sender, &c.Content); err != nil {
+		if err := rows.Scan(&bufB, &idB, &c.Kind, &c.Sender, &c.Content); err != nil {
 			return nil, err
 		}
+		c.ID = scanUUID(idB)
 		bufID := scanUUID(bufB)
 		out[bufID] = append(out[bufID], c)
 	}

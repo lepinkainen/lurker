@@ -202,7 +202,10 @@ func UpdateLogBufferTopicState(ctx context.Context, d *sql.DB, name string, topi
 	})
 }
 
-// UpdateLogBufferLastSeen updates the last seen message ID for a buffer.
+// UpdateLogBufferLastSeen advances the last seen message ID for a buffer.
+// Monotonic: an id at or below the stored position is a silent no-op, so a
+// stale ack can never regress the read position. uuid.Nil never matches the
+// guard and is likewise a no-op.
 func UpdateLogBufferLastSeen(ctx context.Context, d *sql.DB, name string, lastSeenID uuid.UUID) error {
 	var idBytes []byte
 	if lastSeenID != uuid.Nil {
@@ -212,6 +215,25 @@ func UpdateLogBufferLastSeen(ctx context.Context, d *sql.DB, name string, lastSe
 		LastSeenID: idBytes,
 		Name:       name,
 	})
+}
+
+// LogMessageInBuffer reports whether a message id exists in the given buffer
+// of this log DB.
+func LogMessageInBuffer(ctx context.Context, d *sql.DB, bufferID, messageID uuid.UUID) (bool, error) {
+	return logdb.New(d).LogMessageInBuffer(ctx, logdb.LogMessageInBufferParams{
+		BufferID: bufferID[:],
+		ID:       messageID[:],
+	})
+}
+
+// LogBufferLastSeen returns the stored last-seen id for a buffer by name
+// (uuid.Nil when unset).
+func LogBufferLastSeen(ctx context.Context, d *sql.DB, name string) (uuid.UUID, error) {
+	row, err := logdb.New(d).GetLogBufferTopicLastSeen(ctx, name)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return scanUUID(row.LastSeenID), nil
 }
 
 // BatchRecentLogMessages returns the last limit messages for each buffer in

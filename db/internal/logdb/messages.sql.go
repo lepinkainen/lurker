@@ -50,6 +50,22 @@ func (q *Queries) InsertLogMessage(ctx context.Context, arg InsertLogMessagePara
 	return result.RowsAffected()
 }
 
+const logMessageInBuffer = `-- name: LogMessageInBuffer :one
+SELECT EXISTS(SELECT 1 FROM messages WHERE buffer_id = ? AND id = ?)
+`
+
+type LogMessageInBufferParams struct {
+	BufferID []byte
+	ID       []byte
+}
+
+func (q *Queries) LogMessageInBuffer(ctx context.Context, arg LogMessageInBufferParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, logMessageInBuffer, arg.BufferID, arg.ID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const logMessagesBefore = `-- name: LogMessagesBefore :many
 SELECT id, buffer_id, COALESCE(msgid,'') AS msgid, ts, sender, COALESCE(userhost,'') AS userhost,
        COALESCE(account,'') AS account, kind, COALESCE(target,'') AS target, content

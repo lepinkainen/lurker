@@ -50,6 +50,55 @@ func insertHistoryMessages(t *testing.T, stores *ircdb.MultiStore, networkID, bu
 	return ids
 }
 
+func TestTallyUnreadSkipsSelfAndAnchorsMarker(t *testing.T) {
+	id1 := uuid.Must(uuid.NewV7())
+	id2 := uuid.Must(uuid.NewV7())
+	id3 := uuid.Must(uuid.NewV7())
+	id4 := uuid.Must(uuid.NewV7())
+	cands := []ircdb.UnreadCandidate{
+		{ID: id1, Kind: "privmsg", Sender: "Bob", Content: "my own message"},
+		{ID: id2, Kind: "join", Sender: "alice", Content: ""},
+		{ID: id3, Kind: "privmsg", Sender: "alice", Content: "hi bob"},
+		{ID: id4, Kind: "privmsg", Sender: "alice", Content: "plain"},
+	}
+	got := tallyUnread(cands, "bob")
+	if got.Unread != 2 {
+		t.Fatalf("unread = %d, want 2 (self message and join excluded)", got.Unread)
+	}
+	if got.Mentions != 1 {
+		t.Fatalf("mentions = %d, want 1", got.Mentions)
+	}
+	// Marker anchors at the first message that counts: not the self message,
+	// not the join, but the first message from someone else.
+	if got.MarkerID != id3 {
+		t.Fatalf("marker = %v, want %v", got.MarkerID, id3)
+	}
+}
+
+func TestTallyUnreadEmptyAndUnknownNick(t *testing.T) {
+	if got := tallyUnread(nil, "bob"); got != (unreadTally{}) {
+		t.Fatalf("empty tally = %+v, want zero", got)
+	}
+	// Unknown nick: self-detection degrades to counting everything.
+	id := uuid.Must(uuid.NewV7())
+	got := tallyUnread([]ircdb.UnreadCandidate{{ID: id, Kind: "privmsg", Sender: "Bob", Content: "x"}}, "")
+	if got.Unread != 1 || got.MarkerID != id {
+		t.Fatalf("tally = %+v, want unread=1 marker=%v", got, id)
+	}
+}
+
+func TestMarkerTS(t *testing.T) {
+	if got := markerTS(uuid.Nil); got != "" {
+		t.Fatalf("markerTS(Nil) = %q, want empty", got)
+	}
+	if got := markerTS(uuid.Must(uuid.NewRandom())); got != "" {
+		t.Fatalf("markerTS(v4) = %q, want empty", got)
+	}
+	if got := markerTS(uuid.Must(uuid.NewV7())); got == "" {
+		t.Fatal("markerTS(v7) empty, want RFC3339 timestamp")
+	}
+}
+
 func TestHistoryEndpointReturnsMessagesForBuffer(t *testing.T) {
 	stores, s, n, bufID := newHistoryTestServer(t)
 	ids := insertHistoryMessages(t, stores, n.ID, bufID, 3)

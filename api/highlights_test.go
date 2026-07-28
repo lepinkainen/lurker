@@ -120,12 +120,15 @@ func TestUnreadCountsIncludeHighlights(t *testing.T) {
 	}
 
 	srv := &Server{Stores: stores}
-	unread, mentions := srv.computeUnreadCounts(ctx, n.ID, bufID, uuid.Nil, "bob")
-	if unread != 3 {
-		t.Fatalf("unread = %d, want 3", unread)
+	tally := srv.computeUnreadCounts(ctx, n.ID, bufID, uuid.Nil, "bob")
+	if tally.Unread != 3 {
+		t.Fatalf("unread = %d, want 3", tally.Unread)
 	}
-	if mentions != 2 {
-		t.Fatalf("mentions = %d, want 2 (nick mention + highlight)", mentions)
+	if tally.Mentions != 2 {
+		t.Fatalf("mentions = %d, want 2 (nick mention + highlight)", tally.Mentions)
+	}
+	if tally.MarkerID == uuid.Nil {
+		t.Fatal("marker id not set, want id of first unread message")
 	}
 }
 
