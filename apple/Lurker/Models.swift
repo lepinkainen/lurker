@@ -83,6 +83,11 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
   var topic: String? = nil
   var joined: Bool
   var lastSeenID: UUID? = nil
+  // Server-derived "New messages" marker: id/timestamp of the first unread
+  // message that counts. Clients hold no marker state of their own; see
+  // ai-docs/behaviors/new-messages-marker.md.
+  var markerID: UUID? = nil
+  var markerTS: String? = nil
   var createdAt: String? = nil
   var showEmbeds: Bool
   var showPresenceEvents: Bool
@@ -188,14 +193,40 @@ struct BufferSettingsEvent: Codable, Sendable {
   let pinned: Bool
 }
 
-struct BufferUpdateEvent: Codable, Sendable {
+struct BufferUpdateEvent: Decodable, Sendable {
   let id: UUID
   var networkID: UUID?
   var topic: String?
   var joined: Bool?
   var lastSeenID: UUID?
+  /// Double optional: the mark_read variant always carries the `marker_id` key
+  /// (JSON null means "caught up — clear the marker"), while the topic/joined
+  /// variant omits it entirely (unchanged). Outer nil = key absent, inner nil =
+  /// explicit null.
+  var markerID: UUID??
+  var markerTS: String?
   var unread: Int?
   var mentions: Int?
+
+  private enum CodingKeys: String, CodingKey {
+    case id, networkID, topic, joined, lastSeenID, markerID, markerTS, unread, mentions
+  }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(UUID.self, forKey: .id)
+    networkID = try values.decodeIfPresent(UUID.self, forKey: .networkID)
+    topic = try values.decodeIfPresent(String.self, forKey: .topic)
+    joined = try values.decodeIfPresent(Bool.self, forKey: .joined)
+    lastSeenID = try values.decodeIfPresent(UUID.self, forKey: .lastSeenID)
+    markerID =
+      values.contains(.markerID)
+      ? .some(try values.decodeIfPresent(UUID.self, forKey: .markerID))
+      : .none
+    markerTS = try values.decodeIfPresent(String.self, forKey: .markerTS)
+    unread = try values.decodeIfPresent(Int.self, forKey: .unread)
+    mentions = try values.decodeIfPresent(Int.self, forKey: .mentions)
+  }
 }
 
 struct BufferCreatedEvent: Codable, Sendable {
@@ -324,6 +355,8 @@ private enum WireKeyTransform {
     "buffer_id": "bufferID",
     "image_url": "imageURL",
     "last_seen_id": "lastSeenID",
+    "marker_id": "markerID",
+    "marker_ts": "markerTS",
     "message_id": "messageID",
     "message_ids": "messageIDs",
     "network_id": "networkID",

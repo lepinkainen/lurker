@@ -53,7 +53,6 @@ final class AppModel {
   var messages: [UUID: [Message]] = [:]
   var members: [UUID: [Member]] = [:]
   var selectedBufferID: UUID?
-  var markerAnchors: [UUID: UUID] = [:]
   var historyExhausted: Set<UUID> = []
   var historyLoading: Set<UUID> = []
   var connectionState: ConnectionState = .notConfigured
@@ -193,21 +192,15 @@ final class AppModel {
     // funnels here, so this is where the compact-width conversation push happens.
     compactConversationVisible = true
     guard selectedBufferID != id else { return }
-    if applicationActive, let previous = selectedBufferID {
-      markRead(previous)
-    }
+    // Opening a buffer never acks it: badge, divider, and unread bar clear
+    // together only on an explicit ack (bar tap / Esc). See
+    // ai-docs/behaviors/new-messages-marker.md.
     selectedBufferID = id
     defaults.set(id.uuidString, forKey: Defaults.selectedBuffer)
-    if applicationActive {
-      markRead(id)
-    }
   }
 
   func setApplicationActive(_ active: Bool) {
     applicationActive = active
-    if active, let selectedBufferID {
-      markRead(selectedBufferID)
-    }
   }
 
   func setInspectorVisible(_ visible: Bool) {
@@ -378,12 +371,12 @@ final class AppModel {
       uniqueKeysWithValues: (snapshot.members ?? [:]).compactMap { key, value in
         UUID(uuidString: key).map { ($0, value) }
       })
-    establishUnreadMarkers()
     restoreSelection()
     updateBadge()
   }
 
-  private func apply(_ event: ServerEvent) {
+  // Internal (not private) so unit tests can drive server events directly.
+  func apply(_ event: ServerEvent) {
     switch event {
     case .message(let message):
       apply(message)
@@ -411,6 +404,12 @@ final class AppModel {
       if let topic = event.topic { buffer.topic = topic }
       if let joined = event.joined { buffer.joined = joined }
       if let lastSeenID = event.lastSeenID { buffer.lastSeenID = lastSeenID }
+      // `marker_id` key present (mark_read variant): take it — inner nil means
+      // caught up, which clears the marker. Key absent: unchanged.
+      if let markerID = event.markerID {
+        buffer.markerID = markerID
+        buffer.markerTS = markerID == nil ? nil : event.markerTS
+      }
       if let unread = event.unread { buffer.unread = unread }
       if let mentions = event.mentions { buffer.mentions = mentions }
       buffers[event.id] = buffer
@@ -462,28 +461,31 @@ final class AppModel {
     mergeMessages([message], into: message.bufferID)
     guard !wasKnown, var buffer = buffers[message.bufferID] else { return }
 
-    if selectedBufferID == message.bufferID, applicationActive {
-      markRead(message.bufferID)
-      return
+    // Unread bookkeeping applies to every buffer, including the selected one
+    // while the app is active — viewing never acks. Server-authoritative
+    // counts arrive on buffer_update / snapshot; this keeps badges live
+    // between syncs.
+    guard message.countsAsUnread == true, message.isSelf != true else { return }
+    let isUnseen = buffer.lastSeenID.map { message.id.uuidString > $0.uuidString } ?? true
+    guard isUnseen else { return }
+
+    if buffer.markerID == nil {
+      buffer.markerID = message.id
+      buffer.markerTS = message.ts
     }
-    if message.countsAsUnread == true, message.isSelf != true {
-      if buffer.unread == 0 {
-        markerAnchors[buffer.id] = message.id
+    buffer.unread += 1
+    if message.mentionsMe == true || message.highlight == true {
+      buffer.mentions += 1
+      if !applicationActive, notificationsEnabled {
+        NotificationManager.shared.post(
+          message: message,
+          buffer: buffer,
+          network: networks[buffer.networkID]
+        )
       }
-      buffer.unread += 1
-      if message.mentionsMe == true || message.highlight == true {
-        buffer.mentions += 1
-        if !applicationActive, notificationsEnabled {
-          NotificationManager.shared.post(
-            message: message,
-            buffer: buffer,
-            network: networks[buffer.networkID]
-          )
-        }
-      }
-      buffers[buffer.id] = buffer
-      updateBadge()
     }
+    buffers[buffer.id] = buffer
+    updateBadge()
   }
 
   private func mergeMessages(_ incoming: [Message], into bufferID: UUID) {
@@ -494,13 +496,17 @@ final class AppModel {
     messages[bufferID] = byID.values.sorted(by: messageOrder)
   }
 
-  private func markRead(_ bufferID: UUID) {
+  /// Explicit user ack — the only way the marker, badges, and unread bar
+  /// clear. Optimistically drops them locally; the server persists the new
+  /// `last_seen_id` and broadcasts `buffer_update` to every client.
+  func ackRead(_ bufferID: UUID) {
     guard var buffer = buffers[bufferID], let last = messages[bufferID]?.last else { return }
     buffer.lastSeenID = last.id
+    buffer.markerID = nil
+    buffer.markerTS = nil
     buffer.unread = 0
     buffer.mentions = 0
     buffers[bufferID] = buffer
-    markerAnchors.removeValue(forKey: bufferID)
     updateBadge()
     send(ClientCommand(type: "mark_read", bufferID: bufferID, messageID: last.id))
   }
@@ -512,19 +518,6 @@ final class AppModel {
         try await transport.send(command)
       } catch {
         composerError = error.localizedDescription
-      }
-    }
-  }
-
-  private func establishUnreadMarkers() {
-    markerAnchors.removeAll(keepingCapacity: true)
-    for buffer in buffers.values where buffer.unread > 0 {
-      let anchor = messages[buffer.id]?.first {
-        guard let seen = buffer.lastSeenID else { return true }
-        return $0.id.uuidString > seen.uuidString
-      }
-      if let anchor {
-        markerAnchors[buffer.id] = anchor.id
       }
     }
   }
@@ -577,7 +570,6 @@ final class AppModel {
     buffers.removeAll()
     messages.removeAll()
     members.removeAll()
-    markerAnchors.removeAll()
     historyExhausted.removeAll()
     selectedBufferID = nil
     hydrated = false

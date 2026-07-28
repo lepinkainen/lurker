@@ -103,6 +103,10 @@ actor FixtureTransport: LurkerTransport {
       topic: "Native client development",
       joined: true,
       lastSeenID: nil,
+      // Marker at the first countable fixture message so the divider and
+      // unread bar render in the default preview/UI-test channel.
+      markerID: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000001")!,
+      markerTS: "2026-07-23T08:12:00Z",
       createdAt: "2026-01-01T00:00:00Z",
       showEmbeds: true,
       showPresenceEvents: true,
@@ -135,6 +139,8 @@ actor FixtureTransport: LurkerTransport {
       topic: "Procedurally generated backlog for pagination testing",
       joined: true,
       lastSeenID: fullMessages[fullTotal - fullUnread - 1].id,
+      markerID: fullMessages[fullTotal - fullUnread].id,
+      markerTS: fullMessages[fullTotal - fullUnread].ts,
       createdAt: "2026-01-01T00:00:00Z",
       showEmbeds: true,
       showPresenceEvents: true,

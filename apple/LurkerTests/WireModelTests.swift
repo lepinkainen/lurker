@@ -20,7 +20,16 @@ struct WireModelTests {
           "name": "#lurker", "kind": "channel", "joined": true,
           "show_embeds": true, "show_presence_events": true,
           "collapse_presence_events": false, "pinned": true,
-          "unread": 3, "mentions": 1
+          "unread": 3, "mentions": 1,
+          "marker_id": "0198f5f2-a000-7000-8000-000000000001",
+          "marker_ts": "2026-07-23T08:12:00Z"
+        }, {
+          "id": "0198f5f2-9448-7ed6-b3b4-cd8a1a6e8b21",
+          "network_id": "0198f5f2-8f2a-7a8b-9b42-4d6e72c4d8f1",
+          "name": "tove", "kind": "query", "joined": true,
+          "show_embeds": true, "show_presence_events": true,
+          "collapse_presence_events": false, "pinned": false,
+          "unread": 0, "mentions": 0
         }],
         "initial_messages": {},
         "members": {}
@@ -31,6 +40,68 @@ struct WireModelTests {
     #expect(state.networks.first?.sortOrder == 0)
     #expect(state.buffers.first?.pinned == true)
     #expect(state.buffers.first?.mentions == 1)
+    #expect(
+      state.buffers.first?.markerID == UUID(uuidString: "0198f5f2-a000-7000-8000-000000000001"))
+    #expect(state.buffers.first?.markerTS == "2026-07-23T08:12:00Z")
+    // Marker keys omitted entirely — no marker.
+    #expect(state.buffers.last?.markerID == nil)
+    #expect(state.buffers.last?.markerTS == nil)
+  }
+
+  // The mark_read variant of buffer_update always carries the `marker_id` key:
+  // JSON null means "caught up — clear the marker". The topic/joined variant
+  // omits the key = unchanged. The double-optional field must keep those apart.
+  @Test func decodesBufferUpdateMarkerPresentNullAndAbsent() throws {
+    func decode(_ json: String) throws -> BufferUpdateEvent {
+      let event = try JSONDecoder.lurker().decode(ServerEvent.self, from: Data(json.utf8))
+      guard case .bufferUpdate(let update) = event else {
+        Issue.record("Expected buffer_update event")
+        throw LurkerAPIError.disconnected
+      }
+      return update
+    }
+
+    let set = try decode(
+      """
+      {
+        "type": "buffer_update",
+        "id": "0198f5f2-9348-7ed6-b3b4-cd8a1a6e8b20",
+        "network_id": "0198f5f2-8f2a-7a8b-9b42-4d6e72c4d8f1",
+        "last_seen_id": "0198f5f2-a000-7000-8000-000000000001",
+        "marker_id": "0198f5f2-a000-7000-8000-000000000002",
+        "marker_ts": "2026-07-23T08:13:00Z",
+        "unread": 4, "mentions": 1
+      }
+      """)
+    #expect(set.markerID == UUID(uuidString: "0198f5f2-a000-7000-8000-000000000002"))
+    #expect(set.markerTS == "2026-07-23T08:13:00Z")
+    #expect(set.unread == 4)
+
+    let cleared = try decode(
+      """
+      {
+        "type": "buffer_update",
+        "id": "0198f5f2-9348-7ed6-b3b4-cd8a1a6e8b20",
+        "network_id": "0198f5f2-8f2a-7a8b-9b42-4d6e72c4d8f1",
+        "last_seen_id": "0198f5f2-a000-7000-8000-000000000009",
+        "marker_id": null,
+        "unread": 0, "mentions": 0
+      }
+      """)
+    #expect(cleared.markerID != nil)  // key present…
+    #expect(cleared.markerID! == nil)  // …with explicit null: clear the marker
+
+    let unchanged = try decode(
+      """
+      {
+        "type": "buffer_update",
+        "id": "0198f5f2-9348-7ed6-b3b4-cd8a1a6e8b20",
+        "network_id": "0198f5f2-8f2a-7a8b-9b42-4d6e72c4d8f1",
+        "topic": "fresh topic"
+      }
+      """)
+    #expect(unchanged.markerID == nil)  // key absent: marker unchanged
+    #expect(unchanged.topic == "fresh topic")
   }
 
   // Third leg of the presence-kind contract: irc.presenceKinds (Go) and

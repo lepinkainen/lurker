@@ -14,7 +14,20 @@ struct ConversationView: View {
         ComposerView(buffer: buffer)
       }
       .navigationTitle(
-        buffer.kind == "status" ? "\(model.selectedNetwork?.name ?? "") Status" : buffer.name)
+        buffer.kind == "status" ? "\(model.selectedNetwork?.name ?? "") Status" : buffer.name
+      )
+      #if os(macOS)
+        // Hardware-keyboard ack. Key presses bubble from the focused view
+        // (usually the composer) up through ancestors, so this fires with no
+        // sheet on top; sheets own focus in their own hierarchy and keep
+        // their Esc-to-dismiss behavior. `.ignored` when there is nothing to
+        // ack preserves default Esc handling.
+        .onKeyPress(.escape) {
+          guard buffer.markerID != nil else { return .ignored }
+          model.ackRead(buffer.id)
+          return .handled
+        }
+      #endif
     } else {
       ContentUnavailableView {
         Label("No Conversation Selected", systemImage: "bubble.left.and.bubble.right")
@@ -107,6 +120,11 @@ private struct TimelineView: View {
         }
         .padding(.vertical, 5)
       }
+      .safeAreaInset(edge: .top, spacing: 0) {
+        if buffer.markerID != nil {
+          UnreadBar(buffer: buffer)
+        }
+      }
       .defaultScrollAnchor(.bottom)
       .onChange(of: model.selectedMessages.last?.id) { old, new in
         guard old != nil, let new else { return }
@@ -143,7 +161,7 @@ private struct TimelineView: View {
         result.append(.day("day-\(day)", displayDay(message.ts)))
         lastDay = day
       }
-      if model.markerAnchors[buffer.id] == message.id {
+      if buffer.markerID == message.id {
         flushPresence()
         result.append(.unread("unread-\(message.id.uuidString)"))
       }
@@ -208,6 +226,61 @@ private struct UnreadSeparator: View {
     .foregroundStyle(.orange)
     .padding(.horizontal, 14)
     .padding(.vertical, 5)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("New messages begin here")
+  }
+}
+
+/// Floating control pinned above the timeline whenever the selected buffer has
+/// a server-derived marker. Tapping it is the primary ack affordance: it clears
+/// the marker, divider, and badges everywhere.
+private struct UnreadBar: View {
+  @Environment(AppModel.self) private var model
+  let buffer: Buffer
+
+  var body: some View {
+    Button {
+      model.ackRead(buffer.id)
+    } label: {
+      Text(label)
+        .font(.footnote.weight(.semibold))
+        .foregroundStyle(.orange)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .contentShape(.rect)
+    }
+    .buttonStyle(.plain)
+    .background(.ultraThinMaterial)
+    .overlay(alignment: .bottom) {
+      Rectangle()
+        .fill(.orange.opacity(0.35))
+        .frame(height: 1)
+    }
+    .accessibilityLabel(label)
+    .accessibilityHint("Marks this conversation as read")
+  }
+
+  private var label: String {
+    // The count is unreliable at the server cap or when the marker message is
+    // outside loaded history; fall back to the age of the boundary.
+    let markerLoaded =
+      buffer.markerID.map { id in
+        model.messages[buffer.id]?.contains { $0.id == id } == true
+      } ?? false
+    if buffer.unread >= 1 && buffer.unread < 1000 && markerLoaded {
+      return buffer.unread == 1 ? "1 new message" : "\(buffer.unread) new messages"
+    }
+    if let raw = buffer.markerTS, let date = parseTimestamp(raw) {
+      return "new since \(sinceText(date))"
+    }
+    return buffer.unread == 1 ? "1 new message" : "\(buffer.unread) new messages"
+  }
+
+  private func sinceText(_ date: Date) -> String {
+    let time = date.formatted(date: .omitted, time: .shortened)
+    if Calendar.current.isDateInToday(date) { return time }
+    if Calendar.current.isDateInYesterday(date) { return "yesterday \(time)" }
+    return date.formatted(date: .abbreviated, time: .shortened)
   }
 }
 
