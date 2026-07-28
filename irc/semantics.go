@@ -57,8 +57,8 @@ func IsPresenceKind(kind string) bool {
 // frontend list in messages.ts so behavior is consistent.
 var nonUnreadKinds = map[string]struct{}{
 	"join": {}, "part": {}, "quit": {}, "nick": {}, "mode": {}, "kick": {},
-	"connected": {}, "disconnected": {}, "error": {}, "away": {}, "back": {},
-	"account": {}, "chghost": {}, "status": {},
+	"connecting": {}, "connected": {}, "disconnected": {}, "error": {},
+	"away": {}, "back": {}, "account": {}, "chghost": {}, "status": {},
 }
 
 // classifyKind maps an IRC event kind to a coarse display category.

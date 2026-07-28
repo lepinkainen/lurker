@@ -1275,9 +1275,13 @@ func markerLine(width int) string {
 // message viewport: the active buffer has a server-derived marker and there
 // is something loaded to ack (empty buffer → nothing renderable/ackable).
 func (m *model) unreadBarVisible() bool {
-	return m.activeBuffer != nil &&
-		m.activeBuffer.MarkerID != uuid.Nil &&
-		len(m.messages[m.activeBuffer.ID]) > 0
+	if m.activeBuffer == nil || len(m.messages[m.activeBuffer.ID]) == 0 {
+		return false
+	}
+	// unread fallback: keeps the ack affordance available when the server
+	// predates marker_id (version skew) — without it there is no way to
+	// clear the badge at all.
+	return m.activeBuffer.MarkerID != uuid.Nil || m.unread[m.activeBuffer.ID] > 0
 }
 
 // renderUnreadBar renders the one-line bar pinned between the header and the

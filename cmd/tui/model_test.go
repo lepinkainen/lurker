@@ -652,6 +652,22 @@ func TestUnreadBarVisibility(t *testing.T) {
 	}
 }
 
+// A server that predates marker_id reports unread counts but never a marker.
+// The bar must still show so the badge stays clearable (version-skew fallback).
+func TestUnreadBarVisibleWithoutMarkerWhenUnread(t *testing.T) {
+	m, a, _, _ := markerModel(t)
+	m.handleWSEvent(msgEvent(a, seqUUID(100)))
+	m.findBuffer(a).MarkerID = uuid.Nil
+	m.unread[a] = 3
+	if !m.unreadBarVisible() {
+		t.Errorf("bar hidden with unread > 0 and no marker (old-server fallback)")
+	}
+	m.unread[a] = 0
+	if m.unreadBarVisible() {
+		t.Errorf("bar visible with no marker and no unread")
+	}
+}
+
 func TestUnreadBarShowsCount(t *testing.T) {
 	m, a, _, _ := markerModel(t)
 	m.handleWSEvent(msgEvent(a, seqUUID(100)))
