@@ -52,8 +52,6 @@ type model struct {
 	members             map[uuid.UUID][]channelMember // buffer_id -> members
 	unread              map[uuid.UUID]int             // buffer_id -> unread count (client-side accumulated)
 	mentions            map[uuid.UUID]int             // buffer_id -> mention count
-	markerAnchor        map[uuid.UUID]uuid.UUID       // buffer_id -> first unseen message ("New messages" line)
-	lastMarkedRead      map[uuid.UUID]uuid.UUID       // buffer_id -> last message_id sent via mark_read
 	sidebarItems        []sidebarItem
 	sidebarSel          int
 	activeBuffer        *bufferDTO
@@ -79,10 +77,6 @@ type model struct {
 	// connection, so outbound commands keep their order (an out-of-order
 	// mark_read would regress the server-side read position).
 	wsSendChan chan wsCmd
-	// mark_read throttle: at most one send per debounce window while
-	// messages stream into the active buffer.
-	markReadPending bool
-	lastMarkReadAt  time.Time
 
 	// quit state: ctrl+d double-tap
 	lastCtrlD time.Time
@@ -129,8 +123,6 @@ func newModel(cfg *Config) model {
 		members:        make(map[uuid.UUID][]channelMember),
 		unread:         make(map[uuid.UUID]int),
 		mentions:       make(map[uuid.UUID]int),
-		markerAnchor:   make(map[uuid.UUID]uuid.UUID),
-		lastMarkedRead: make(map[uuid.UUID]uuid.UUID),
 		input:          ta,
 		focus:          focusInput,
 		wsStatus:       "connecting",
@@ -230,19 +222,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.backendOK = true
 		m.wsStatus = "connected"
 		m.status = ""
-		// Startup buffer was activated before the WS existed; report its
-		// read position now that we can.
-		m.markActiveRead()
 		return m, waitForWSEvent(m.wsChan)
 
 	case wsEventMsg:
-		cmd := m.handleWSEvent(wsEvent(msg))
-		return m, tea.Batch(cmd, waitForWSEvent(m.wsChan))
-
-	case markReadFlushMsg:
-		m.markReadPending = false
-		m.markActiveRead()
-		return m, nil
+		m.handleWSEvent(wsEvent(msg))
+		return m, waitForWSEvent(m.wsChan)
 
 	case wsErrorMsg:
 		m.backendOK = false
@@ -254,10 +238,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			close(m.wsSendChan)
 			m.wsSendChan = nil
 		}
-		// Commands queued on the dead conn may never have reached the
-		// server; forget what we think we sent so the post-reconnect
-		// markActiveRead resends the read position.
-		clear(m.lastMarkedRead)
 		return m, reconnectWSCmd(m.client, 5*time.Second)
 
 	case errMsg:
@@ -318,8 +298,9 @@ func (m *model) dispatchControlKey(key string) (tea.Model, tea.Cmd, bool) {
 		m.refreshViewport()
 		return *m, nil, true
 	case "esc":
-		// Web parity: Esc also dismisses the "New messages" line.
-		m.clearActiveMarker()
+		// Web parity: Esc acks the active buffer (clears marker, bar and
+		// badges everywhere) in addition to its focus toggle.
+		m.ackActiveRead()
 		m.toggleFocus()
 		return *m, nil, true
 	case "tab":
@@ -390,6 +371,12 @@ func (m *model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.input.Focus()
 			return *m, nil
 		}
+		// Click on the unread bar (pinned line between header and viewport)
+		// acks the active buffer — the bar's one activation affordance.
+		if m.unreadBarVisible() && msg.Y == headerHeight && msg.X > sidebarWidth {
+			m.ackActiveRead()
+			return *m, nil
+		}
 		// Mouse capture disables Ghostty/iTerm native link clicking, so
 		// hit-test URLs in the viewport and open them ourselves.
 		if url, ok := m.urlAtClick(msg.X, msg.Y); ok {
@@ -411,6 +398,9 @@ func (m *model) urlAtClick(x, y int) (string, bool) {
 	}
 	relX := x - (sidebarWidth + 1) // sidebar + its right border column
 	relY := y - headerHeight
+	if m.unreadBarVisible() {
+		relY-- // the unread bar occupies the row above the viewport
+	}
 	if relX < 0 || relY < 0 || relY >= m.viewport.Height {
 		return "", false
 	}
@@ -764,10 +754,10 @@ func (m *model) requestHistory() tea.Cmd {
 }
 
 // ── read tracking / new-messages marker ───────────────────────────────────────
-// Parity with the web client (web/src/read-tracker.ts); semantics in
-// ai-docs/behaviors/new-messages-marker.md. Read position (badges +
-// mark_read) advances on entry; the marker anchor stays until the buffer
-// is exited or Esc is pressed.
+// Semantics in ai-docs/behaviors/new-messages-marker.md. Marker state is
+// server-owned (bufferDTO.MarkerID/MarkerTS); the client holds no anchor
+// state of its own. Nothing clears implicitly — the only mark_read triggers
+// are the explicit acks: Esc and a click on the unread bar.
 
 // uuidLTE compares message UUIDs by byte order (UUIDv7 is time-ordered,
 // matching the web client's lexicographic string compare).
@@ -810,64 +800,29 @@ func wsWriter(conn *websocket.Conn, ch <-chan wsCmd) {
 	}
 }
 
-// markReadDebounce caps mark_read frequency while messages stream into the
-// active buffer. Entry and Esc still report immediately.
-const markReadDebounce = time.Second
-
-type markReadFlushMsg struct{}
-
-// throttledMarkActiveRead is markActiveRead for the message-arrival hot
-// path: leading-edge send, trailing flush for suppressed calls.
-func (m *model) throttledMarkActiveRead() tea.Cmd {
-	if time.Since(m.lastMarkReadAt) >= markReadDebounce {
-		m.markActiveRead()
-		return nil
-	}
-	if m.markReadPending {
-		return nil
-	}
-	m.markReadPending = true
-	return tea.Tick(markReadDebounce, func(time.Time) tea.Msg { return markReadFlushMsg{} })
-}
-
-// markActiveRead zeroes the active buffer's badges and tells the server.
-// The marker anchor is deliberately left alone. The buffer's LastSeenID is
-// not advanced locally: the server's buffer_update echo is the authority,
-// and an optimistic advance would suppress the post-reconnect resend when
-// the write was lost.
-func (m *model) markActiveRead() {
+// ackActiveRead is the explicit user ack (Esc / unread-bar click): sends
+// mark_read for the newest loaded message and optimistically drops the
+// marker, bar and badges. If the send can't go out (no connection, full
+// queue) it is a complete no-op — visible state stays truthful to the
+// server, and the next buffer_update / resync restores the marker.
+func (m *model) ackActiveRead() {
 	b := m.activeBuffer
 	if b == nil {
 		return
 	}
-	m.unread[b.ID] = 0
-	m.mentions[b.ID] = 0
 	msgs := m.messages[b.ID]
 	if len(msgs) == 0 {
 		return
 	}
 	last := msgs[len(msgs)-1].ID
-	if uuidLTE(last, b.LastSeenID) || uuidLTE(last, m.lastMarkedRead[b.ID]) {
-		return
-	}
 	if !m.sendCmdAsync(wsCmd{"type": "mark_read", "buffer_id": b.ID, "message_id": last}) {
 		return
 	}
-	m.lastMarkedRead[b.ID] = last
-	m.lastMarkReadAt = time.Now()
-}
-
-// clearActiveMarker removes the active buffer's "New messages" line (Esc).
-func (m *model) clearActiveMarker() {
-	b := m.activeBuffer
-	if b == nil {
-		return
-	}
-	m.markActiveRead()
-	if _, ok := m.markerAnchor[b.ID]; !ok {
-		return
-	}
-	delete(m.markerAnchor, b.ID)
+	b.LastSeenID = last
+	b.MarkerID = uuid.Nil
+	b.MarkerTS = ""
+	m.unread[b.ID] = 0
+	m.mentions[b.ID] = 0
 	m.refreshViewport()
 }
 
@@ -1054,17 +1009,12 @@ func (m *model) activateSidebarSel() {
 	if item.isHeader {
 		return
 	}
-	prev := m.activeBuffer
 	if b := m.findBuffer(item.bufferID); b != nil {
 		m.activeBuffer = b
 	}
-	// Exiting a buffer clears its marker; entering advances the read
-	// position but keeps the new buffer's marker visible.
-	if prev != nil && (m.activeBuffer == nil || prev.ID != m.activeBuffer.ID) {
-		delete(m.markerAnchor, prev.ID)
-	}
+	// Entering a buffer never acks: marker, bar and badges persist until
+	// the user explicitly acks (Esc / bar click).
 	if m.activeBuffer != nil {
-		m.markActiveRead()
 		if m.activeBuffer.ID != m.lastPersistedBuffer {
 			if err := savePersistedBufferID(m.activeBuffer.ID); err == nil {
 				m.lastPersistedBuffer = m.activeBuffer.ID
@@ -1075,10 +1025,10 @@ func (m *model) activateSidebarSel() {
 	m.viewport.GotoBottom()
 }
 
-func (m *model) handleWSEvent(ev wsEvent) tea.Cmd {
+func (m *model) handleWSEvent(ev wsEvent) {
 	switch ev.Type {
 	case "message":
-		return m.applyMessageEvent(ev)
+		m.applyMessageEvent(ev)
 	case "buffer_update":
 		m.applyBufferUpdate(ev)
 	case "buffer_settings":
@@ -1107,7 +1057,6 @@ func (m *model) handleWSEvent(ev wsEvent) tea.Cmd {
 	case "channel_list":
 		m.applyChannelList(ev)
 	}
-	return nil
 }
 
 func (m *model) applyChannelList(ev wsEvent) {
@@ -1127,7 +1076,7 @@ func (m *model) applyChannelList(ev wsEvent) {
 	m.status = fmt.Sprintf("/list %s: %d channels", netName, len(entries))
 }
 
-func (m *model) applyMessageEvent(ev wsEvent) tea.Cmd {
+func (m *model) applyMessageEvent(ev wsEvent) {
 	parsed, _ := time.Parse(time.RFC3339Nano, ev.TS)
 	msg := messageDTO{
 		ID: ev.ID, NetworkID: ev.NetworkID, BufferID: ev.BufferID,
@@ -1138,33 +1087,27 @@ func (m *model) applyMessageEvent(ev wsEvent) tea.Cmd {
 	atBottom := m.viewport.AtBottom()
 	m.messages[ev.BufferID] = append(m.messages[ev.BufferID], msg)
 
-	isActive := m.activeBuffer != nil && ev.BufferID == m.activeBuffer.ID
-	if !isActive && ev.CountsAsUnread {
+	// Unread accounting applies to every buffer, active included — there is
+	// no "actively watching" suppression and no auto-ack. Self-authored
+	// messages never count and never anchor; the id > LastSeenID guard keeps
+	// history replays from spawning a marker.
+	b := m.findBuffer(ev.BufferID)
+	if b != nil && ev.CountsAsUnread && !ev.IsSelf && !uuidLTE(ev.ID, b.LastSeenID) {
 		m.unread[ev.BufferID]++
 		if ev.MentionsMe || ev.Highlight {
 			m.mentions[ev.BufferID]++
 		}
-		if _, ok := m.markerAnchor[ev.BufferID]; !ok && m.msgUnseen(ev.BufferID, ev.ID) {
-			m.markerAnchor[ev.BufferID] = ev.ID
+		if b.MarkerID == uuid.Nil {
+			b.MarkerID = ev.ID
+			b.MarkerTS = ev.TS
 		}
-		return nil
 	}
-	if !isActive {
-		return nil
+	if m.activeBuffer != nil && ev.BufferID == m.activeBuffer.ID {
+		m.refreshViewport()
+		if atBottom {
+			m.viewport.GotoBottom()
+		}
 	}
-	cmd := m.throttledMarkActiveRead()
-	m.refreshViewport()
-	if atBottom {
-		m.viewport.GotoBottom()
-	}
-	return cmd
-}
-
-// msgUnseen reports whether msgID is newer than the buffer's read position,
-// so history replays never spawn a marker.
-func (m *model) msgUnseen(bufID, msgID uuid.UUID) bool {
-	b := m.findBuffer(bufID)
-	return b != nil && !uuidLTE(msgID, b.LastSeenID)
 }
 
 func (m *model) applyBufferUpdate(ev wsEvent) {
@@ -1182,29 +1125,26 @@ func (m *model) applyBufferUpdate(ev wsEvent) {
 	if ev.Joined != nil {
 		b.Joined = *ev.Joined
 	}
+	// mark_read variant (discriminated by last_seen_id): counts and marker
+	// are taken verbatim — a nil MarkerID means caught up and clears the
+	// marker even on the active buffer (a remote ack dismisses everywhere).
 	if ev.LastSeenID != uuid.Nil {
 		b.LastSeenID = ev.LastSeenID
 		m.unread[bufID] = ev.Unread
 		m.mentions[bufID] = ev.Mentions
-		m.reconcileAnchor(b)
-	}
-}
-
-// reconcileAnchor drops a stale marker when the server says the buffer is
-// caught up (e.g. another client marked it read). Never touches the active
-// buffer: our own entry mark_read echoes back as caught-up, and that must
-// not kill the marker the user is currently looking at (web parity:
-// web/src/app-state.ts reconcileAnchor).
-func (m *model) reconcileAnchor(b *bufferDTO) {
-	anchor, ok := m.markerAnchor[b.ID]
-	if !ok {
-		return
-	}
-	if m.activeBuffer != nil && m.activeBuffer.ID == b.ID {
-		return
-	}
-	if uuidLTE(anchor, b.LastSeenID) || m.unread[b.ID] == 0 {
-		delete(m.markerAnchor, b.ID)
+		if ev.MarkerID != nil {
+			b.MarkerID = *ev.MarkerID
+		} else {
+			b.MarkerID = uuid.Nil
+		}
+		if ev.MarkerTS != nil {
+			b.MarkerTS = *ev.MarkerTS
+		} else {
+			b.MarkerTS = ""
+		}
+		if m.activeBuffer != nil && m.activeBuffer.ID == bufID {
+			m.refreshViewport()
+		}
 	}
 }
 
@@ -1247,7 +1187,7 @@ func (m *model) resizeComponents() {
 		rightW -= membersWidth + 1
 	}
 	rightW = max(rightW, 1)
-	vpH := max(m.height-headerHeight-separatorHeight-inputLines-statusHeight, 1)
+	vpH := m.viewportHeight()
 
 	if !m.ready {
 		m.viewport = viewport.New(rightW, vpH)
@@ -1260,7 +1200,22 @@ func (m *model) resizeComponents() {
 	m.input.SetWidth(rightW)
 }
 
+// viewportHeight is the message viewport's row count: the fixed chrome rows
+// plus one more when the unread bar is pinned above the viewport.
+func (m *model) viewportHeight() int {
+	h := max(m.height-headerHeight-separatorHeight-inputLines-statusHeight, 1)
+	if m.unreadBarVisible() {
+		h = max(h-1, 1)
+	}
+	return h
+}
+
 func (m *model) refreshViewport() {
+	if m.ready {
+		// Bar visibility changes with marker state; keep the viewport height
+		// in sync so header+bar+viewport+input chrome always fills m.height.
+		m.viewport.Height = m.viewportHeight()
+	}
 	if m.activeBuffer == nil {
 		m.viewport.SetContent("No buffer selected")
 		return
@@ -1278,7 +1233,7 @@ func (m *model) refreshViewport() {
 	}
 
 	var sb strings.Builder
-	anchor := m.markerAnchor[m.activeBuffer.ID]
+	anchor := m.activeBuffer.MarkerID
 	for _, line := range renderBufferLines(msgs, ownNick, m.activeBuffer, anchor, m.viewport.Width) {
 		sb.WriteString(line)
 		sb.WriteByte('\n')
@@ -1312,6 +1267,72 @@ func markerLine(width int) string {
 	}
 	left := fill / 2
 	return styleMarker.Render(strings.Repeat("─", left) + label + strings.Repeat("─", fill-left))
+}
+
+// ── unread bar ────────────────────────────────────────────────────────────────
+
+// unreadBarVisible reports whether the pinned unread bar shows above the
+// message viewport: the active buffer has a server-derived marker and there
+// is something loaded to ack (empty buffer → nothing renderable/ackable).
+func (m *model) unreadBarVisible() bool {
+	return m.activeBuffer != nil &&
+		m.activeBuffer.MarkerID != uuid.Nil &&
+		len(m.messages[m.activeBuffer.ID]) > 0
+}
+
+// renderUnreadBar renders the one-line bar pinned between the header and the
+// viewport. Shows the unread count; falls back to "new since <t>" when the
+// count is unreliable (at the server cap of 1000) or the marker message is
+// outside loaded history.
+func (m *model) renderUnreadBar(width int) string {
+	b := m.activeBuffer
+	unread := m.unread[b.ID]
+	markerLoaded := false
+	for _, msg := range m.messages[b.ID] {
+		if msg.ID == b.MarkerID {
+			markerLoaded = true
+			break
+		}
+	}
+	var label string
+	switch {
+	case unread >= 1000 || !markerLoaded:
+		label = " new since " + formatMarkerTime(b.MarkerTS) + " "
+	case unread == 1:
+		label = " 1 new message "
+	default:
+		label = fmt.Sprintf(" %d new messages ", unread)
+	}
+	fill := width - len(label)
+	if fill < 4 {
+		return styleMarker.Render(strings.TrimSpace(label))
+	}
+	left := fill / 2
+	return styleMarker.Render(strings.Repeat("─", left) + label + strings.Repeat("─", fill-left))
+}
+
+// formatMarkerTime renders the marker boundary's RFC3339 timestamp in local
+// time: today → "15:04", yesterday → "yesterday 15:04", else "Jan 2 15:04".
+func formatMarkerTime(ts string) string {
+	t, err := time.Parse(time.RFC3339Nano, ts)
+	if err != nil {
+		return "??:??"
+	}
+	lt := t.Local()
+	now := time.Now()
+	sameDay := func(a, b time.Time) bool {
+		ay, am, ad := a.Date()
+		by, bm, bd := b.Date()
+		return ay == by && am == bm && ad == bd
+	}
+	switch {
+	case sameDay(lt, now):
+		return lt.Format("15:04")
+	case sameDay(lt, now.AddDate(0, 0, -1)):
+		return "yesterday " + lt.Format("15:04")
+	default:
+		return lt.Format("Jan 2 15:04")
+	}
 }
 
 // groupAndFormatMessages renders a buffer slice with netsplit collapsing.
@@ -1570,13 +1591,14 @@ func (m model) View() string {
 	separator := styleSeparator.Width(rightW).Render(strings.Repeat("─", rightW))
 	statusLine := styleStatus.Width(rightW).Render(m.status)
 
-	rightPane := lipgloss.JoinVertical(lipgloss.Left,
-		header,
-		messages,
-		separator,
-		inputBox,
-		statusLine,
-	)
+	rows := []string{header}
+	if m.unreadBarVisible() {
+		// Pinned bar between header and viewport (not scrolling content);
+		// viewportHeight already gave this row back. Click acks.
+		rows = append(rows, m.renderUnreadBar(rightW))
+	}
+	rows = append(rows, messages, separator, inputBox, statusLine)
+	rightPane := lipgloss.JoinVertical(lipgloss.Left, rows...)
 
 	cols := []string{
 		styleSidebar.Height(sidebarH).Render(sidebar),

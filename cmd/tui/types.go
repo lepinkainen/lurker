@@ -20,14 +20,19 @@ type networkDTO struct {
 }
 
 type bufferDTO struct {
-	ID                     uuid.UUID `json:"id"`
-	NetworkID              uuid.UUID `json:"network_id"`
-	Name                   string    `json:"name"`
-	Kind                   string    `json:"kind"`
-	Topic                  string    `json:"topic"`
-	TopicSetBy             string    `json:"topic_set_by"`
-	Joined                 bool      `json:"joined"`
-	LastSeenID             uuid.UUID `json:"last_seen_id"`
+	ID         uuid.UUID `json:"id"`
+	NetworkID  uuid.UUID `json:"network_id"`
+	Name       string    `json:"name"`
+	Kind       string    `json:"kind"`
+	Topic      string    `json:"topic"`
+	TopicSetBy string    `json:"topic_set_by"`
+	Joined     bool      `json:"joined"`
+	LastSeenID uuid.UUID `json:"last_seen_id"`
+	// Server-derived "New messages" marker (see
+	// ai-docs/behaviors/new-messages-marker.md): id + RFC3339 ts of the
+	// oldest counting unread message. Zero values mean no marker.
+	MarkerID               uuid.UUID `json:"marker_id"`
+	MarkerTS               string    `json:"marker_ts"`
 	Unread                 int       `json:"unread"`
 	Mentions               int       `json:"mentions"`
 	ShowPresenceEvents     bool      `json:"show_presence_events"`
@@ -83,6 +88,7 @@ type wsEvent struct {
 	MentionsMe     bool      `json:"mentions_me"`
 	Highlight      bool      `json:"highlight"`
 	CountsAsUnread bool      `json:"counts_as_unread"`
+	IsSelf         bool      `json:"is_self"`
 	// buffer_update — pointers: fields absent from the wire mean "unchanged"
 	// (e.g. the mark_read echo carries none of these), while a present empty
 	// string means "set to empty" (cleared topic).
@@ -90,8 +96,15 @@ type wsEvent struct {
 	TopicSetBy *string   `json:"topic_set_by"`
 	Joined     *bool     `json:"joined"`
 	LastSeenID uuid.UUID `json:"last_seen_id"`
-	Unread     int       `json:"unread"`
-	Mentions   int       `json:"mentions"`
+	// marker_id/marker_ts belong to the mark_read variant of buffer_update
+	// (discriminated by last_seen_id != Nil), which ALWAYS carries marker_id:
+	// JSON null (or an omitted marker_ts) decodes to a nil pointer meaning
+	// "caught up — clear the marker". On the topic/joined variant the keys
+	// are absent and must be ignored.
+	MarkerID *uuid.UUID `json:"marker_id"`
+	MarkerTS *string    `json:"marker_ts"`
+	Unread   int        `json:"unread"`
+	Mentions int        `json:"mentions"`
 	// buffer_settings
 	ShowEmbeds             bool `json:"show_embeds"`
 	ShowPresenceEvents     bool `json:"show_presence_events"`
