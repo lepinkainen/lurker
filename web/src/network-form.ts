@@ -168,6 +168,21 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
     connectCommandsHelp,
   );
 
+  // config.yaml is the source of truth on backend restart; warn when this
+  // form's changes won't survive one.
+  const noticeEl = document.createElement("p");
+  noticeEl.className = "nf-notice";
+  if (!isEdit) {
+    noticeEl.textContent =
+      "Networks added here are not written to config.yaml and will be disabled on the next backend restart. Add the network to config.yaml to keep it.";
+  } else if (existing.in_config) {
+    noticeEl.textContent =
+      "This network is defined in config.yaml. Changes made here apply now but are overwritten from the config on the next backend restart.";
+  } else {
+    noticeEl.textContent =
+      "This network is not in config.yaml and will be disabled on the next backend restart. Add it to config.yaml to keep it.";
+  }
+
   const errEl = document.createElement("p");
   errEl.className = "nf-error";
   errEl.hidden = true;
@@ -198,6 +213,7 @@ export function openNetworkForm(existing?: Network, onDone?: (n: FormResult) => 
     ...(isEdit ? [disabledWrap] : []),
     saslSection,
     connectCommandsSection,
+    noticeEl,
     errEl,
     actions,
   );

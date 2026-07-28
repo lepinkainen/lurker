@@ -36,11 +36,11 @@ Preferred commands come from `Taskfile.yml`:
 - `task web-install`
 - `task web-dev`
 - `task web-build`
-- `task lint-macos` — check Swift formatting (macOS only)
-- `task test-macos` — run native unit tests (macOS only)
-- `task test-macos-ui` — run the fixture-driven native UI smoke test (macOS only)
-- `task build-macos` — build the unsigned Apple silicon debug app (macOS only)
-- `task package-macos` — sign, notarize, and staple a release DMG (macOS only)
+- `task lint-apple` — check Swift formatting (macOS only)
+- `task test-apple` — run native unit tests (macOS only)
+- `task test-apple-ui` — run the fixture-driven native UI smoke test (macOS only)
+- `task build-apple` — build the unsigned Apple silicon debug app (macOS only)
+- `task package-apple` — sign, notarize, and staple a release DMG (macOS only)
 - `task test`
 - `task lint`
 - `task build`
@@ -48,7 +48,7 @@ Preferred commands come from `Taskfile.yml`:
 - `task up`
 - `task down`
 
-On macOS, `task build` includes Swift lint, native unit tests, and the native app build. CI runs those checks in a separate `macos-26` job. The UI smoke test is kept as an explicit local check because it launches an application and takes control of the desktop session.
+On macOS, `task build` includes Swift lint, native unit tests, and the native app build. CI runs those checks in a separate `apple` job on a `macos-26` runner. The UI smoke test is kept as an explicit local check because it launches an application and takes control of the desktop session.
 
 ## SQL codegen (sqlc)
 

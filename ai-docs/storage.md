@@ -32,7 +32,7 @@ The `networks` table stores:
 - human-facing network name
 - connection settings like host/port/tls/nick/realname/SASL
 - `sort_order` for persistent sidebar ordering
-- `disabled` flag (default `0`) that prevents auto-connection on startup
+- `disabled` flag (default `0`) that prevents auto-connection on startup; reconciled from `config.yaml` on every boot (YAML networks reset to `0`, non-YAML networks set to `1`)
 
 `network_connect_commands` stores an ordered raw IRC command list per network, keyed by `(network_id, position)` with `ON DELETE CASCADE`. Commands may contain secrets and are only exposed through the explicit connect-command API, not `/api/state`.
 

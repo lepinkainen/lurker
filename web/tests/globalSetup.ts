@@ -58,7 +58,7 @@ function startBackend() {
     env: {
       ...process.env,
       DATA_DIR,
-      CONFIG_PATH: "/dev/null",
+      CONFIG_PATH: resolve(DATA_DIR, "config.yaml"),
       ADDR: `:${BACKEND_PORT}`,
       LURKER_TEST_FIXTURE_RUNTIME: "1",
     },

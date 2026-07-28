@@ -98,8 +98,8 @@ func TestListNetworksRejectsCorruptID(t *testing.T) {
 	defer func() { _ = d.Close() }()
 
 	if _, err := d.ExecContext(ctx,
-		`INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, autoconnect, sort_order, created_at)
-		 VALUES (?, ?, ?, 'irc', ?, ?, 1, ?, 1, 0, ?)`,
+		`INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, sort_order, created_at)
+		 VALUES (?, ?, ?, 'irc', ?, ?, 1, ?, 0, ?)`,
 		[]byte{1, 2, 3, 4, 5, 6, 7, 8}, "Libera", "libera", "irc.libera.chat", 6697, "tester", Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -117,8 +117,8 @@ func TestListNetworksWithSASLRejectsCorruptID(t *testing.T) {
 	defer func() { _ = d.Close() }()
 
 	if _, err := d.ExecContext(ctx,
-		`INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, autoconnect, sort_order, created_at, disabled)
-		 VALUES (?, ?, ?, 'irc', ?, ?, 1, ?, 1, 0, ?, 0)`,
+		`INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, sort_order, created_at, disabled)
+		 VALUES (?, ?, ?, 'irc', ?, ?, 1, ?, 0, ?, 0)`,
 		[]byte{1, 2, 3}, "Libera", "libera", "irc.libera.chat", 6697, "tester", Now()); err != nil {
 		t.Fatal(err)
 	}

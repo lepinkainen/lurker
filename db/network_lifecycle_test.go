@@ -225,3 +225,47 @@ func TestSetNetworkDisabledRoundtrip(t *testing.T) {
 		t.Fatalf("SetNetworkDisabled(unknown) = %v, want ErrNetworkNotFound", err)
 	}
 }
+
+// Boot reconciliation: config.yaml is the source of truth, so networks absent
+// from the YAML name set are disabled, and an empty set disables everything.
+func TestMarkNonYAMLNetworksDisabled(t *testing.T) {
+	ctx := t.Context()
+	ms, err := OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ms.Close() }()
+
+	libera, err := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oftc, err := ms.UpsertNetwork(ctx, Network{Name: "OFTC", Host: "irc.oftc.net", Port: 6697, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Case-insensitive match keeps libera enabled, disables oftc.
+	if err := MarkNonYAMLNetworksDisabled(ctx, ms.Control, []string{"LIBERA"}); err != nil {
+		t.Fatal(err)
+	}
+	assertDisabled := func(id uuid.UUID, want bool) {
+		t.Helper()
+		n, err := GetNetwork(ctx, ms.Control, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n.Disabled != want {
+			t.Fatalf("network %s disabled = %v, want %v", n.Name, n.Disabled, want)
+		}
+	}
+	assertDisabled(libera.ID, false)
+	assertDisabled(oftc.ID, true)
+
+	// Empty set = config declares zero networks = all disabled.
+	if err := MarkNonYAMLNetworksDisabled(ctx, ms.Control, nil); err != nil {
+		t.Fatal(err)
+	}
+	assertDisabled(libera.ID, true)
+	assertDisabled(oftc.ID, true)
+}

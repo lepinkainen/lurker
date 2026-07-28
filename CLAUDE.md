@@ -53,7 +53,8 @@ Config inputs: `DATA_DIR` (default `./data`), `ADDR` (`:8080`), `CONFIG_PATH` (`
 
 ### Invariants (do not break)
 
-- `config.yaml` is authoritative for network connection fields (nick, host, servers, SASL, channels). On every startup, UpsertNetwork overwrites these fields from YAML. DB preserves runtime state: `sort_order`, `autoconnect`, `created_at`. Networks absent from YAML are marked disabled in DB, not deleted. Networks can also be added/edited via API.
+- Config errors fail fast: missing, misplaced, or unparseable `config.yaml` exits before anything starts — never boot a half-configured backend. An empty-but-valid config means zero networks run (all disabled at boot).
+- `config.yaml` is the source of truth at boot: every startup returns networks to the YAML-defined state. UpsertNetwork overwrites connection fields (nick, host, servers, SASL, channels) and resets `disabled` from YAML; networks absent from YAML are marked disabled in DB, not deleted. DB preserves `sort_order` and `created_at`. Networks can be added/edited via API but those changes are ephemeral (revert on restart); the API exposes `in_config` so UIs can warn about this. UI-only settings without a config key (e.g. per-buffer view options) are DB-owned and untouched by boot reconciliation.
 - Per-network log DB per network under `data/`. Global buffer IDs from control DB; messages in per-network DBs.
 - Network names stable after creation. No casual rename flows.
 - Deleting a network does not delete its log DB file.

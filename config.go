@@ -148,8 +148,8 @@ func loadConfig() Config {
 	nets, pv, ds, err := parseYAMLConfig(cfg.ConfigPath)
 	if err != nil {
 		// A long-running bouncer must never boot on a partially-valid
-		// config. Any parse/validation failure is fatal; a missing file is
-		// not an error (parseYAMLConfig returns nils for os.IsNotExist).
+		// config. Any failure — missing file included — is fatal: never
+		// reason with a broken config and run a half-configured backend.
 		slog.Error("invalid config", "path", cfg.ConfigPath, "err", err)
 		os.Exit(1)
 	}
@@ -176,9 +176,9 @@ func loadConfig() Config {
 func parseYAMLConfig(path string) ([]irc.NetworkConfig, *PreviewConfig, DataSourcesConfig, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil, DataSourcesConfig{}, nil
-		}
+		// A missing config file is as fatal as a broken one: booting with an
+		// implicit empty config would mark every network disabled and run a
+		// half-configured backend. Fail fast so a misplaced file is noticed.
 		return nil, nil, DataSourcesConfig{}, err
 	}
 	var fc FileConfig

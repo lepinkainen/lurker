@@ -1,6 +1,6 @@
 # Native Apple client (macOS + iOS)
 
-The native client is a SwiftUI application in `macos/` whose single app target builds for both macOS 26 and iOS 26 from the same sources. It is a first-party Lurker frontend: IRC connections and durable history remain owned by the Go backend. (The directory is still named `macos/` for history; it builds both platforms.)
+The native client is a SwiftUI application in `apple/` whose single app target builds for both macOS 26 and iOS 26 from the same sources. It is a first-party Lurker frontend: IRC connections and durable history remain owned by the Go backend.
 
 ## Product scope
 
@@ -20,10 +20,10 @@ Network administration, global history search, uploads, and theme selection rema
 
 ## Project and identity
 
-- Xcode project: `macos/Lurker.xcodeproj`
-- application sources: `macos/Lurker/`
-- unit tests: `macos/LurkerTests/`
-- UI smoke tests: `macos/LurkerUITests/`
+- Xcode project: `apple/Lurker.xcodeproj`
+- application sources: `apple/Lurker/`
+- unit tests: `apple/LurkerTests/`
+- UI smoke tests: `apple/LurkerUITests/`
 - bundle identifier: `xyz.endymion.lurker`
 - deployment targets: macOS 26 and iOS 26 (`SDKROOT = auto`, `SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx"`, `TARGETED_DEVICE_FAMILY = "1,2"`)
 - language mode: Swift 6 with complete concurrency checking
@@ -76,20 +76,20 @@ The model:
 Build and open the app:
 
 ```bash
-task build-macos
+task build-apple
 open build/DerivedData/Build/Products/Debug/Lurker.app
 ```
 
-For iOS, open `macos/Lurker.xcodeproj` in Xcode, pick the **Lurker** scheme with an iPhone/iPad Simulator destination, and build (a free Apple ID team is fine for the simulator). Point Settings at your bouncer URL — localhost for the simulator, your Tailnet MagicDNS name on a real device.
+For iOS, open `apple/Lurker.xcodeproj` in Xcode, pick the **Lurker** scheme with an iPhone/iPad Simulator destination, and build (a free Apple ID team is fine for the simulator). Point Settings at your bouncer URL — localhost for the simulator, your Tailnet MagicDNS name on a real device.
 
-The app icon PNGs in `macos/Lurker/Assets.xcassets/AppIcon.appiconset/` are committed and used as-is by the build. They are generated from `web/public/favicon.svg`; regenerate them with `task macos-icon` only when that source changes (requires `rsvg-convert` — `brew install librsvg`).
+The app icon PNGs in `apple/Lurker/Assets.xcassets/AppIcon.appiconset/` are committed and used as-is by the build. They are generated from `web/public/favicon.svg`; regenerate them with `task apple-icon` only when that source changes (requires `rsvg-convert` — `brew install librsvg`).
 
 Run checks:
 
 ```bash
-task lint-macos
-task test-macos
-task test-macos-ui
+task lint-apple
+task test-apple
+task test-apple-ui
 ```
 
 The UI test launches with `-ui-testing`, which replaces network access with deterministic in-process fixture data and suppresses notification authorization prompts.
@@ -108,7 +108,7 @@ Then package:
 ```bash
 export LURKER_DEVELOPER_ID='Developer ID Application: Example (TEAMID)'
 export LURKER_NOTARY_PROFILE='lurker-notary'
-task package-macos
+task package-apple
 ```
 
 The task performs a clean Release build, signs the app with hardened runtime and its sandbox entitlements, creates and signs a DMG, submits it to Apple's notary service, and staples the ticket. Output is written to `build/Lurker-<version>.dmg`. Updates are installed manually by replacing the application.

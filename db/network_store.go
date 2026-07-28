@@ -10,7 +10,7 @@ import (
 
 // UpsertNetwork inserts the network if missing, or updates its config fields
 // from the provided values if it already exists (keyed by case-insensitive
-// name). sort_order, autoconnect, and created_at are never modified.
+// name). sort_order and created_at are never modified.
 func UpsertNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 	if err := ValidateNetworkName(n.Name); err != nil {
 		return Network{}, err
@@ -84,13 +84,17 @@ func ListNetworks(ctx context.Context, d *sql.DB) ([]Network, error) {
 
 // MarkNonYAMLNetworksDisabled sets disabled=1 on all networks whose name is
 // not in the provided list. Used at startup to disable networks removed from
-// config.yaml without deleting their log data.
+// config.yaml without deleting their log data. An empty list disables every
+// network: config.yaml is the source of truth at boot, and a config that
+// declares no networks means none should run. (A missing/broken config never
+// reaches this point — loadConfig fails hard first.)
 //
 // Kept on raw database/sql because the IN-clause arity is dynamic; sqlc cannot
 // codegen variable-length placeholder lists for SQLite.
 func MarkNonYAMLNetworksDisabled(ctx context.Context, d *sql.DB, yamlNames []string) error {
 	if len(yamlNames) == 0 {
-		return nil
+		_, err := d.ExecContext(ctx, `UPDATE networks SET disabled=1 WHERE disabled=0`)
+		return err
 	}
 	normalized := make([]any, len(yamlNames))
 	for i, name := range yamlNames {

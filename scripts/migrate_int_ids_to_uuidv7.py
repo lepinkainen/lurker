@@ -310,7 +310,11 @@ def migrate_control(data_dir: Path, repo_root: Path | None, temp_dir: Path) -> M
             network_rows: list[NetworkRow] = []
             has_sort = column_exists(old, "networks", "sort_order")
             has_disabled = column_exists(old, "networks", "disabled")
-            cols = "id, name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, autoconnect, created_at"
+            # autoconnect is intentionally not carried over: repo migration
+            # 0010 drops the column (it was never read), so the target schema
+            # may not have it. Where the embedded fallback schema still has
+            # it, the column default applies.
+            cols = "id, name, name_ci, host, port, tls, nick, realname, sasl_user, sasl_pass, created_at"
             for r in old.execute(f"SELECT {cols} FROM networks ORDER BY id"):
                 old_id = int(r["id"])
                 new_id = uuidv7_bytes()
@@ -319,8 +323,8 @@ def migrate_control(data_dir: Path, repo_root: Path | None, temp_dir: Path) -> M
                 disabled = old.execute("SELECT disabled FROM networks WHERE id=?", (old_id,)).fetchone()[0] if has_disabled else 0
                 new.execute(
                     """INSERT INTO networks(id, name, name_ci, host, port, tls, nick, realname,
-                       sasl_user, sasl_pass, autoconnect, created_at, sort_order, disabled)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       sasl_user, sasl_pass, created_at, sort_order, disabled)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         new_id,
                         r["name"],
@@ -332,7 +336,6 @@ def migrate_control(data_dir: Path, repo_root: Path | None, temp_dir: Path) -> M
                         r["realname"],
                         r["sasl_user"],
                         r["sasl_pass"],
-                        r["autoconnect"],
                         r["created_at"],
                         sort_order,
                         disabled,

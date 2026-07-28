@@ -29,6 +29,10 @@ type networkDTO struct {
 	Status    string    `json:"status,omitzero"`
 	SortOrder int       `json:"sort_order"`
 	Disabled  bool      `json:"disabled,omitzero"`
+	// InConfig reports whether the network is defined in config.yaml.
+	// Networks not in the config are ephemeral: they are marked disabled on
+	// the next backend restart.
+	InConfig bool `json:"in_config"`
 }
 
 type bufferDTO struct {
@@ -100,7 +104,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	kinds := make(map[uuid.UUID]string, len(nets))
 	for _, n := range nets {
 		kinds[n.ID] = n.Kind
-		out.Networks = append(out.Networks, toNetworkDTO(n, states[n.ID]))
+		out.Networks = append(out.Networks, s.toNetworkDTO(n, states[n.ID]))
 	}
 
 	// Group buffers by network so we can issue one log-DB query per network.
