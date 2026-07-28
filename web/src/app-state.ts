@@ -22,6 +22,10 @@ export type Network = {
   status?: string;
   sort_order?: number;
   disabled?: boolean;
+  // Whether the network is defined in config.yaml. Config is the source of
+  // truth on backend restart: networks not in it get disabled, and runtime
+  // toggles (like disabled) on config networks are reset from YAML.
+  in_config?: boolean;
 };
 
 export type Buffer = {

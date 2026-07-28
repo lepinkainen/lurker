@@ -17,8 +17,8 @@ func TestBufferSettingsDefaultsAndPatch(t *testing.T) {
 
 	ctx := t.Context()
 	netID := uuid.Must(uuid.NewV7())
-	_, err = d.ExecContext(ctx, `INSERT INTO networks(id, name, name_ci, host, port, tls, nick, autoconnect, sort_order, created_at)
-		VALUES (?, 'Libera', 'libera', 'irc.example', 6697, 1, 'tester', 1, 0, ?)`, netID[:], Now())
+	_, err = d.ExecContext(ctx, `INSERT INTO networks(id, name, name_ci, host, port, tls, nick, sort_order, created_at)
+		VALUES (?, 'Libera', 'libera', 'irc.example', 6697, 1, 'tester', 0, ?)`, netID[:], Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,8 +56,8 @@ func TestBufferSettingsRejectsStatusBuffers(t *testing.T) {
 
 	ctx := t.Context()
 	netID := uuid.Must(uuid.NewV7())
-	_, err = d.ExecContext(ctx, `INSERT INTO networks(id, name, name_ci, host, port, tls, nick, autoconnect, sort_order, created_at)
-		VALUES (?, 'Libera', 'libera', 'irc.example', 6697, 1, 'tester', 1, 0, ?)`, netID[:], Now())
+	_, err = d.ExecContext(ctx, `INSERT INTO networks(id, name, name_ci, host, port, tls, nick, sort_order, created_at)
+		VALUES (?, 'Libera', 'libera', 'irc.example', 6697, 1, 'tester', 0, ?)`, netID[:], Now())
 	if err != nil {
 		t.Fatal(err)
 	}

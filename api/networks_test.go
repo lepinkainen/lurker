@@ -550,3 +550,32 @@ func TestReorderNetworksEndpointValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestNetworkInConfigFlag covers the in_config DTO field: config.yaml is the
+// source of truth at boot, so clients need to know which networks (and which
+// runtime toggles) survive a restart.
+func TestNetworkInConfigFlag(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stores.Close() })
+	srv := &Server{
+		Stores:             stores,
+		Hub:                hub.New(),
+		Manager:            irc.NewManager(t.Context(), stores, hub.New()),
+		ConfigNetworkNames: []string{"libera"},
+	}
+	h := srv.Handler()
+
+	// Case-insensitive match against the config name.
+	fromYAML := createNetworkViaAPI(t, h, `{"name":"Libera","host":"irc.libera.chat","port":6697,"tls":true,"nick":"tester"}`)
+	if !fromYAML.InConfig {
+		t.Fatal("expected Libera to report in_config=true")
+	}
+
+	ephemeral := createNetworkViaAPI(t, h, `{"name":"Adhoc","host":"irc.example.org","port":6697,"tls":true,"nick":"tester"}`)
+	if ephemeral.InConfig {
+		t.Fatal("expected Adhoc to report in_config=false")
+	}
+}

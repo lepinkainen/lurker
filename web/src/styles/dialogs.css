@@ -112,6 +112,12 @@
     gap: 10px;
   }
 
+  .nf-notice {
+    color: var(--yellow);
+    font-size: 0.8rem;
+    margin: 0;
+  }
+
   .nf-error {
     color: var(--red);
     font-size: 0.85rem;

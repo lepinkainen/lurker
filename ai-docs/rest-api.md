@@ -95,11 +95,14 @@ Current behavior:
   "realname": "",
   "status": "connected",
   "sort_order": 0,
-  "disabled": false
+  "disabled": false,
+  "in_config": true
 }
 ```
 
 `nick_color` is the server-computed nick-color palette index for the configured nick (Go `nickcolor` package; omitted when nick is empty). SASL credentials are never shipped to clients. The `disabled` field indicates whether the network is paused; disabled networks do not auto-connect on startup.
+
+`in_config` reports whether the network is defined in `config.yaml` (case-insensitive name match). Config is the source of truth at boot: networks with `in_config: false` are marked disabled on the next backend restart, and runtime changes (including the `disabled` toggle) on `in_config: true` networks are overwritten from YAML. UIs should surface this so users know which changes are ephemeral.
 
 ### `bufferDTO` shape
 

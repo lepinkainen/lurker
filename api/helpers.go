@@ -60,7 +60,7 @@ func writeNetworkDBError(w http.ResponseWriter, err error, fallbackStatus int) {
 	http.Error(w, err.Error(), status)
 }
 
-func toNetworkDTO(n ircdb.Network, status string) networkDTO {
+func (s *Server) toNetworkDTO(n ircdb.Network, status string) networkDTO {
 	kind := n.Kind
 	if kind == "" {
 		kind = ircdb.NetworkKindIRC
@@ -69,12 +69,25 @@ func toNetworkDTO(n ircdb.Network, status string) networkDTO {
 		ID: n.ID, Name: n.Name, Kind: kind, Host: n.Host, Port: n.Port,
 		TLS: n.TLS, Nick: n.Nick, Realname: n.Realname, Status: status, SortOrder: n.SortOrder,
 		Disabled: n.Disabled,
+		InConfig: s.networkInConfig(n.Name),
 	}
 	if n.Nick != "" {
 		idx := nickcolor.Index(n.Nick)
 		out.NickColor = &idx
 	}
 	return out
+}
+
+// networkInConfig reports whether name matches a config.yaml network
+// (case-insensitive, same key as the boot reconciliation).
+func (s *Server) networkInConfig(name string) bool {
+	key := ircdb.NormalizeNetworkName(name)
+	for _, n := range s.ConfigNetworkNames {
+		if ircdb.NormalizeNetworkName(n) == key {
+			return true
+		}
+	}
+	return false
 }
 
 // isNonIRCNetwork reports whether kind is a non-IRC network kind such as

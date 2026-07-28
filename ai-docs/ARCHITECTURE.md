@@ -77,20 +77,30 @@ Primary config inputs:
 - `UPLOAD_MAX_BYTES` default `20971520`
 - `UPLOAD_BASE_URL` optional override for returned upload URLs
 
-### Important invariant: `config.yaml` is bootstrap-only
+### Important invariant: `config.yaml` is the source of truth at boot
 
-`config.yaml` is seed input, not runtime source of truth.
+Every backend startup returns to the state defined by `config.yaml`. Changes
+made through the API are ephemeral — they apply immediately but only last
+until the next restart.
 
 On startup:
 
-- YAML-defined networks are inserted into control DB if missing
-- those seeded networks are started
+- YAML-defined networks are upserted into control DB (connection fields
+  overwritten from YAML, `disabled` reset to `0`) and started
+- networks absent from YAML (including any created via the API) are marked
+  `disabled=1`; their log DBs are kept
+- runtime-owned state survives: `sort_order`, `created_at`
 
 After startup:
 
-- network definitions are managed through the API and stored in `control.db`
-- connect/disconnect is managed through the API
-- YAML is not the live config database
+- network definitions can be created/edited through the API and stored in
+  `control.db`, but they revert per the rules above on the next boot
+- connect/disconnect and the `disabled` toggle are managed through the API,
+  effective until restart
+- clients see `in_config` on each network (from `Server.ConfigNetworkNames`)
+  and warn the user when state won't survive a restart
+- settings with no config key (per-buffer view options etc.) are UI/DB-owned
+  and are not touched by boot reconciliation
 
 ## Process startup and lifecycle
 
@@ -127,7 +137,7 @@ Typical deployment expectations:
 
 ## Important invariants and gotchas
 
-- `config.yaml` is seed input only after startup
+- `config.yaml` is the boot source of truth; API-made network changes are ephemeral and revert on restart
 - backend message logs are retained indefinitely; do not add automatic message retention or periodic cleanup that deletes history
 - preserve `data/` to keep control DB and all log DBs
 - network names should be treated as stable

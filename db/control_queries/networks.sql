@@ -7,13 +7,13 @@ FROM networks WHERE id = ?;
 SELECT id FROM networks WHERE name_ci = ?;
 
 -- name: CreateNetwork :exec
-INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, realname, sasl_user, sasl_pass, server_pass, autoconnect, sort_order, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
+INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, realname, sasl_user, sasl_pass, server_pass, sort_order, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks), ?);
 
 -- name: UpsertNetwork :exec
-INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, realname, sasl_user, sasl_pass, server_pass, autoconnect, sort_order, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
+INSERT INTO networks(id, name, name_ci, kind, host, port, tls, nick, realname, sasl_user, sasl_pass, server_pass, sort_order, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM networks), ?)
 ON CONFLICT(name_ci) DO UPDATE SET
   name=excluded.name, kind=excluded.kind, host=excluded.host, port=excluded.port,

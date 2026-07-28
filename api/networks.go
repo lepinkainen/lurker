@@ -80,7 +80,7 @@ func (s *Server) createNetwork(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toNetworkDTO(created, stateString(irc.StateDisconnected)))
+	writeJSON(w, http.StatusCreated, s.toNetworkDTO(created, stateString(irc.StateDisconnected)))
 }
 
 func (s *Server) reorderNetworks(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +108,7 @@ func (s *Server) reorderNetworks(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]networkDTO, 0, len(nets))
 	for _, n := range nets {
-		out = append(out, toNetworkDTO(n, states[n.ID]))
+		out = append(out, s.toNetworkDTO(n, states[n.ID]))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"networks": out})
 }
@@ -157,7 +157,7 @@ func (s *Server) patchNetwork(w http.ResponseWriter, r *http.Request) {
 	if s.Manager != nil {
 		status = s.Manager.StateSnapshot()[id]
 	}
-	writeJSON(w, http.StatusOK, toNetworkDTO(updated, status))
+	writeJSON(w, http.StatusOK, s.toNetworkDTO(updated, status))
 }
 
 // applyDisabledToggle persists a disabled change when the request includes one.

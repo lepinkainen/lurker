@@ -10,7 +10,7 @@ import (
 
 // UpsertNetwork inserts the network if missing, or updates its config fields
 // from the provided values if it already exists (keyed by case-insensitive
-// name). sort_order, autoconnect, and created_at are never modified.
+// name). sort_order and created_at are never modified.
 func UpsertNetwork(ctx context.Context, d *sql.DB, n Network) (Network, error) {
 	if err := ValidateNetworkName(n.Name); err != nil {
 		return Network{}, err

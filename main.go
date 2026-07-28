@@ -71,7 +71,8 @@ func main() {
 
 	dsMgr := buildDataSourceManager(ctx, cfg, stores, evHub, previewSvc)
 	startBootstrapNetworks(ctx, mgr, cfg.Networks)
-	markNonYAMLNetworksDisabled(ctx, stores, cfg, dsMgr)
+	yamlNetworkNames := configNetworkNames(cfg, dsMgr)
+	markNonYAMLNetworksDisabled(ctx, stores, yamlNetworkNames)
 
 	webSub := resolveWebFS(*webDir)
 
@@ -102,16 +103,17 @@ func main() {
 		os.Exit(1)
 	}
 	apiSrv := &api.Server{
-		Stores:        stores,
-		Hub:           evHub,
-		Manager:       mgr,
-		Web:           webSub,
-		Themes:        themeLoader,
-		AppName:       appName,
-		Version:       version,
-		GitHash:       gitHash,
-		BuildTime:     buildTime,
-		UpdateChecker: updateChecker,
+		Stores:             stores,
+		Hub:                evHub,
+		Manager:            mgr,
+		Web:                webSub,
+		Themes:             themeLoader,
+		AppName:            appName,
+		Version:            version,
+		GitHash:            gitHash,
+		BuildTime:          buildTime,
+		UpdateChecker:      updateChecker,
+		ConfigNetworkNames: yamlNetworkNames,
 		Uploads: api.UploadConfig{
 			Dir:      cfg.Uploads.Dir,
 			MaxBytes: cfg.Uploads.MaxBytes,
@@ -193,16 +195,21 @@ func startBootstrapNetworks(ctx context.Context, mgr *irc.Manager, nets []irc.Ne
 	slog.Info("irc bootstrap networks started", "count", len(nets))
 }
 
+// configNetworkNames returns every network name defined by config.yaml plus
+// parsed data_sources. Datasource network names must be included so a
+// Bluesky source is not auto-disabled on the very startup that brought it up.
+func configNetworkNames(cfg Config, dsMgr *datasource.Manager) []string {
+	names := make([]string, 0, len(cfg.Networks)+len(cfg.DataSources.Bluesky))
+	for _, n := range cfg.Networks {
+		names = append(names, n.Name)
+	}
+	return append(names, dsMgr.Names()...)
+}
+
 // markNonYAMLNetworksDisabled disables DB networks absent from config.yaml +
 // parsed data_sources, so they don't auto-connect and are visually
-// distinguished in the UI. Datasource network names must be included so a
-// Bluesky source is not auto-disabled on the very startup that brought it up.
-func markNonYAMLNetworksDisabled(ctx context.Context, stores *db.MultiStore, cfg Config, dsMgr *datasource.Manager) {
-	yamlNames := make([]string, 0, len(cfg.Networks)+len(cfg.DataSources.Bluesky))
-	for _, n := range cfg.Networks {
-		yamlNames = append(yamlNames, n.Name)
-	}
-	yamlNames = append(yamlNames, dsMgr.Names()...)
+// distinguished in the UI.
+func markNonYAMLNetworksDisabled(ctx context.Context, stores *db.MultiStore, yamlNames []string) {
 	if len(yamlNames) == 0 {
 		return
 	}

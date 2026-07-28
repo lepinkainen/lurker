@@ -39,22 +39,21 @@ type Ignore struct {
 }
 
 type Network struct {
-	ID          []byte
-	Name        string
-	NameCi      string
-	Host        string
-	Port        int64
-	Tls         int64
-	Nick        string
-	Realname    sql.NullString
-	SaslUser    sql.NullString
-	SaslPass    sql.NullString
-	Autoconnect int64
-	CreatedAt   string
-	SortOrder   int64
-	Disabled    int64
-	Kind        string
-	ServerPass  sql.NullString
+	ID         []byte
+	Name       string
+	NameCi     string
+	Host       string
+	Port       int64
+	Tls        int64
+	Nick       string
+	Realname   sql.NullString
+	SaslUser   sql.NullString
+	SaslPass   sql.NullString
+	CreatedAt  string
+	SortOrder  int64
+	Disabled   int64
+	Kind       string
+	ServerPass sql.NullString
 }
 
 type NetworkConnectCommand struct {
