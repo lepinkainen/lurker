@@ -12,6 +12,7 @@ func (h *handler) register(c *girc.Client) {
 	c.Handlers.Add(girc.KICK, h.onKick)
 	c.Handlers.Add(girc.TOPIC, h.onTopic)
 	c.Handlers.Add(girc.RPL_TOPIC, h.onTopicReply)
+	c.Handlers.Add(girc.RPL_TOPICWHOTIME, h.onTopicWhoTime)
 	c.Handlers.Add(girc.MODE, h.onMode)
 	c.Handlers.Add(girc.RPL_CHANNELMODEIS, h.onChannelModeIs)
 	c.Handlers.Add(girc.INVITE, h.onInvite)
@@ -22,6 +23,7 @@ func (h *handler) register(c *girc.Client) {
 	c.Handlers.Add(girc.CAP_CHGHOST, h.onChghost)
 	c.Handlers.Add(girc.RPL_ENDOFNAMES, h.onEndOfNames)
 	c.Handlers.Add(girc.RPL_ENDOFWHO, h.onEndOfWho)
+	c.Handlers.Add(girc.UPDATE_STATE, h.onStateUpdate)
 	c.Handlers.Add(girc.RPL_LIST, h.onRPLList)
 	c.Handlers.Add(girc.RPL_LISTEND, h.onRPLListEnd)
 	// echo-message: girc routes our own PRIVMSG/NOTICE echoes only through
@@ -37,10 +39,44 @@ func (h *handler) onAllEvent(c *girc.Client, e girc.Event) {
 		}
 		return
 	}
+	if e.Command == girc.MODE {
+		h.queueModeMemberRefresh(e)
+	}
 	if isExplicitlyHandledEvent(e.Command) {
 		return
 	}
 	h.onUnhandledEvent(e)
+}
+
+// queueModeMemberRefresh runs from ALL_EVENTS, which girc completes before
+// dispatching the MODE-specific handlers. This guarantees the affected
+// channel is queued before girc updates its tracked user permissions and
+// emits UPDATE_STATE.
+func (h *handler) queueModeMemberRefresh(e girc.Event) {
+	target, _, ok := modeTargetAndArgs(e)
+	if !ok || !girc.IsValidChannel(target) {
+		return
+	}
+	h.modeMemberRefreshMu.Lock()
+	if h.modeMemberRefresh == nil {
+		h.modeMemberRefresh = make(map[string]struct{})
+	}
+	h.modeMemberRefresh[target] = struct{}{}
+	h.modeMemberRefreshMu.Unlock()
+}
+
+// onStateUpdate republishes MODE-affected member lists only after girc has
+// applied the mode to User.Perms. Publishing directly from onMode would race
+// girc because its internal and external MODE handlers run concurrently.
+func (h *handler) onStateUpdate(c *girc.Client, _ girc.Event) {
+	h.modeMemberRefreshMu.Lock()
+	channels := h.modeMemberRefresh
+	h.modeMemberRefresh = nil
+	h.modeMemberRefreshMu.Unlock()
+
+	for channel := range channels {
+		h.publishMemberList(c, channel)
+	}
 }
 
 func isExplicitlyHandledEvent(command string) bool {
@@ -54,6 +90,8 @@ func isExplicitlyHandledEvent(command string) bool {
 		girc.KICK,
 		girc.TOPIC,
 		girc.RPL_TOPIC,
+		girc.RPL_TOPICWHOTIME,
+		girc.RPL_CREATIONTIME,
 		girc.MODE,
 		girc.RPL_CHANNELMODEIS,
 		girc.INVITE,

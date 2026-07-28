@@ -2,6 +2,7 @@ package irc
 
 import (
 	"database/sql"
+	"sync"
 
 	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
@@ -30,6 +31,11 @@ type handler struct {
 	// Manual /WHO or repeated state events would otherwise broadcast the
 	// full roster to every WS client even when nothing changed.
 	lastMemberListHash map[string]uint64
+	// modeMemberRefresh holds channels whose MODE event may change member
+	// prefixes. onAllEvent fills it before girc's MODE handlers run, and
+	// onStateUpdate drains it after girc has updated User.Perms.
+	modeMemberRefreshMu sync.Mutex
+	modeMemberRefresh   map[string]struct{}
 	// userChannels mirrors nick→channel membership so that on QUIT we can
 	// fan out to every channel the user shared with us. girc's internal
 	// QUIT handler runs before ours and purges the user from its own

@@ -114,10 +114,14 @@ func hasPresence(events <-chan any, nick, state string) bool {
 	return false
 }
 
-func hasTopicUpdate(events <-chan any, topic string) bool {
+// hasTopicMetaUpdate reports whether a buffer_update carrying the given topic
+// setter metadata was seen. Topic updates must not carry joined state — a
+// topic reply is not proof of membership.
+func hasTopicMetaUpdate(events <-chan any, setBy, setAt string) bool {
 	for _, ev := range drainEvents(events) {
 		update, ok := ev.(*BufferUpdateEvent)
-		if ok && update.Topic == topic {
+		if ok && update.TopicSetBy != nil && *update.TopicSetBy == setBy &&
+			update.TopicSetAt != nil && *update.TopicSetAt == setAt && update.Joined == nil {
 			return true
 		}
 	}

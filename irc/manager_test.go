@@ -156,6 +156,48 @@ func TestSyntheticClientEventsDoNotPersistToStatusBuffer(t *testing.T) {
 	}
 }
 
+func TestTopicWhoTimeAndCreationTimeSuppressed(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
+		}
+	}()
+
+	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logStore, err := stores.LogStore(netrow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+
+	// 333 has a registered handler, 329 is suppressed outright — both must be
+	// in isExplicitlyHandledEvent so onAllEvent never writes a status notice
+	// (forgetting the switch entry double-stores registered numerics).
+	for _, cmd := range []string{girc.RPL_TOPICWHOTIME, girc.RPL_CREATIONTIME} {
+		if !isExplicitlyHandledEvent(cmd) {
+			t.Fatalf("isExplicitlyHandledEvent(%s) = false, want true", cmd)
+		}
+	}
+
+	h.onAllEvent(nil, mustEvent(t, ":irc.example 333 tester #test alice!u@h 1700000000"))
+	h.onAllEvent(nil, mustEvent(t, ":irc.example 329 tester #test 1600000000"))
+
+	var count int
+	if err := logStore.DB.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("message count = %d, want 0 (333/329 must not leak to status buffer)", count)
+	}
+}
+
 func TestUnhandledServerReplyPersistsToStatusBuffer(t *testing.T) {
 	stores, err := ircdb.OpenMultiStore(t.TempDir())
 	if err != nil {

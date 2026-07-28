@@ -171,7 +171,7 @@ func seedChannelBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb
 		return err
 	}
 	if c.Topic != "" {
-		if err := ircdb.UpdateLogBufferTopic(ctx, log.DB, c.Name, c.Topic); err != nil {
+		if err := ircdb.UpdateLogBufferTopicState(ctx, log.DB, c.Name, &c.Topic, nil, nil); err != nil {
 			return err
 		}
 	}

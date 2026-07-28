@@ -170,7 +170,7 @@ func hasNetworkStateIn(evs []any, state string) bool {
 func countBufferUpdatesJoined(evs []any, joined bool) int {
 	n := 0
 	for _, ev := range evs {
-		if bu, ok := ev.(*BufferUpdateEvent); ok && bu.Joined == joined {
+		if bu, ok := ev.(*BufferUpdateEvent); ok && bu.Joined != nil && *bu.Joined == joined {
 			n++
 		}
 	}

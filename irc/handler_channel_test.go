@@ -1,6 +1,7 @@
 package irc
 
 import (
+	"encoding/json"
 	"testing"
 
 	ircdb "github.com/lepinkainen/lurker/db"
@@ -55,7 +56,7 @@ func drainEventsAfter(events <-chan any) []any {
 
 func hasBufferUpdateIn(evs []any, joined bool) bool {
 	for _, ev := range evs {
-		if bu, ok := ev.(*BufferUpdateEvent); ok && bu.Joined == joined {
+		if bu, ok := ev.(*BufferUpdateEvent); ok && bu.Joined != nil && *bu.Joined == joined {
 			return true
 		}
 	}
@@ -79,15 +80,179 @@ func TestTopicUpdatePersistsTopicAndPublishesBufferUpdate(t *testing.T) {
 
 	f.Handler.onTopic(nil, mustEvent(t, ":alice!u@h TOPIC #test :new topic"))
 
-	var topic string
-	if err := f.LogStore.DB.QueryRow(`SELECT topic FROM buffers WHERE name='#test'`).Scan(&topic); err != nil {
+	var topic, setBy, setAt string
+	if err := f.LogStore.DB.QueryRow(`
+		SELECT topic, COALESCE(topic_set_by,''), COALESCE(topic_set_at,'')
+		FROM buffers WHERE name='#test'`).Scan(&topic, &setBy, &setAt); err != nil {
 		t.Fatal(err)
 	}
 	if topic != "new topic" {
 		t.Fatalf("topic = %q, want new topic", topic)
 	}
-	if !hasTopicUpdate(events, "new topic") {
+	if setBy != "alice" {
+		t.Fatalf("topic_set_by = %q, want alice", setBy)
+	}
+	if setAt == "" {
+		t.Fatal("topic_set_at not set on live TOPIC change")
+	}
+	drained := drainEventsAfter(events)
+	found := false
+	for _, ev := range drained {
+		if bu, ok := ev.(*BufferUpdateEvent); ok && bu.Topic != nil && *bu.Topic == "new topic" {
+			found = true
+			if bu.TopicSetBy == nil || *bu.TopicSetBy != "alice" || bu.TopicSetAt == nil || *bu.TopicSetAt == "" {
+				t.Fatalf("buffer_update meta = (%v, %v), want (alice, non-empty)", bu.TopicSetBy, bu.TopicSetAt)
+			}
+		}
+	}
+	if !found {
 		t.Fatal("missing topic buffer_update")
+	}
+}
+
+func TestTopicWhoTimePersistsMetaWithoutMessage(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	events, _, unsub := h.Subscribe(16)
+	defer unsub()
+
+	f.Handler.onTopicWhoTime(nil, mustEvent(t, ":irc.example 333 tester #test alice!u@h 1700000000"))
+
+	var setBy, setAt string
+	if err := f.LogStore.DB.QueryRow(`
+		SELECT COALESCE(topic_set_by,''), COALESCE(topic_set_at,'')
+		FROM buffers WHERE name='#test'`).Scan(&setBy, &setAt); err != nil {
+		t.Fatal(err)
+	}
+	if setBy != "alice" {
+		t.Fatalf("topic_set_by = %q, want alice (hostmask stripped)", setBy)
+	}
+	if setAt != "2023-11-14T22:13:20.000Z" {
+		t.Fatalf("topic_set_at = %q, want 2023-11-14T22:13:20.000Z", setAt)
+	}
+	if !hasTopicMetaUpdate(events, "alice", "2023-11-14T22:13:20.000Z") {
+		t.Fatal("missing topic meta buffer_update")
+	}
+	if got := handlerMessageCount(t, f); got != 0 {
+		t.Fatalf("message count = %d, want 0 (333 is metadata-only)", got)
+	}
+}
+
+func TestTopicWhoTimeMalformedTimeIgnored(t *testing.T) {
+	f := newTestHandlerFixture(t)
+
+	f.Handler.onTopicWhoTime(nil, mustEvent(t, ":irc.example 333 tester #test alice notanumber"))
+
+	var count int
+	if err := f.LogStore.DB.QueryRow(`SELECT COUNT(*) FROM buffers WHERE name='#test'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("malformed 333 must not create the buffer or store meta")
+	}
+	if got := handlerMessageCount(t, f); got != 0 {
+		t.Fatalf("message count = %d, want 0", got)
+	}
+}
+
+func TestTopicReplyDoesNotClobberMeta(t *testing.T) {
+	f := newTestHandlerFixture(t)
+
+	f.Handler.onTopicWhoTime(nil, mustEvent(t, ":irc.example 333 tester #test alice 1700000000"))
+	f.Handler.onTopicReply(nil, mustEvent(t, ":irc.example 332 tester #test :fresh topic"))
+
+	var topic, setBy string
+	if err := f.LogStore.DB.QueryRow(`
+		SELECT COALESCE(topic,''), COALESCE(topic_set_by,'')
+		FROM buffers WHERE name='#test'`).Scan(&topic, &setBy); err != nil {
+		t.Fatal(err)
+	}
+	if topic != "fresh topic" {
+		t.Fatalf("topic = %q, want fresh topic", topic)
+	}
+	if setBy != "alice" {
+		t.Fatalf("topic_set_by = %q, want alice (332 must not clear meta)", setBy)
+	}
+}
+
+// bufferUpdateJSONFields marshals a buffer_update and returns its JSON keys,
+// so tests can assert on the actual wire shape (present vs omitted fields).
+func bufferUpdateJSONFields(t *testing.T, bu *BufferUpdateEvent) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(bu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	return fields
+}
+
+func TestTopicClearReachesWire(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	events, _, unsub := h.Subscribe(16)
+	defer unsub()
+
+	f.Handler.onTopic(nil, mustEvent(t, ":alice!u@h TOPIC #test :old topic"))
+	f.Handler.onTopic(nil, mustEvent(t, ":bob!u@h TOPIC #test :"))
+
+	var last *BufferUpdateEvent
+	for _, ev := range drainEventsAfter(events) {
+		if bu, ok := ev.(*BufferUpdateEvent); ok {
+			last = bu
+		}
+	}
+	if last == nil {
+		t.Fatal("missing buffer_update for topic clear")
+	}
+	fields := bufferUpdateJSONFields(t, last)
+	topic, present := fields["topic"]
+	if !present {
+		t.Fatal("topic clear omitted from wire — clients would keep the old topic")
+	}
+	if topic != "" {
+		t.Fatalf("topic = %v, want empty string", topic)
+	}
+}
+
+func TestTopicUpdatesDoNotForceJoined(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	events, _, unsub := h.Subscribe(16)
+	defer unsub()
+
+	// 332/333 are not proof of membership (servers answer topic queries for
+	// channels we're not in) — their updates must not carry a joined field.
+	f.Handler.onTopicReply(nil, mustEvent(t, ":irc.example 332 tester #test :some topic"))
+	f.Handler.onTopicWhoTime(nil, mustEvent(t, ":irc.example 333 tester #test alice!u@h 1700000000"))
+
+	for _, ev := range drainEventsAfter(events) {
+		bu, ok := ev.(*BufferUpdateEvent)
+		if !ok {
+			continue
+		}
+		if _, present := bufferUpdateJSONFields(t, bu)["joined"]; present {
+			t.Fatal("topic buffer_update must not carry joined")
+		}
+	}
+}
+
+func TestTopicWhoTimeParsesNickAtHostSetter(t *testing.T) {
+	f := newTestHandlerFixture(t)
+
+	// Some ircds/services send the 333 setter as nick@host (no ident).
+	f.Handler.onTopicWhoTime(nil, mustEvent(t, ":irc.example 333 tester #test alice@host 1700000000"))
+
+	var setBy string
+	if err := f.LogStore.DB.QueryRow(`
+		SELECT COALESCE(topic_set_by,'') FROM buffers WHERE name='#test'`).Scan(&setBy); err != nil {
+		t.Fatal(err)
+	}
+	if setBy != "alice" {
+		t.Fatalf("topic_set_by = %q, want alice (nick@host form)", setBy)
 	}
 }
 
@@ -130,6 +295,44 @@ func TestModeRouting(t *testing.T) {
 	if got[1].BufferKind != ircdb.BufferStatus || got[1].Target != "tester" || got[1].Content != "+i" {
 		t.Fatalf("user mode message = %+v", got[1])
 	}
+}
+
+func TestModePublishesUpdatedMemberPrefixes(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	client := newTestClient(t)
+	f.Handler.register(client)
+	events, _, unsub := h.Subscribe(32)
+	defer unsub()
+
+	runClientEvent(client, mustEvent(t, ":tester!u@h JOIN #test"))
+	runClientEvent(client, mustEvent(t, ":irc.example 353 tester = #test :tester bob"))
+	runClientEvent(client, mustEvent(t, ":irc.example 366 tester #test :End of NAMES"))
+	drainEvents(events)
+
+	assertModePrefix := func(raw, want string) {
+		t.Helper()
+		runClientEvent(client, mustEvent(t, raw))
+		for _, ev := range drainEvents(events) {
+			memberList, ok := ev.(*MemberListEvent)
+			if !ok || memberList.Channel != "#test" {
+				continue
+			}
+			for _, member := range memberList.Members {
+				if member.Nick == "bob" {
+					if member.Prefix != want {
+						t.Fatalf("%s: bob prefix = %q, want %q", raw, member.Prefix, want)
+					}
+					return
+				}
+			}
+			t.Fatalf("%s: bob missing from member list: %+v", raw, memberList.Members)
+		}
+		t.Fatalf("%s: no member_list event published", raw)
+	}
+
+	assertModePrefix(":tester!u@h MODE #test +o bob", "@")
+	assertModePrefix(":tester!u@h MODE #test -o bob", "")
 }
 
 func TestSelfKickClearsChannelState(t *testing.T) {

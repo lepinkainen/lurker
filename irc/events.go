@@ -104,13 +104,17 @@ type BufferCreatedEvent struct {
 	CreatedAt string    `json:"created_at"`
 }
 
-// BufferUpdateEvent announces mutable buffer state changes.
+// BufferUpdateEvent announces mutable buffer state changes. Pointer fields
+// distinguish "unchanged" (nil, omitted from JSON) from "set to zero value"
+// (e.g. a cleared topic must reach clients as an explicit empty string).
 type BufferUpdateEvent struct {
 	Type       string    `json:"type"`
 	ID         uuid.UUID `json:"id"`
 	NetworkID  uuid.UUID `json:"network_id"`
-	Topic      string    `json:"topic,omitzero"`
-	Joined     bool      `json:"joined"`
+	Topic      *string   `json:"topic,omitempty"`
+	TopicSetBy *string   `json:"topic_set_by,omitempty"`
+	TopicSetAt *string   `json:"topic_set_at,omitempty"` // db.FormatTime format
+	Joined     *bool     `json:"joined,omitempty"`
 	LastSeenID uuid.UUID `json:"last_seen_id,omitzero"`
 }
 
@@ -172,3 +176,7 @@ type ChannelListEvent struct {
 type PreviewEnqueuer interface {
 	Enqueue(networkID, bufferID, messageID uuid.UUID, content string)
 }
+
+// ptrTo returns a pointer to v, for optional event fields where nil means
+// "unchanged" and a pointer to the zero value means "set to zero".
+func ptrTo[T any](v T) *T { return &v }

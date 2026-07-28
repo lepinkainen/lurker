@@ -2,7 +2,9 @@ package irc
 
 import (
 	"log/slog"
+	"strconv"
 	"strings"
+	"time"
 
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/mirc"
@@ -76,7 +78,7 @@ func (h *handler) onKick(c *girc.Client, e girc.Event) {
 			if h.setJoinedHook != nil {
 				h.setJoinedHook(channel, false)
 			}
-			h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: false})
+			h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: ptrTo(false)})
 			h.publishMemberList(c, channel)
 		}
 	}
@@ -94,7 +96,15 @@ func (h *handler) onTopic(_ *girc.Client, e girc.Event) {
 	if !ok {
 		return
 	}
-	h.updateChannelTopic(channel, topic)
+	setBy := ""
+	if e.Source != nil {
+		setBy = e.Source.Name
+	}
+	setAt := e.Timestamp
+	if setAt.IsZero() {
+		setAt = time.Now()
+	}
+	h.updateChannelTopicState(channel, &topic, &setBy, ptrTo(ircdb.FormatTime(setAt)))
 	h.storeEvent(e, channel, ircdb.BufferChannel, "topic", "", topic)
 }
 
@@ -103,7 +113,27 @@ func (h *handler) onTopicReply(_ *girc.Client, e girc.Event) {
 	if !ok {
 		return
 	}
-	h.updateChannelTopic(channel, topic)
+	h.updateChannelTopicState(channel, &topic, nil, nil)
+}
+
+// onTopicWhoTime handles RPL_TOPICWHOTIME (333): who set the topic and when.
+// Params: [me, #chan, setter, unixtime]. Metadata only — no message row.
+func (h *handler) onTopicWhoTime(_ *girc.Client, e girc.Event) {
+	if len(e.Params) < 4 {
+		return
+	}
+	channel := e.Params[1]
+	setBy := e.Params[2]
+	// The setter may be a full hostmask in any of girc's source forms
+	// (nick, nick!user@host, nick@host) — keep just the nick.
+	if src := girc.ParseSource(e.Params[2]); src != nil {
+		setBy = src.Name
+	}
+	unix, err := strconv.ParseInt(e.Params[3], 10, 64)
+	if err != nil || unix <= 0 {
+		return
+	}
+	h.updateChannelTopicState(channel, nil, &setBy, ptrTo(ircdb.FormatTime(time.Unix(unix, 0))))
 }
 
 func (h *handler) onMode(_ *girc.Client, e girc.Event) {
@@ -207,7 +237,7 @@ func (h *handler) markAllChannelsParted() {
 			slog.Error("ensure channel buffer", "err", err, "network", h.networkName, "buffer", channel)
 			continue
 		}
-		h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: false})
+		h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: ptrTo(false)})
 	}
 }
 
@@ -228,12 +258,19 @@ func (h *handler) updateChannelJoined(channel string, joined bool, presenceState
 	if h.setJoinedHook != nil {
 		h.setJoinedHook(channel, joined)
 	}
-	h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: joined})
+	h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: ptrTo(joined)})
 	if h.hub != nil && source != nil {
 		h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, BufferID: globalBufID, Nick: source.Name, State: presenceState})
 	}
 }
-func (h *handler) updateChannelTopic(channel, topic string) {
+
+// updateChannelTopicState persists any subset of a channel's topic state and
+// broadcasts it. Nil fields stay untouched — RPL_TOPIC (332) carries only
+// text, RPL_TOPICWHOTIME (333) only setter metadata. A non-nil empty topic is
+// a cleared topic and must reach clients as an explicit empty string. Topic
+// updates deliberately carry no joined state: a topic reply is not proof of
+// membership (servers answer /topic queries for channels we're not in).
+func (h *handler) updateChannelTopicState(channel string, topic, setBy, setAt *string) {
 	ctx, cancel := h.eventContext()
 	defer cancel()
 	globalBufID, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
@@ -241,10 +278,17 @@ func (h *handler) updateChannelTopic(channel, topic string) {
 		slog.Error("ensure topic buffer", "err", err, "network", h.networkName, "buffer", channel)
 		return
 	}
-	if err := ircdb.UpdateLogBufferTopic(ctx, h.db, channel, topic); err != nil {
-		slog.Error("update channel topic", "err", err, "network", h.networkName, "buffer", channel)
+	if err := ircdb.UpdateLogBufferTopicState(ctx, h.db, channel, topic, setBy, setAt); err != nil {
+		// No publish on failure: clients must never render state that a
+		// reload (which reads from the DB) can't reproduce.
+		slog.Error("update channel topic state", "err", err, "network", h.networkName, "buffer", channel)
+		return
 	}
-	// DB keeps the raw topic; the wire carries plain text (clients render
-	// topics unstyled, and raw mIRC codes would leak as control chars).
-	h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Topic: mirc.Strip(topic), Joined: true})
+	ev := BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, TopicSetBy: setBy, TopicSetAt: setAt}
+	if topic != nil {
+		// DB keeps the raw topic; the wire carries plain text (clients render
+		// topics unstyled, and raw mIRC codes would leak as control chars).
+		ev.Topic = ptrTo(mirc.Strip(*topic))
+	}
+	h.publishBufferUpdate(ev)
 }
