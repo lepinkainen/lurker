@@ -15,6 +15,8 @@ type Buffer struct {
 	Topic      sql.NullString
 	LastSeenID []byte
 	CreatedAt  string
+	TopicSetBy sql.NullString
+	TopicSetAt sql.NullString
 }
 
 type Message struct {

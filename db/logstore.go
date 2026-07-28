@@ -99,6 +99,8 @@ func ListLogBuffers(ctx context.Context, d *sql.DB) ([]LogBufferRow, error) {
 			Name:       r.Name,
 			Kind:       r.Kind,
 			Topic:      r.Topic,
+			TopicSetBy: r.TopicSetBy,
+			TopicSetAt: r.TopicSetAt,
 			LastSeenID: scanUUID(r.LastSeenID),
 			CreatedAt:  r.CreatedAt,
 		})
@@ -187,11 +189,16 @@ func EnsureStatusBuffer(ctx context.Context, store *MultiStore, networkID uuid.U
 	return id, nil
 }
 
-// UpdateLogBufferTopic updates the topic for a buffer.
-func UpdateLogBufferTopic(ctx context.Context, d *sql.DB, name, topic string) error {
-	return logdb.New(d).UpdateLogBufferTopic(ctx, logdb.UpdateLogBufferTopicParams{
-		Topic: nullableString(topic),
-		Name:  name,
+// UpdateLogBufferTopicState updates any subset of a buffer's topic state.
+// Nil fields keep their stored value (RPL_TOPIC 332 carries only text,
+// RPL_TOPICWHOTIME 333 only setter metadata); a non-nil empty string
+// overwrites, e.g. a cleared topic.
+func UpdateLogBufferTopicState(ctx context.Context, d *sql.DB, name string, topic, setBy, setAt *string) error {
+	return logdb.New(d).UpdateLogBufferTopicState(ctx, logdb.UpdateLogBufferTopicStateParams{
+		Topic:      nullablePtr(topic),
+		TopicSetBy: nullablePtr(setBy),
+		TopicSetAt: nullablePtr(setAt),
+		Name:       name,
 	})
 }
 

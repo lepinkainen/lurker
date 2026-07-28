@@ -42,6 +42,8 @@ type Buffer struct {
 	Name                   string
 	Kind                   string
 	Topic                  string
+	TopicSetBy             string
+	TopicSetAt             string
 	LastSeenID             uuid.UUID
 	CreatedAt              string
 	ShowEmbeds             bool

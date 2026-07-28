@@ -11,6 +11,8 @@ type logBufferRow struct {
 	Name       string
 	Kind       string
 	Topic      string
+	TopicSetBy string
+	TopicSetAt string
 	LastSeenID uuid.UUID
 	CreatedAt  string
 }
@@ -40,6 +42,16 @@ func nullableString(v string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: v, Valid: true}
+}
+
+// nullablePtr maps nil to SQL NULL and any non-nil string — including "" —
+// to a valid value, so COALESCE-based updates can distinguish "keep" (nil)
+// from "clear" ("").
+func nullablePtr(v *string) sql.NullString {
+	if v == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: *v, Valid: true}
 }
 
 func scanLogMessageRows(rows *sql.Rows, scan func(*logMessageRow) error) ([]logMessageRow, error) {

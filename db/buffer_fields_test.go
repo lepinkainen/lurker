@@ -33,7 +33,8 @@ func TestQueryBufferCreationAndBufferFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = UpdateLogBufferTopic(ctx, logStore.DB, "#go", "new topic")
+	topic := "new topic"
+	err = UpdateLogBufferTopicState(ctx, logStore.DB, "#go", &topic, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

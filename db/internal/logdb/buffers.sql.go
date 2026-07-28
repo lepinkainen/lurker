@@ -48,7 +48,9 @@ func (q *Queries) InsertLogBuffer(ctx context.Context, arg InsertLogBufferParams
 }
 
 const listLogBuffers = `-- name: ListLogBuffers :many
-SELECT id, name, kind, COALESCE(topic,'') AS topic, last_seen_id, created_at
+SELECT id, name, kind, COALESCE(topic,'') AS topic,
+  COALESCE(topic_set_by,'') AS topic_set_by, COALESCE(topic_set_at,'') AS topic_set_at,
+  last_seen_id, created_at
 FROM buffers ORDER BY id
 `
 
@@ -57,6 +59,8 @@ type ListLogBuffersRow struct {
 	Name       string
 	Kind       string
 	Topic      string
+	TopicSetBy string
+	TopicSetAt string
 	LastSeenID []byte
 	CreatedAt  string
 }
@@ -75,6 +79,8 @@ func (q *Queries) ListLogBuffers(ctx context.Context) ([]ListLogBuffersRow, erro
 			&i.Name,
 			&i.Kind,
 			&i.Topic,
+			&i.TopicSetBy,
+			&i.TopicSetAt,
 			&i.LastSeenID,
 			&i.CreatedAt,
 		); err != nil {
@@ -144,16 +150,27 @@ func (q *Queries) UpdateLogBufferLastSeen(ctx context.Context, arg UpdateLogBuff
 	return err
 }
 
-const updateLogBufferTopic = `-- name: UpdateLogBufferTopic :exec
-UPDATE buffers SET topic = ? WHERE name = ?
+const updateLogBufferTopicState = `-- name: UpdateLogBufferTopicState :exec
+UPDATE buffers SET
+  topic = COALESCE(?1, topic),
+  topic_set_by = COALESCE(?2, topic_set_by),
+  topic_set_at = COALESCE(?3, topic_set_at)
+WHERE name = ?4
 `
 
-type UpdateLogBufferTopicParams struct {
-	Topic sql.NullString
-	Name  string
+type UpdateLogBufferTopicStateParams struct {
+	Topic      sql.NullString
+	TopicSetBy sql.NullString
+	TopicSetAt sql.NullString
+	Name       string
 }
 
-func (q *Queries) UpdateLogBufferTopic(ctx context.Context, arg UpdateLogBufferTopicParams) error {
-	_, err := q.db.ExecContext(ctx, updateLogBufferTopic, arg.Topic, arg.Name)
+func (q *Queries) UpdateLogBufferTopicState(ctx context.Context, arg UpdateLogBufferTopicStateParams) error {
+	_, err := q.db.ExecContext(ctx, updateLogBufferTopicState,
+		arg.Topic,
+		arg.TopicSetBy,
+		arg.TopicSetAt,
+		arg.Name,
+	)
 	return err
 }

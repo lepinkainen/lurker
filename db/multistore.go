@@ -464,6 +464,8 @@ func (ms *MultiStore) networkBuffers(ctx context.Context, n Network, logStore *L
 		}
 		if lb, ok := logByName[b.Name]; ok {
 			b.Topic = lb.Topic
+			b.TopicSetBy = lb.TopicSetBy
+			b.TopicSetAt = lb.TopicSetAt
 			b.LastSeenID = lb.LastSeenID
 		}
 		out = append(out, b)
