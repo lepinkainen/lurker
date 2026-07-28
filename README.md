@@ -1,6 +1,6 @@
 # Lurker
 
-Personal IRCCloud-style bouncer with web, terminal, and native macOS clients for a single user on a private network (Tailscale). Inspired by [IRCCloud](https://www.irccloud.com/) and [ZNC](https://znc.in/).
+Personal IRCCloud-style bouncer with web, terminal, and native Apple (macOS + iOS) clients for a single user on a private network (Tailscale). Inspired by [IRCCloud](https://www.irccloud.com/) and [ZNC](https://znc.in/).
 
 See also:
 
@@ -17,7 +17,7 @@ Current implemented scope includes:
 - REST API and WebSocket stream for the web UI
 - minimal in-repo web UI with history loading, slash commands, persisted read state, and search
 - terminal UI client
-- native macOS 26 SwiftUI client with history, live messages, unread state, members, common slash commands, and mention notifications
+- native SwiftUI client for macOS 26 and iOS 26 with history, live messages, unread state, members, common slash commands, and mention notifications
 
 ## Run locally
 
@@ -104,16 +104,16 @@ Build artifacts are written to `build/`:
 - `build/lurker-linux-amd64`
 - `build/DerivedData/Build/Products/Debug/Lurker.app` on macOS
 
-### Native macOS client
+### Native Apple client (macOS + iOS)
 
-The native app requires macOS 26 and Xcode 26. It connects only to an HTTP endpoint on localhost or a Tailnet:
+The native app requires macOS 26 / iOS 26 and Xcode 26. It connects only to an HTTP endpoint on localhost or a Tailnet:
 
 ```bash
-task build-macos
+task build-apple
 open build/DerivedData/Build/Products/Debug/Lurker.app
 ```
 
-The app bundle identifier is `xyz.endymion.lurker`. See [ai-docs/macos.md](ai-docs/macos.md) for architecture, tests, endpoint policy, and notarized packaging.
+The app bundle identifier is `xyz.endymion.lurker`. See [ai-docs/apple.md](ai-docs/apple.md) for architecture, tests, endpoint policy, and notarized packaging.
 
 ## Deployment and privacy assumptions
 

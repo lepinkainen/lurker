@@ -4,7 +4,7 @@ set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 source_svg="$project_root/web/public/favicon.svg"
-iconset="$project_root/macos/Lurker/Assets.xcassets/AppIcon.appiconset"
+iconset="$project_root/apple/Lurker/Assets.xcassets/AppIcon.appiconset"
 
 if ! command -v rsvg-convert >/dev/null 2>&1; then
   printf 'rsvg-convert not found. Install it with: brew install librsvg\n' >&2

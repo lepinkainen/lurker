@@ -25,7 +25,7 @@ trap cleanup EXIT HUP INT TERM
 mkdir -p "$project_root/build"
 
 xcodebuild -quiet \
-  -project macos/Lurker.xcodeproj \
+  -project apple/Lurker.xcodeproj \
   -scheme Lurker \
   -configuration Release \
   -destination 'platform=macOS,arch=arm64' \
@@ -38,7 +38,7 @@ codesign \
   --force \
   --options runtime \
   --timestamp \
-  --entitlements macos/Lurker/Lurker.entitlements \
+  --entitlements apple/Lurker/Lurker.entitlements \
   --sign "$LURKER_DEVELOPER_ID" \
   "$app_path"
 codesign --verify --deep --strict --verbose=2 "$app_path"

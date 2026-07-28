@@ -82,7 +82,7 @@ jobs:
           version: latest
           args: --timeout=5m ./...
 
-  macos:
+  apple:
     runs-on: macos-26
 
     steps:
@@ -94,17 +94,17 @@ jobs:
           version: 3.x
 
       - name: Lint Swift
-        run: task lint-macos
+        run: task lint-apple
 
       - name: Test native client
-        run: task test-macos
+        run: task test-apple
 
       - name: Build native client
-        run: task build-macos
+        run: task build-apple
 
   build:
     runs-on: ubuntu-latest
-    needs: [test, lint, macos]
+    needs: [test, lint, apple]
 
     steps:
       - uses: actions/checkout@v6

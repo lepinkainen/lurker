@@ -9,7 +9,7 @@ This document is for AI agents and other technical readers. It gives the system 
 - [websocket-protocol.md](websocket-protocol.md) — `/api/stream` commands, acks, event shapes
 - [irc-runtime.md](irc-runtime.md) — `irc.Manager`, handler, event persistence, URL preview pipeline, event hub
 - [frontend.md](frontend.md) — web UI layout, source-of-truth rules, hydration model
-- [macos.md](macos.md) — native SwiftUI client, endpoint policy, state model, packaging
+- [apple.md](apple.md) — native SwiftUI client, endpoint policy, state model, packaging
 - [theming.md](theming.md) — YAML themes, loader, `GET /api/themes`, how to add a theme
 - [tui.md](tui.md) — terminal UI client, configuration, keyboard controls, API usage
 - [keyboard-shortcuts.md](keyboard-shortcuts.md) — channel switcher and keyboard shortcut UX spec
@@ -50,7 +50,7 @@ Main components:
 - `hub/`: in-process pub/sub used to fan live events to WebSocket clients
 - `updates/`: background checker for published Linux container image metadata
 - `web/`: Vite + TypeScript frontend
-- `macos/`: Xcode project for the native SwiftUI client (one target builds macOS and iOS)
+- `apple/`: Xcode project for the native SwiftUI client (one target builds macOS and iOS)
 - `cmd/tui/`: terminal UI client for the backend
 
 Runtime flow:
