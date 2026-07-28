@@ -95,6 +95,28 @@ task test-apple-ui
 The UI test launches with `-ui-testing`, which replaces network access with deterministic in-process fixture data and suppresses notification authorization prompts.
 It signs the local test runner ad hoc and requires Xcode to have UI automation permission in System Settings.
 
+## Deferred: hand cursor over inline links (macOS)
+
+Preview cards show the pointing-hand cursor via a plain `.pointerStyle(.link)` on the card button (`ConversationView.swift`, `PreviewCard`). Doing the same for inline URLs *inside* message text was implemented and then dropped as too complex for the payoff. Recorded here in case it becomes worth it later.
+
+Why it is hard:
+
+- SwiftUI has no per-character-range pointer API; `.pointerStyle` applies to a whole view.
+- `.textSelection(.enabled)` re-asserts the I-beam cursor on every pointer move, so a static pointer style is overridden anyway.
+- Selectable `Text` bypasses custom `TextRenderer`s, so you cannot observe link-run geometry on the visible text directly.
+
+The working approach (all `#if os(macOS)`, in `MessageRow`):
+
+1. Mark link runs. Rebuild the `AttributedString` as concatenated `Text` pieces; pieces whose run has `.link` get `.customAttribute(LinkRunAttribute())` (an empty `TextAttribute` struct).
+2. Record their rects. Overlay that rebuilt text on the visible selectable `Text` with identical font, plus `.allowsHitTesting(false)` and `.accessibilityHidden(true)`. Give the overlay a `TextRenderer` whose `draw` walks `layout` lines/runs, collects `run.typographicBounds.rect` for runs carrying `LinkRunAttribute`, and stores them in an `NSLock`-guarded box object (renderer draws off the main path; the box makes it `Sendable`). The renderer draws nothing — the visible twin underneath renders.
+3. Flip the cursor manually. `.onContinuousHover(coordinateSpace: .local)` on the visible text: on `.active`, hit-test the point against the recorded rects and call `NSCursor.pointingHand.set()` on hit / `NSCursor.iBeam.set()` when leaving a hit (must re-set on *every* move because the selectable text keeps re-asserting I-beam); on `.ended`, restore `NSCursor.arrow` if a link was hovered. Track the previous hit in a `@State private var hoveringLink`.
+
+State lived as `@State private var linkRects = LinkRunRects()` on `MessageRow`. Fragile points: the twin must match layout exactly (same font modifiers, same wrapping width), and cursor churn during scroll needs care.
+
+UI-test technique (also removed, `LurkerUITests.swift` history): link runs are not separate accessibility elements, so the test swept `coordinate(withNormalizedOffset:)` hover stops across the message row and compared `NSCursor.currentSystem?.image.tiffRepresentation` against `NSCursor.pointingHand` at each stop, asserting a hit somewhere over the link text and no hit over a plain message. The preview-card variant of that sweep test is still in the suite.
+
+Full implementation: see the pre-removal diff of `ConversationView.swift` (git history of this branch, removed together with this section's addition).
+
 ## Signed distribution
 
 The manual update format is a Developer ID-signed, notarized Apple silicon DMG. First store notary credentials in the keychain:
