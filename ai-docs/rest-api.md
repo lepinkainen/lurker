@@ -117,15 +117,21 @@ Current behavior:
   "topic_set_at": "2026-01-01T00:00:00.000Z",
   "joined": true,
   "last_seen_id": "...",
+  "marker_id": "...",
+  "marker_ts": "2026-01-01T00:00:00Z",
   "created_at": "2026-01-01T00:00:00Z",
   "show_embeds": true,
   "show_presence_events": true,
   "collapse_presence_events": false,
-  "pinned": false
+  "pinned": false,
+  "unread": 3,
+  "mentions": 1
 }
 ```
 
 The settings fields (`show_embeds`, `show_presence_events`, `collapse_presence_events`, `pinned`) are persisted server-side in the control DB and included in `/api/state` and streamed `buffer_settings` events.
+
+Read state is server-derived (see `ai-docs/behaviors/new-messages-marker.md`): `unread`/`mentions` count messages past `last_seen_id` (capped at 1000; self-authored and presence/system kinds excluded). `marker_id` is the "New messages" marker — the oldest counting unread message — with `marker_ts` its RFC3339 timestamp (derived from the UUIDv7) for "new since" display; both omitted when the buffer is caught up.
 
 ### `messageDTO` shape
 

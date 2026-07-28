@@ -33,7 +33,7 @@ tmux -L lurker-verify capture-pane -t tui -p     # evidence
 Keys (from `cmd/tui/model.go` handleKey):
 
 - `C-k` — channel switcher: send `C-k`, then type a fragment (e.g. `go-nuts`), then `Enter`. Most reliable way to switch buffers.
-- `Escape` — toggles focus between sidebar and input (NOT a marker/overlay key like the web UI).
+- `Escape` — acks the active buffer's "New messages" marker (sends `mark_read`) AND toggles focus between sidebar and input.
 - `Up`/`Down` — navigate sidebar when it has focus; `Enter` selects.
 - `PgUp`/`PgDn` — viewport scroll; `PgUp` at top requests older history.
 - `C-d` twice — quit (double-tap confirm).
@@ -58,9 +58,9 @@ echo "#verify :hello from bob" | nc -w1 127.0.0.1 6668     # inject a live PRIVM
 
 `model.sendWS func(cmd wsCmd) error` — when non-nil, all outbound WS commands route through it instead of the real connection (`sendCmdAsync` in `cmd/tui/model.go`). Unit tests install a recorder to assert on `mark_read` etc.; see `markerModel` in `cmd/tui/model_test.go`. There is no inbound-injection hook at the runtime surface — inbound events are unit-tested via `handleWSEvent(wsEvent{...})` directly.
 
-## Marker behavior (since 2026-07-03)
+## Marker behavior (since 2026-07-29)
 
-TUI has web-parity new-messages marker (`ai-docs/behaviors/new-messages-marker.md`, "TUI parity" section): entering a buffer sends `mark_read` and clears badges but keeps the `── New messages ──` divider; the divider clears on buffer exit or Esc (Esc also toggles focus — pre-existing binding). Grep captured panes for `New messages`. Server-side check: `/api/state` `buffers[].last_seen_id` should advance after the TUI views a buffer.
+Server-derived, explicit-ack-only (`ai-docs/behaviors/new-messages-marker.md`): marker/badges come from `/api/state` `marker_id`/`unread` and survive restarts; entering a buffer, scrolling, and reconnecting send NOTHING. The only `mark_read` triggers are Esc and mouse-click on the unread bar (the `── N new messages ──` line pinned above the viewport; falls back to `new since HH:MM` when the marker message isn't loaded). Ack clears badge + divider + bar together, on all clients. Grep captured panes for `New messages` (divider) and `new message` (bar). Server-side check: `/api/state` `buffers[].last_seen_id` advances ONLY after an ack — if it moves on mere buffer entry, that's a regression.
 
 ## Cleanup
 

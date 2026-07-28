@@ -27,7 +27,7 @@ Sidebar quirks that cost time if you don't know them:
 
 - Seeded channels sit inside **collapsed "Archive" groups** per network. Click the `▸ Archive N` button to reveal `#go-nuts`, `#lurker`, `#debian` etc. Query buffers (`alice`) are visible directly.
 - Channel rows are `<button>` elements; click via `page.locator('button', { hasText: '#go-nuts' }).first()`.
-- Unread badge is a small pill inside the channel button; the "New messages" marker line is a leaf element in `main` with exact text `New messages`:
+- Unread badge is a small pill inside the channel button; the "New messages" marker line (`.unreadbar`) is a leaf element in `main` with exact text `New messages`. The clickable unread bar (`.unread-banner`, a `<button>`) sits pinned at the top of the message area whenever the active buffer has a server-side `marker_id` — clicking it (or bare Esc) is the ONLY way the app sends `mark_read` (explicit-ack model, `ai-docs/behaviors/new-messages-marker.md`):
 
 ```js
 const markerCount = () => page.evaluate(() =>
@@ -59,10 +59,10 @@ window.__ws.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(m) 
 
 - Message IDs sort by `localeCompare`; appending a suffix (`'0'`, `'1'`, …) to an existing latest ID produces strictly-later IDs.
 - Required fields for an unread-counting message: `type: 'message'`, `id`, `buffer_id`, `network_id`, `ts`, `sender`, `kind: 'privmsg'`, `display_kind: 'message'`, `counts_as_unread: true`.
-- **Echo caveat:** injected IDs don't exist server-side. A `mark_read` sent for an injected ID leaves the server's unread count unchanged, and the `buffer_update` echo will restore the server-side badge count. That's a fixture artifact, not a bug — note it, don't chase it.
-- Event routing lives in `web/src/ws-router.ts` — check it for other injectable event types (`buffer_update`, `preview`, `member_list`, …).
+- **Echo caveat:** injected IDs don't exist server-side. A `mark_read` (Esc / unread-bar click) for an injected ID is **rejected** by the server (`message not found` error envelope) since 2026-07-29 — the ack appears to work locally (optimistic clear) but `/api/state` won't move. That's a fixture artifact, not a bug — note it, don't chase it. To verify a real ack round-trip, ack on a buffer whose newest message came from seeded data, not an injected one.
+- Event routing lives in `web/src/ws-router.ts` — check it for other injectable event types (`buffer_update`, `preview`, `member_list`, …). A `buffer_update` with `marker_id: null` + `unread: 0` is how a remote ack clears the divider/bar/badge — injectable for multi-client sync checks.
 
-Focus limitation: headless pages report `document.hasFocus() === true` and it can't be faked, so unfocused-tab behaviors (`state.uiFocused === false` paths) are not drivable here. Say so in the report and lean on unit tests for those paths.
+Marker model (since 2026-07-29): server-derived, explicit-ack-only — buffer switches, scrolling, focus changes, and reconnects send nothing; badges/divider/bar clear only on Esc or unread-bar click and survive reloads. There is no client focus state anymore (`focus.ts` deleted).
 
 ## Evidence
 

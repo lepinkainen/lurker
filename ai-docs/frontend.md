@@ -39,7 +39,7 @@ On load:
 
 1. fetch `/api/state`
 2. populate maps for networks, buffers (including settings fields), messages, and members
-3. infer unread counts client-side from `last_seen_id`
+3. take server-derived read state per buffer verbatim (`unread`, `mentions`, `marker_id`, `marker_ts` — see `behaviors/new-messages-marker.md`)
 4. restore sidebar visibility from localStorage
 5. connect WebSocket stream
 6. apply incoming events incrementally (including `buffer_settings` for live settings sync)
@@ -50,14 +50,14 @@ See [rest-api.md](rest-api.md) for `/api/state` and [websocket-protocol.md](webs
 
 ## Rendering model
 
-WebSocket events route through one named view helper per event in `app-core.ts` `handleWSMessage`. The view helper lives on the object returned by `createAppView` (`web/src/app-view.ts`) and owns DOM dispatch, scroll preservation, and `mark_read` follow-ups. State mutators stay in `messages.ts` / `channel-list.ts` and are called only from inside the view helper.
+WebSocket events route through one named view helper per event in `app-core.ts` `handleWSMessage`. The view helper lives on the object returned by `createAppView` (`web/src/app-view.ts`) and owns DOM dispatch and scroll preservation. `mark_read` is sent only on explicit user ack (Esc / unread-bar click via `ackBufferRead` in `read-tracker.ts`), never as an event follow-up. State mutators stay in `messages.ts` / `channel-list.ts` and are called only from inside the view helper.
 
 | Event | View helper | DOM strategy |
 | --- | --- | --- |
 | `message` | `view.appendMessage(msg)` | full rerender of active buffer (drives day separators, presence collapse, unread bar) |
 | `history_result` | `view.prependHistory(msg)` | full rerender of active buffer with scroll-offset preservation |
 | `preview` | `view.patchPreview(msg)` | targeted DOM patch on the matching row; no rerender |
-| `buffer_update` / `buffer_settings` | `view.updateBuffer(msg, { rerenderActive })` | header + sidebar refresh; full rerender only on settings change |
+| `buffer_update` / `buffer_settings` | `view.updateBuffer(msg, { rerenderActive })` | header + sidebar refresh; full rerender on settings change and on updates to the active buffer (remote ack must clear its divider + unread bar live) |
 | `member_list` | `view.setMembers(bufferId, members)` | header + member pane rerender when buffer is active |
 | `channel_list` | `view.renderChannelList()` | full rerender; `renderActiveView` dispatches to the channel-list panel branch when `state.channelList?.done` is set |
 

@@ -2,69 +2,88 @@
 
 ## Purpose
 
-Horizontal divider line ("New messages") in a channel buffer that marks the boundary between messages the user has already seen and messages that arrived while they weren't looking. Lets the user resume reading at the right spot after stepping away.
+Horizontal divider line ("New messages") in a channel buffer that marks the boundary between messages the user has already seen and messages that arrived since. Lets the user resume reading at the right spot after stepping away.
 
-## Trigger
+## Model
 
-A channel accumulates new messages while **either**:
+One lifecycle, server-owned. The read position **is** the marker position:
 
-- the browser tab/window hosting the web UI is not focused (no `document.hasFocus()` / `visibilitychange` = visible), **or**
-- the user is focused on the web UI but viewing a different channel (active buffer is not this channel).
+- The server persists `last_seen_id` per buffer (exclusive: everything with `id > last_seen_id` is unread).
+- The server derives `marker_id` = id of the first unread message that counts (skipping non-unread kinds and self-authored messages) and includes it in `/api/state` buffers and in `buffer_update` events. `marker_id` absent/null means no marker.
+- Clients hold **no marker state of their own**. They render the divider above the message whose id equals `marker_id`, and the unread bar whenever `marker_id` is set on the active buffer. UI is a pure function of server state plus loaded messages.
+- Unread badges, the divider, and the unread bar all share this one lifecycle: they appear together and clear together.
 
-The marker is inserted at the position of the first unseen message for that channel.
+## Clearing — explicit ack only
 
-## Expected
+Nothing clears implicitly. Not opening the buffer, not scrolling, not focusing the window, not reloading, not reconnecting.
 
-- Marker is per-channel, not global. Every channel tracks its own "last read" position.
-- Marker is visible on **all** channels that have unread messages, not only the active one.
-- The read *position* (sidebar unread badge + server `mark_read`) and the marker *line* have separate lifecycles:
-  - Read position advances as soon as the user views a channel while the web UI is focused. This clears the unread badge immediately.
-  - The marker line stays visible while the user remains on the channel, so they can still see where new messages began. It clears when the channel loses active status after having been viewed focused (switch away and back → no marker unless new messages arrived since), or when the user presses **Esc** (IRCCloud-style explicit clear).
-- The server's `buffer_update` echo of a mark_read (last_seen caught up, unread=0) must **not** clear the active channel's marker — the user is looking at it (`reconcileAnchor` skips the active buffer).
-- If the tab is unfocused, viewing a channel does not mark it as read — the user might not actually be looking.
+The only clear is an explicit user ack, which sends `mark_read {buffer_id, message_id: <newest loaded message>}`:
+
+1. **Esc** (with no overlay/drawer open on top), on platforms with a keyboard.
+2. Activating the **unread bar** (click/tap).
+
+On ack the client may optimistically drop the divider/bar/badge locally; the server persists the new `last_seen_id`, recomputes counts, and broadcasts `buffer_update {id, network_id, last_seen_id, marker_id, unread, mentions}` to all clients. Because marker state is derived from `last_seen_id`, an ack on one device clears the marker and badges on **every** device — dismissal syncs by construction.
+
+## Unread bar
+
+A bar pinned at the top of the message area, shown whenever the active buffer has a `marker_id`.
+
+- **Content**: the number of unread messages — "12 new messages". When the count is unreliable (at the server cap of 1000, or the marker message is outside loaded history), show the age of the boundary instead: "new since 14:02" (older than today: "new since yesterday 14:02" / date).
+- **Action**: one activation = ack (clear marker + badges everywhere).
+- The bar is the primary dismiss affordance on platforms without a convenient Esc (touch devices, the Apple client).
+- The divider line and the bar always appear/disappear together — two views of the same server state.
+
+## Message arrival
+
+- New message in a buffer: server persists it; if it counts as unread and is not self-authored, unread count grows and `marker_id` stays at the first unread message (sticky by derivation — the first unread doesn't change as more arrive).
+- Self-authored messages (from any client) never count toward unread and never become the marker anchor.
+- Clients accumulate badge counts locally from per-message flags between syncs; server-authoritative counts arrive on `buffer_update` and `/api/state`.
+- There is no "actively watching" suppression: if you are viewing a buffer and messages arrive, the marker exists (you haven't acked). The divider sits above the first unread message; for a user reading at the bottom this is simply where they stopped last acking. Clients must not auto-ack on arrival.
 
 ## Cases
 
-### Case A — tab regains focus
+### Case A — stepped away
 
-1. Tab is unfocused. New messages arrive in channel X (the active buffer). Marker appears above the first new message.
-2. User refocuses the tab, sees the "New messages" line in channel X, reads through it. Marker stays visible (channel not yet marked read — user is still on it).
-3. User switches to channel Y. Channel X is now marked read; its marker is cleared.
-4. User switches back to channel X. No marker (no new messages since mark-read).
+1. Messages arrive in channel X while the user is elsewhere (other buffer, unfocused tab, app closed). Badge counts up; marker sits above the first unread message.
+2. User opens channel X. Divider and unread bar are visible. Badge stays.
+3. User reads, presses Esc (or taps the bar). Badge, divider, and bar clear — on this and every other client.
+4. Reload/restart at any point before step 3: badge, divider, and bar all come back exactly the same (server-derived).
 
-### Case B — channel switch while focused
+### Case B — multi-device
 
-1. User is focused on the web UI, viewing channel A. New messages arrive in channel B → channel B gets a "New messages" marker at the first unseen message.
-2. User switches to channel B. Marker is visible. Read position advances on entry (badge clears), but the marker line stays.
-3. User switches to channel A. Channel B's marker is cleared.
-4. User switches back to channel B. No marker if no new messages arrived since step 3. If new messages did arrive, a new marker appears at the first of those.
+1. Channel B has 12 unread. Phone and desktop both show badge + marker.
+2. User acks on the phone. Server broadcasts `buffer_update`; desktop badge and marker clear too.
+3. New messages after the ack start a fresh marker at the first of them, everywhere.
 
-### Case C — explicit clear with Esc
+### Case C — marker outside loaded history
 
-1. User is viewing a channel with a visible marker.
-2. User presses Esc (with no overlay/drawer open on top). Marker clears immediately and the channel is marked read.
+1. Channel has 3000 unread; client loads the most recent 200 messages. `marker_id` points at a message the client never loaded.
+2. No divider is drawn (its message isn't in the list), but the unread bar shows in "new since" form using server data.
+3. Paging back through history eventually loads the marker message; the divider appears at it.
+4. Ack works the same regardless (acks the newest loaded message).
 
 ## Edge cases
 
-- **Tab unfocused, switching channels**: switching channels while the tab is unfocused does not mark anything as read. Markers persist until focus returns and the user navigates away.
-- **Active channel, tab focused, new messages arrive**: do **not** add a marker — the user is actively watching. Mark-read position advances with each arriving message.
-- **Initial load**: on first load of the UI, no markers. The first time a channel is viewed establishes its read position.
-- **Reconnect / history replay**: messages arriving via history backfill (older than known position) must not trigger a marker.
-- **Empty channel becomes non-empty**: marker appears above the very first message if the channel was never visited; otherwise above the first new one.
-- **Marker position is sticky**: once placed, the marker does not move as more messages arrive — it represents the position at the moment unread state began. Only exit-after-focused-view or Esc clears it.
+- **Empty buffer**: no messages loaded → nothing to ack; bar hidden even if server reports unread (nothing renderable). Server state is authoritative; the next sync reconciles.
+- **Never-visited buffer** (`last_seen_id` null): everything unread; marker at the first countable message.
+- **History replay / backfill**: derivation is by id comparison against `last_seen_id`, so replayed older messages can never create a new marker.
+- **Ack while disconnected**: client may clear optimistically but must retry `mark_read` on reconnect (or resync from `/api/state`, which restores the marker if the ack never landed — visible state stays truthful to the server).
+- **Marker message hidden by presence filtering**: cannot happen for self/presence kinds (they never anchor); if the anchored message is filtered by other view options, render the divider above the nearest following visible message.
 
 ## Non-goals
 
-- No persistence across reloads is required for v1 (mark-read state may live in memory only). Document this as a known limitation; revisit if users complain.
-- No per-message read receipts. Only one marker per channel.
+- No per-message read receipts. Only one marker per buffer.
+- No partial acks ("mark read up to here"). Ack always moves to the newest loaded message.
 - No notification badges interaction defined here (see separate behavior if/when added).
 
-## TUI parity
+## Client parity
 
-The TUI client (`cmd/tui/`) implements the same semantics with one simplification: a running TUI is always considered "focused" (no reliable terminal-focus signal), so entry always advances the read position. Esc clears the active buffer's marker *and* toggles sidebar/input focus (its pre-existing binding). Marker state lives in `model.markerAnchor`; read-position logic in `markActiveRead` / `reconcileAnchor` mirrors `web/src/read-tracker.ts` and `web/src/app-state.ts`.
+- **Web** (`web/src/`): divider + bar rendered from `buffer.marker_id`; `mark_read` sent only from Esc handler and bar click. No focus/scroll/entry triggers. No client-side anchor maps.
+- **TUI** (`cmd/tui/`): same. Bar renders as the top line of the message viewport; mouse click on it acks; Esc acks (and keeps its pre-existing sidebar/input focus toggle). No debounce needed — acks are rare and user-initiated.
+- **Apple** (`apple/`): same. Bar is the primary dismiss (tap); hardware-keyboard Esc acks where available. `markRead` must never run implicitly (no buffer-open, scenePhase, or per-message triggers). `buffer_update` updates `lastSeenID`/`markerID`/counts; rendering follows.
 
 ## Related
 
-- `ai-docs/frontend.md` — buffer/channel UI structure
-- `ai-docs/websocket-protocol.md` — message arrival events
-- Code: `web/src/` buffer rendering and focus tracking (`visibilitychange`, `focus`/`blur` listeners)
+- `ai-docs/rest-api.md` — `/api/state` buffer fields (`last_seen_id`, `marker_id`, `unread`, `mentions`)
+- `ai-docs/websocket-protocol.md` — `mark_read` command, `buffer_update` event
+- `irc/semantics.go` — `counts_as_unread`, `is_self` classification

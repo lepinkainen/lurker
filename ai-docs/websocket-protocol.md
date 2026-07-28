@@ -71,7 +71,7 @@ Current client command envelope fields:
 #### History and state
 
 - `history` — fetch recent or older messages for a buffer
-- `mark_read` — persist last seen message for a buffer
+- `mark_read` — persist last seen message for a buffer (`buffer_id` + `message_id`). Sent **only** on explicit user ack (Esc / unread-bar activation) — never implicitly on buffer switch, scroll, or focus (see `ai-docs/behaviors/new-messages-marker.md`). The server validates that `message_id` exists in that buffer (error otherwise) and never regresses the position: a stale ack is acked as a no-op and the `buffer_update` echo carries the newer effective `last_seen_id`, so racing clients converge forward (max-wins)
 
 #### Ignore management
 
@@ -166,6 +166,11 @@ Important event shapes:
 
 Partial update: every field below except `id`/`network_id` is optional, and an absent field means "unchanged" — clients must only apply keys present in the JSON. A present-but-empty `topic` means the topic was cleared.
 
+Two server-side variants share this type:
+
+- **topic/joined variant** (IRC runtime): `topic`, `topic_set_by`, `topic_set_at`, `joined` — never carries read-state fields.
+- **mark_read echo** (broadcast to all clients, sender included): `last_seen_id`, `marker_id`, `marker_ts`, `unread`, `mentions` — never carries topic/joined. `marker_id` is **always present** on this variant; JSON `null` means the buffer is caught up and clients must drop the "New messages" marker/bar/badges.
+
 - `id`
 - `network_id`
 - `topic`
@@ -173,6 +178,9 @@ Partial update: every field below except `id`/`network_id` is optional, and an a
 - `topic_set_at` — when the topic was set, storage timestamp format (`2006-01-02T15:04:05.000Z`)
 - `joined` — never sent on topic-only updates: a topic reply (332/333) is not proof of membership
 - `last_seen_id`
+- `marker_id` — server-derived "New messages" marker: id of the oldest unread message that counts (self-authored and presence/system kinds never count or anchor)
+- `marker_ts` — RFC3339 timestamp of the marker message (from its UUIDv7), for "new since HH:MM" display when the message isn't loaded client-side; omitted when `marker_id` is null
+- `unread`, `mentions` — server-recomputed counts past `last_seen_id` (capped at 1000, self-suppressed)
 
 `network_state`
 

@@ -1,0 +1,87 @@
+---
+name: verifier-apple
+description: Verify native Apple client changes end-to-end by driving the built macOS app — XCUITest against deterministic fixtures, or the real app against a seeded backend with screenshot evidence. Use when verifying changes under apple/ (SwiftUI rendering, sidebar, conversation view, unread bar, keyboard shortcuts) at the real app surface. Not for backend-only changes and not for running unit tests (task test-apple is CI's job).
+---
+
+# Verifier: Apple client
+
+Runtime-verify `apple/` changes at the real app surface. Two modes — pick by what the change needs:
+
+- **Mode A — XCUITest against fixtures**: deterministic, assertable, drivable input. Default for interaction changes (clicks, keys, state transitions).
+- **Mode B — real app against seeded backend**: real REST + WebSocket + live events. For connection-path changes and visual evidence; input driving is weak here.
+
+## Build
+
+```bash
+task build-apple               # Debug build → build/DerivedData/Build/Products/Debug/Lurker.app
+```
+
+- **Stale-build trap:** Mode B launches the app from DerivedData. Rebuild via `task build-apple` after every Swift edit; a running app never picks up source changes.
+- macOS only (`platforms: [darwin]`); Apple silicon destination is hardcoded in the Taskfile.
+
+## Mode A — XCUITest against fixtures
+
+The app launched with `-ui-testing` swaps all network access for `FixtureTransport` (deterministic in-process data) and suppresses notification prompts (`ProcessInfo.isUITest`, `apple/Lurker/LurkerApp.swift`).
+
+Write a throwaway (or keepable) test in `apple/LurkerUITests/LurkerUITests.swift` and run just it:
+
+```bash
+xcodebuild -quiet -project apple/Lurker.xcodeproj -scheme Lurker -configuration Debug \
+  -destination 'platform=macOS,arch=arm64' -derivedDataPath build/DerivedData \
+  ONLY_ACTIVE_ARCH=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES AD_HOC_CODE_SIGNING_ALLOWED=YES \
+  -only-testing:LurkerUITests/LurkerUITests/testMyThrowaway test
+```
+
+(`task test-apple-ui` runs the whole UI suite with the same flags.) Requires Xcode to have UI-automation permission in System Settings; the runner is ad-hoc signed.
+
+Fixture data (`apple/Lurker/FixtureTransport.swift`): network `Libera`; `#lurker` (pinned, topic "Native client development…", messages from `tove`/`hilde`, a preview-card message) and `#lurker-full` (long backlog, `unread: 10`, `lastSeenID`/`markerID` set — the unread bar + "New messages" divider fixture). Extend the fixtures when your change needs data they lack.
+
+Accessibility quirks that cost time (from the existing tests):
+
+- `MessageRow` combines sender/time/content into ONE element: match `app.otherElements` with `NSPredicate(format: "label CONTAINS %@", "some content")`, not bare `staticTexts`.
+- The header topic truncates (`lineLimit(1)`): match `value BEGINSWITH` a short prefix.
+- Composer is a text field whose `placeholderValue` == the buffer name (`"#lurker"`).
+- Channel switcher: `app.typeKey("k", modifierFlags: .command)`, field placeholder "Jump to a channel or conversation".
+- The "New messages" divider (`UnreadSeparator`) has accessibility label "New messages begin here"; the unread bar is a `Button` labeled "N new messages" / "new since …".
+- Link/cursor geometry is not accessible as elements — see the pointer-sweep technique in the existing suite and `ai-docs/apple.md`.
+
+## Mode B — real app against seeded backend
+
+```bash
+task seed-test                 # reset + seed ./data-test
+task dev-test                  # background this: backend on :8080 (readiness: curl -s localhost:8080/whoami)
+defaults write xyz.endymion.lurker mac.serverURL http://localhost:8080
+open build/DerivedData/Build/Products/Debug/Lurker.app
+```
+
+- `mac.serverURL` is read at `AppModel.start()`; writing defaults bypasses the in-app connect form (which validates `/whoami` first). No default URL means the app opens on the connect screen.
+- The app also persists `mac.selectedBuffer` / `mac.inspectorVisible` — stale defaults can change what you see at launch.
+- **Live message arrivals**: same fakeircd recipe as the TUI skill — `task fake-ircd` (IRC :6667, control :6668), create + connect a network via REST, then `echo "#verify :hello from bob" | nc -w1 127.0.0.1 6668`. The app receives it over the real WebSocket.
+- Server-side assertions: `curl -s localhost:8080/api/state` — check `buffers[].last_seen_id` / `marker_id` / `unread` to see what the app actually told the backend (e.g. `mark_read` fires only on explicit ack: unread-bar click or Esc — never on buffer open/focus; see `ai-docs/behaviors/new-messages-marker.md`).
+- Input driving in this mode is limited to `osascript` System Events keystrokes (needs Accessibility permission, may prompt, flaky). Prefer Mode A for anything interactive; use Mode B to observe real-backend behavior.
+
+## Evidence
+
+Screenshot the app window and Read it back to confirm it shows what you claim:
+
+```bash
+WIN=$(osascript -e 'tell app "Lurker" to activate' >/dev/null; python3 -c '
+import Quartz
+for w in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID):
+    if w.get("kCGWindowOwnerName") == "Lurker" and w.get("kCGWindowLayer") == 0:
+        print(w["kCGWindowNumber"]); break')
+screencapture -x -l "$WIN" /tmp/lurker-apple.png
+```
+
+In Mode A, `XCUIScreen.main.screenshot()` inside the test (attach or write to a known path) is the deterministic alternative.
+
+## Cleanup
+
+```bash
+osascript -e 'tell app "Lurker" to quit' 2>/dev/null
+defaults delete xyz.endymion.lurker mac.serverURL      # and mac.selectedBuffer if you set it
+# stop the background dev-test / fake-ircd tasks (TaskStop <id>)
+# revert any throwaway UI test unless it earned a place in the suite
+```
+
+`data-test/` is gitignored and disposable; re-seed freely.
