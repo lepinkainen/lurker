@@ -6,7 +6,15 @@ import { registerMemberNickColors, registerMessageNickColors } from "./nick-colo
 type WSMessage =
   | ({ type: "message" } & Message)
   | { type: "buffer_created"; id: string; network_id: string; name: string; kind: string }
-  | { type: "buffer_update"; id: string; topic?: string; joined?: boolean; last_seen_id?: string }
+  | {
+      type: "buffer_update";
+      id: string;
+      topic?: string;
+      topic_set_by?: string;
+      topic_set_at?: string;
+      joined?: boolean;
+      last_seen_id?: string;
+    }
   | {
       type: "buffer_settings";
       id: string;

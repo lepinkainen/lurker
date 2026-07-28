@@ -49,7 +49,6 @@ type model struct {
 	buffers             []bufferDTO
 	networkStates       map[uuid.UUID]string          // network_id -> state string
 	messages            map[uuid.UUID][]messageDTO    // buffer_id -> messages
-	topics              map[uuid.UUID]string          // buffer_id -> topic
 	members             map[uuid.UUID][]channelMember // buffer_id -> members
 	unread              map[uuid.UUID]int             // buffer_id -> unread count (client-side accumulated)
 	mentions            map[uuid.UUID]int             // buffer_id -> mention count
@@ -127,7 +126,6 @@ func newModel(cfg *Config) model {
 		client:         newAPIClient(cfg.BackendURL),
 		networkStates:  make(map[uuid.UUID]string),
 		messages:       make(map[uuid.UUID][]messageDTO),
-		topics:         make(map[uuid.UUID]string),
 		members:        make(map[uuid.UUID][]channelMember),
 		unread:         make(map[uuid.UUID]int),
 		mentions:       make(map[uuid.UUID]int),
@@ -914,9 +912,6 @@ func (m *model) applyState(s *stateResponse) {
 	m.buffers = s.Buffers
 	m.refreshActiveBuffer()
 	for _, b := range s.Buffers {
-		if b.Topic != "" {
-			m.topics[b.ID] = b.Topic
-		}
 		m.unread[b.ID] = b.Unread
 		m.mentions[b.ID] = b.Mentions
 	}
@@ -1174,15 +1169,15 @@ func (m *model) msgUnseen(bufID, msgID uuid.UUID) bool {
 
 func (m *model) applyBufferUpdate(ev wsEvent) {
 	bufID := ev.ID // backend uses "id" for buffer_update, not "buffer_id"
-	if ev.Topic != "" {
-		m.topics[bufID] = ev.Topic
-	}
 	b := m.findBuffer(bufID)
 	if b == nil {
 		return
 	}
-	if ev.Topic != "" {
-		b.Topic = ev.Topic
+	if ev.Topic != nil {
+		b.Topic = *ev.Topic
+	}
+	if ev.TopicSetBy != nil {
+		b.TopicSetBy = *ev.TopicSetBy
 	}
 	if ev.Joined != nil {
 		b.Joined = *ev.Joined
@@ -1603,10 +1598,13 @@ func (m model) renderHeader(width int) string {
 	if m.activeBuffer == nil {
 		return styleHeader.Width(width).Render("lurker-tui")
 	}
-	topic := m.topics[m.activeBuffer.ID]
+	topic := m.activeBuffer.Topic
 	title := m.activeBuffer.Name
 	if topic != "" {
 		title += " — " + mircFormat(topic)
+		if setBy := m.activeBuffer.TopicSetBy; setBy != "" {
+			title += " (set by " + setBy + ")"
+		}
 	}
 	return styleHeader.Width(width).Render(title)
 }

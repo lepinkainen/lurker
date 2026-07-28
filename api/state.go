@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"net/http"
 	"time"
 
@@ -41,6 +42,8 @@ type bufferDTO struct {
 	Name                   string    `json:"name"`
 	Kind                   string    `json:"kind"`
 	Topic                  string    `json:"topic,omitzero"`
+	TopicSetBy             string    `json:"topic_set_by,omitzero"`
+	TopicSetAt             string    `json:"topic_set_at,omitzero"`
 	Joined                 bool      `json:"joined"`
 	LastSeenID             uuid.UUID `json:"last_seen_id,omitzero"`
 	CreatedAt              string    `json:"created_at"`
@@ -127,7 +130,8 @@ func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb
 	counts := unreadByBuf[b.ID]
 	out.Buffers = append(out.Buffers, bufferDTO{
 		ID: b.ID, NetworkID: b.NetworkID, Name: b.Name, Kind: b.Kind,
-		Topic: mirc.Strip(b.Topic), Joined: joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
+		Topic: mirc.Strip(b.Topic), TopicSetBy: b.TopicSetBy, TopicSetAt: b.TopicSetAt,
+		Joined: joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
 		ShowEmbeds: b.ShowEmbeds, ShowPresenceEvents: b.ShowPresenceEvents,
 		CollapsePresenceEvents: b.CollapsePresenceEvents, Pinned: b.Pinned,
 		Unread: counts[0], Mentions: counts[1],
@@ -166,9 +170,7 @@ func (s *Server) prefetchRecentMessages(ctx context.Context, netID uuid.UUID, bu
 		slog.Error("batch recent messages", "err", err, "network_id", netID)
 		return
 	}
-	for bufID, msgs := range batchMsgs {
-		out[bufID] = msgs
-	}
+	maps.Copy(out, batchMsgs)
 }
 
 func (s *Server) prefetchUnreadCounts(ctx context.Context, netID uuid.UUID, netBufs []ircdb.Buffer, nick string, out map[uuid.UUID][2]int) {

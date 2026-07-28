@@ -82,10 +82,14 @@ export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
     topicText.classList.toggle("is-empty", !buffer.topic);
   }
   dom.bufferTopicEl.appendChild(topicText);
-  if (buffer.topic_set_by) {
+  // Setter attribution only makes sense next to an actual topic —
+  // "No topic set — alice" would misattribute the empty state.
+  if (buffer.topic && buffer.topic_set_by) {
     const setter = document.createElement("span");
     setter.className = "topicsetter";
     setter.textContent = `— ${buffer.topic_set_by}`;
+    if (buffer.topic_set_at)
+      setter.title = `Set by ${buffer.topic_set_by} on ${new Date(buffer.topic_set_at).toLocaleString()}`;
     dom.bufferTopicEl.appendChild(setter);
   }
   const edit = document.createElement("span");
@@ -168,6 +172,8 @@ export function onBufferUpdate(
   msg: {
     id: string;
     topic?: string;
+    topic_set_by?: string;
+    topic_set_at?: string;
     joined?: boolean;
     last_seen_id?: string;
     show_embeds?: boolean;
@@ -182,6 +188,8 @@ export function onBufferUpdate(
   const buffer = state.buffers.get(msg.id);
   if (!buffer) return;
   if (Object.hasOwn(msg, "topic")) buffer.topic = msg.topic || "";
+  if (Object.hasOwn(msg, "topic_set_by")) buffer.topic_set_by = msg.topic_set_by || "";
+  if (Object.hasOwn(msg, "topic_set_at")) buffer.topic_set_at = msg.topic_set_at || "";
   if (Object.hasOwn(msg, "joined")) buffer.joined = Boolean(msg.joined);
   if (Object.hasOwn(msg, "last_seen_id")) buffer.last_seen_id = msg.last_seen_id || "";
   if (Object.hasOwn(msg, "show_embeds")) buffer.show_embeds = Boolean(msg.show_embeds);

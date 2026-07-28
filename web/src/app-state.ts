@@ -36,6 +36,7 @@ export type Buffer = {
   joined?: boolean;
   topic?: string;
   topic_set_by?: string;
+  topic_set_at?: string;
   last_seen_id?: string;
   unread: number;
   mentions: number;

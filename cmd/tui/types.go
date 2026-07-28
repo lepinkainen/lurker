@@ -25,6 +25,7 @@ type bufferDTO struct {
 	Name                   string    `json:"name"`
 	Kind                   string    `json:"kind"`
 	Topic                  string    `json:"topic"`
+	TopicSetBy             string    `json:"topic_set_by"`
 	Joined                 bool      `json:"joined"`
 	LastSeenID             uuid.UUID `json:"last_seen_id"`
 	Unread                 int       `json:"unread"`
@@ -82,10 +83,11 @@ type wsEvent struct {
 	MentionsMe     bool      `json:"mentions_me"`
 	Highlight      bool      `json:"highlight"`
 	CountsAsUnread bool      `json:"counts_as_unread"`
-	// buffer_update
-	Topic string `json:"topic"`
-	// Pointer: the mark_read echo variant of buffer_update carries no
-	// joined field, and absent must not read as false (parted).
+	// buffer_update — pointers: fields absent from the wire mean "unchanged"
+	// (e.g. the mark_read echo carries none of these), while a present empty
+	// string means "set to empty" (cleared topic).
+	Topic      *string   `json:"topic"`
+	TopicSetBy *string   `json:"topic_set_by"`
 	Joined     *bool     `json:"joined"`
 	LastSeenID uuid.UUID `json:"last_seen_id"`
 	Unread     int       `json:"unread"`

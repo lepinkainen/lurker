@@ -76,6 +76,20 @@ describe("renderHeader", () => {
     renderHeader(d, deps);
     expect(d.bufferTopicEl.querySelector(".topictext")?.textContent).toBe("No topic set");
   });
+
+  it("shows topic setter only when a topic is set", () => {
+    state.activeId = "1";
+    state.buffers.set("1", buf({ id: "1", name: "#x", topic: "hello", topic_set_by: "alice" }));
+    state.networks.set("1", net("1"));
+    const d = dom();
+    renderHeader(d, deps);
+    expect(d.bufferTopicEl.querySelector(".topicsetter")?.textContent).toBe("— alice");
+
+    // Cleared topic: "No topic set — alice" would be nonsense.
+    state.buffers.set("1", buf({ id: "1", name: "#x", topic: "", topic_set_by: "alice" }));
+    renderHeader(d, deps);
+    expect(d.bufferTopicEl.querySelector(".topicsetter")).toBeNull();
+  });
 });
 
 describe("renderActiveView", () => {

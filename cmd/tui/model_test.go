@@ -17,7 +17,6 @@ func testModel() *model {
 	m := &model{
 		networkStates:  map[uuid.UUID]string{},
 		messages:       map[uuid.UUID][]messageDTO{},
-		topics:         map[uuid.UUID]string{},
 		members:        map[uuid.UUID][]channelMember{},
 		unread:         map[uuid.UUID]int{},
 		mentions:       map[uuid.UUID]int{},
@@ -28,6 +27,30 @@ func testModel() *model {
 		channelList:    map[uuid.UUID][]channelListEntry{},
 	}
 	return m
+}
+
+// A cleared topic arrives as an explicit empty string on the wire and must
+// unlearn both the topic text and its setter attribution in the header.
+func TestBufferUpdateTopicClearUnlearnsSetter(t *testing.T) {
+	m := testModel()
+	bufID := uuid.New()
+	m.buffers = []bufferDTO{{ID: bufID, Name: "#test", Kind: "channel"}}
+	m.activeBuffer = &m.buffers[0]
+	m.width = 120
+
+	topic, setBy := "hello world", "alice"
+	m.applyBufferUpdate(wsEvent{Type: "buffer_update", ID: bufID, Topic: &topic, TopicSetBy: &setBy})
+	header := m.renderHeader(120)
+	if !strings.Contains(header, "hello world") || !strings.Contains(header, "set by alice") {
+		t.Fatalf("header = %q, want topic and setter", header)
+	}
+
+	cleared := ""
+	m.applyBufferUpdate(wsEvent{Type: "buffer_update", ID: bufID, Topic: &cleared, TopicSetBy: &cleared})
+	header = m.renderHeader(120)
+	if strings.Contains(header, "hello world") || strings.Contains(header, "alice") {
+		t.Fatalf("header = %q, want no stale topic or setter after clear", header)
+	}
 }
 
 // Regression for 71e1e52 (fix(tui): default new buffers to show presence
