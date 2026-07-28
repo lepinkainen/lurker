@@ -11,6 +11,11 @@ struct SettingsView: View {
       Section("Connection") {
         TextField("Lurker server", text: $server, prompt: Text("http://localhost:8080"))
           .textFieldStyle(.roundedBorder)
+          .autocorrectionDisabled()
+          #if os(iOS)
+            .textInputAutocapitalization(.never)
+            .keyboardType(.URL)
+          #endif
         Text("Only localhost, Tailnet 100.64.0.0/10 addresses, and MagicDNS names are accepted.")
           .font(.footnote)
           .foregroundStyle(.secondary)
@@ -105,6 +110,11 @@ struct ConnectionEditor: View {
       TextField("Server address", text: $server, prompt: Text("http://localhost:8080"))
         .textFieldStyle(.roundedBorder)
         .font(.title3.monospaced())
+        .autocorrectionDisabled()
+        #if os(iOS)
+          .textInputAutocapitalization(.never)
+          .keyboardType(.URL)
+        #endif
         .onSubmit(connect)
 
       VStack(alignment: .leading, spacing: 5) {
@@ -137,7 +147,9 @@ struct ConnectionEditor: View {
       }
     }
     .padding(24)
-    .frame(width: 480)
+    #if os(macOS)
+      .frame(width: 480)
+    #endif
     .interactiveDismissDisabled(required)
     .onAppear {
       server = model.configuredURL?.absoluteString ?? "http://localhost:8080"
@@ -164,5 +176,7 @@ struct ConnectionEditor: View {
   SettingsView()
     .environment(AppModel.preview())
     .tint(.mint)
-    .frame(width: 500, height: 330)
+    #if os(macOS)
+      .frame(width: 500, height: 330)
+    #endif
 }

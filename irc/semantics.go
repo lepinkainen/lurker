@@ -34,6 +34,7 @@ var nickTargetKinds = map[string]struct{}{"kick": {}, "nick": {}}
 var sysKinds = map[string]struct{}{
 	"join": {}, "part": {}, "quit": {}, "nick": {}, "kick": {}, "mode": {},
 	"topic": {}, "connected": {}, "disconnected": {},
+	"away": {}, "back": {}, "account": {}, "chghost": {},
 }
 
 // presenceKinds is the subset of sysKinds that represent user-presence
@@ -41,6 +42,7 @@ var sysKinds = map[string]struct{}{
 // nick" runs). Mirror in web/src/messages.ts PRESENCE_KINDS.
 var presenceKinds = map[string]struct{}{
 	"join": {}, "part": {}, "quit": {}, "nick": {},
+	"away": {}, "back": {}, "account": {}, "chghost": {},
 }
 
 // IsPresenceKind reports whether the given event kind is a presence event

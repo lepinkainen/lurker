@@ -17,15 +17,25 @@ struct SidebarView: View {
         HStack {
           Label(model.connectionState.label, systemImage: model.connectionState.symbol)
           Spacer()
-          // `SettingsLink` needs a `Settings` scene, which the Previews host lacks;
-          // in previews it joins the window key-view loop and crashes on refresh.
-          if !ProcessInfo.isPreviewOrUITest {
-            SettingsLink {
+          #if os(macOS)
+            // `SettingsLink` needs a `Settings` scene, which the Previews host lacks;
+            // in previews it joins the window key-view loop and crashes on refresh.
+            if !ProcessInfo.isPreviewOrUITest {
+              SettingsLink {
+                Image(systemName: "gearshape")
+              }
+              .buttonStyle(.plain)
+              .help("Settings")
+            }
+          #else
+            // iOS has no `Settings` scene; open settings as an in-app sheet.
+            Button {
+              model.showingSettings = true
+            } label: {
               Image(systemName: "gearshape")
             }
             .buttonStyle(.plain)
-            .help("Settings")
-          }
+          #endif
         }
         .font(.body)
         .foregroundStyle(.secondary)
@@ -182,9 +192,11 @@ private struct NetworkHeaderRow: View {
           .foregroundStyle(.secondary)
           .frame(width: 16, height: 16)
       }
-      .menuStyle(.borderlessButton)
       .menuIndicator(.hidden)
       .fixedSize()
+      #if os(macOS)
+        .menuStyle(.borderlessButton)
+      #endif
     }
     .padding(.trailing, 6)
     .background(

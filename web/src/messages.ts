@@ -264,7 +264,7 @@ function statusLine(message: Message) {
 // Kept in lockstep with irc.presenceKinds via the semantic-kinds fixture
 // contract test (tests/semantics-contract.test.ts). Do not add new local kind
 // lists — every other classification is server-supplied (see msgDisplayKind).
-export const PRESENCE_KINDS = ["join", "part", "quit", "nick"] as const;
+export const PRESENCE_KINDS = ["join", "part", "quit", "nick", "away", "back", "account", "chghost"] as const;
 const expandedPresenceGroups = new Set<string>();
 
 // Consecutive plain messages from the same sender within this window
@@ -470,6 +470,9 @@ function presenceSummaryText(messages: Message[]) {
 
 function presenceKindLabel(kind: (typeof PRESENCE_KINDS)[number], count: number) {
   if (kind === "nick") return count === 1 ? "nick change" : "nick changes";
+  if (kind === "away" || kind === "back") return kind;
+  if (kind === "account") return count === 1 ? "account change" : "account changes";
+  if (kind === "chghost") return count === 1 ? "host change" : "host changes";
   return count === 1 ? kind : `${kind}s`;
 }
 

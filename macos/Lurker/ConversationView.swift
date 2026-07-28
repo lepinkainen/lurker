@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import SwiftUI
 
@@ -119,7 +118,7 @@ private struct TimelineView: View {
     // Rebuild the scroll container per buffer so switching channels always
     // re-applies the bottom anchor and lands at the end of the backlog.
     .id(buffer.id)
-    .background(Color(nsColor: .textBackgroundColor))
+    .background(Color.lurkerTimelineBackground)
   }
 
   private var items: [TimelineItem] {
@@ -193,7 +192,7 @@ private struct DaySeparator: View {
 
   private var line: some View {
     Rectangle()
-      .fill(Color(nsColor: .separatorColor))
+      .fill(Color.lurkerSeparator)
       .frame(height: 1)
   }
 }
@@ -246,60 +245,108 @@ private struct MessageRow: View {
   let buffer: Buffer?
 
   var body: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 8) {
-      Text(displayTime(message.ts))
-        .font(.caption.monospacedDigit())
-        .foregroundStyle(.tertiary)
-        .frame(width: 42, alignment: .trailing)
-        .accessibilityHidden(true)
-
-      if message.displayKind == "sys" {
-        Image(systemName: systemSymbol)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .frame(width: 14)
-        Text(systemText)
-          .font(.footnote.monospaced())
-          .foregroundStyle(.secondary)
-          .textSelection(.enabled)
-      } else {
-        Text(message.sender)
-          .font(.body.monospaced().weight(message.isSelf == true ? .bold : .medium))
-          .foregroundStyle(nickColor(message.senderColor))
-          .frame(width: 104, alignment: .trailing)
-          .lineLimit(1)
-          .help(message.userhost ?? message.sender)
-        VStack(alignment: .leading, spacing: 6) {
-          Text(attributedBody(message))
-            .font(.body.monospaced())
-            .foregroundStyle(message.displayKind == "action" ? .purple : .primary)
-            .textSelection(.enabled)
-          if buffer?.showEmbeds != false {
-            ForEach(message.previews ?? []) { preview in
-              PreviewCard(preview: preview)
-            }
+    layout
+      .padding(.horizontal, 11)
+      .padding(.vertical, 2)
+      .background(highlightColor)
+      .contextMenu {
+        Button("Copy Message") {
+          Clipboard.copy(message.content)
+        }
+        if !message.sender.isEmpty {
+          Button("Copy Nickname") {
+            Clipboard.copy(message.sender)
           }
         }
       }
-      Spacer(minLength: 4)
-    }
-    .padding(.horizontal, 11)
-    .padding(.vertical, 2)
-    .background(highlightColor)
-    .contextMenu {
-      Button("Copy Message") {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(message.content, forType: .string)
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel("\(message.sender), \(displayTime(message.ts)), \(message.content)")
+  }
+
+  // macOS: aligned gutter columns (time, sender, body). iOS: those columns eat
+  // ~160pt of a 402pt screen, so the nick moves to its own line above the body
+  // with the timestamp trailing it, and the body wraps at full width.
+  @ViewBuilder private var layout: some View {
+    #if os(macOS)
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        timestamp
+          .frame(width: 42, alignment: .trailing)
+        if message.displayKind == "sys" {
+          systemIcon
+            .frame(width: 14)
+          systemBody
+        } else {
+          Text(message.sender)
+            .font(.body.monospaced().weight(message.isSelf == true ? .bold : .medium))
+            .foregroundStyle(nickColor(message.senderColor))
+            .frame(width: 104, alignment: .trailing)
+            .lineLimit(1)
+            .help(message.userhost ?? message.sender)
+          VStack(alignment: .leading, spacing: 6) {
+            messageBody
+            embeds
+          }
+        }
+        Spacer(minLength: 4)
       }
-      if !message.sender.isEmpty {
-        Button("Copy Nickname") {
-          NSPasteboard.general.clearContents()
-          NSPasteboard.general.setString(message.sender, forType: .string)
+    #else
+      if message.displayKind == "sys" {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          systemIcon
+          systemBody
+          Spacer(minLength: 4)
+          timestamp
+        }
+      } else {
+        VStack(alignment: .leading, spacing: 2) {
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(message.sender)
+              .font(.body.monospaced().weight(message.isSelf == true ? .bold : .semibold))
+              .foregroundStyle(nickColor(message.senderColor))
+              .lineLimit(1)
+            Spacer(minLength: 4)
+            timestamp
+          }
+          messageBody
+          embeds
         }
       }
+    #endif
+  }
+
+  private var timestamp: some View {
+    Text(displayTime(message.ts))
+      .font(.caption.monospacedDigit())
+      .foregroundStyle(.tertiary)
+      .accessibilityHidden(true)
+  }
+
+  private var systemIcon: some View {
+    Image(systemName: systemSymbol)
+      .font(.caption)
+      .foregroundStyle(.secondary)
+  }
+
+  private var systemBody: some View {
+    Text(systemText)
+      .font(.body.monospaced())
+      .foregroundStyle(.secondary)
+      .textSelection(.enabled)
+  }
+
+  private var messageBody: some View {
+    Text(attributedBody(message))
+      .font(.body.monospaced())
+      .foregroundStyle(message.displayKind == "action" ? .purple : .primary)
+      .textSelection(.enabled)
+  }
+
+  @ViewBuilder private var embeds: some View {
+    if buffer?.showEmbeds != false {
+      ForEach(message.previews ?? []) { preview in
+        PreviewCard(preview: preview)
+      }
     }
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel("\(message.sender), \(displayTime(message.ts)), \(message.content)")
   }
 
   private var highlightColor: Color {
@@ -314,14 +361,35 @@ private struct MessageRow: View {
     case "topic": "text.quote"
     case "connected": "bolt.horizontal.circle"
     case "disconnected": "bolt.slash"
+    case "away": "moon.zzz"
+    case "back": "sun.max"
+    case "nick": "person.text.rectangle"
+    case "account": "person.crop.circle.badge.checkmark"
+    case "chghost": "at"
     default: "info.circle"
     }
   }
 
   private var systemText: String {
-    [message.sender, message.content.isEmpty ? message.kind : message.content]
-      .filter { !$0.isEmpty }
-      .joined(separator: " ")
+    let target = message.target ?? ""
+    switch message.kind {
+    case "away":
+      return message.content.isEmpty
+        ? "\(message.sender) is away" : "\(message.sender) is away (\(message.content))"
+    case "back":
+      return "\(message.sender) is back"
+    case "nick" where !target.isEmpty:
+      return "\(message.sender) is now known as \(target)"
+    case "account":
+      return message.content.isEmpty
+        ? "\(message.sender) logged out" : "\(message.sender) logged in as \(message.content)"
+    case "chghost":
+      return "\(message.sender) changed host to \(message.content)"
+    default:
+      return [message.sender, message.content.isEmpty ? message.kind : message.content]
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
+    }
   }
 }
 
@@ -412,18 +480,22 @@ private struct ComposerView: View {
       }
       .padding(.horizontal, 10)
       .padding(.vertical, 7)
-      .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 8))
+      .background(Color.lurkerControlBackground, in: .rect(cornerRadius: 8))
       .overlay {
         RoundedRectangle(cornerRadius: 8)
           .stroke(
-            focused ? Color.accentColor : Color(nsColor: .separatorColor),
+            focused ? Color.accentColor : Color.lurkerSeparator,
             lineWidth: focused ? 1.5 : 0.5)
       }
     }
     .padding(10)
     .background(.bar)
     .onChange(of: model.focusComposerRequest) { _, _ in focused = true }
-    .onChange(of: buffer.id) { _, _ in focused = true }
+    #if os(macOS)
+      // Autofocus on buffer switch is desktop-only: on iOS programmatic focus
+      // raises the software keyboard over the timeline the user came to read.
+      .onChange(of: buffer.id) { _, _ in focused = true }
+    #endif
   }
 
   private var canSend: Bool {
@@ -441,7 +513,7 @@ private struct ComposerView: View {
 }
 
 private func isPresence(_ message: Message) -> Bool {
-  ["join", "part", "quit", "nick"].contains(message.kind)
+  presenceKinds.contains(message.kind)
 }
 
 private func nickColor(_ index: Int?) -> Color {
@@ -475,7 +547,7 @@ func attributedBody(_ message: Message) -> AttributedString {
         continue
       }
       result[attributedRange].link = url
-      result[attributedRange].foregroundColor = NSColor.linkColor
+      result[attributedRange].foregroundColor = Color.lurkerLink
       result[attributedRange].underlineStyle = .single
     }
   }
@@ -527,5 +599,7 @@ private enum TimelineFormatters {
   ConversationView()
     .environment(AppModel.preview())
     .tint(.mint)
-    .frame(width: 700, height: 600)
+    #if os(macOS)
+      .frame(width: 700, height: 600)
+    #endif
 }

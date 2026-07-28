@@ -67,6 +67,25 @@ func (u *userChannels) removeUser(nick, channel string) {
 	}
 }
 
+// channelsFor returns the sorted list of channels the nick is currently in
+// plus a tracked flag, without mutating state. Used by presence handlers
+// (away/account/chghost/nick) to fan events out to shared channels.
+func (u *userChannels) channelsFor(nick string) (channels []string, tracked bool) {
+	if u == nil || nick == "" {
+		return nil, false
+	}
+	s, ok := u.byNick[caseFoldNick(nick)]
+	if !ok {
+		return nil, false
+	}
+	out := make([]string, 0, len(s))
+	for c := range s {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out, true
+}
+
 // dropUser removes the nick entirely and returns the sorted list of
 // channels it was in plus a tracked flag — distinguishes "store missing"
 // (u==nil, the caller forgot to init) from "nick legitimately untracked".

@@ -73,6 +73,16 @@ export function sysBodyDOM(m: SysMessage): Node[] {
       return [nickEl(m.sender || ""), t(`${uh} set mode ${m.content || ""}${m.target ? ` on ${m.target}` : ""}`)];
     case "topic":
       return [nickEl(m.sender || ""), t(`${uh} set topic: ${m.content || ""}`)];
+    case "away":
+      return [nickEl(m.target || m.sender || ""), t(` is away${extra}`)];
+    case "back":
+      return [nickEl(m.target || m.sender || ""), t(" is back")];
+    case "account":
+      return m.content
+        ? [nickEl(m.target || m.sender || ""), t(` logged in as ${m.content}`)]
+        : [nickEl(m.target || m.sender || ""), t(" logged out")];
+    case "chghost":
+      return [nickEl(m.target || m.sender || ""), t(` changed host to ${m.content || ""}`)];
     case "connected":
       return [t("connected")];
     case "disconnected":

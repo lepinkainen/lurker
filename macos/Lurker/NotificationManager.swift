@@ -1,6 +1,9 @@
-import AppKit
 import Foundation
 import UserNotifications
+
+#if os(macOS)
+  import AppKit
+#endif
 
 @MainActor
 final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
@@ -9,6 +12,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
   private var openBuffer: (@MainActor @Sendable (UUID) -> Void)?
   private var configured = false
+  private var lastBadgeCount: Int?
 
   func configure(openBuffer: @escaping @MainActor @Sendable (UUID) -> Void) {
     self.openBuffer = openBuffer
@@ -16,8 +20,10 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     configured = true
     UNUserNotificationCenter.current().delegate = self
     Task {
+      // `.badge` is required for `setBadgeCount` on iOS; harmless on macOS
+      // (the dock tile badge itself needs no authorization).
       _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [
-        .alert, .sound,
+        .alert, .sound, .badge,
       ])
     }
   }
@@ -37,9 +43,21 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     UNUserNotificationCenter.current().add(request)
   }
 
-  func setDockBadge(_ count: Int) {
+  /// Reflect the unread-mention total on the app icon. macOS uses the dock tile
+  /// badge; iOS uses the notification-center badge count.
+  func setBadge(_ count: Int) {
     guard !ProcessInfo.isPreviewOrUITest else { return }
-    NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
+    guard count != lastBadgeCount else { return }
+    lastBadgeCount = count
+    #if os(macOS)
+      NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
+    #else
+      UNUserNotificationCenter.current().setBadgeCount(count) { error in
+        if let error {
+          print("lurker: setBadgeCount failed: \(error)")
+        }
+      }
+    #endif
   }
 
   nonisolated func userNotificationCenter(
@@ -59,7 +77,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
       return
     }
     await MainActor.run {
-      NSApp.activate()
+      #if os(macOS)
+        NSApp.activate()
+      #endif
       openBuffer?(id)
     }
   }

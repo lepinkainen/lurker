@@ -56,10 +56,14 @@ func (h *handler) onNick(c *girc.Client, e girc.Event) {
 	if h.hub != nil && e.Source != nil {
 		h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, Nick: e.Source.Name, State: "nick", Target: newNick})
 	}
-	if e.Source != nil {
-		h.userChannels.renameUser(e.Source.Name, newNick)
+	if e.Source == nil {
+		h.storeEvent(e, "", ircdb.BufferStatus, "nick", newNick, "")
+		return
 	}
-	h.storeEvent(e, "", ircdb.BufferStatus, "nick", newNick, "")
+	// Snapshot shared channels before the rename rewrites the index.
+	channels, tracked := h.userChannels.channelsFor(e.Source.Name)
+	h.userChannels.renameUser(e.Source.Name, newNick)
+	h.fanOutPresence(e, channels, tracked, "nick", newNick, "")
 }
 
 func (h *handler) onInvite(_ *girc.Client, e girc.Event) {
@@ -83,7 +87,8 @@ func (h *handler) onAway(_ *girc.Client, e girc.Event) {
 	if h.hub != nil {
 		h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, Nick: e.Source.Name, State: state})
 	}
-	h.storeEvent(e, "", ircdb.BufferStatus, state, e.Source.Name, message)
+	channels, tracked := h.userChannels.channelsFor(e.Source.Name)
+	h.fanOutPresence(e, channels, tracked, state, e.Source.Name, message)
 }
 
 func (h *handler) onAccount(_ *girc.Client, e girc.Event) {
@@ -94,14 +99,29 @@ func (h *handler) onAccount(_ *girc.Client, e girc.Event) {
 	if account == "*" {
 		account = ""
 	}
-	h.storeEvent(e, "", ircdb.BufferStatus, "account", e.Source.Name, account)
+	channels, tracked := h.userChannels.channelsFor(e.Source.Name)
+	h.fanOutPresence(e, channels, tracked, "account", e.Source.Name, account)
 }
 
 func (h *handler) onChghost(_ *girc.Client, e girc.Event) {
 	if e.Source == nil || len(e.Params) < 2 {
 		return
 	}
-	h.storeEvent(e, "", ircdb.BufferStatus, "chghost", e.Source.Name, strings.Join(e.Params[:2], " "))
+	channels, tracked := h.userChannels.channelsFor(e.Source.Name)
+	h.fanOutPresence(e, channels, tracked, "chghost", e.Source.Name, strings.Join(e.Params[:2], " "))
+}
+
+// fanOutPresence writes a presence-ish event (away/back/account/chghost/nick)
+// to every channel the source shares with us, mirroring the QUIT fan-out.
+// Untracked nicks fall back to the status buffer so nothing is silently lost.
+func (h *handler) fanOutPresence(e girc.Event, channels []string, tracked bool, kind, target, content string) {
+	if !tracked || len(channels) == 0 {
+		h.storeEvent(e, "", ircdb.BufferStatus, kind, target, content)
+		return
+	}
+	for _, channel := range channels {
+		h.storeEvent(e, channel, ircdb.BufferChannel, kind, target, content)
+	}
 }
 func (h *handler) publishRemotePresence(channel, state string, source *girc.Source) {
 	if h.hub == nil || source == nil {

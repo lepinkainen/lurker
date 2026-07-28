@@ -38,8 +38,7 @@ struct MembersInspector: View {
             }
             Divider()
             Button("Copy Nickname") {
-              NSPasteboard.general.clearContents()
-              NSPasteboard.general.setString(member.nick, forType: .string)
+              Clipboard.copy(member.nick)
             }
           }
       }

@@ -229,6 +229,69 @@ func TestPresenceModeChannelHonorsFlags(t *testing.T) {
 	}
 }
 
+// Collapsed presence runs must fold into one summary line (parity with the
+// web presence-summary row and the SwiftUI DisclosureGroup), ordered and
+// labeled like web/src/messages.ts presenceKindLabel.
+func TestGroupAndFormatCollapsesPresenceRun(t *testing.T) {
+	buf := &bufferDTO{Kind: "channel", ShowPresenceEvents: true, CollapsePresenceEvents: true}
+	msgs := []messageDTO{
+		{ID: seqUUID(1), TS: "2026-07-28T10:00:00Z", Sender: "alice", Kind: "away", Target: "alice", Content: "lunch"},
+		{ID: seqUUID(2), TS: "2026-07-28T10:01:00Z", Sender: "alice", Kind: "back", Target: "alice"},
+		{ID: seqUUID(3), TS: "2026-07-28T10:02:00Z", Sender: "bob", Kind: "nick", Target: "bob2"},
+		{ID: seqUUID(4), TS: "2026-07-28T10:03:00Z", Sender: "carol", Kind: "join"},
+		{ID: seqUUID(5), TS: "2026-07-28T10:04:00Z", Sender: "dave", Kind: "privmsg", Content: "hello"},
+	}
+
+	out := groupAndFormatMessages(msgs, "tester", buf)
+
+	if len(out) != 2 {
+		t.Fatalf("lines = %d, want 2 (summary + privmsg): %q", len(out), out)
+	}
+	want := "+ 4 presence events: 1 join, 1 nick change, 1 away, 1 back"
+	if !strings.Contains(out[0], want) {
+		t.Errorf("summary = %q, want contains %q", out[0], want)
+	}
+	if !strings.Contains(out[1], "hello") {
+		t.Errorf("second line = %q, want privmsg", out[1])
+	}
+}
+
+// A single presence event between messages renders as a normal row, not a
+// one-item summary.
+func TestGroupAndFormatSinglePresenceRendersRaw(t *testing.T) {
+	buf := &bufferDTO{Kind: "channel", ShowPresenceEvents: true, CollapsePresenceEvents: true}
+	msgs := []messageDTO{
+		{ID: seqUUID(1), TS: "2026-07-28T10:00:00Z", Sender: "alice", Kind: "away", Target: "alice", Content: "lunch"},
+		{ID: seqUUID(2), TS: "2026-07-28T10:01:00Z", Sender: "dave", Kind: "privmsg", Content: "hello"},
+	}
+
+	out := groupAndFormatMessages(msgs, "tester", buf)
+
+	if len(out) != 2 {
+		t.Fatalf("lines = %d, want 2: %q", len(out), out)
+	}
+	if !strings.Contains(out[0], "alice is away (lunch)") {
+		t.Errorf("away line = %q, want raw away row", out[0])
+	}
+}
+
+// Hidden presence (show_presence_events=false) drops the new kinds too.
+func TestGroupAndFormatHidesAllPresenceKinds(t *testing.T) {
+	buf := &bufferDTO{Kind: "channel", ShowPresenceEvents: false, CollapsePresenceEvents: false}
+	msgs := []messageDTO{
+		{ID: seqUUID(1), TS: "2026-07-28T10:00:00Z", Sender: "alice", Kind: "away", Target: "alice"},
+		{ID: seqUUID(2), TS: "2026-07-28T10:01:00Z", Sender: "alice", Kind: "account", Target: "alice", Content: "acct"},
+		{ID: seqUUID(3), TS: "2026-07-28T10:02:00Z", Sender: "alice", Kind: "chghost", Target: "alice", Content: "u h"},
+		{ID: seqUUID(4), TS: "2026-07-28T10:03:00Z", Sender: "dave", Kind: "privmsg", Content: "hello"},
+	}
+
+	out := groupAndFormatMessages(msgs, "tester", buf)
+
+	if len(out) != 1 || !strings.Contains(out[0], "hello") {
+		t.Fatalf("lines = %q, want only privmsg", out)
+	}
+}
+
 // ── new-messages marker (parity with web; see ai-docs/behaviors/new-messages-marker.md) ──
 
 // seqUUID builds deterministic, byte-ordered UUIDs so tests can rely on

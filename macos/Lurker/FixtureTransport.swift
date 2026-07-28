@@ -143,7 +143,21 @@ actor FixtureTransport: LurkerTransport {
       unread: fullUnread,
       mentions: 0
     )
+    // Presence rows are interleaved with privmsgs so they render as individual
+    // system rows; adjacent presence events would collapse into a summary
+    // because the channel has `collapsePresenceEvents: true`.
     let messages = [
+      Message(
+        id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000000")!,
+        networkID: networkID,
+        bufferID: channelID,
+        ts: "2026-07-23T08:11:00Z",
+        sender: "ava",
+        kind: "join",
+        content: "",
+        displayKind: "sys",
+        senderColor: 7
+      ),
       Message(
         id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000001")!,
         networkID: networkID,
@@ -168,6 +182,17 @@ actor FixtureTransport: LurkerTransport {
         countsAsUnread: true,
         senderColor: 19
       ),
+      Message(
+        id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000004")!,
+        networkID: networkID,
+        bufferID: channelID,
+        ts: "2026-07-23T08:14:00Z",
+        sender: "ava",
+        kind: "part",
+        content: "brb, coffee",
+        displayKind: "sys",
+        senderColor: 7
+      ),
     ]
     return StateSnapshot(
       networks: [
@@ -184,7 +209,7 @@ actor FixtureTransport: LurkerTransport {
           disabled: false
         )
       ],
-      buffers: [channel, query, fullChannel],
+      buffers: [status, channel, query, fullChannel],
       initialMessages: [
         channelID.uuidString: messages,
         fullChannelID.uuidString: Array(fullMessages.suffix(fullPageSize)),

@@ -147,6 +147,15 @@ struct Message: Codable, Identifiable, Sendable, Hashable {
   var previews: [Preview]? = nil
 }
 
+/// Event kinds that represent user-presence changes — the rows the timeline
+/// collapses into presence-summary runs and hides when a buffer's
+/// `show_presence_events` is off. Mirror of `irc.presenceKinds` (Go) and
+/// `PRESENCE_KINDS` (web/src/messages.ts); the shared contract fixture is
+/// `testdata/semantic-kinds.json`.
+let presenceKinds: Set<String> = [
+  "join", "part", "quit", "nick", "away", "back", "account", "chghost",
+]
+
 struct Member: Codable, Identifiable, Sendable, Hashable {
   var id: String { nick.lowercased() }
   let nick: String
