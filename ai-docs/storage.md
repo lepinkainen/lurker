@@ -53,7 +53,7 @@ Path pattern:
 Purpose:
 
 - messages for that network
-- per-buffer mutable state such as topic and last-seen ID
+- per-buffer mutable state such as topic, topic setter metadata (`topic_set_by`/`topic_set_at`, added by log migration `0006_buffer_topic_meta.sql`), and last-seen ID
 - full-text search index
 
 Important properties:

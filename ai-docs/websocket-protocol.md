@@ -123,7 +123,7 @@ Currently published events:
 
 - `message` — inbound or locally-logged outbound message
 - `buffer_created` — first-time buffer registration
-- `buffer_update` — topic, joined state, or last-seen-ID changes
+- `buffer_update` — topic, topic setter/set-time, joined state, or last-seen-ID changes
 - `network_state` — connection state transitions
 - `member_list` — full channel member list snapshot
 - `preview` — URL previews ready for a message
@@ -164,10 +164,14 @@ Important event shapes:
 
 `buffer_update`
 
+Partial update: every field below except `id`/`network_id` is optional, and an absent field means "unchanged" — clients must only apply keys present in the JSON. A present-but-empty `topic` means the topic was cleared.
+
 - `id`
 - `network_id`
 - `topic`
-- `joined`
+- `topic_set_by` — nick that set the topic (from RPL_TOPICWHOTIME 333 or a live TOPIC change)
+- `topic_set_at` — when the topic was set, storage timestamp format (`2006-01-02T15:04:05.000Z`)
+- `joined` — never sent on topic-only updates: a topic reply (332/333) is not proof of membership
 - `last_seen_id`
 
 `network_state`

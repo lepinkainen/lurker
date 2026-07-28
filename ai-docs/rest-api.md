@@ -113,6 +113,8 @@ Current behavior:
   "name": "#channel",
   "kind": "channel",
   "topic": "...",
+  "topic_set_by": "nick",
+  "topic_set_at": "2026-01-01T00:00:00.000Z",
   "joined": true,
   "last_seen_id": "...",
   "created_at": "2026-01-01T00:00:00Z",
@@ -149,7 +151,7 @@ The settings fields (`show_embeds`, `show_presence_events`, `collapse_presence_e
 
 The `target` field records the IRC target (channel or nick) the message was addressed to. The `previews` array is populated by `attachPreviews` (see Preview attachment section below).
 
-Server-computed display fields (shared with the WS `message` event, see `websocket-protocol.md`): `display_kind`/`is_self`/`mentions_me`/`counts_as_unread` semantics, `highlight`/`highlight_pattern` custom-highlight flags, `sender_color`/`target_color` nick-color palette indexes, `segments` (parsed mIRC formatting; omitted for plain content), and `netsplit` (collapsed-netsplit group annotation on quit/join messages, recomputed for history/state batches by `annotateNetsplits`). The `topic` field on `bufferDTO` is stripped of mIRC codes at the API boundary; the DB keeps the raw topic.
+Server-computed display fields (shared with the WS `message` event, see `websocket-protocol.md`): `display_kind`/`is_self`/`mentions_me`/`counts_as_unread` semantics, `highlight`/`highlight_pattern` custom-highlight flags, `sender_color`/`target_color` nick-color palette indexes, `segments` (parsed mIRC formatting; omitted for plain content), and `netsplit` (collapsed-netsplit group annotation on quit/join messages, recomputed for history/state batches by `annotateNetsplits`). The `topic` field on `bufferDTO` is stripped of mIRC codes at the API boundary; the DB keeps the raw topic. `topic_set_by`/`topic_set_at` (optional, omitted when unknown) record who set the topic and when, populated from RPL_TOPICWHOTIME (333) on join and from live TOPIC changes; they ride alongside `topic` on both `bufferDTO` and the WS `buffer_update` event.
 
 ## `GET /api/buffers/{id}/history`
 
