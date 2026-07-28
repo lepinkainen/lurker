@@ -29,6 +29,7 @@ func TestNickPublishesPresenceAndUpdatesSelfNick(t *testing.T) {
 	}
 }
 
+// Untracked nick: away/back fall back to the status buffer.
 func TestAwayStoresAwayAndBack(t *testing.T) {
 	f := newTestHandlerFixture(t)
 
@@ -63,6 +64,97 @@ func TestAwayStoresAwayAndBack(t *testing.T) {
 	}
 	if got[1].Kind != "back" || got[1].Target != "alice" || got[1].Content != "" {
 		t.Fatalf("back message = %+v", got[1])
+	}
+}
+
+// Away-notify fan-out: a tracked user's away/back events land in every
+// shared channel, not the status buffer (which they used to flood).
+func TestAwayFansOutToSharedChannels(t *testing.T) {
+	f := newTestHandlerFixture(t)
+	f.Handler.userChannels.addUser("alice", "#a")
+	f.Handler.userChannels.addUser("alice", "#b")
+
+	f.Handler.onAway(nil, mustEvent(t, ":alice!u@h AWAY :lunch"))
+	f.Handler.onAway(nil, mustEvent(t, ":alice!u@h AWAY"))
+
+	rows, err := f.LogStore.DB.Query(`
+		SELECT b.name, b.kind, m.kind, m.target, m.content
+		FROM messages m JOIN buffers b ON b.id = m.buffer_id
+		ORDER BY m.id, b.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	type row struct{ Buf, BufKind, Kind, Target, Content string }
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.Buf, &r.BufKind, &r.Kind, &r.Target, &r.Content); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("expected 4 channel rows (away+back × #a,#b), got %d: %+v", len(got), got)
+	}
+	for i, r := range got {
+		wantKind := "away"
+		wantContent := "lunch"
+		if i >= 2 {
+			wantKind = "back"
+			wantContent = ""
+		}
+		if r.BufKind != "channel" {
+			t.Errorf("row %d buffer kind=%q, want channel", i, r.BufKind)
+		}
+		if r.Kind != wantKind || r.Target != "alice" || r.Content != wantContent {
+			t.Errorf("row %d = %+v, want kind=%q target=alice content=%q", i, r, wantKind, wantContent)
+		}
+	}
+}
+
+// Nick fan-out: rename lands in shared channels and userChannels tracking
+// follows the new nick.
+func TestNickFansOutToSharedChannels(t *testing.T) {
+	f := newTestHandlerFixture(t)
+	f.Handler.userChannels.addUser("alice", "#a")
+	f.Handler.userChannels.addUser("alice", "#b")
+
+	f.Handler.onNick(nil, mustEvent(t, ":alice!u@h NICK bob"))
+
+	rows, err := f.LogStore.DB.Query(`
+		SELECT b.name, b.kind, m.kind, m.target
+		FROM messages m JOIN buffers b ON b.id = m.buffer_id
+		ORDER BY b.name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	type row struct{ Buf, BufKind, Kind, Target string }
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.Buf, &r.BufKind, &r.Kind, &r.Target); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 channel rows, got %d: %+v", len(got), got)
+	}
+	for _, r := range got {
+		if r.BufKind != "channel" || r.Kind != "nick" || r.Target != "bob" {
+			t.Errorf("row = %+v, want channel nick→bob", r)
+		}
+	}
+	if channels, tracked := f.Handler.userChannels.channelsFor("bob"); !tracked || len(channels) != 2 {
+		t.Fatalf("bob channels = %v tracked=%v, want [#a #b] true", channels, tracked)
 	}
 }
 

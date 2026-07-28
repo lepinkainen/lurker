@@ -53,6 +53,19 @@ func TestAllEventsSkipsExplicitPrivmsgHandler(t *testing.T) {
 	}
 }
 
+// TAGMSG (typing indicators) and BATCH framing carry no displayable
+// content and must not be stored as status notices.
+func TestTagmsgAndBatchAreNotPersisted(t *testing.T) {
+	f := newTestHandlerFixture(t)
+
+	f.Handler.onAllEvent(nil, mustEvent(t, "@+typing=active :buggy!u@h TAGMSG #chan"))
+	f.Handler.onAllEvent(nil, mustEvent(t, ":irc.example BATCH +yXNAbvnRHTRBv netsplit irc.hub other.host"))
+
+	if count := handlerMessageCount(t, f); count != 0 {
+		t.Fatalf("message count = %d, want 0", count)
+	}
+}
+
 func TestPrivmsgCTCPAndActionKinds(t *testing.T) {
 	for _, tc := range []struct {
 		name        string

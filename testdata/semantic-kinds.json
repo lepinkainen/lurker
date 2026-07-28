@@ -1,6 +1,6 @@
 {
   "_comment": "Cross-language contract for IRC message-kind classification. Asserted by irc.TestSemanticKindsContract (Go) and web/tests/semantics-contract.test.ts. The web client consumes server-computed display_kind + is_self/mentions_me/counts_as_unread directly, so the ONLY set it still mirrors is presenceKinds (web/src/messages.ts PRESENCE_KINDS); nonUnreadKinds/sysKinds guard the server constants. Arrays are sorted. Edit this together with irc/semantics.go and the web mirror.",
-  "presenceKinds": ["join", "nick", "part", "quit"],
+  "presenceKinds": ["account", "away", "back", "chghost", "join", "nick", "part", "quit"],
   "nonUnreadKinds": ["account", "away", "back", "chghost", "connected", "disconnected", "error", "join", "kick", "mode", "nick", "part", "quit", "status"],
-  "sysKinds": ["connected", "disconnected", "join", "kick", "mode", "nick", "part", "quit", "topic"]
+  "sysKinds": ["account", "away", "back", "chghost", "connected", "disconnected", "join", "kick", "mode", "nick", "part", "quit", "topic"]
 }

@@ -11,6 +11,9 @@ func (h *handler) onUnhandledEvent(e girc.Event) {
 	if isSyntheticClientEvent(e.Command) {
 		return
 	}
+	if isProtocolPlumbingEvent(e.Command) {
+		return
+	}
 	kind := unhandledEventKind(e.Command)
 	bufName, bufKind := "", ircdb.BufferStatus
 	if kind == "error" {
@@ -22,6 +25,13 @@ func (h *handler) onUnhandledEvent(e girc.Event) {
 }
 func isSyntheticClientEvent(command string) bool {
 	return strings.HasPrefix(command, "CLIENT_") || strings.HasPrefix(command, "STS_")
+}
+
+// isProtocolPlumbingEvent filters IRCv3 machinery that carries no
+// human-readable content: TAGMSG (typing indicators, reactions) and BATCH
+// framing markers. Storing them as status notices is pure noise.
+func isProtocolPlumbingEvent(command string) bool {
+	return command == girc.CAP_TAGMSG || command == "BATCH"
 }
 
 func unhandledEventKind(command string) string {
