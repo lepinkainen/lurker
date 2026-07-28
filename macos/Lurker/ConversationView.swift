@@ -329,7 +329,7 @@ private struct MessageRow: View {
 
   private var systemBody: some View {
     Text(systemText)
-      .font(.footnote.monospaced())
+      .font(.body.monospaced())
       .foregroundStyle(.secondary)
       .textSelection(.enabled)
   }
@@ -361,14 +361,35 @@ private struct MessageRow: View {
     case "topic": "text.quote"
     case "connected": "bolt.horizontal.circle"
     case "disconnected": "bolt.slash"
+    case "away": "moon.zzz"
+    case "back": "sun.max"
+    case "nick": "person.text.rectangle"
+    case "account": "person.crop.circle.badge.checkmark"
+    case "chghost": "at"
     default: "info.circle"
     }
   }
 
   private var systemText: String {
-    [message.sender, message.content.isEmpty ? message.kind : message.content]
-      .filter { !$0.isEmpty }
-      .joined(separator: " ")
+    let target = message.target ?? ""
+    switch message.kind {
+    case "away":
+      return message.content.isEmpty
+        ? "\(message.sender) is away" : "\(message.sender) is away (\(message.content))"
+    case "back":
+      return "\(message.sender) is back"
+    case "nick" where !target.isEmpty:
+      return "\(message.sender) is now known as \(target)"
+    case "account":
+      return message.content.isEmpty
+        ? "\(message.sender) logged out" : "\(message.sender) logged in as \(message.content)"
+    case "chghost":
+      return "\(message.sender) changed host to \(message.content)"
+    default:
+      return [message.sender, message.content.isEmpty ? message.kind : message.content]
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
+    }
   }
 }
 
@@ -492,7 +513,7 @@ private struct ComposerView: View {
 }
 
 private func isPresence(_ message: Message) -> Bool {
-  ["join", "part", "quit", "nick"].contains(message.kind)
+  presenceKinds.contains(message.kind)
 }
 
 private func nickColor(_ index: Int?) -> Color {

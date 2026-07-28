@@ -33,6 +33,20 @@ struct WireModelTests {
     #expect(state.buffers.first?.mentions == 1)
   }
 
+  // Third leg of the presence-kind contract: irc.presenceKinds (Go) and
+  // PRESENCE_KINDS (web) assert against the same fixture, so a kind added
+  // server-side fails here until the Swift mirror follows.
+  @Test func presenceKindsMatchSharedContract() throws {
+    let fixture = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()  // LurkerTests
+      .deletingLastPathComponent()  // macos
+      .deletingLastPathComponent()  // repo root
+      .appending(path: "testdata/semantic-kinds.json")
+    struct Contract: Decodable { let presenceKinds: [String] }
+    let contract = try JSONDecoder().decode(Contract.self, from: Data(contentsOf: fixture))
+    #expect(Set(contract.presenceKinds) == presenceKinds)
+  }
+
   @Test func decodesKnownAndUnknownEvents() throws {
     let message = Data(
       """

@@ -565,8 +565,7 @@ final class AppModel {
   private func visibleMessages(_ values: [Message], in buffer: Buffer?) -> [Message] {
     guard let buffer else { return values }
     if buffer.showPresenceEvents { return values }
-    let presence = Set(["join", "part", "quit", "nick"])
-    return values.filter { !presence.contains($0.kind) }
+    return values.filter { !presenceKinds.contains($0.kind) }
   }
 
   private func updateBadge() {
