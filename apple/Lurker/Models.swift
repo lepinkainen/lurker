@@ -274,6 +274,21 @@ struct CommandResponse: Codable, Sendable {
   var message: String?
 }
 
+struct ChannelListEntry: Decodable, Sendable, Hashable, Identifiable {
+  let name: String
+  let count: Int
+  var topic: String? = nil
+
+  var id: String { name }
+}
+
+struct ChannelListEvent: Decodable, Sendable {
+  let networkID: UUID
+  // Go serializes an empty result as JSON null.
+  let entries: [ChannelListEntry]?
+  let done: Bool
+}
+
 enum ServerEvent: Sendable {
   case message(Message)
   case bufferCreated(BufferCreatedEvent)
@@ -284,6 +299,7 @@ enum ServerEvent: Sendable {
   case preview(PreviewEvent)
   case members(MemberListEvent)
   case netsplit(NetsplitEvent)
+  case channelList(ChannelListEvent)
   case ack(CommandResponse)
   case error(CommandResponse)
   case ignored(String)
@@ -306,6 +322,7 @@ extension ServerEvent: Decodable {
     case "preview": self = .preview(try PreviewEvent(from: decoder))
     case "member_list": self = .members(try MemberListEvent(from: decoder))
     case "netsplit": self = .netsplit(try NetsplitEvent(from: decoder))
+    case "channel_list": self = .channelList(try ChannelListEvent(from: decoder))
     case "ack": self = .ack(try CommandResponse(from: decoder))
     case "error": self = .error(try CommandResponse(from: decoder))
     default: self = .ignored(type)

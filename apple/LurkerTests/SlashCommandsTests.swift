@@ -46,6 +46,38 @@ struct SlashCommandsTests {
     #expect(join.channel == "#macdev")
   }
 
+  @Test func parsesListCommand() {
+    guard case .command(let list) = SlashCommands.parse("/list", buffer: buffer) else {
+      Issue.record("Expected list command")
+      return
+    }
+    #expect(list.type == "list")
+    #expect(list.networkID == buffer.networkID)
+    #expect(list.content == "")
+
+    guard case .command(let filtered) = SlashCommands.parse("/list linux", buffer: buffer) else {
+      Issue.record("Expected filtered list command")
+      return
+    }
+    #expect(filtered.content == "linux")
+  }
+
+  @Test func statusBufferAcceptsCommandsOnly() {
+    var status = buffer
+    status.kind = "status"
+    // Plain text has no message target in the status window.
+    guard case .invalid = SlashCommands.parse("hello", buffer: status) else {
+      Issue.record("Expected plain text to be rejected in status buffer")
+      return
+    }
+    // Commands still parse.
+    guard case .command(let list) = SlashCommands.parse("/list", buffer: status) else {
+      Issue.record("Expected /list to work in status buffer")
+      return
+    }
+    #expect(list.type == "list")
+  }
+
   @Test func rejectsMissingArgumentsAndUnknownCommands() {
     guard case .invalid = SlashCommands.parse("/msg tove", buffer: buffer) else {
       Issue.record("Expected invalid /msg")

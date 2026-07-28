@@ -108,6 +108,37 @@ struct AppModelTests {
     #expect(after?.lastSeenID == nil)
   }
 
+  @Test func channelListEventPresentsAndAccumulates() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+
+    model.apply(
+      .channelList(
+        ChannelListEvent(
+          networkID: networkID,
+          entries: [ChannelListEntry(name: "#go-nuts", count: 412, topic: "Go talk")],
+          done: false)))
+    #expect(model.channelList?.entries?.count == 1)
+    #expect(model.channelList?.done == false)
+
+    // A second batch for the same in-flight list accumulates.
+    model.apply(
+      .channelList(
+        ChannelListEvent(
+          networkID: networkID,
+          entries: [ChannelListEntry(name: "#quiet", count: 2)],
+          done: true)))
+    #expect(model.channelList?.entries?.count == 2)
+    #expect(model.channelList?.done == true)
+
+    // A result for another network replaces the finished one.
+    let otherNetwork = UUID()
+    model.apply(
+      .channelList(ChannelListEvent(networkID: otherNetwork, entries: nil, done: true)))
+    #expect(model.channelList?.networkID == otherNetwork)
+    #expect(model.channelList?.entries == nil)
+  }
+
   @Test func ackReadClearsMarkerAndCountsAndAdvancesLastSeen() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()

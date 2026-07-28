@@ -61,6 +61,8 @@ final class AppModel {
   var applicationActive = true
   var showingConnectionEditor = false
   var showingChannelSwitcher = false
+  // Latest /list result; non-nil presents the channel-list sheet.
+  var channelList: ChannelListEvent?
   // iOS has no `Settings` scene; settings is presented as an in-app sheet.
   var showingSettings = false
   var composerText = ""
@@ -440,6 +442,18 @@ final class AppModel {
         list[index].netsplit = event.netsplit
       }
       messages[event.bufferID] = list
+    case .channelList(let event):
+      // Web parity (channel-list.ts): a result for a different network starts
+      // fresh; entries accumulate in case the server ever streams batches.
+      if var current = channelList, current.networkID == event.networkID, !current.done {
+        current = ChannelListEvent(
+          networkID: event.networkID,
+          entries: (current.entries ?? []) + (event.entries ?? []),
+          done: event.done)
+        channelList = current
+      } else {
+        channelList = event
+      }
     case .error(let response):
       composerError = response.message ?? "The server rejected the command."
     case .ack, .ignored:
@@ -571,6 +585,7 @@ final class AppModel {
     messages.removeAll()
     members.removeAll()
     historyExhausted.removeAll()
+    channelList = nil
     selectedBufferID = nil
     hydrated = false
   }

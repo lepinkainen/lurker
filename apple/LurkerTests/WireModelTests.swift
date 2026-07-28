@@ -245,6 +245,48 @@ struct WireModelTests {
     #expect(plainText == "inline links:  and ")
   }
 
+  @Test func decodesLiveServerStatusBufferMarker() throws {
+    // Byte-for-byte /api/state output from a live server (status buffer with
+    // residual unread): absent topic/last_seen_id, lowercase marker uuid.
+    let json = """
+      {"networks":[],"buffers":[{"id":"019faab1-2fc2-7ec9-8d1a-f5f794cb5e6d","network_id":"019faab1-2fc0-768b-a2dd-fc335dbd3dc0","name":"*status*","kind":"status","joined":false,"marker_id":"019faab1-2fc3-716b-b949-723cd31c6a9b","marker_ts":"2026-07-28T21:46:06Z","created_at":"2026-07-28T21:46:06.658Z","show_embeds":true,"show_presence_events":true,"collapse_presence_events":false,"pinned":false,"unread":3,"mentions":0}],"initial_messages":{}}
+      """
+    let snapshot = try JSONDecoder.lurker().decode(StateSnapshot.self, from: Data(json.utf8))
+    let buffer = try #require(snapshot.buffers.first)
+    #expect(buffer.unread == 3)
+    #expect(buffer.markerID != nil)
+    #expect(buffer.markerTS == "2026-07-28T21:46:06Z")
+  }
+
+  @Test func decodesChannelListEvent() throws {
+    let json = """
+      {"type":"channel_list","network_id":"019faab1-2fc0-768b-a2dd-fc335dbd3dc0",\
+      "entries":[{"name":"#go-nuts","count":412,"topic":"Go talk"},{"name":"#quiet","count":2}],"done":true}
+      """
+    let event = try JSONDecoder.lurker().decode(ServerEvent.self, from: Data(json.utf8))
+    guard case .channelList(let list) = event else {
+      Issue.record("Expected channelList event, got \(event)")
+      return
+    }
+    #expect(list.done)
+    #expect(list.entries?.count == 2)
+    #expect(list.entries?.first?.name == "#go-nuts")
+    #expect(list.entries?.first?.count == 412)
+    #expect(list.entries?.last?.topic == nil)
+
+    // Go serializes an empty result as entries: null.
+    let empty = try JSONDecoder.lurker().decode(
+      ServerEvent.self,
+      from: Data(
+        #"{"type":"channel_list","network_id":"019faab1-2fc0-768b-a2dd-fc335dbd3dc0","entries":null,"done":true}"#
+          .utf8))
+    guard case .channelList(let emptyList) = empty else {
+      Issue.record("Expected channelList event for empty list")
+      return
+    }
+    #expect(emptyList.entries == nil)
+  }
+
   @Test @MainActor func plainMessagesHaveNoLinkRuns() {
     let message = Message(
       id: UUID(),

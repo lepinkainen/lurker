@@ -23,7 +23,7 @@ struct ConversationView: View {
         // their Esc-to-dismiss behavior. `.ignored` when there is nothing to
         // ack preserves default Esc handling.
         .onKeyPress(.escape) {
-          guard buffer.markerID != nil else { return .ignored }
+          guard buffer.markerID != nil || buffer.unread > 0 else { return .ignored }
           model.ackRead(buffer.id)
           return .handled
         }
@@ -121,7 +121,10 @@ private struct TimelineView: View {
         .padding(.vertical, 5)
       }
       .safeAreaInset(edge: .top, spacing: 0) {
-        if buffer.markerID != nil {
+        // `unread > 0` fallback: keeps the ack affordance available when the
+        // server predates `marker_id` (version skew) — without it there is no
+        // way to clear the badge at all.
+        if buffer.markerID != nil || buffer.unread > 0 {
           UnreadBar(buffer: buffer)
         }
       }
@@ -575,14 +578,16 @@ private struct ComposerView: View {
   }
 
   private var canSend: Bool {
-    model.connectionState == .connected && buffer.kind != "status"
-      && (buffer.kind != "channel" || buffer.joined)
+    model.connectionState == .connected && (buffer.kind != "channel" || buffer.joined)
   }
 
   private var placeholder: String {
     if !canSend {
       return model.connectionState == .connected
         ? "This conversation is read-only" : "Waiting for connection…"
+    }
+    if buffer.kind == "status" {
+      return "Commands only, e.g. /list, /nick, /msg NickServ …"
     }
     return "\(buffer.name)"
   }

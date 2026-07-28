@@ -17,11 +17,17 @@ enum SlashCommands {
     ("/away", "[message]", "Set away status"),
     ("/back", "", "Clear away status"),
     ("/topic", "[topic]", "Set the channel topic"),
+    ("/list", "[filter]", "List channels on the network"),
   ]
 
   static func parse(_ input: String, buffer: Buffer) -> ComposerResult {
     let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard value.hasPrefix("/") else {
+      // The status window has no message target — it accepts commands only
+      // (web parity: the status composer placeholder says the same).
+      if buffer.kind == "status" {
+        return .invalid("Commands only here — try /list, /join or /msg.")
+      }
       return .command(ClientCommand(type: "send", bufferID: buffer.id, content: value))
     }
     let pieces = value.dropFirst().split(whereSeparator: \.isWhitespace).map(String.init)
@@ -70,6 +76,8 @@ enum SlashCommands {
       return .command(ClientCommand(type: "back", networkID: buffer.networkID))
     case "topic":
       return .command(ClientCommand(type: "topic", bufferID: buffer.id, content: content))
+    case "list":
+      return .command(ClientCommand(type: "list", networkID: buffer.networkID, content: content))
     default:
       return .invalid("Unknown command /\(name)")
     }

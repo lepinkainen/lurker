@@ -18,6 +18,17 @@ struct RootView: View {
         ChannelSwitcher()
           .environment(model)
       }
+      .sheet(
+        isPresented: Binding(
+          get: { model.channelList != nil },
+          set: { if !$0 { model.channelList = nil } }
+        )
+      ) {
+        if let result = model.channelList {
+          ChannelListView(result: result)
+            .environment(model)
+        }
+      }
       #if os(iOS)
         .sheet(isPresented: $model.showingSettings) {
           NavigationStack {
