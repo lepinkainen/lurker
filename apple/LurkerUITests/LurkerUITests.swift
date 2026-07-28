@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 @MainActor
@@ -46,5 +47,47 @@ final class LurkerUITests: XCTestCase {
     app.typeKey("k", modifierFlags: .command)
     XCTAssertTrue(app.textFields["Jump to a channel or conversation"].waitForExistence(timeout: 2))
     XCTAssertTrue(app.staticTexts["Libera"].exists)
+  }
+
+  // The preview card is one clickable control, but the cursor change happens at
+  // arbitrary points inside it, so the test sweeps the pointer across the row and
+  // samples the system cursor at each stop.
+  func testPointerBecomesHandOverPreviewCard() {
+    let cardRow = messageRow(containing: "with a preview card:")
+    XCTAssertTrue(cardRow.waitForExistence(timeout: 5))
+    XCTAssertTrue(
+      sweepFindsPointingHand(in: cardRow),
+      "expected the pointing-hand cursor over the preview card or its link; samples: \(sweepLog.joined(separator: " | "))"
+    )
+  }
+
+  private var sweepLog: [String] = []
+
+  private func messageRow(containing text: String) -> XCUIElement {
+    app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+  }
+
+  private func sweepFindsPointingHand(in element: XCUIElement) -> Bool {
+    let hand = NSCursor.pointingHand.image.tiffRepresentation
+    var found = false
+    sweepLog = []
+    for dy in stride(from: 0.2, through: 0.8, by: 0.3) {
+      for dx in stride(from: 0.02, through: 0.98, by: 0.06) {
+        element.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: dy)).hover()
+        usleep(30_000)
+        let current = NSCursor.currentSystem
+        let isHand = current?.image.tiffRepresentation == hand
+        sweepLog.append(
+          "(\(String(format: "%.2f", dx)),\(String(format: "%.2f", dy)))"
+            + " cur=\(current == nil ? "nil" : NSStringFromSize(current!.image.size))"
+            + " hot=\(current.map { NSStringFromPoint($0.hotSpot) } ?? "-")"
+            + (isHand ? " HAND" : ""))
+        if isHand {
+          found = true
+        }
+      }
+    }
+    return found
   }
 }

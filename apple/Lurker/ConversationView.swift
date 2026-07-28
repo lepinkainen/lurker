@@ -404,6 +404,9 @@ private struct PreviewCard: View {
         card
       }
       .buttonStyle(.plain)
+      #if os(macOS)
+        .pointerStyle(.link)
+      #endif
     } else {
       card
     }

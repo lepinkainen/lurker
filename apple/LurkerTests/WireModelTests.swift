@@ -140,4 +140,52 @@ struct WireModelTests {
     #expect(String(rendered.characters) == "bold https://example.com")
     #expect(rendered.runs.contains { $0.link?.absoluteString == "https://example.com" })
   }
+
+  // Clickability is driven by which runs carry `.link`, so the runs must cover
+  // exactly the URL text — nothing more, nothing less.
+  @Test @MainActor func linkRunsCoverOnlyTheURLText() {
+    let message = Message(
+      id: UUID(),
+      networkID: UUID(),
+      bufferID: UUID(),
+      ts: "2026-07-23T08:15:00Z",
+      sender: "tove",
+      kind: "privmsg",
+      content:
+        "inline links: https://example.com/lurker and https://news.ycombinator.com/item?id=1",
+      displayKind: "message"
+    )
+    let rendered = attributedBody(message)
+    let linkRuns = rendered.runs.compactMap { run in
+      run.link.map { (text: String(rendered.characters[run.range]), url: $0.absoluteString) }
+    }
+    #expect(
+      linkRuns.map(\.text) == [
+        "https://example.com/lurker", "https://news.ycombinator.com/item?id=1",
+      ])
+    #expect(
+      linkRuns.map(\.url) == [
+        "https://example.com/lurker", "https://news.ycombinator.com/item?id=1",
+      ])
+
+    let plainText = rendered.runs.filter { $0.link == nil }.map {
+      String(rendered.characters[$0.range])
+    }.joined()
+    #expect(plainText == "inline links:  and ")
+  }
+
+  @Test @MainActor func plainMessagesHaveNoLinkRuns() {
+    let message = Message(
+      id: UUID(),
+      networkID: UUID(),
+      bufferID: UUID(),
+      ts: "2026-07-23T08:15:00Z",
+      sender: "tove",
+      kind: "privmsg",
+      content: "no links in here, just words",
+      displayKind: "message"
+    )
+    let rendered = attributedBody(message)
+    #expect(rendered.runs.allSatisfy { $0.link == nil })
+  }
 }

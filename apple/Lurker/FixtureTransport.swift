@@ -193,6 +193,38 @@ actor FixtureTransport: LurkerTransport {
         displayKind: "sys",
         senderColor: 7
       ),
+      Message(
+        id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000005")!,
+        networkID: networkID,
+        bufferID: channelID,
+        ts: "2026-07-23T08:15:00Z",
+        sender: "tove",
+        kind: "privmsg",
+        content:
+          "inline links: https://example.com/lurker and https://news.ycombinator.com/item?id=1",
+        displayKind: "message",
+        senderColor: 4
+      ),
+      Message(
+        id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000006")!,
+        networkID: networkID,
+        bufferID: channelID,
+        ts: "2026-07-23T08:16:00Z",
+        sender: "ircfriend",
+        kind: "privmsg",
+        content: "with a preview card: https://github.com/lepinkainen/lurker",
+        displayKind: "message",
+        senderColor: 31,
+        previews: [
+          Preview(
+            url: "https://github.com/lepinkainen/lurker",
+            kind: "opengraph",
+            title: "lepinkainen/lurker: single-user IRC bouncer and clients",
+            description: "Go bouncer with web, TUI and native clients.",
+            siteName: "GitHub"
+          )
+        ]
+      ),
     ]
     return StateSnapshot(
       networks: [
