@@ -67,10 +67,12 @@ func main() {
 	defer closeutil.Ignore(previewSvc, "component", "preview")
 	mgr := irc.NewManager(ctx, stores, evHub)
 	mgr.SetPreviewEnqueuer(previewSvc)
-	loadFixtureRuntimeState(ctx, mgr)
+	fixtureRuntime := loadFixtureRuntimeState(ctx, mgr)
 
 	dsMgr := buildDataSourceManager(ctx, cfg, stores, evHub, previewSvc)
-	startBootstrapNetworks(ctx, mgr, cfg.Networks)
+	if !fixtureRuntime {
+		startBootstrapNetworks(ctx, mgr, cfg.Networks)
+	}
 	yamlNetworkNames := configNetworkNames(cfg, dsMgr)
 	markNonYAMLNetworksDisabled(ctx, stores, yamlNetworkNames)
 
@@ -156,15 +158,21 @@ func main() {
 	slog.Info("bye")
 }
 
-func loadFixtureRuntimeState(ctx context.Context, mgr *irc.Manager) {
+// loadFixtureRuntimeState installs fake connected/joined runtime state when
+// LURKER_TEST_FIXTURE_RUNTIME is set, reporting whether it did. Fixture mode
+// replaces the live IRC runtime entirely — callers must skip starting
+// bootstrap networks, otherwise real connection attempts would overwrite the
+// fixture connection states.
+func loadFixtureRuntimeState(ctx context.Context, mgr *irc.Manager) bool {
 	if os.Getenv("LURKER_TEST_FIXTURE_RUNTIME") == "" {
-		return
+		return false
 	}
 	if err := mgr.LoadFixtureRuntimeState(ctx); err != nil {
 		slog.Error("load fixture runtime state", "err", err)
 		os.Exit(1)
 	}
 	slog.Info("test fixture runtime state loaded")
+	return true
 }
 
 func buildDataSourceManager(ctx context.Context, cfg Config, stores *db.MultiStore, evHub *hub.Hub, previewSvc *preview.Service) *datasource.Manager {
@@ -208,11 +216,9 @@ func configNetworkNames(cfg Config, dsMgr *datasource.Manager) []string {
 
 // markNonYAMLNetworksDisabled disables DB networks absent from config.yaml +
 // parsed data_sources, so they don't auto-connect and are visually
-// distinguished in the UI.
+// distinguished in the UI. An empty name set disables every network — a
+// config declaring zero networks means zero networks run.
 func markNonYAMLNetworksDisabled(ctx context.Context, stores *db.MultiStore, yamlNames []string) {
-	if len(yamlNames) == 0 {
-		return
-	}
 	if err := db.MarkNonYAMLNetworksDisabled(ctx, stores.Control, yamlNames); err != nil {
 		slog.Error("mark non-yaml networks disabled", "err", err)
 	}

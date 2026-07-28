@@ -163,13 +163,12 @@ networks:
 	}
 }
 
-func TestParseYAMLConfigMissingFileIsNotError(t *testing.T) {
-	nets, pv, _, err := parseYAMLConfig(filepath.Join(t.TempDir(), "does-not-exist.yaml"))
-	if err != nil {
-		t.Fatalf("missing file should not be an error, got %v", err)
-	}
-	if nets != nil || pv != nil {
-		t.Fatalf("missing file should yield nil config, got nets=%v pv=%v", nets, pv)
+// A missing config file must be fatal, same as a broken one: the backend
+// never boots half-configured (a misplaced file would otherwise silently
+// disable every network).
+func TestParseYAMLConfigMissingFileIsError(t *testing.T) {
+	if _, _, _, err := parseYAMLConfig(filepath.Join(t.TempDir(), "does-not-exist.yaml")); err == nil {
+		t.Fatal("missing config file should be an error")
 	}
 }
 

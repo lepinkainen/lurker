@@ -180,7 +180,7 @@ tasks:
     deps: [web-build]
     env:
       DATA_DIR: ./data-test
-      CONFIG_PATH: /dev/null
+      CONFIG_PATH: ./data-test/config.yaml
     cmds:
       - go run . --web-dir ./web/dist
 

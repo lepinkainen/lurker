@@ -83,12 +83,19 @@ Every backend startup returns to the state defined by `config.yaml`. Changes
 made through the API are ephemeral — they apply immediately but only last
 until the next restart.
 
+Config errors fail fast: a missing, misplaced, or unparseable `config.yaml`
+(and any validation error inside it) exits the process before anything
+starts. The backend never boots on a partial or implicit config. A config
+that parses but declares zero networks is valid — it means zero networks
+run, so boot reconciliation disables every network in the DB.
+
 On startup:
 
 - YAML-defined networks are upserted into control DB (connection fields
   overwritten from YAML, `disabled` reset to `0`) and started
 - networks absent from YAML (including any created via the API) are marked
-  `disabled=1`; their log DBs are kept
+  `disabled=1`; their log DBs are kept. An empty YAML network set disables
+  all networks
 - runtime-owned state survives: `sort_order`, `created_at`
 
 After startup:

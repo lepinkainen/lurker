@@ -51,7 +51,7 @@ curl -s -X POST "localhost:8080/api/networks/$NET/connect"
 echo "#verify :hello from bob" | nc -w1 127.0.0.1 6668     # inject a live PRIVMSG
 ```
 
-- Alternative: bootstrap via a `CONFIG_PATH` yaml with a `networks:` entry at `127.0.0.1:6667` — but note YAML is authoritative, so the seeded libera/oftc networks get marked disabled and vanish from the sidebar. The API path avoids that.
+- Alternative: extend `data-test/config.yaml` (written by `cmd/seedtest`, used by `task dev-test`) with a `networks:` entry at `127.0.0.1:6667` — YAML is authoritative, so the entry must be *added* to that file, not a separate config (a config without libera/oftc would disable the seeded networks at boot).
 - Server-side state assertions: `curl -s localhost:8080/api/state` and inspect `buffers[].unread` / `last_seen_id` to check what the TUI actually told the backend.
 
 ## Testability hook

@@ -10,7 +10,9 @@ The fixture setup lives in `web/tests/globalSetup.ts`:
 2. `go build -o build/lurker-test .` builds a backend binary.
 3. The backend starts on `LURKER_TEST_PORT` (default `8099`) with:
    - `DATA_DIR=./data-test`
-   - `CONFIG_PATH=/dev/null`
+   - `CONFIG_PATH=./data-test/config.yaml` (written by `cmd/seedtest`; a
+     missing config is a fatal boot error, and an empty one would disable
+     every seeded network)
    - `LURKER_TEST_FIXTURE_RUNTIME=1`
 4. Vite proxies `/api`, `/healthz`, and `/whoami` to that backend.
 
@@ -21,6 +23,8 @@ If a healthy backend is already running on the test port, global setup reuses it
 `cmd/seedtest` writes static data into SQLite without contacting real IRC servers:
 
 - networks: `libera`, `oftc`
+- `<data-dir>/config.yaml` declaring those networks (config is the boot
+  source of truth; servers point at `127.0.0.1:1` so nothing real is dialed)
 - status buffers with connect/welcome-style history
 - channel and query buffers
 - channel topics
@@ -36,7 +40,7 @@ Some frontend state is runtime-only in production and does not live in SQLite. `
 - whether a channel is currently joined
 - current channel member lists
 
-During browser tests, the backend does not open live IRC sockets because `CONFIG_PATH=/dev/null` has no bootstrap networks. To keep `/api/state` representative of a connected client, `LURKER_TEST_FIXTURE_RUNTIME=1` calls `irc.Manager.LoadFixtureRuntimeState()` at startup.
+During browser tests, the backend does not open live IRC sockets: `LURKER_TEST_FIXTURE_RUNTIME=1` calls `irc.Manager.LoadFixtureRuntimeState()` at startup *and* skips starting bootstrap networks (a live runtime would immediately overwrite the fixture connection states).
 
 That runtime overlay derives state from the seeded databases:
 
