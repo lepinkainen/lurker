@@ -1384,13 +1384,72 @@ func flushPresenceRun(run []messageDTO, ownNick string) []string {
 			out = append(out, formatNetsplit(g.Netsplit))
 			continue
 		}
+		var plain []messageDTO
 		for _, p := range g.Plain {
 			if i, ok := idxByID[p.ID]; ok {
-				out = append(out, formatMessage(run[i], ownNick))
+				plain = append(plain, run[i])
 			}
+		}
+		if len(plain) > 1 {
+			out = append(out, formatPresenceSummary(plain))
+			continue
+		}
+		for _, m := range plain {
+			out = append(out, formatMessage(m, ownNick))
 		}
 	}
 	return out
+}
+
+// presenceSummaryOrder mirrors the web client's PRESENCE_KINDS display
+// order for collapsed-run summaries (web/src/messages.ts).
+var presenceSummaryOrder = []string{"join", "part", "quit", "nick", "away", "back", "account", "chghost"}
+
+// formatPresenceSummary renders a collapsed run of presence events as one
+// summary line, matching the web client's presence-summary row. The TUI has
+// no expand interaction — turning off collapse_presence_events on the
+// buffer shows the raw rows.
+func formatPresenceSummary(run []messageDTO) string {
+	ts := styleTimestamp.Render(formatTS(run[0].TS))
+	counts := map[string]int{}
+	for _, m := range run {
+		counts[m.Kind]++
+	}
+	parts := make([]string, 0, len(presenceSummaryOrder))
+	for _, kind := range presenceSummaryOrder {
+		if n := counts[kind]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, presenceKindLabel(kind, n)))
+		}
+	}
+	body := fmt.Sprintf("+ %d presence events: %s", len(run), strings.Join(parts, ", "))
+	return ts + " " + styleAction.Render(body)
+}
+
+func presenceKindLabel(kind string, count int) string {
+	plural := count != 1
+	switch kind {
+	case "nick":
+		if plural {
+			return "nick changes"
+		}
+		return "nick change"
+	case "away", "back":
+		return kind
+	case "account":
+		if plural {
+			return "account changes"
+		}
+		return "account change"
+	case "chghost":
+		if plural {
+			return "host changes"
+		}
+		return "host change"
+	}
+	if plural {
+		return kind + "s"
+	}
+	return kind
 }
 
 func formatNetsplit(ns *irc.NetsplitGroup) string {
@@ -1468,6 +1527,13 @@ func formatMessage(m messageDTO, ownNick string) string {
 		return action(fmt.Sprintf("💤 %s is away", m.Target))
 	case "back":
 		return action(fmt.Sprintf("☀ %s is back", m.Target))
+	case "account":
+		if m.Content != "" {
+			return action(fmt.Sprintf("— %s logged in as %s", m.Target, m.Content))
+		}
+		return action(fmt.Sprintf("— %s logged out", m.Target))
+	case "chghost":
+		return action(fmt.Sprintf("— %s changed host to %s", m.Target, m.Content))
 	case "ctcp":
 		return action(fmt.Sprintf("[CTCP %s] %s", m.Sender, content))
 	default:
