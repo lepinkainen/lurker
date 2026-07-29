@@ -32,7 +32,7 @@ func (q *Queries) GetBufferRegistryKind(ctx context.Context, id []byte) (string,
 }
 
 const getBufferSettings = `-- name: GetBufferSettings :one
-SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at, archived
+SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at, archived, pin_order
 FROM buffer_settings WHERE buffer_id = ?
 `
 
@@ -47,12 +47,13 @@ func (q *Queries) GetBufferSettings(ctx context.Context, bufferID []byte) (Buffe
 		&i.Pinned,
 		&i.UpdatedAt,
 		&i.Archived,
+		&i.PinOrder,
 	)
 	return i, err
 }
 
 const listBufferSettings = `-- name: ListBufferSettings :many
-SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at, archived
+SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at, archived, pin_order
 FROM buffer_settings
 `
 
@@ -73,6 +74,7 @@ func (q *Queries) ListBufferSettings(ctx context.Context) ([]BufferSetting, erro
 			&i.Pinned,
 			&i.UpdatedAt,
 			&i.Archived,
+			&i.PinOrder,
 		); err != nil {
 			return nil, err
 		}
@@ -87,16 +89,74 @@ func (q *Queries) ListBufferSettings(ctx context.Context) ([]BufferSetting, erro
 	return items, nil
 }
 
+const listPinnedBuffers = `-- name: ListPinnedBuffers :many
+SELECT buffer_id, pin_order FROM buffer_settings WHERE pinned = 1
+`
+
+type ListPinnedBuffersRow struct {
+	BufferID []byte
+	PinOrder int64
+}
+
+func (q *Queries) ListPinnedBuffers(ctx context.Context) ([]ListPinnedBuffersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPinnedBuffers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPinnedBuffersRow{}
+	for rows.Next() {
+		var i ListPinnedBuffersRow
+		if err := rows.Scan(&i.BufferID, &i.PinOrder); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const maxPinOrder = `-- name: MaxPinOrder :one
+SELECT CAST(COALESCE(MAX(pin_order), -1) AS INTEGER) FROM buffer_settings WHERE pinned = 1
+`
+
+func (q *Queries) MaxPinOrder(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxPinOrder)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const setBufferPinOrder = `-- name: SetBufferPinOrder :exec
+UPDATE buffer_settings SET pin_order = ? WHERE buffer_id = ?
+`
+
+type SetBufferPinOrderParams struct {
+	PinOrder int64
+	BufferID []byte
+}
+
+func (q *Queries) SetBufferPinOrder(ctx context.Context, arg SetBufferPinOrderParams) error {
+	_, err := q.db.ExecContext(ctx, setBufferPinOrder, arg.PinOrder, arg.BufferID)
+	return err
+}
+
 const upsertBufferSettings = `-- name: UpsertBufferSettings :exec
-INSERT INTO buffer_settings(buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at, archived)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO buffer_settings(buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at, archived, pin_order)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(buffer_id) DO UPDATE SET
   show_embeds=excluded.show_embeds,
   show_presence_events=excluded.show_presence_events,
   collapse_presence_events=excluded.collapse_presence_events,
   pinned=excluded.pinned,
   updated_at=excluded.updated_at,
-  archived=excluded.archived
+  archived=excluded.archived,
+  pin_order=excluded.pin_order
 `
 
 type UpsertBufferSettingsParams struct {
@@ -107,6 +167,7 @@ type UpsertBufferSettingsParams struct {
 	Pinned                 int64
 	UpdatedAt              string
 	Archived               int64
+	PinOrder               int64
 }
 
 func (q *Queries) UpsertBufferSettings(ctx context.Context, arg UpsertBufferSettingsParams) error {
@@ -118,6 +179,7 @@ func (q *Queries) UpsertBufferSettings(ctx context.Context, arg UpsertBufferSett
 		arg.Pinned,
 		arg.UpdatedAt,
 		arg.Archived,
+		arg.PinOrder,
 	)
 	return err
 }

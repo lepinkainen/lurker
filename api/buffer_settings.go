@@ -25,6 +25,7 @@ type bufferSettingsEvent struct {
 	CollapsePresenceEvents bool      `json:"collapse_presence_events"`
 	Pinned                 bool      `json:"pinned"`
 	Archived               bool      `json:"archived"`
+	PinOrder               int64     `json:"pin_order"`
 }
 
 func bufferSettingsEventFrom(s ircdb.BufferSettings) bufferSettingsEvent {
@@ -32,8 +33,44 @@ func bufferSettingsEventFrom(s ircdb.BufferSettings) bufferSettingsEvent {
 		Type: "buffer_settings", ID: s.BufferID,
 		ShowEmbeds: s.ShowEmbeds, ShowPresenceEvents: s.ShowPresenceEvents,
 		CollapsePresenceEvents: s.CollapsePresenceEvents, Pinned: s.Pinned,
-		Archived: s.Archived,
+		Archived: s.Archived, PinOrder: s.PinOrder,
 	}
+}
+
+type pinnedSortEntryDTO struct {
+	ID       uuid.UUID `json:"id"`
+	PinOrder int64     `json:"pin_order"`
+}
+
+type pinnedReorderEvent struct {
+	Type    string               `json:"type"`
+	Buffers []pinnedSortEntryDTO `json:"buffers"`
+}
+
+func (s *Server) reorderPinnedBuffers(w http.ResponseWriter, r *http.Request) {
+	var req reorderBuffersRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	entries, err := ircdb.ReorderPinnedBuffers(r.Context(), s.Stores.Control, req.IDs)
+	if err != nil {
+		if errors.Is(err, ircdb.ErrInvalidPinnedReorder) {
+			http.Error(w, "ids must be a non-empty set of pinned buffers", http.StatusBadRequest)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	event := pinnedReorderEvent{Type: "pinned_reorder"}
+	event.Buffers = make([]pinnedSortEntryDTO, 0, len(entries))
+	for _, e := range entries {
+		event.Buffers = append(event.Buffers, pinnedSortEntryDTO{ID: e.ID, PinOrder: e.SortOrder})
+	}
+	if s.Hub != nil {
+		s.Hub.Publish(event)
+	}
+	writeJSON(w, http.StatusOK, event)
 }
 
 func (s *Server) patchBufferSettings(w http.ResponseWriter, r *http.Request) {

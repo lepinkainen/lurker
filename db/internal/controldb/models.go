@@ -25,6 +25,7 @@ type BufferSetting struct {
 	Pinned                 int64
 	UpdatedAt              string
 	Archived               int64
+	PinOrder               int64
 }
 
 type Highlight struct {

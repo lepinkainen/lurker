@@ -60,21 +60,13 @@ func ReorderNetworkBuffers(ctx context.Context, d *sql.DB, networkID uuid.UUID, 
 		channels[id] = struct{}{}
 	}
 
-	seen := map[uuid.UUID]struct{}{}
-	for order, id := range ids {
-		if _, ok := channels[id]; !ok {
-			return nil, ErrInvalidBufferReorder
-		}
-		if _, dup := seen[id]; dup {
-			return nil, ErrInvalidBufferReorder
-		}
-		seen[id] = struct{}{}
-		if uerr := q.SetBufferSortOrder(ctx, controldb.SetBufferSortOrderParams{
+	if aerr := assignDenseOrder(ids, channels, ErrInvalidBufferReorder, func(order int, id uuid.UUID) error {
+		return q.SetBufferSortOrder(ctx, controldb.SetBufferSortOrderParams{
 			SortOrder: int64(order),
 			ID:        id[:],
-		}); uerr != nil {
-			return nil, uerr
-		}
+		})
+	}); aerr != nil {
+		return nil, aerr
 	}
 
 	rows, err = q.ListChannelBuffersForNetwork(ctx, networkID[:])
@@ -93,4 +85,26 @@ func ReorderNetworkBuffers(ctx context.Context, d *sql.DB, networkID uuid.UUID, 
 		return nil, err
 	}
 	return out, nil
+}
+
+// assignDenseOrder validates that ids are all members of valid (with no
+// duplicates) and, if so, assigns them dense positions 0..len(ids)-1 via
+// setOrder in the given order. Returns sentinel on the first invalid or
+// duplicate id, or the first error from setOrder. Shared by
+// ReorderNetworkBuffers and ReorderPinnedBuffers.
+func assignDenseOrder(ids []uuid.UUID, valid map[uuid.UUID]struct{}, sentinel error, setOrder func(order int, id uuid.UUID) error) error {
+	seen := make(map[uuid.UUID]struct{}, len(ids))
+	for order, id := range ids {
+		if _, ok := valid[id]; !ok {
+			return sentinel
+		}
+		if _, dup := seen[id]; dup {
+			return sentinel
+		}
+		seen[id] = struct{}{}
+		if err := setOrder(order, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
