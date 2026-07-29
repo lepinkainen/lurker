@@ -475,16 +475,29 @@ private struct PreviewCard: View {
 
   @ViewBuilder
   var body: some View {
+    // Backend preview kinds are "image" (render the URL itself inline) and
+    // "opengraph" (card); anything else is dropped (web parity: preview.ts).
+    switch preview.kind {
+    case "image":
+      linked { InlineImageView(preview: preview) }
+    case "opengraph":
+      linked { card }
+    default:
+      EmptyView()
+    }
+  }
+
+  @ViewBuilder private func linked(@ViewBuilder content: () -> some View) -> some View {
     if let destination = URL(string: preview.url) {
       Link(destination: destination) {
-        card
+        content()
       }
       .buttonStyle(.plain)
       #if os(macOS)
         .pointerStyle(.link)
       #endif
     } else {
-      card
+      content()
     }
   }
 
@@ -517,6 +530,41 @@ private struct PreviewCard: View {
     .overlay {
       RoundedRectangle(cornerRadius: 8)
         .stroke(.separator, lineWidth: 0.5)
+    }
+  }
+}
+
+/// Full inline rendering for kind == "image" previews: the preview URL is
+/// the image (web parity: renderImagePreview, max 480×320, contain-fit).
+private struct InlineImageView: View {
+  @Environment(AppModel.self) private var model
+  let preview: Preview
+
+  var body: some View {
+    if let imageURL = model.inlineImageURL(preview) {
+      AsyncImage(url: imageURL) { phase in
+        switch phase {
+        case .success(let image):
+          image
+            .resizable()
+            .scaledToFit()
+            .frame(maxWidth: 480, maxHeight: 320, alignment: .leading)
+            .clipShape(.rect(cornerRadius: 8))
+            .overlay {
+              RoundedRectangle(cornerRadius: 8)
+                .stroke(.separator, lineWidth: 0.5)
+            }
+        case .failure:
+          // Broken image: nothing — the raw link stays in the message text.
+          EmptyView()
+        default:
+          // Fixed-size placeholder: server width/height are usually 0 for
+          // image previews, so they can't drive layout.
+          Color.secondary.opacity(0.08)
+            .frame(width: 240, height: 135)
+            .clipShape(.rect(cornerRadius: 8))
+        }
+      }
     }
   }
 }

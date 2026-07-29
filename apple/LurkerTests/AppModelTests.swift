@@ -348,6 +348,14 @@ struct AppModelTests {
     #expect(model.composerText == "draft in beta")
   }
 
+  @Test func inlineImageURLAcceptsHTTPSOnly() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let secure = Preview(url: "https://example.com/cat.png", kind: "image")
+    let insecure = Preview(url: "http://example.com/cat.png", kind: "image")
+    #expect(model.inlineImageURL(secure)?.absoluteString == "https://example.com/cat.png")
+    #expect(model.inlineImageURL(insecure) == nil)
+  }
+
   @Test func networkAggregateCountsSumAllBuffers() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()

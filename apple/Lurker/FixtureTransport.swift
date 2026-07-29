@@ -266,6 +266,24 @@ actor FixtureTransport: LurkerTransport {
           )
         ]
       ),
+      Message(
+        id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000007")!,
+        networkID: networkID,
+        bufferID: channelID,
+        ts: "2026-07-23T08:17:00Z",
+        sender: "tove",
+        kind: "privmsg",
+        content: "inline image: https://example.com/screenshot.png",
+        displayKind: "message",
+        senderColor: 4,
+        previews: [
+          Preview(
+            url: "https://example.com/screenshot.png",
+            kind: "image",
+            mime: "image/png"
+          )
+        ]
+      ),
     ]
     return StateSnapshot(
       networks: [

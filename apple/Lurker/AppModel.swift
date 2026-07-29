@@ -430,7 +430,18 @@ final class AppModel {
   }
 
   func previewImageURL(_ preview: Preview) -> URL? {
-    guard let raw = preview.imageURL, !raw.isEmpty else { return nil }
+    normalizedImageURL(preview.imageURL)
+  }
+
+  /// URL for a kind == "image" preview, where `url` itself is the image.
+  /// Same policy as thumbnails: https-absolute or server-relative only (ATS
+  /// blocks plain http regardless).
+  func inlineImageURL(_ preview: Preview) -> URL? {
+    normalizedImageURL(preview.url)
+  }
+
+  private func normalizedImageURL(_ raw: String?) -> URL? {
+    guard let raw, !raw.isEmpty else { return nil }
     if let absolute = URL(string: raw), absolute.scheme == "https" {
       return absolute
     }
