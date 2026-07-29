@@ -24,6 +24,7 @@ func testModel() *model {
 		historyLoading: map[uuid.UUID]bool{},
 		historyExhaust: map[uuid.UUID]bool{},
 		channelList:    map[uuid.UUID][]channelListEntry{},
+		archivesOpen:   map[uuid.UUID]bool{},
 	}
 	return m
 }

@@ -68,8 +68,8 @@ func savePersistedBufferID(id uuid.UUID) error {
 // pickStartupBuffer resolves the active buffer on startup using this order:
 //  1. Persisted "last viewed" buffer if it still exists and its network is not disabled.
 //  2. First pinned channel, ordered by (network.sort_order, channel name).
-//  3. Per network in sort_order: joined channels by name → queries by name →
-//     parted channels by name → status. Status is the absolute last resort.
+//  3. Per network in sort_order: active channels by name → queries by name →
+//     archived buffers by name → status. Status is the absolute last resort.
 //
 // Returns uuid.Nil if no buffer is available.
 func pickStartupBuffer(networks []networkDTO, buffers []bufferDTO, persisted uuid.UUID) uuid.UUID {
@@ -145,16 +145,23 @@ func firstByNetwork(networks []networkDTO, buffers []bufferDTO) uuid.UUID {
 	return uuid.Nil
 }
 
-func firstInGroups(bufs []bufferDTO) uuid.UUID {
-	groups := [][]bufferDTO{
-		filterBufs(bufs, func(b bufferDTO) bool { return b.Kind == "channel" && b.Joined }),
-		filterBufs(bufs, func(b bufferDTO) bool { return b.Kind == "query" }),
-		filterBufs(bufs, func(b bufferDTO) bool { return b.Kind == "channel" && !b.Joined }),
-		filterBufs(bufs, func(b bufferDTO) bool { return b.Kind == "status" }),
+// groupBuffers splits one network's buffers into the sidebar groups, each
+// sorted case-insensitively by name: active channels, queries, archived
+// buffers (any kind — the persisted archived flag, not joined state), status.
+func groupBuffers(bufs []bufferDTO) (channels, queries, archived, status []bufferDTO) {
+	channels = filterBufs(bufs, func(b bufferDTO) bool { return b.Kind == "channel" && !b.Archived })
+	queries = filterBufs(bufs, func(b bufferDTO) bool { return b.Kind == "query" && !b.Archived })
+	archived = filterBufs(bufs, func(b bufferDTO) bool { return b.Kind != "status" && b.Archived })
+	status = filterBufs(bufs, func(b bufferDTO) bool { return b.Kind == "status" })
+	for _, g := range [][]bufferDTO{channels, queries, archived, status} {
+		sort.Slice(g, func(i, j int) bool { return strings.ToLower(g[i].Name) < strings.ToLower(g[j].Name) })
 	}
-	byName := func(a, b bufferDTO) bool { return strings.ToLower(a.Name) < strings.ToLower(b.Name) }
-	for _, g := range groups {
-		sort.Slice(g, func(i, j int) bool { return byName(g[i], g[j]) })
+	return channels, queries, archived, status
+}
+
+func firstInGroups(bufs []bufferDTO) uuid.UUID {
+	channels, queries, archived, status := groupBuffers(bufs)
+	for _, g := range [][]bufferDTO{channels, queries, archived, status} {
 		if len(g) > 0 {
 			return g[0].ID
 		}

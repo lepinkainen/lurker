@@ -66,6 +66,18 @@ var (
 				Bold(true).
 				PaddingLeft(2)
 
+	// Archived buffers inside an open Archives fold.
+	styleBufferArchived = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(colorTextDim)).
+				Background(lipgloss.Color(colorPanel)).
+				PaddingLeft(2)
+
+	// The per-network "Archives (n)" fold row.
+	styleArchiveToggle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(colorTextMuted)).
+				Background(lipgloss.Color(colorPanel)).
+				PaddingLeft(2)
+
 	// "New messages" divider in the message viewport (web parity).
 	styleMarker = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(colorMention))

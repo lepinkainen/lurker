@@ -38,6 +38,7 @@ type bufferDTO struct {
 	ShowPresenceEvents     bool      `json:"show_presence_events"`
 	CollapsePresenceEvents bool      `json:"collapse_presence_events"`
 	Pinned                 bool      `json:"pinned"`
+	Archived               bool      `json:"archived"`
 }
 
 type messageDTO struct {
@@ -92,9 +93,12 @@ type wsEvent struct {
 	// buffer_update — pointers: fields absent from the wire mean "unchanged"
 	// (e.g. the mark_read echo carries none of these), while a present empty
 	// string means "set to empty" (cleared topic).
-	Topic      *string   `json:"topic"`
-	TopicSetBy *string   `json:"topic_set_by"`
-	Joined     *bool     `json:"joined"`
+	Topic      *string `json:"topic"`
+	TopicSetBy *string `json:"topic_set_by"`
+	Joined     *bool   `json:"joined"`
+	// Archived is shared by buffer_update (pointer semantics: absent =
+	// unchanged) and buffer_settings (always present on the wire).
+	Archived   *bool     `json:"archived"`
 	LastSeenID uuid.UUID `json:"last_seen_id"`
 	// marker_id/marker_ts belong to the mark_read variant of buffer_update
 	// (discriminated by last_seen_id != Nil), which ALWAYS carries marker_id:
@@ -154,4 +158,9 @@ type sidebarItem struct {
 	bufferID  uuid.UUID
 	networkID uuid.UUID
 	isHeader  bool // true for network-name rows
+	// isArchiveToggle marks the per-network "Archives (n)" fold row.
+	// Activating it flips the fold instead of switching buffers.
+	isArchiveToggle bool
+	// dim renders the row muted (archived buffers).
+	dim bool
 }

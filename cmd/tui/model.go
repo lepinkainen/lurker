@@ -56,6 +56,9 @@ type model struct {
 	sidebarSel          int
 	activeBuffer        *bufferDTO
 	lastPersistedBuffer uuid.UUID
+	// archivesOpen tracks per-network Archives fold state. In-memory only:
+	// folds reset to closed on restart (matching the folded-by-default UX).
+	archivesOpen map[uuid.UUID]bool
 
 	viewport viewport.Model
 	input    textarea.Model
@@ -132,6 +135,7 @@ func newModel(cfg *Config) model {
 		historyLoading: make(map[uuid.UUID]bool),
 		historyExhaust: make(map[uuid.UUID]bool),
 		channelList:    make(map[uuid.UUID][]channelListEntry),
+		archivesOpen:   make(map[uuid.UUID]bool),
 	}
 }
 
@@ -612,6 +616,12 @@ func (m *model) submitInput() (tea.Model, tea.Cmd) {
 	bufID := m.activeBuffer.ID
 
 	if strings.HasPrefix(text, "/") {
+		// /archives is a pure UI toggle (Archives fold for the current
+		// network) — it never reaches the server.
+		if strings.EqualFold(text, "/archives") {
+			m.toggleArchives(m.activeBuffer.NetworkID)
+			return *m, nil
+		}
 		if cmd, ok := parseSlash(text, m.activeBuffer); ok {
 			return *m, func() tea.Msg {
 				if err := sendWSCmd(context.Background(), conn, cmd); err != nil {
@@ -966,22 +976,43 @@ func (m *model) rebuildSidebar() {
 			networkID: n.ID,
 			isHeader:  true,
 		})
-		for _, b := range bufsByNet[n.ID] {
-			label := b.Name
-			if b.Kind == "status" {
-				label = "(status)"
-			}
-			items = append(items, sidebarItem{
-				label:     label,
-				bufferID:  b.ID,
-				networkID: n.ID,
-			})
-		}
+		items = append(items, m.networkSidebarItems(n.ID, bufsByNet[n.ID])...)
 	}
 	m.sidebarItems = items
 	if m.sidebarSel >= len(items) {
 		m.sidebarSel = 0
 	}
+}
+
+// networkSidebarItems renders one network's rows: status, active channels,
+// queries, then the folded Archives section.
+func (m *model) networkSidebarItems(netID uuid.UUID, bufs []bufferDTO) []sidebarItem {
+	channels, queries, archived, status := groupBuffers(bufs)
+	items := []sidebarItem{}
+	for _, b := range status {
+		items = append(items, sidebarItem{label: "(status)", bufferID: b.ID, networkID: netID})
+	}
+	for _, b := range append(channels, queries...) {
+		items = append(items, sidebarItem{label: b.Name, bufferID: b.ID, networkID: netID})
+	}
+	if len(archived) == 0 {
+		return items
+	}
+	caret := "▸"
+	if m.archivesOpen[netID] {
+		caret = "▾"
+	}
+	items = append(items, sidebarItem{
+		label:           fmt.Sprintf("%s Archives (%d)", caret, len(archived)),
+		networkID:       netID,
+		isArchiveToggle: true,
+	})
+	if m.archivesOpen[netID] {
+		for _, b := range archived {
+			items = append(items, sidebarItem{label: b.Name, bufferID: b.ID, networkID: netID, dim: true})
+		}
+	}
+	return items
 }
 
 func (m *model) moveSidebar(delta int) {
@@ -992,7 +1023,10 @@ func (m *model) moveSidebar(delta int) {
 	idx := m.sidebarSel + delta
 	for range n {
 		idx = (idx + n) % n
-		if !m.sidebarItems[idx].isHeader {
+		// Skip headers and the Archives fold row: moveSidebar auto-activates
+		// its landing spot, and scrolling past must not toggle the fold.
+		// Keyboard fold access is the /archives slash command.
+		if !m.sidebarItems[idx].isHeader && !m.sidebarItems[idx].isArchiveToggle {
 			break
 		}
 		idx += delta
@@ -1001,12 +1035,32 @@ func (m *model) moveSidebar(delta int) {
 	m.activateSidebarSel()
 }
 
+// toggleArchives flips a network's Archives fold and keeps the selection on
+// the fold row so a click/enter toggles in place.
+func (m *model) toggleArchives(networkID uuid.UUID) {
+	if m.archivesOpen == nil {
+		m.archivesOpen = make(map[uuid.UUID]bool)
+	}
+	m.archivesOpen[networkID] = !m.archivesOpen[networkID]
+	m.rebuildSidebar()
+	for i, item := range m.sidebarItems {
+		if item.isArchiveToggle && item.networkID == networkID {
+			m.sidebarSel = i
+			break
+		}
+	}
+}
+
 func (m *model) activateSidebarSel() {
 	if m.sidebarSel >= len(m.sidebarItems) {
 		return
 	}
 	item := m.sidebarItems[m.sidebarSel]
 	if item.isHeader {
+		return
+	}
+	if item.isArchiveToggle {
+		m.toggleArchives(item.networkID)
 		return
 	}
 	if b := m.findBuffer(item.bufferID); b != nil {
@@ -1033,6 +1087,8 @@ func (m *model) handleWSEvent(ev wsEvent) {
 		m.applyBufferUpdate(ev)
 	case "buffer_settings":
 		m.applyBufferSettings(ev)
+	case "buffer_deleted":
+		m.removeBuffer(ev.ID)
 	case "network_state":
 		m.networkStates[ev.NetworkID] = ev.State
 	case "buffer_created":
@@ -1125,6 +1181,10 @@ func (m *model) applyBufferUpdate(ev wsEvent) {
 	if ev.Joined != nil {
 		b.Joined = *ev.Joined
 	}
+	if ev.Archived != nil {
+		b.Archived = *ev.Archived
+		m.rebuildSidebar()
+	}
 	// mark_read variant (discriminated by last_seen_id): counts and marker
 	// are taken verbatim — a nil MarkerID means caught up and clears the
 	// marker even on the active buffer (a remote ack dismisses everywhere).
@@ -1152,11 +1212,48 @@ func (m *model) applyBufferSettings(ev wsEvent) {
 	if b := m.findBuffer(ev.ID); b != nil {
 		b.ShowPresenceEvents = ev.ShowPresenceEvents
 		b.CollapsePresenceEvents = ev.CollapsePresenceEvents
+		if ev.Archived != nil && b.Archived != *ev.Archived {
+			b.Archived = *ev.Archived
+			m.rebuildSidebar()
+		}
 		if m.activeBuffer != nil && m.activeBuffer.ID == ev.ID {
 			m.activeBuffer = b
 			m.refreshViewport()
 		}
 	}
+}
+
+// removeBuffer handles a buffer_deleted broadcast: drop the buffer and all
+// its per-buffer state; if it was active, fall back like at startup.
+func (m *model) removeBuffer(id uuid.UUID) {
+	idx := -1
+	for i := range m.buffers {
+		if m.buffers[i].ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return
+	}
+	wasActive := m.activeBuffer != nil && m.activeBuffer.ID == id
+	m.buffers = append(m.buffers[:idx], m.buffers[idx+1:]...)
+	// The slice just shrank; any pointer into it is stale.
+	m.refreshActiveBuffer()
+	delete(m.messages, id)
+	delete(m.members, id)
+	delete(m.unread, id)
+	delete(m.mentions, id)
+	delete(m.historyLoading, id)
+	delete(m.historyExhaust, id)
+	if wasActive {
+		m.activeBuffer = nil
+		if next := pickStartupBuffer(m.networks, m.buffers, uuid.Nil); next != uuid.Nil {
+			m.activeBuffer = m.findBuffer(next)
+		}
+	}
+	m.rebuildSidebar()
+	m.refreshViewport()
 }
 
 func (m *model) applyHistoryResult(ev wsEvent) {
@@ -1689,10 +1786,14 @@ func (m model) renderSidebar(height int) string {
 			switch {
 			case i == m.sidebarSel:
 				line = styleSelected.Width(sidebarWidth - 2).Render(full)
+			case item.isArchiveToggle:
+				line = styleArchiveToggle.Width(sidebarWidth - 2).Render(label)
 			case mentions > 0:
 				line = styleBufferMention.Width(sidebarWidth - 2).Render(full)
 			case unread > 0:
 				line = styleBufferUnread.Width(sidebarWidth - 2).Render(full)
+			case item.dim:
+				line = styleBufferArchived.Width(sidebarWidth - 2).Render(label)
 			default:
 				line = styleBufferItem.Width(sidebarWidth - 2).Render(label)
 			}

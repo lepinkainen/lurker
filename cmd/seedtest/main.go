@@ -40,15 +40,17 @@ type seedNetwork struct {
 }
 
 type seedChannel struct {
-	Name    string
-	Topic   string
-	Members []string
-	Lines   []seedLine
+	Name     string
+	Topic    string
+	Members  []string
+	Archived bool
+	Lines    []seedLine
 }
 
 type seedQuery struct {
-	Nick  string
-	Lines []seedLine
+	Nick     string
+	Archived bool
+	Lines    []seedLine
 }
 
 type seedLine struct {
@@ -175,12 +177,28 @@ func seedChannelBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb
 			return err
 		}
 	}
+	if err := setArchived(ctx, stores, localID, c.Archived); err != nil {
+		return err
+	}
 	return insertLines(ctx, log, localID, c.Lines, base)
+}
+
+// setArchived flips the persisted archived flag so seeded sidebars exercise
+// the per-network Archive fold.
+func setArchived(ctx context.Context, stores *ircdb.MultiStore, bufferID uuid.UUID, archived bool) error {
+	if !archived {
+		return nil
+	}
+	_, err := ircdb.UpdateBufferSettings(ctx, stores.Control, bufferID, ircdb.BufferSettingsPatch{Archived: &archived})
+	return err
 }
 
 func seedQueryBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID uuid.UUID, q seedQuery, base time.Time) error {
 	localID, err := resolveLocalBuffer(ctx, stores, log, networkID, q.Nick, ircdb.BufferQuery)
 	if err != nil {
+		return err
+	}
+	if err := setArchived(ctx, stores, localID, q.Archived); err != nil {
 		return err
 	}
 	return insertLines(ctx, log, localID, q.Lines, base)
@@ -238,6 +256,14 @@ func fixture() []seedNetwork {
 						{Sender: "gopher1", Kind: "privmsg", Content: "nice, will try it out", Offset: 2*time.Hour + 2*time.Minute},
 					},
 				},
+				{
+					Name:     "#retired",
+					Topic:    "Old project channel, no longer active",
+					Archived: true,
+					Lines: []seedLine{
+						{Sender: "oldtimer", Kind: "privmsg", Content: "this channel had a good run", Offset: 30 * time.Minute},
+					},
+				},
 			},
 			Queries: []seedQuery{
 				{
@@ -246,6 +272,13 @@ func fixture() []seedNetwork {
 						{Sender: "alice", Kind: "privmsg", Content: "got a minute?", Offset: 3 * time.Hour},
 						{Sender: "lurkertest", Kind: "privmsg", Content: "sure, what's up", Offset: 3*time.Hour + 20*time.Second},
 						{Sender: "alice", Kind: "privmsg", Content: "pair on that auth bug later?", Offset: 3*time.Hour + 1*time.Minute},
+					},
+				},
+				{
+					Nick:     "spammer",
+					Archived: true,
+					Lines: []seedLine{
+						{Sender: "spammer", Kind: "privmsg", Content: "hot deals just for you!!!", Offset: 3 * time.Hour},
 					},
 				},
 			},

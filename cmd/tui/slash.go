@@ -16,33 +16,36 @@ type slashContext struct {
 type slashHandler func(slashContext) (wsCmd, bool)
 
 var slashRegistry = map[string]slashHandler{
-	"me":      slashBufferContent("me"),
-	"join":    slashJoin,
-	"part":    slashBufferContent("part"),
-	"leave":   slashBufferContent("part"),
-	"msg":     slashTargetContent("msg"),
-	"notice":  slashTargetContent("notice"),
-	"nick":    slashNetworkContent("nick"),
-	"topic":   slashBufferContent("topic"),
-	"whois":   slashNetworkTarget("whois"),
-	"query":   slashNetworkTarget("query"),
-	"raw":     slashNetworkContent("raw"),
-	"quote":   slashNetworkContent("raw"),
-	"away":    slashAway,
-	"back":    slashBack,
-	"quit":    slashQuit,
-	"invite":  slashInvite,
-	"kick":    slashKick,
-	"mode":    slashMode,
-	"op":      slashBufferTarget("op"),
-	"deop":    slashBufferTarget("deop"),
-	"voice":   slashBufferTarget("voice"),
-	"devoice": slashBufferTarget("devoice"),
-	"ban":     slashBufferTarget("ban"),
-	"unban":   slashBufferTarget("unban"),
-	"rejoin":  slashRejoin,
-	"cycle":   slashRejoin,
-	"list":    slashList,
+	"me":        slashBufferContent("me"),
+	"join":      slashJoin,
+	"part":      slashBufferContent("part"),
+	"leave":     slashBufferContent("part"),
+	"msg":       slashTargetContent("msg"),
+	"notice":    slashTargetContent("notice"),
+	"nick":      slashNetworkContent("nick"),
+	"topic":     slashBufferContent("topic"),
+	"whois":     slashNetworkTarget("whois"),
+	"query":     slashNetworkTarget("query"),
+	"raw":       slashNetworkContent("raw"),
+	"quote":     slashNetworkContent("raw"),
+	"away":      slashAway,
+	"back":      slashBack,
+	"quit":      slashQuit,
+	"invite":    slashInvite,
+	"kick":      slashKick,
+	"mode":      slashMode,
+	"op":        slashBufferTarget("op"),
+	"deop":      slashBufferTarget("deop"),
+	"voice":     slashBufferTarget("voice"),
+	"devoice":   slashBufferTarget("devoice"),
+	"ban":       slashBufferTarget("ban"),
+	"unban":     slashBufferTarget("unban"),
+	"rejoin":    slashRejoin,
+	"cycle":     slashRejoin,
+	"list":      slashList,
+	"archive":   slashArchive,
+	"unarchive": slashUnarchive,
+	"delete":    slashDelete,
 }
 
 // parseSlash takes a "/cmd args" line and produces the matching ws cmd.
@@ -167,4 +170,27 @@ func slashKick(c slashContext) (wsCmd, bool) {
 	target := c.rest[0]
 	reason := strings.TrimSpace(strings.TrimPrefix(c.args, target))
 	return wsCmd{"type": "kick", "buffer_id": c.buf.ID, "target": target, "content": reason}, true
+}
+
+func slashArchive(c slashContext) (wsCmd, bool) {
+	if c.buf.Kind == "status" {
+		return nil, false
+	}
+	return wsCmd{"type": "archive_buffer", "buffer_id": c.buf.ID}, true
+}
+
+func slashUnarchive(c slashContext) (wsCmd, bool) {
+	if c.buf.Kind == "status" {
+		return nil, false
+	}
+	return wsCmd{"type": "unarchive_buffer", "buffer_id": c.buf.ID}, true
+}
+
+func slashDelete(c slashContext) (wsCmd, bool) {
+	// Server enforces archived-only too; the local guard keeps misfires
+	// silent since the TUI does not surface WS error envelopes yet.
+	if c.buf.Kind == "status" || !c.buf.Archived {
+		return nil, false
+	}
+	return wsCmd{"type": "delete_buffer", "buffer_id": c.buf.ID}, true
 }
