@@ -101,6 +101,9 @@ final class AppModel {
   @ObservationIgnored private var connectionTask: Task<Void, Never>?
   @ObservationIgnored private var queuedEvents: [ServerEvent] = []
   @ObservationIgnored private var hydrated = false
+  // Bumped on every selection change so an in-flight older-history fetch can
+  // tell that its anchor is stale by the time it resolves.
+  @ObservationIgnored private var selectionGeneration = 0
   @ObservationIgnored private let defaults: UserDefaults
   @ObservationIgnored private let runsConnectionLoop: Bool
 
@@ -232,6 +235,13 @@ final class AppModel {
       inputHistory.stashDraft(composerText, buffer: previous)
     }
     selectedBufferID = id
+    // Any pending older-history reposition belongs to the buffer we are
+    // leaving; the incoming (and later the returning) timeline is rebuilt
+    // bottom-anchored, so an anchor surviving the switch would yank its
+    // viewport back to an old pagination point. `selectionGeneration` also
+    // makes in-flight loadOlderHistory fetches drop their anchor on arrival.
+    historyAnchor = nil
+    selectionGeneration += 1
     composerText = inputHistory.restoreDraft(buffer: id)
     composerError = nil
     defaults.set(id.uuidString, forKey: Defaults.selectedBuffer)
@@ -337,21 +347,41 @@ final class AppModel {
   func loadOlderHistory() -> Task<Void, Never>? {
     guard let id = selectedBufferID,
       !historyLoading.contains(id),
+      // A pending anchor means the previous page's reposition hasn't landed
+      // yet. The freshly prepended top rows can fire their load-older
+      // `onAppear` in the same render pass that sets the anchor, before the
+      // scroll moves the viewport off them, so without this a single scroll to
+      // the top can start a second fetch.
+      historyAnchor == nil,
       !historyExhausted.contains(id),
       let transport
     else {
       return nil
     }
     historyLoading.insert(id)
+    // Two different ids: the fetch cursor must be the raw store head (the true
+    // oldest known message), but the scroll anchor has to be an id the
+    // timeline actually renders. Hidden presence events are not in the list at
+    // all, and a collapsed presence run renders under its first member's id —
+    // both of which resolve to the first *visible* message (see
+    // ConversationView.items). Anchoring on the raw head would silently no-op
+    // in `proxy.scrollTo` and leave the viewport at the top of the grown
+    // content, re-triggering the load.
     let before = messages[id]?.first?.id
+    let anchorID = visibleMessages(messages[id] ?? [], in: buffers[id]).first?.id
+    let generation = selectionGeneration
     return Task {
       do {
         let older = try await transport.fetchHistory(bufferID: id, before: before)
         mergeMessages(older, into: id)
         if older.isEmpty {
           historyExhausted.insert(id)
-        } else if let before {
-          historyAnchor = HistoryAnchor(bufferID: id, messageID: before)
+        } else if let anchorID, generation == selectionGeneration {
+          // Generation guard: if the selection moved away (even if it came
+          // back to this buffer) the timeline was rebuilt bottom-anchored, and
+          // repositioning it to a stale pagination point would yank the
+          // viewport away from the newest messages.
+          historyAnchor = HistoryAnchor(bufferID: id, messageID: anchorID)
         }
       } catch {
         composerError = error.localizedDescription

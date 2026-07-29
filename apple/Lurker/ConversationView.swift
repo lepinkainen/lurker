@@ -146,10 +146,21 @@ private struct TimelineView: View {
       // the top of the grown content, re-triggering the load in a runaway
       // loop. Pin the previously-first message back to the top edge (web does
       // the same with a scrollHeight delta).
+      // An anchor is only ever set for the selected buffer, so one addressed
+      // elsewhere is stale: drop it without scrolling rather than leaving it to
+      // block further load-older calls.
       .onChange(of: model.historyAnchor) { _, anchor in
-        guard let anchor, anchor.bufferID == buffer.id else { return }
-        proxy.scrollTo(anchor.messageID, anchor: .top)
+        guard let anchor else { return }
+        if anchor.bufferID == buffer.id {
+          proxy.scrollTo(anchor.messageID, anchor: .top)
+        }
         model.historyAnchor = nil
+      }
+      // Teardown before the anchor was consumed (e.g. iOS compact popping back
+      // to the sidebar) would otherwise leave it set forever, and load-older is
+      // gated on it being nil.
+      .onDisappear {
+        if model.historyAnchor?.bufferID == buffer.id { model.historyAnchor = nil }
       }
     }
     // Rebuild the scroll container per buffer so switching channels always

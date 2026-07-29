@@ -733,6 +733,104 @@ struct AppModelTests {
     #expect(model.historyExhausted.contains(FixtureTransport.channelID))
   }
 
+  /// The scroll anchor has to be an id the timeline renders. Presence events
+  /// are dropped from the list when `show_presence_events` is off, so the raw
+  /// store head can be invisible — `scrollTo` on it silently no-ops and the
+  /// load-older trigger re-fires. The pagination cursor must still be the raw
+  /// head, otherwise the hidden rows get refetched forever.
+  @Test func loadOlderHistoryAnchorsRenderedRowNotRawStoreHead() async {
+    let networkID = UUID()
+    var channel = buffer("#alpha", networkID: networkID)
+    channel.showPresenceEvents = false
+    let transport = HistoryStubTransport()
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    model.networks[networkID] = network(id: networkID)
+    model.buffers[channel.id] = channel
+
+    let hiddenJoin = presenceMessage(1, in: channel, networkID: networkID)
+    let firstVisible = message(2, in: channel, networkID: networkID)
+    model.messages[channel.id] = [
+      hiddenJoin, firstVisible, message(3, in: channel, networkID: networkID),
+    ]
+    await transport.setPage([message(0, in: channel, networkID: networkID)])
+    model.selectedBufferID = channel.id
+    // The row the timeline renders at the top — not `messages[id].first`.
+    #expect(model.selectedMessages.first?.id == firstVisible.id)
+
+    await model.loadOlderHistory()?.value
+
+    #expect(
+      model.historyAnchor == HistoryAnchor(bufferID: channel.id, messageID: firstVisible.id))
+    let cursors = await transport.cursors
+    #expect(cursors == [hiddenJoin.id])
+    #expect(model.messages[channel.id]?.count == 4)
+  }
+
+  @Test func bufferSwitchClearsPendingHistoryAnchor() {
+    let networkID = UUID()
+    let alpha = buffer("#alpha", networkID: networkID)
+    let beta = buffer("#beta", networkID: networkID)
+    let model = AppModel(transport: HistoryStubTransport(), defaults: isolatedDefaults())
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [alpha.id: alpha, beta.id: beta]
+
+    model.selectBuffer(alpha.id)
+    model.historyAnchor = HistoryAnchor(bufferID: alpha.id, messageID: uuid(1))
+    model.selectBuffer(beta.id)
+
+    #expect(model.historyAnchor == nil)
+  }
+
+  /// Switching away and back while a page is in flight rebuilds the timeline
+  /// bottom-anchored; applying the anchor then would yank the viewport off the
+  /// newest messages. The fetched page still merges.
+  @Test func staleHistoryAnchorDroppedAfterBufferRoundTrip() async {
+    let networkID = UUID()
+    let alpha = buffer("#alpha", networkID: networkID)
+    let beta = buffer("#beta", networkID: networkID)
+    let transport = HistoryStubTransport()
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [alpha.id: alpha, beta.id: beta]
+    model.messages[alpha.id] = [message(2, in: alpha, networkID: networkID)]
+    await transport.setPage([message(1, in: alpha, networkID: networkID)])
+
+    model.selectBuffer(alpha.id)
+    let task = model.loadOlderHistory()
+    // The task cannot run until this @MainActor test suspends, so both
+    // switches land before the fetch resolves.
+    model.selectBuffer(beta.id)
+    model.selectBuffer(alpha.id)
+    await task?.value
+
+    #expect(model.historyAnchor == nil)
+    #expect(model.messages[alpha.id]?.count == 2)
+    #expect(model.historyLoading.isEmpty)
+  }
+
+  /// Guard against a second page being fetched between the merge and the
+  /// anchor's `scrollTo`: the prepended top rows can fire their load-older
+  /// `onAppear` while the viewport is still at the top.
+  @Test func loadOlderHistorySkippedWhileAnchorPending() async {
+    let networkID = UUID()
+    let channel = buffer("#alpha", networkID: networkID)
+    let transport = HistoryStubTransport()
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    model.networks[networkID] = network(id: networkID)
+    model.buffers[channel.id] = channel
+    model.messages[channel.id] = [message(2, in: channel, networkID: networkID)]
+    await transport.setPage([message(1, in: channel, networkID: networkID)])
+    model.selectedBufferID = channel.id
+
+    model.historyAnchor = HistoryAnchor(bufferID: channel.id, messageID: uuid(2))
+    #expect(model.loadOlderHistory() == nil)
+
+    model.historyAnchor = nil
+    await model.loadOlderHistory()?.value
+    let cursors = await transport.cursors
+    #expect(cursors == [uuid(2)])
+  }
+
   private func isolatedDefaults() -> UserDefaults {
     UserDefaults(suiteName: "xyz.endymion.lurker.tests.\(UUID().uuidString)")!
   }
@@ -811,4 +909,51 @@ struct AppModelTests {
       countsAsUnread: countsAsUnread
     )
   }
+
+  /// A presence-kind row: hidden entirely when `show_presence_events` is off,
+  /// and folded into a summary (rendered under its first member's id) when
+  /// `collapse_presence_events` is on.
+  private func presenceMessage(_ ordinal: Int, in buffer: Buffer, networkID: UUID) -> Message {
+    var value = message(ordinal, in: buffer, networkID: networkID, countsAsUnread: false)
+    value.kind = "join"
+    value.displayKind = "sys"
+    value.content = ""
+    return value
+  }
+}
+
+/// Minimal transport for pagination tests: records the `before` cursor of every
+/// history request and answers with a fixed page.
+private actor HistoryStubTransport: LurkerTransport {
+  private(set) var cursors: [UUID?] = []
+  private var page: [Message] = []
+
+  private struct Unsupported: Error {}
+
+  func setPage(_ messages: [Message]) {
+    page = messages
+  }
+
+  func fetchHistory(bufferID _: UUID, before: UUID?) async throws -> [Message] {
+    cursors.append(before)
+    return page
+  }
+
+  func validateServer() async throws -> ServiceIdentity { throw Unsupported() }
+  func fetchState() async throws -> StateSnapshot { throw Unsupported() }
+  func updateBuffer(id _: UUID, patch _: BufferSettingsPatch) async throws -> BufferSettingsEvent {
+    throw Unsupported()
+  }
+  func reorderNetworks(ids _: [UUID]) async throws -> [Network] { throw Unsupported() }
+  func reorderBuffers(networkID _: UUID, ids _: [UUID]) async throws -> BufferReorderEvent {
+    throw Unsupported()
+  }
+  func reorderPinnedBuffers(ids _: [UUID]) async throws -> PinnedReorderEvent {
+    throw Unsupported()
+  }
+  func openEvents() async -> AsyncThrowingStream<ServerEvent, Error> {
+    AsyncThrowingStream { _ in }
+  }
+  func send(_: ClientCommand) async throws {}
+  func disconnect() async {}
 }
