@@ -2,6 +2,53 @@ import { openDialog } from "./dialog";
 import { getHighlights, putHighlights } from "./highlights-api";
 import { jsonFetch, sendJSON } from "./http";
 
+interface ServerIdentity {
+  name: string;
+  version: string;
+  hash: string;
+  build_time: string;
+}
+
+export function formatBuildTime(iso: string, now = Date.now()): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  const minutes = Math.round((date.getTime() - now) / 60_000);
+  let relative: string;
+  if (Math.abs(minutes) < 60) relative = rtf.format(minutes, "minute");
+  else if (Math.abs(minutes) < 60 * 24) relative = rtf.format(Math.round(minutes / 60), "hour");
+  else relative = rtf.format(Math.round(minutes / (60 * 24)), "day");
+  return `${iso} (${relative})`;
+}
+
+function buildServerInfoSection(): HTMLElement[] {
+  const sectionTitle = document.createElement("h3");
+  sectionTitle.className = "sd-section-title";
+  sectionTitle.textContent = "Server";
+
+  const list = document.createElement("dl");
+  list.className = "sd-info";
+
+  function addRow(label: string, value: string) {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    list.append(dt, dd);
+  }
+
+  jsonFetch<ServerIdentity>("/whoami")
+    .then((info) => {
+      addRow("Version", `${info.version} (${info.hash})`);
+      addRow("Built", formatBuildTime(info.build_time));
+    })
+    .catch(() => {
+      addRow("Version", "unavailable");
+    });
+
+  return [sectionTitle, list];
+}
+
 function buildHighlightsSection(dialog: HTMLDialogElement): HTMLElement[] {
   const sectionTitle = document.createElement("h3");
   sectionTitle.className = "sd-section-title";
@@ -239,6 +286,7 @@ export function openSettingsDialog(): void {
 
   inner.append(
     title,
+    ...buildServerInfoSection(),
     ...buildHighlightsSection(dialog),
     sectionTitle,
     desc,

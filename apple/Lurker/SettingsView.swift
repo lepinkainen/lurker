@@ -48,6 +48,7 @@ struct SettingsView: View {
         LabeledContent("Bundle identifier", value: "xyz.endymion.lurker")
         if let identity = model.serviceIdentity {
           LabeledContent("Server", value: "\(identity.version) (\(identity.hash))")
+          LabeledContent("Server built", value: identity.buildTimeLabel())
         }
       }
     }
