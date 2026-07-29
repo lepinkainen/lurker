@@ -67,7 +67,8 @@ func savePersistedBufferID(id uuid.UUID) error {
 
 // pickStartupBuffer resolves the active buffer on startup using this order:
 //  1. Persisted "last viewed" buffer if it still exists and its network is not disabled.
-//  2. First pinned channel, ordered by (network.sort_order, channel name).
+//  2. First pinned channel, ordered by (pin_order, channel name) — matching the
+//     sidebar's Pinned section.
 //  3. Per network in sort_order: active channels by name → queries by name →
 //     archived buffers by name → status. Status is the absolute last resort.
 //
@@ -76,25 +77,23 @@ func pickStartupBuffer(networks []networkDTO, buffers []bufferDTO, persisted uui
 	if len(buffers) == 0 {
 		return uuid.Nil
 	}
-	enabled, netOrder := networkLookup(networks)
+	enabled := networkLookup(networks)
 
 	if id := resolvePersisted(buffers, enabled, persisted); id != uuid.Nil {
 		return id
 	}
-	if id := firstPinnedChannel(buffers, enabled, netOrder); id != uuid.Nil {
+	if id := firstPinnedChannel(buffers, enabled); id != uuid.Nil {
 		return id
 	}
 	return firstByNetwork(networks, buffers)
 }
 
-func networkLookup(networks []networkDTO) (enabled map[uuid.UUID]bool, order map[uuid.UUID]int) {
+func networkLookup(networks []networkDTO) (enabled map[uuid.UUID]bool) {
 	enabled = make(map[uuid.UUID]bool, len(networks))
-	order = make(map[uuid.UUID]int, len(networks))
-	for i, n := range networks {
+	for _, n := range networks {
 		enabled[n.ID] = !n.Disabled
-		order[n.ID] = i
 	}
-	return enabled, order
+	return enabled
 }
 
 func resolvePersisted(buffers []bufferDTO, enabled map[uuid.UUID]bool, id uuid.UUID) uuid.UUID {
@@ -109,7 +108,7 @@ func resolvePersisted(buffers []bufferDTO, enabled map[uuid.UUID]bool, id uuid.U
 	return uuid.Nil
 }
 
-func firstPinnedChannel(buffers []bufferDTO, enabled map[uuid.UUID]bool, netOrder map[uuid.UUID]int) uuid.UUID {
+func firstPinnedChannel(buffers []bufferDTO, enabled map[uuid.UUID]bool) uuid.UUID {
 	pinned := []bufferDTO{}
 	for _, b := range buffers {
 		if b.Kind == "channel" && b.Pinned && enabled[b.NetworkID] {
@@ -120,9 +119,8 @@ func firstPinnedChannel(buffers []bufferDTO, enabled map[uuid.UUID]bool, netOrde
 		return uuid.Nil
 	}
 	sort.Slice(pinned, func(i, j int) bool {
-		ni, nj := netOrder[pinned[i].NetworkID], netOrder[pinned[j].NetworkID]
-		if ni != nj {
-			return ni < nj
+		if pinned[i].PinOrder != pinned[j].PinOrder {
+			return pinned[i].PinOrder < pinned[j].PinOrder
 		}
 		return strings.ToLower(pinned[i].Name) < strings.ToLower(pinned[j].Name)
 	})

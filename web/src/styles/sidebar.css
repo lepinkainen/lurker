@@ -305,6 +305,33 @@
     padding-left: 18px;
   }
 
+  .sbrow.pinned.dragging {
+    opacity: 0.5;
+  }
+
+  /* Insertion bar above the hovered pinned row — same 2px accent line the
+     network reorder uses (.sb-section.dragover). ::after keeps it clear of the
+     active-row indicator on ::before. */
+  .sbrow.pinned.dragover::after,
+  .sb-drop-end.dragover::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    top: 0;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+
+  /* End-of-list drop target: makes the final slot reachable, since row and
+     section targets always insert before the hovered element. Used by both the
+     pinned section (.sb-pin-end) and the network list (.sb-net-end). */
+  .sb-drop-end {
+    position: relative;
+    height: 8px;
+  }
+
   .sbrow .name {
     overflow: hidden;
     text-overflow: ellipsis;

@@ -31,7 +31,9 @@ type WSMessage =
       collapse_presence_events: boolean;
       pinned: boolean;
       archived: boolean;
+      pin_order?: number;
     }
+  | { type: "pinned_reorder"; buffers?: { id: string; pin_order: number }[] }
   | { type: "buffer_deleted"; id: string; network_id: string }
   | { type: "network_state"; network_id: string; state: string }
   | { type: "history_result"; buffer_id: string; messages?: Message[] }
@@ -80,6 +82,13 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
         // the divider and unread bar are server state (marker_id) and a remote
         // ack has to clear them here too.
         view.updateBuffer(m, { rerenderActive: m.type === "buffer_settings" || m.id === state.activeId });
+        break;
+      case "pinned_reorder":
+        for (const entry of m.buffers || []) {
+          const buffer = state.buffers.get(entry.id);
+          if (buffer) buffer.pin_order = entry.pin_order;
+        }
+        view.renderSidebar();
         break;
       case "network_state": {
         const n = state.networks.get(m.network_id);

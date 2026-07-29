@@ -450,6 +450,7 @@ func applyBufferSettings(ctx context.Context, control *sql.DB, buf *Buffer) {
 	buf.CollapsePresenceEvents = settings.CollapsePresenceEvents
 	buf.Pinned = settings.Pinned
 	buf.Archived = settings.Archived
+	buf.PinOrder = settings.PinOrder
 }
 
 // LookupBuffer resolves a global buffer ID to network/name/kind.
@@ -515,6 +516,7 @@ func (ms *MultiStore) networkBuffers(ctx context.Context, n Network, logStore *L
 			b.CollapsePresenceEvents = s.CollapsePresenceEvents
 			b.Pinned = s.Pinned
 			b.Archived = s.Archived
+			b.PinOrder = s.PinOrder
 		} else {
 			b.ShowEmbeds = true
 			b.ShowPresenceEvents = true

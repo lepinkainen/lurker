@@ -27,5 +27,6 @@ export function resetAppState() {
   state.showMemberList = true;
   state.layout = loadLayout();
   state.drag = { id: null, over: null };
+  state.pinDrag = { id: null, over: null };
   resetNickColors();
 }

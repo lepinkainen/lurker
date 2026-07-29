@@ -29,18 +29,14 @@ function pushDedup(ids: string[], seen: Set<string>, buffer: Buffer | null | und
   ids.push(buffer.id);
 }
 
-function sortedPinnedChannels(opts: { skipDisabledNetworks: boolean }): Buffer[] {
+export function sortedPinnedChannels(opts: { skipDisabledNetworks: boolean }): Buffer[] {
   return [...state.buffers.values()]
     .filter((buffer) => {
       if (buffer.kind !== "channel" || !buffer.pinned) return false;
       if (opts.skipDisabledNetworks && state.networks.get(buffer.network_id)?.disabled) return false;
       return true;
     })
-    .sort((a, b) => {
-      const an = state.networks.get(a.network_id)?.sort_order ?? Number.MAX_SAFE_INTEGER;
-      const bn = state.networks.get(b.network_id)?.sort_order ?? Number.MAX_SAFE_INTEGER;
-      return an - bn || a.name.localeCompare(b.name);
-    });
+    .sort((a, b) => (a.pin_order ?? 0) - (b.pin_order ?? 0) || a.name.localeCompare(b.name));
 }
 
 export function getVisibleSidebarBufferIds(): string[] {

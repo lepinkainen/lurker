@@ -73,6 +73,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tailscale-status", s.tailscaleStatus)
 	mux.HandleFunc("GET /api/buffers/{id}/history", s.history)
 	mux.HandleFunc("PATCH /api/buffers/{id}/settings", s.patchBufferSettings)
+	mux.HandleFunc("POST /api/buffers/pinned/reorder", s.reorderPinnedBuffers)
 	mux.HandleFunc("GET /api/search", s.search)
 	mux.HandleFunc("GET /api/stream", s.stream)
 	mux.HandleFunc("POST /api/upload", s.upload)

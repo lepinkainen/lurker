@@ -1,0 +1,1 @@
+ALTER TABLE buffer_settings ADD COLUMN pin_order INTEGER NOT NULL DEFAULT 0;

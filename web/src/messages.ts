@@ -183,6 +183,7 @@ export function onBufferUpdate(
     show_presence_events?: boolean;
     collapse_presence_events?: boolean;
     pinned?: boolean;
+    pin_order?: number;
     unread?: number;
     mentions?: number;
   },
@@ -206,6 +207,7 @@ export function onBufferUpdate(
     buffer.collapse_presence_events = Boolean(msg.collapse_presence_events);
   }
   if (Object.hasOwn(msg, "pinned")) buffer.pinned = Boolean(msg.pinned);
+  if (typeof msg.pin_order === "number") buffer.pin_order = msg.pin_order;
   if (typeof msg.unread === "number") buffer.unread = msg.unread;
   if (typeof msg.mentions === "number") buffer.mentions = msg.mentions;
   handlers.renderHeader();

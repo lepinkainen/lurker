@@ -60,6 +60,10 @@ final class AppModel {
   var selectedBufferID: UUID?
   var historyExhausted: Set<UUID> = []
   var historyLoading: Set<UUID> = []
+  // Set after older history is prepended; the timeline scrolls this message
+  // back to the top edge so the viewport doesn't jump to the new content and
+  // re-trigger the load (runaway pagination). Consumed (nil'd) by the view.
+  var historyAnchor: HistoryAnchor?
   var connectionState: ConnectionState = .notConfigured
   var serviceIdentity: ServiceIdentity?
   var inspectorVisible = AppModel.defaultInspectorVisible
@@ -97,6 +101,9 @@ final class AppModel {
   @ObservationIgnored private var connectionTask: Task<Void, Never>?
   @ObservationIgnored private var queuedEvents: [ServerEvent] = []
   @ObservationIgnored private var hydrated = false
+  // Bumped on every selection change so an in-flight older-history fetch can
+  // tell that its anchor is stale by the time it resolves.
+  @ObservationIgnored private var selectionGeneration = 0
   @ObservationIgnored private let defaults: UserDefaults
   @ObservationIgnored private let runsConnectionLoop: Bool
 
@@ -228,6 +235,13 @@ final class AppModel {
       inputHistory.stashDraft(composerText, buffer: previous)
     }
     selectedBufferID = id
+    // Any pending older-history reposition belongs to the buffer we are
+    // leaving; the incoming (and later the returning) timeline is rebuilt
+    // bottom-anchored, so an anchor surviving the switch would yank its
+    // viewport back to an old pagination point. `selectionGeneration` also
+    // makes in-flight loadOlderHistory fetches drop their anchor on arrival.
+    historyAnchor = nil
+    selectionGeneration += 1
     composerText = inputHistory.restoreDraft(buffer: id)
     composerError = nil
     defaults.set(id.uuidString, forKey: Defaults.selectedBuffer)
@@ -329,22 +343,45 @@ final class AppModel {
     send(command)
   }
 
-  func loadOlderHistory() {
+  @discardableResult
+  func loadOlderHistory() -> Task<Void, Never>? {
     guard let id = selectedBufferID,
       !historyLoading.contains(id),
+      // A pending anchor means the previous page's reposition hasn't landed
+      // yet. The freshly prepended top rows can fire their load-older
+      // `onAppear` in the same render pass that sets the anchor, before the
+      // scroll moves the viewport off them, so without this a single scroll to
+      // the top can start a second fetch.
+      historyAnchor == nil,
       !historyExhausted.contains(id),
       let transport
     else {
-      return
+      return nil
     }
     historyLoading.insert(id)
+    // Two different ids: the fetch cursor must be the raw store head (the true
+    // oldest known message), but the scroll anchor has to be an id the
+    // timeline actually renders. Hidden presence events are not in the list at
+    // all, and a collapsed presence run renders under its first member's id —
+    // both of which resolve to the first *visible* message (see
+    // ConversationView.items). Anchoring on the raw head would silently no-op
+    // in `proxy.scrollTo` and leave the viewport at the top of the grown
+    // content, re-triggering the load.
     let before = messages[id]?.first?.id
-    Task {
+    let anchorID = visibleMessages(messages[id] ?? [], in: buffers[id]).first?.id
+    let generation = selectionGeneration
+    return Task {
       do {
         let older = try await transport.fetchHistory(bufferID: id, before: before)
         mergeMessages(older, into: id)
         if older.isEmpty {
           historyExhausted.insert(id)
+        } else if let anchorID, generation == selectionGeneration {
+          // Generation guard: if the selection moved away (even if it came
+          // back to this buffer) the timeline was rebuilt bottom-anchored, and
+          // repositioning it to a stale pagination point would yank the
+          // viewport away from the newest messages.
+          historyAnchor = HistoryAnchor(bufferID: id, messageID: anchorID)
         }
       } catch {
         composerError = error.localizedDescription
@@ -398,7 +435,7 @@ final class AppModel {
     }
   }
 
-  /// Reorder the visible (non-pinned, non-archived) channels of a network.
+  /// Reorder the visible (non-archived) channels of a network.
   /// Optimistic with rollback; the server broadcasts buffer_reorder to other
   /// clients and returns the same event shape here.
   @discardableResult
@@ -520,6 +557,7 @@ final class AppModel {
   func applySnapshot(_ snapshot: StateSnapshot) {
     historyExhausted.removeAll(keepingCapacity: true)
     historyLoading.removeAll(keepingCapacity: true)
+    historyAnchor = nil
     networks = Dictionary(uniqueKeysWithValues: snapshot.networks.map { ($0.id, $0) })
     buffers = Dictionary(uniqueKeysWithValues: snapshot.buffers.map { ($0.id, $0) })
     messages = Dictionary(
@@ -583,6 +621,10 @@ final class AppModel {
       for entry in event.buffers {
         buffers[entry.id]?.sortOrder = entry.sortOrder
       }
+    case .pinnedReorder(let event):
+      for entry in event.buffers {
+        buffers[entry.id]?.pinOrder = entry.pinOrder
+      }
     case .networkState(let event):
       guard var network = networks[event.networkID] else { return }
       network.status = event.state
@@ -633,6 +675,7 @@ final class AppModel {
     buffer.collapsePresenceEvents = event.collapsePresenceEvents
     buffer.pinned = event.pinned
     buffer.archived = event.archived
+    if let pinOrder = event.pinOrder { buffer.pinOrder = pinOrder }
     buffers[event.id] = buffer
   }
 
@@ -644,6 +687,7 @@ final class AppModel {
     members.removeValue(forKey: id)
     historyExhausted.remove(id)
     historyLoading.remove(id)
+    if historyAnchor?.bufferID == id { historyAnchor = nil }
     if selectedBufferID == id {
       selectedBufferID = nil
       restoreSelection()
@@ -754,13 +798,37 @@ final class AppModel {
   var pinnedBuffers: [Buffer] {
     buffers.values
       .filter { $0.pinned && $0.kind == "channel" }
-      .sorted(by: bufferOrder)
+      .sorted(by: pinnedOrder)
+  }
+
+  /// Reorder the pinned section via drag and drop. Optimistic with rollback;
+  /// the server broadcasts pinned_reorder to other clients and returns the
+  /// same event shape here.
+  @discardableResult
+  func reorderPinnedBuffers(_ orderedIDs: [UUID]) -> Task<Void, Never>? {
+    guard let transport else { return nil }
+    // Field-level snapshot, same reasoning as reorderNetworks.
+    let previous = orderedIDs.compactMap { id in buffers[id].map { (id, $0.pinOrder) } }
+    for (index, id) in orderedIDs.enumerated() {
+      buffers[id]?.pinOrder = index
+    }
+    return Task {
+      do {
+        let event = try await transport.reorderPinnedBuffers(ids: orderedIDs)
+        apply(.pinnedReorder(event))
+      } catch {
+        for (id, pinOrder) in previous {
+          buffers[id]?.pinOrder = pinOrder
+        }
+        composerError = error.localizedDescription
+      }
+    }
   }
 
   func sidebarBuffers(for networkID: UUID) -> SidebarBufferGroups {
-    let values = buffers.values.filter {
-      $0.networkID == networkID && !($0.kind == "channel" && $0.pinned)
-    }
+    // Pinned channels stay listed under their network in addition to the
+    // Pinned section.
+    let values = buffers.values.filter { $0.networkID == networkID }
     return SidebarBufferGroups(
       status: values.filter { $0.kind == "status" }.sorted(by: bufferOrder),
       // Channels honor manual ordering (sortOrder, then name); other groups
@@ -787,10 +855,19 @@ final class AppModel {
     messages.removeAll()
     members.removeAll()
     historyExhausted.removeAll()
+    historyAnchor = nil
     channelList = nil
     selectedBufferID = nil
     hydrated = false
   }
+}
+
+/// Identifies the message that was at the top of a buffer before an older
+/// history page was prepended, so the timeline can pin it back to the top
+/// edge of the viewport.
+struct HistoryAnchor: Equatable {
+  let bufferID: UUID
+  let messageID: UUID
 }
 
 private func memberRank(_ prefix: String?) -> Int {
@@ -812,6 +889,10 @@ private func bufferOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
 
 private func channelOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
   lhs.sortOrder == rhs.sortOrder ? bufferOrder(lhs, rhs) : lhs.sortOrder < rhs.sortOrder
+}
+
+private func pinnedOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
+  lhs.pinOrder == rhs.pinOrder ? bufferOrder(lhs, rhs) : lhs.pinOrder < rhs.pinOrder
 }
 
 #if DEBUG

@@ -29,3 +29,4 @@ web/tests/__screenshots__/
 # Internal frontend prototypes, kept locally only
 /mockups/
 __pycache__/
+.playwright-mcp/

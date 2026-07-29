@@ -1,5 +1,5 @@
 import { type Buffer, type Network, state } from "./app-state";
-import { groupedBuffers, orderedNetworks } from "./buffers";
+import { groupedBuffers, orderedNetworks, sortedPinnedChannels } from "./buffers";
 
 export type NetworkBuffers = ReturnType<typeof groupedBuffers> & {
   all: Buffer[];
@@ -21,13 +21,7 @@ export type SidebarModel = {
 };
 
 export function pinnedBuffers(): Buffer[] {
-  return [...state.buffers.values()]
-    .filter((buffer) => buffer.kind === "channel" && buffer.pinned)
-    .sort((a, b) => {
-      const an = state.networks.get(a.network_id)?.sort_order ?? Number.MAX_SAFE_INTEGER;
-      const bn = state.networks.get(b.network_id)?.sort_order ?? Number.MAX_SAFE_INTEGER;
-      return an - bn || a.name.localeCompare(b.name);
-    });
+  return sortedPinnedChannels({ skipDisabledNetworks: false });
 }
 
 export function networkBuffers(networkId: string): NetworkBuffers {

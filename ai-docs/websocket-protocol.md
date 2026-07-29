@@ -136,6 +136,7 @@ Currently published events:
 - `presence` — lightweight join/part/quit/kick/nick-change events
 - `buffer_settings` — per-buffer display preferences changed
 - `buffer_reorder` — manual channel ordering changed for one network
+- `pinned_reorder` — manual ordering of the global Pinned section changed
 - `channel_list` — streaming /LIST results
 - `netsplit` — retroactive netsplit annotation for already-published messages
 - `highlights` — global highlight pattern list changed (`{patterns: [...]}`); matching itself stays server-side, the event only lets open settings UIs refresh
@@ -235,11 +236,16 @@ Only previews with `kind` = `image` or `opengraph` are published. Negative resul
 - `collapse_presence_events`
 - `pinned`
 - `archived` — clients bucket sidebar sections by this flag (not by `joined`): non-status buffers with `archived` render in the per-network folded "Archive" section
+- `pin_order` — position within the Pinned section; pinning assigns MAX+1 so new pins append, unpinning resets to 0. Pinned channels display-sort by `(pin_order, name)` and stay listed under their network group as well
 
 `buffer_reorder`
 
 - `network_id`
 - `buffers` — `[{id, sort_order}, ...]` covering **all** channel buffers of the network after a `POST /api/networks/{id}/buffers/reorder`. Channels display-sort by `(sort_order, name)`; clients without manual ordering ignore the event.
+
+`pinned_reorder`
+
+- `buffers` — `[{id, pin_order}, ...]` covering **all** pinned buffers after a `POST /api/buffers/pinned/reorder`. Pinned channels display-sort by `(pin_order, name)`; clients without manual pinned ordering ignore the event.
 
 `netsplit`
 

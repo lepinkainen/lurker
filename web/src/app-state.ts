@@ -50,6 +50,9 @@ export type Buffer = {
   show_presence_events: boolean;
   collapse_presence_events: boolean;
   pinned: boolean;
+  // Manual pinned-section ordering; pinned channels sort (pin_order, name).
+  // Absent on pre-pin_order backends, treated as 0.
+  pin_order?: number;
   // Persisted server-side flag driving the Archive section. Channels are
   // archived automatically on part/kick and unarchived on join; queries are
   // archived manually and unarchived by new activity.
@@ -122,6 +125,12 @@ export type ReorderResponse = {
   networks?: Network[];
 };
 
+// Response of POST /api/buffers/pinned/reorder, identical in shape to the
+// pinned_reorder broadcast the same call publishes.
+export type PinnedReorderResponse = {
+  buffers?: { id: string; pin_order: number }[];
+};
+
 export type UpdateStatus = {
   enabled: boolean;
   update_available: boolean;
@@ -164,6 +173,10 @@ export type AppState = {
   showMemberList: boolean;
   layout: LayoutSettings;
   drag: { id: string | null; over: string | null };
+  // Pinned-section row drag, kept separate from the network drag so the two
+  // never highlight each other's drop targets. `over` is the buffer id whose
+  // row shows the insertion bar, or PINNED_DROP_END for the end-of-list zone.
+  pinDrag: { id: string | null; over: string | null };
   updateStatus: UpdateStatus | null;
   tailscaleStatus: TailscaleStatus | null;
   channelList: { network_id: string; entries: ChannelListEntry[]; done: boolean } | null;
@@ -232,6 +245,7 @@ export const state: AppState = {
   showMemberList: true,
   layout: loadLayout(),
   drag: { id: null, over: null },
+  pinDrag: { id: null, over: null },
   updateStatus: null,
   tailscaleStatus: null,
   channelList: null,

@@ -126,12 +126,13 @@ Current behavior:
   "collapse_presence_events": false,
   "pinned": false,
   "archived": false,
+  "pin_order": 0,
   "unread": 3,
   "mentions": 1
 }
 ```
 
-The settings fields (`show_embeds`, `show_presence_events`, `collapse_presence_events`, `pinned`, `archived`) are persisted server-side in the control DB and included in `/api/state` and streamed `buffer_settings` events. `sort_order` is the manual channel ordering position (see `POST /api/networks/{id}/buffers/reorder`); channels sort by `(sort_order, name)` — the default 0 keeps untouched sets alphabetical. Clients that don't support manual ordering may ignore it. `archived` drives the sidebar Archive section (see `ai-docs/websocket-protocol.md`); clients bucket by it, not by `joined`.
+The settings fields (`show_embeds`, `show_presence_events`, `collapse_presence_events`, `pinned`, `archived`, `pin_order`) are persisted server-side in the control DB and included in `/api/state` and streamed `buffer_settings` events. `sort_order` is the manual channel ordering position (see `POST /api/networks/{id}/buffers/reorder`); channels sort by `(sort_order, name)` — the default 0 keeps untouched sets alphabetical. Clients that don't support manual ordering may ignore it. `pin_order` is the analogous position within the global Pinned section (see `POST /api/buffers/pinned/reorder`); pinned channels sort by `(pin_order, name)`, and pinning a buffer assigns it `MAX(pin_order among pinned)+1` so new pins append. Pinned channels remain listed under their network group as well — the Pinned section is an additional view, not a move. `archived` drives the sidebar Archive section (see `ai-docs/websocket-protocol.md`); clients bucket by it, not by `joined`.
 
 Read state is server-derived (see `ai-docs/behaviors/new-messages-marker.md`): `unread`/`mentions` count messages past `last_seen_id` (capped at 1000; self-authored and presence/system kinds excluded). `marker_id` is the "New messages" marker — the oldest counting unread message — with `marker_ts` its RFC3339 timestamp (derived from the UUIDv7) for "new since" display; both omitted when the buffer is caught up.
 
@@ -268,7 +269,35 @@ Behavior:
 }
 ```
 
-Channels display-sort by `(sort_order, name)`; queries, archived, and pinned groups stay alphabetical.
+Channels display-sort by `(sort_order, name)`; queries and archived groups stay alphabetical. The Pinned section has its own ordering (`POST /api/buffers/pinned/reorder`).
+
+## `POST /api/buffers/pinned/reorder`
+
+Purpose:
+
+- persist manual ordering of the sidebar's global Pinned section
+
+Request body:
+
+```json
+{ "ids": ["0198f5f2-8f2a-7a8b-9b42-4d6e72c4d8f1", "0198f5f2-9348-7ed6-b3b4-cd8a1a6e8b20"] }
+```
+
+Behavior:
+
+- IDs must be currently **pinned** buffers (any network) — a **partial** set is allowed; unlisted pinned buffers keep their current `pin_order`
+- listed IDs get `pin_order = 0..n-1` transactionally
+- 400 on empty list, duplicates, or unpinned/unknown IDs
+- response is the `pinned_reorder` event shape (also broadcast to all WebSocket clients), carrying **all** pinned buffers:
+
+```json
+{
+  "type": "pinned_reorder",
+  "buffers": [{ "id": "...", "pin_order": 0 }, { "id": "...", "pin_order": 1 }]
+}
+```
+
+Pinned channels display-sort by `(pin_order, name)`. Unpinning resets `pin_order` to 0; re-pinning appends to the end of the section.
 
 ## `PATCH /api/networks/{id}`
 
@@ -354,7 +383,8 @@ Response is the full `buffer_settings` event shape:
   "show_presence_events": true,
   "collapse_presence_events": false,
   "pinned": false,
-  "archived": false
+  "archived": false,
+  "pin_order": 0
 }
 ```
 

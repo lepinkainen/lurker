@@ -56,6 +56,7 @@ type bufferDTO struct {
 	CollapsePresenceEvents bool      `json:"collapse_presence_events"`
 	Pinned                 bool      `json:"pinned"`
 	Archived               bool      `json:"archived"`
+	PinOrder               int64     `json:"pin_order"`
 	Unread                 int       `json:"unread"`
 	Mentions               int       `json:"mentions"`
 }
@@ -141,8 +142,8 @@ func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb
 		MarkerID:  counts.MarkerID, MarkerTS: markerTS(counts.MarkerID),
 		ShowEmbeds: b.ShowEmbeds, ShowPresenceEvents: b.ShowPresenceEvents,
 		CollapsePresenceEvents: b.CollapsePresenceEvents, Pinned: b.Pinned,
-		Archived: b.Archived,
-		Unread:   counts.Unread, Mentions: counts.Mentions,
+		Archived: b.Archived, PinOrder: b.PinOrder,
+		Unread: counts.Unread, Mentions: counts.Mentions,
 	})
 	if b.Kind == ircdb.BufferChannel && s.Manager != nil {
 		if members := s.Manager.ChannelMembers(b.NetworkID, b.Name); members != nil {

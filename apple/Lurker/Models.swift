@@ -110,13 +110,16 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
   // Manual channel ordering; channels sort (sortOrder, name). Defaults to 0
   // when absent so pre-sort_order backends keep alphabetical order.
   var sortOrder: Int = 0
+  // Manual pinned-section ordering; pinned buffers sort (pinOrder, name).
+  // Defaults to 0 when absent so pre-pin_order backends keep name order.
+  var pinOrder: Int = 0
   var unread: Int
   var mentions: Int
 
   private enum CodingKeys: String, CodingKey {
     case id, networkID, name, kind, topic, joined, lastSeenID, markerID, markerTS, createdAt,
-      showEmbeds, showPresenceEvents, collapsePresenceEvents, pinned, archived, sortOrder, unread,
-      mentions
+      showEmbeds, showPresenceEvents, collapsePresenceEvents, pinned, archived, sortOrder, pinOrder,
+      unread, mentions
   }
 
   init(
@@ -136,6 +139,7 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
     pinned: Bool,
     archived: Bool = false,
     sortOrder: Int = 0,
+    pinOrder: Int = 0,
     unread: Int,
     mentions: Int
   ) {
@@ -155,6 +159,7 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
     self.pinned = pinned
     self.archived = archived
     self.sortOrder = sortOrder
+    self.pinOrder = pinOrder
     self.unread = unread
     self.mentions = mentions
   }
@@ -177,6 +182,7 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
     pinned = try values.decode(Bool.self, forKey: .pinned)
     archived = try values.decodeIfPresent(Bool.self, forKey: .archived) ?? false
     sortOrder = try values.decodeIfPresent(Int.self, forKey: .sortOrder) ?? 0
+    pinOrder = try values.decodeIfPresent(Int.self, forKey: .pinOrder) ?? 0
     unread = try values.decode(Int.self, forKey: .unread)
     mentions = try values.decode(Int.self, forKey: .mentions)
   }
@@ -278,6 +284,8 @@ struct BufferSettingsEvent: Codable, Sendable {
   let collapsePresenceEvents: Bool
   let pinned: Bool
   let archived: Bool
+  // Absent on pre-pin_order backends.
+  var pinOrder: Int? = nil
 }
 
 struct BufferUpdateEvent: Decodable, Sendable {
@@ -346,6 +354,18 @@ struct BufferReorderEvent: Codable, Sendable {
   let buffers: [BufferSortEntry]
 }
 
+/// One (buffer, pin_order) pair in a `pinned_reorder` event.
+struct PinnedSortEntry: Codable, Sendable, Hashable {
+  let id: UUID
+  let pinOrder: Int
+}
+
+/// Broadcast after POST /api/buffers/pinned/reorder; carries the resulting
+/// order of ALL pinned buffers.
+struct PinnedReorderEvent: Codable, Sendable {
+  let buffers: [PinnedSortEntry]
+}
+
 struct NetworkReorderResponse: Codable, Sendable {
   let networks: [Network]
 }
@@ -409,6 +429,7 @@ enum ServerEvent: Sendable {
   case bufferUpdate(BufferUpdateEvent)
   case bufferSettings(BufferSettingsEvent)
   case bufferReorder(BufferReorderEvent)
+  case pinnedReorder(PinnedReorderEvent)
   case networkState(NetworkStateEvent)
   case history(HistoryResult)
   case preview(PreviewEvent)
@@ -434,6 +455,7 @@ extension ServerEvent: Decodable {
     case "buffer_update": self = .bufferUpdate(try BufferUpdateEvent(from: decoder))
     case "buffer_settings": self = .bufferSettings(try BufferSettingsEvent(from: decoder))
     case "buffer_reorder": self = .bufferReorder(try BufferReorderEvent(from: decoder))
+    case "pinned_reorder": self = .pinnedReorder(try PinnedReorderEvent(from: decoder))
     case "network_state": self = .networkState(try NetworkStateEvent(from: decoder))
     case "history_result": self = .history(try HistoryResult(from: decoder))
     case "preview": self = .preview(try PreviewEvent(from: decoder))

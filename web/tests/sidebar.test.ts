@@ -87,6 +87,19 @@ describe("renderSidebar", () => {
     expect(first?.querySelector(".pinned-hdr")).not.toBeNull();
   });
 
+  it("sorts pinned section by pin_order then name and keeps pinned channels under their network", () => {
+    state.networks.set("1", net({ id: "1", sort_order: 0 }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#aaa", joined: true, pinned: true, pin_order: 1 }));
+    state.buffers.set("11", buf({ id: "11", network_id: "1", name: "#zzz", joined: true, pinned: true, pin_order: 0 }));
+    const d = deps();
+    renderSidebar(d);
+    const pinnedNames = [...d.sbScrollEl.querySelectorAll(".sbrow.pinned .name")].map((n) => n.textContent);
+    expect(pinnedNames).toEqual(["#zzz", "#aaa"]);
+    // Pinned channels also render under their network group (name-sorted).
+    const chanNames = [...d.sbScrollEl.querySelectorAll(".sbrow.chan:not(.pinned) .name")].map((n) => n.textContent);
+    expect(chanNames).toEqual(["#aaa", "#zzz"]);
+  });
+
   it("toggles pinned buffers from visible row control", () => {
     state.networks.set("1", net({ id: "1" }));
     state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#aaa", joined: true }));
@@ -201,5 +214,252 @@ describe("renderSidebar", () => {
     expect(dialog).not.toBeNull();
     expect(dialog?.querySelector(".chan-delete-btn")).toBeNull();
     dialog?.remove();
+  });
+});
+
+describe("pinned section drag reorder", () => {
+  // Every drag step re-renders the sidebar, so element references go stale —
+  // always re-query rows between dispatched events.
+  function pinnedRows(d: SidebarDeps) {
+    return [...d.sbScrollEl.querySelectorAll<HTMLElement>(".sbrow.pinned")];
+  }
+
+  function pinnedNames(d: SidebarDeps) {
+    return pinnedRows(d).map((row) => row.querySelector(".name")?.textContent);
+  }
+
+  function fire(el: Element, type: string) {
+    el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+  }
+
+  function setupPinned() {
+    state.networks.set("1", net({ id: "1", sort_order: 0 }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#one", joined: true, pinned: true, pin_order: 0 }));
+    state.buffers.set("11", buf({ id: "11", network_id: "1", name: "#two", joined: true, pinned: true, pin_order: 1 }));
+    state.buffers.set(
+      "12",
+      buf({ id: "12", network_id: "1", name: "#three", joined: true, pinned: true, pin_order: 2 }),
+    );
+    const d = deps();
+    renderSidebar(d);
+    return d;
+  }
+
+  function okFetch(ids: string[]) {
+    return vi.fn(
+      async () =>
+        new Response(JSON.stringify({ buffers: ids.map((id, idx) => ({ id, pin_order: idx })) }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    resetAppState();
+    vi.unstubAllGlobals();
+  });
+
+  it("marks the dragged row and shows the insertion bar on the hovered row", () => {
+    const d = setupPinned();
+    fire(pinnedRows(d)[2], "dragstart");
+    fire(pinnedRows(d)[0], "dragover");
+    const rows = pinnedRows(d);
+    expect(rows[2].classList.contains("dragging")).toBe(true);
+    expect(rows[0].classList.contains("dragover")).toBe(true);
+    expect(rows[1].classList.contains("dragover")).toBe(false);
+  });
+
+  it("does not highlight pinned rows during a network drag", () => {
+    const d = setupPinned();
+    state.drag.id = "1";
+    fire(pinnedRows(d)[0], "dragover");
+    expect(state.pinDrag.over).toBeNull();
+    expect(pinnedRows(d)[0].classList.contains("dragover")).toBe(false);
+  });
+
+  it("drops before the hovered row and posts the full ordered id list", async () => {
+    const fetchMock = okFetch(["12", "10", "11"]);
+    vi.stubGlobal("fetch", fetchMock);
+    const d = setupPinned();
+
+    fire(pinnedRows(d)[2], "dragstart");
+    fire(pinnedRows(d)[0], "dragover");
+    fire(pinnedRows(d)[0], "drop");
+
+    expect(pinnedNames(d)).toEqual(["#three", "#one", "#two"]);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/buffers/pinned/reorder");
+    expect(JSON.parse(String(init.body))).toEqual({ ids: ["12", "10", "11"] });
+    expect(state.pinDrag.id).toBeNull();
+  });
+
+  it("appends to the last position via the end-of-list drop zone", async () => {
+    const fetchMock = okFetch(["11", "12", "10"]);
+    vi.stubGlobal("fetch", fetchMock);
+    const d = setupPinned();
+    const endZone = d.sbScrollEl.querySelector<HTMLElement>(".sb-pin-end");
+    expect(endZone).not.toBeNull();
+
+    fire(pinnedRows(d)[0], "dragstart");
+    fire(endZone as HTMLElement, "dragover");
+    const activeZone = d.sbScrollEl.querySelector<HTMLElement>(".sb-pin-end");
+    expect(activeZone?.classList.contains("dragover")).toBe(true);
+    fire(activeZone as HTMLElement, "drop");
+
+    expect(pinnedNames(d)).toEqual(["#two", "#three", "#one"]);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toEqual({ ids: ["11", "12", "10"] });
+  });
+
+  it("rolls back the optimistic order when the backend has no reorder endpoint", async () => {
+    const fetchMock = vi.fn(async () => new Response("404 page not found", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {
+      // Expected: the failed reorder logs before rolling back.
+    });
+    const d = setupPinned();
+
+    fire(pinnedRows(d)[2], "dragstart");
+    fire(pinnedRows(d)[0], "dragover");
+    fire(pinnedRows(d)[0], "drop");
+    expect(pinnedNames(d)).toEqual(["#three", "#one", "#two"]);
+
+    await vi.waitFor(() => expect(pinnedNames(d)).toEqual(["#one", "#two", "#three"]));
+    expect(state.buffers.get("12")?.pin_order).toBe(2);
+    errSpy.mockRestore();
+  });
+
+  it("clears drag state on dragend", () => {
+    const d = setupPinned();
+    fire(pinnedRows(d)[0], "dragstart");
+    fire(pinnedRows(d)[1], "dragover");
+    fire(pinnedRows(d)[0], "dragend");
+    expect(state.pinDrag).toEqual({ id: null, over: null });
+    expect(pinnedRows(d).some((row) => row.classList.contains("dragover"))).toBe(false);
+  });
+});
+
+describe("network section drag reorder", () => {
+  function sections(d: SidebarDeps) {
+    return [...d.sbScrollEl.querySelectorAll<HTMLElement>(".netsection")];
+  }
+
+  function names(d: SidebarDeps) {
+    return [...d.sbScrollEl.querySelectorAll(".netname")].map((n) => n.textContent);
+  }
+
+  function endZone(d: SidebarDeps) {
+    return d.sbScrollEl.querySelector<HTMLElement>(".sb-net-end");
+  }
+
+  function fire(el: Element, type: string) {
+    el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+  }
+
+  const NAMES: Record<string, string> = { "1": "alpha", "2": "beta", "3": "gamma" };
+
+  // Echoes the names the sidebar already renders, so the server-confirmation
+  // render is assertable and can be awaited — an unawaited confirmation would
+  // otherwise land in the middle of a later test.
+  function okFetch(ids: string[]) {
+    return vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ networks: ids.map((id, idx) => net({ id, name: NAMES[id], sort_order: idx })) }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+    );
+  }
+
+  function setupNetworks() {
+    for (const [id, name] of Object.entries(NAMES)) {
+      state.networks.set(id, net({ id, name, sort_order: Number(id) - 1 }));
+    }
+    const d = deps();
+    renderSidebar(d);
+    return d;
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    resetAppState();
+    vi.unstubAllGlobals();
+  });
+
+  it("drops before the hovered section, matching the insertion bar", async () => {
+    const fetchMock = okFetch(["1", "3", "2"]);
+    vi.stubGlobal("fetch", fetchMock);
+    const d = setupNetworks();
+
+    // Dragging gamma down onto beta must land it *before* beta, where the bar is
+    // drawn — the old index math inserted after it on downward drags.
+    fire(sections(d)[2], "dragstart");
+    fire(sections(d)[1], "dragover");
+    expect(sections(d)[1].classList.contains("dragover")).toBe(true);
+    fire(sections(d)[1], "drop");
+
+    expect(names(d)).toEqual(["alpha", "gamma", "beta"]);
+    await vi.waitFor(() => expect(state.networks.get("3")?.sort_order).toBe(1));
+    expect(names(d)).toEqual(["alpha", "gamma", "beta"]);
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toEqual({ ids: ["1", "3", "2"] });
+    expect(state.drag.id).toBeNull();
+  });
+
+  it("appends to the last position via the end-of-list drop zone", async () => {
+    const fetchMock = okFetch(["2", "3", "1"]);
+    vi.stubGlobal("fetch", fetchMock);
+    const d = setupNetworks();
+    expect(endZone(d)).not.toBeNull();
+
+    fire(sections(d)[0], "dragstart");
+    fire(endZone(d) as HTMLElement, "dragover");
+    expect(endZone(d)?.classList.contains("dragover")).toBe(true);
+    fire(endZone(d) as HTMLElement, "drop");
+
+    expect(names(d)).toEqual(["beta", "gamma", "alpha"]);
+    await vi.waitFor(() => expect(state.networks.get("1")?.sort_order).toBe(2));
+    expect(names(d)).toEqual(["beta", "gamma", "alpha"]);
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toEqual({ ids: ["2", "3", "1"] });
+  });
+
+  it("omits the end-of-list zone when there are no active networks", () => {
+    const d = deps();
+    renderSidebar(d);
+    expect(endZone(d)).toBeNull();
+  });
+
+  it("does not highlight network sections during a pinned drag", () => {
+    const d = setupNetworks();
+    state.pinDrag.id = "10";
+    fire(sections(d)[0], "dragover");
+    expect(state.drag.over).toBeNull();
+    expect(sections(d)[0].classList.contains("dragover")).toBe(false);
+  });
+
+  it("rolls back the optimistic order when the reorder fails", async () => {
+    const fetchMock = vi.fn(async () => new Response("boom", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {
+      // Expected: the failed reorder logs before rolling back.
+    });
+    const d = setupNetworks();
+
+    fire(sections(d)[2], "dragstart");
+    fire(sections(d)[0], "dragover");
+    fire(sections(d)[0], "drop");
+    expect(names(d)).toEqual(["gamma", "alpha", "beta"]);
+
+    await vi.waitFor(() => expect(names(d)).toEqual(["alpha", "beta", "gamma"]));
+    expect(state.networks.get("3")?.sort_order).toBe(2);
+    errSpy.mockRestore();
   });
 });
