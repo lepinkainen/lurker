@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SidebarView: View {
   @Environment(AppModel.self) private var model
+  @State private var pendingDelete: Buffer?
 
   var body: some View {
     ScrollView {
@@ -11,6 +12,21 @@ struct SidebarView: View {
       .padding(.vertical, 6)
     }
     .navigationTitle("Lurker")
+    .alert(
+      "Delete \(pendingDelete?.name ?? "buffer")?",
+      isPresented: Binding(
+        get: { pendingDelete != nil },
+        set: { if !$0 { pendingDelete = nil } }
+      ),
+      presenting: pendingDelete
+    ) { buffer in
+      Button("Delete Forever", role: .destructive) {
+        model.deleteBuffer(buffer.id)
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: { _ in
+      Text("This permanently removes the buffer and all of its history. This cannot be undone.")
+    }
     .safeAreaInset(edge: .bottom) {
       VStack(spacing: 6) {
         Divider()
@@ -55,7 +71,7 @@ struct SidebarView: View {
         } content: {
           BufferRow(buffer: buffer, network: model.networks[buffer.networkID])
         }
-        .bufferMenu(buffer, model: model)
+        .bufferMenu(buffer, model: model) { pendingDelete = $0 }
       }
     }
 
@@ -83,7 +99,26 @@ struct SidebarView: View {
           BufferRow(buffer: buffer, network: network)
             .padding(.leading, 14)
         }
-        .bufferMenu(buffer, model: model)
+        .bufferMenu(buffer, model: model) { pendingDelete = $0 }
+      }
+      if !groups.archived.isEmpty {
+        ArchivesToggleRow(
+          count: groups.archived.count,
+          isOpen: model.archivesOpen.contains(network.id)
+        ) {
+          model.toggleArchives(network.id)
+        }
+        if model.archivesOpen.contains(network.id) {
+          ForEach(groups.archived) { buffer in
+            SidebarRow(isSelected: model.selectedBufferID == buffer.id) {
+              model.selectBuffer(buffer.id)
+            } content: {
+              BufferRow(buffer: buffer, network: network)
+                .padding(.leading, 22)
+            }
+            .bufferMenu(buffer, model: model) { pendingDelete = $0 }
+          }
+        }
       }
     }
 
@@ -124,6 +159,36 @@ private struct SidebarSectionHeader: View {
       .padding(.horizontal, 12)
       .padding(.top, 10)
       .padding(.bottom, 2)
+  }
+}
+
+/// The per-network "Archives (n)" fold row — folded by default, IRCCloud-style.
+private struct ArchivesToggleRow: View {
+  let count: Int
+  let isOpen: Bool
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 5) {
+        Image(systemName: "chevron.right")
+          .font(.caption2.weight(.semibold))
+          .rotationEffect(.degrees(isOpen ? 90 : 0))
+        Text("Archives")
+        Text(count.formatted())
+          .foregroundStyle(.tertiary)
+        Spacer()
+      }
+      .font(.caption.weight(.semibold))
+      .foregroundStyle(.secondary)
+      .padding(.horizontal, 8)
+      .padding(.leading, 14)
+      .padding(.vertical, 4)
+      .contentShape(.rect)
+    }
+    .buttonStyle(.plain)
+    .padding(.horizontal, 4)
+    .accessibilityLabel("Archives, \(count) buffers, \(isOpen ? "expanded" : "collapsed")")
   }
 }
 
@@ -254,6 +319,9 @@ private struct BufferRow: View {
   }
 
   private var textStyle: some ShapeStyle {
+    if buffer.archived {
+      return AnyShapeStyle(.secondary)
+    }
     if buffer.kind == "channel" {
       return buffer.joined ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
     }
@@ -277,11 +345,26 @@ private struct CountBadge: View {
 }
 
 extension View {
-  fileprivate func bufferMenu(_ buffer: Buffer, model: AppModel) -> some View {
+  fileprivate func bufferMenu(
+    _ buffer: Buffer, model: AppModel, requestDelete: @escaping (Buffer) -> Void
+  ) -> some View {
     contextMenu {
       if buffer.kind == "channel" {
         Button(buffer.pinned ? "Unpin" : "Pin") {
           model.updateBuffer(buffer.id, BufferSettingsPatch(pinned: !buffer.pinned))
+        }
+        Divider()
+        // Channel archiving follows membership: Archive parts (the server
+        // sets archived on self-part), Unarchive rejoins.
+        if buffer.joined {
+          Button("Archive") {
+            model.command(ClientCommand(type: "part", bufferID: buffer.id))
+          }
+        } else {
+          Button("Unarchive") {
+            model.command(
+              ClientCommand(type: "join", networkID: buffer.networkID, channel: buffer.name))
+          }
         }
         Divider()
         Toggle(
@@ -302,6 +385,17 @@ extension View {
             get: { buffer.collapsePresenceEvents },
             set: { model.updateBuffer(buffer.id, BufferSettingsPatch(collapsePresenceEvents: $0)) }
           ))
+      }
+      if buffer.kind == "query" {
+        Button(buffer.archived ? "Unarchive" : "Archive") {
+          model.setArchived(buffer.id, !buffer.archived)
+        }
+      }
+      if buffer.archived {
+        Divider()
+        Button("Delete…", role: .destructive) {
+          requestDelete(buffer)
+        }
       }
     }
   }

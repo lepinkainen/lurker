@@ -18,6 +18,9 @@ enum SlashCommands {
     ("/back", "", "Clear away status"),
     ("/topic", "[topic]", "Set the channel topic"),
     ("/list", "[filter]", "List channels on the network"),
+    ("/archive", "", "Archive this buffer"),
+    ("/unarchive", "", "Unarchive this buffer"),
+    ("/delete", "", "Delete this archived buffer and its history"),
   ]
 
   static func parse(_ input: String, buffer: Buffer) -> ComposerResult {
@@ -78,6 +81,21 @@ enum SlashCommands {
       return .command(ClientCommand(type: "topic", bufferID: buffer.id, content: content))
     case "list":
       return .command(ClientCommand(type: "list", networkID: buffer.networkID, content: content))
+    case "archive":
+      guard buffer.kind != "status" else {
+        return .invalid("The status window cannot be archived.")
+      }
+      return .command(ClientCommand(type: "archive_buffer", bufferID: buffer.id))
+    case "unarchive":
+      guard buffer.kind != "status" else {
+        return .invalid("The status window cannot be archived.")
+      }
+      return .command(ClientCommand(type: "unarchive_buffer", bufferID: buffer.id))
+    case "delete":
+      guard buffer.kind != "status", buffer.archived else {
+        return .invalid("Only archived channels and conversations can be deleted.")
+      }
+      return .command(ClientCommand(type: "delete_buffer", bufferID: buffer.id))
     default:
       return .invalid("Unknown command /\(name)")
     }

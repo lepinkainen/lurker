@@ -32,9 +32,12 @@ struct SidebarBufferGroups {
   let status: [Buffer]
   let channels: [Buffer]
   let queries: [Buffer]
+  // Buffers with the persisted archived flag (any kind), rendered inside the
+  // folded Archives section at the bottom of the network.
+  let archived: [Buffer]
 
   var all: [Buffer] {
-    status + channels + queries
+    status + channels + queries + archived
   }
 }
 
@@ -46,6 +49,7 @@ final class AppModel {
     static let selectedBuffer = "mac.selectedBuffer"
     static let inspectorVisible = "mac.inspectorVisible"
     static let notifications = "mac.notifications"
+    static let archivesOpen = "mac.archivesOpen"
   }
 
   var networks: [UUID: Network] = [:]
@@ -67,6 +71,9 @@ final class AppModel {
   var showingSettings = false
   var composerText = ""
   var composerError: String?
+  // Per-network Archives fold state; folded by default, persisted across
+  // launches like the other sidebar-adjacent Defaults.
+  var archivesOpen: Set<UUID> = []
   var notificationsEnabled = true
   var columnVisibility: NavigationSplitViewVisibility = .all
   // iOS compact width: whether ConversationView is pushed over the sidebar.
@@ -101,6 +108,9 @@ final class AppModel {
     inspectorVisible =
       defaults.object(forKey: Defaults.inspectorVisible) as? Bool ?? Self.defaultInspectorVisible
     notificationsEnabled = defaults.object(forKey: Defaults.notifications) as? Bool ?? true
+    archivesOpen = Set(
+      (defaults.stringArray(forKey: Defaults.archivesOpen) ?? []).compactMap(UUID.init(uuidString:))
+    )
     if transport != nil {
       connectionState = .connecting
     }
@@ -221,6 +231,25 @@ final class AppModel {
   func setNotificationsEnabled(_ enabled: Bool) {
     notificationsEnabled = enabled
     defaults.set(enabled, forKey: Defaults.notifications)
+  }
+
+  func toggleArchives(_ networkID: UUID) {
+    if !archivesOpen.insert(networkID).inserted {
+      archivesOpen.remove(networkID)
+    }
+    defaults.set(archivesOpen.map(\.uuidString).sorted(), forKey: Defaults.archivesOpen)
+  }
+
+  /// Manual archive/unarchive (queries; channels normally flow through
+  /// part/join, which the server mirrors into the archived flag).
+  func setArchived(_ bufferID: UUID, _ archived: Bool) {
+    updateBuffer(bufferID, BufferSettingsPatch(archived: archived))
+  }
+
+  /// Permanently delete an archived buffer. State updates arrive via the
+  /// buffer_deleted broadcast — nothing optimistic here.
+  func deleteBuffer(_ bufferID: UUID) {
+    send(ClientCommand(type: "delete_buffer", bufferID: bufferID))
   }
 
   func sendComposer() {
@@ -401,10 +430,13 @@ final class AppModel {
           mentions: 0
         )
       }
+    case .bufferDeleted(let event):
+      removeBuffer(event.id)
     case .bufferUpdate(let event):
       guard var buffer = buffers[event.id] else { return }
       if let topic = event.topic { buffer.topic = topic }
       if let joined = event.joined { buffer.joined = joined }
+      if let archived = event.archived { buffer.archived = archived }
       if let lastSeenID = event.lastSeenID { buffer.lastSeenID = lastSeenID }
       // `marker_id` key present (mark_read variant): take it — inner nil means
       // caught up, which clears the marker. Key absent: unchanged.
@@ -467,7 +499,23 @@ final class AppModel {
     buffer.showPresenceEvents = event.showPresenceEvents
     buffer.collapsePresenceEvents = event.collapsePresenceEvents
     buffer.pinned = event.pinned
+    buffer.archived = event.archived
     buffers[event.id] = buffer
+  }
+
+  /// Handles a buffer_deleted broadcast: drop the buffer and all per-buffer
+  /// state; if it was selected, fall back like at startup.
+  private func removeBuffer(_ id: UUID) {
+    guard buffers.removeValue(forKey: id) != nil else { return }
+    messages.removeValue(forKey: id)
+    members.removeValue(forKey: id)
+    historyExhausted.remove(id)
+    historyLoading.remove(id)
+    if selectedBufferID == id {
+      selectedBufferID = nil
+      restoreSelection()
+    }
+    updateBadge()
   }
 
   private func apply(_ message: Message) {
@@ -546,7 +594,14 @@ final class AppModel {
   private func sidebarBufferOrder() -> [UUID] {
     var result = pinnedBuffers.map(\.id)
     for network in orderedNetworks where !network.disabled {
-      result.append(contentsOf: sidebarBuffers(for: network.id).all.map(\.id))
+      let groups = sidebarBuffers(for: network.id)
+      var ids = (groups.status + groups.channels + groups.queries).map(\.id)
+      // Folded archives are invisible; keyboard navigation and selection
+      // restore skip them (mirrors the web's visible-sidebar order).
+      if archivesOpen.contains(network.id) {
+        ids.append(contentsOf: groups.archived.map(\.id))
+      }
+      result.append(contentsOf: ids)
     }
     var seen = Set<UUID>()
     return result.filter { seen.insert($0).inserted }
@@ -564,8 +619,9 @@ final class AppModel {
     }
     return SidebarBufferGroups(
       status: values.filter { $0.kind == "status" }.sorted(by: bufferOrder),
-      channels: values.filter { $0.kind == "channel" }.sorted(by: bufferOrder),
-      queries: values.filter { $0.kind == "query" }.sorted(by: bufferOrder)
+      channels: values.filter { $0.kind == "channel" && !$0.archived }.sorted(by: bufferOrder),
+      queries: values.filter { $0.kind == "query" && !$0.archived }.sorted(by: bufferOrder),
+      archived: values.filter { $0.kind != "status" && $0.archived }.sorted(by: bufferOrder)
     )
   }
 
@@ -639,6 +695,7 @@ private func bufferOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
         channels: [(name: String, unread: Int, mentions: Int, joined: Bool)],
         queries: [String] = []
       ) {
+        // Parted channels double as archived fixtures (server archives on part).
         let netID = UUID()
         networks.append(
           Network(
@@ -656,7 +713,8 @@ private func bufferOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
             Buffer(
               id: id, networkID: netID, name: channel.name, kind: "channel", joined: channel.joined,
               showEmbeds: true, showPresenceEvents: true, collapsePresenceEvents: true,
-              pinned: false, unread: channel.unread, mentions: channel.mentions))
+              pinned: false, archived: !channel.joined, unread: channel.unread,
+              mentions: channel.mentions))
         }
         for query in queries {
           buffers.append(

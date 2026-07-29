@@ -5,6 +5,16 @@ struct ServiceIdentity: Codable, Sendable, Equatable {
   let version: String
   let hash: String
   let buildTime: String
+
+  /// "2026-01-01T12:00:00Z (3 days ago)", or the raw string when not ISO 8601
+  /// (dev builds report "unknown").
+  func buildTimeLabel(now: Date = Date()) -> String {
+    guard let date = ISO8601DateFormatter().date(from: buildTime) else { return buildTime }
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .full
+    let relative = formatter.localizedString(for: date, relativeTo: now)
+    return "\(buildTime) (\(relative))"
+  }
 }
 
 struct TailscaleStatus: Codable, Sendable, Equatable {
@@ -93,8 +103,76 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
   var showPresenceEvents: Bool
   var collapsePresenceEvents: Bool
   var pinned: Bool
+  // Persisted server-side flag driving the Archives section. Channels are
+  // archived automatically on part/kick and unarchived on join; queries are
+  // archived manually and unarchived by new activity.
+  var archived: Bool = false
   var unread: Int
   var mentions: Int
+
+  private enum CodingKeys: String, CodingKey {
+    case id, networkID, name, kind, topic, joined, lastSeenID, markerID, markerTS, createdAt,
+      showEmbeds, showPresenceEvents, collapsePresenceEvents, pinned, archived, unread, mentions
+  }
+
+  init(
+    id: UUID,
+    networkID: UUID,
+    name: String,
+    kind: String,
+    topic: String? = nil,
+    joined: Bool,
+    lastSeenID: UUID? = nil,
+    markerID: UUID? = nil,
+    markerTS: String? = nil,
+    createdAt: String? = nil,
+    showEmbeds: Bool,
+    showPresenceEvents: Bool,
+    collapsePresenceEvents: Bool,
+    pinned: Bool,
+    archived: Bool = false,
+    unread: Int,
+    mentions: Int
+  ) {
+    self.id = id
+    self.networkID = networkID
+    self.name = name
+    self.kind = kind
+    self.topic = topic
+    self.joined = joined
+    self.lastSeenID = lastSeenID
+    self.markerID = markerID
+    self.markerTS = markerTS
+    self.createdAt = createdAt
+    self.showEmbeds = showEmbeds
+    self.showPresenceEvents = showPresenceEvents
+    self.collapsePresenceEvents = collapsePresenceEvents
+    self.pinned = pinned
+    self.archived = archived
+    self.unread = unread
+    self.mentions = mentions
+  }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(UUID.self, forKey: .id)
+    networkID = try values.decode(UUID.self, forKey: .networkID)
+    name = try values.decode(String.self, forKey: .name)
+    kind = try values.decode(String.self, forKey: .kind)
+    topic = try values.decodeIfPresent(String.self, forKey: .topic)
+    joined = try values.decode(Bool.self, forKey: .joined)
+    lastSeenID = try values.decodeIfPresent(UUID.self, forKey: .lastSeenID)
+    markerID = try values.decodeIfPresent(UUID.self, forKey: .markerID)
+    markerTS = try values.decodeIfPresent(String.self, forKey: .markerTS)
+    createdAt = try values.decodeIfPresent(String.self, forKey: .createdAt)
+    showEmbeds = try values.decode(Bool.self, forKey: .showEmbeds)
+    showPresenceEvents = try values.decode(Bool.self, forKey: .showPresenceEvents)
+    collapsePresenceEvents = try values.decode(Bool.self, forKey: .collapsePresenceEvents)
+    pinned = try values.decode(Bool.self, forKey: .pinned)
+    archived = try values.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+    unread = try values.decode(Int.self, forKey: .unread)
+    mentions = try values.decode(Int.self, forKey: .mentions)
+  }
 }
 
 struct MircSegment: Codable, Sendable, Hashable {
@@ -183,6 +261,7 @@ struct BufferSettingsPatch: Codable, Sendable {
   var showPresenceEvents: Bool? = nil
   var collapsePresenceEvents: Bool? = nil
   var pinned: Bool? = nil
+  var archived: Bool? = nil
 }
 
 struct BufferSettingsEvent: Codable, Sendable {
@@ -191,6 +270,7 @@ struct BufferSettingsEvent: Codable, Sendable {
   let showPresenceEvents: Bool
   let collapsePresenceEvents: Bool
   let pinned: Bool
+  let archived: Bool
 }
 
 struct BufferUpdateEvent: Decodable, Sendable {
@@ -198,6 +278,7 @@ struct BufferUpdateEvent: Decodable, Sendable {
   var networkID: UUID?
   var topic: String?
   var joined: Bool?
+  var archived: Bool?
   var lastSeenID: UUID?
   /// Double optional: the mark_read variant always carries the `marker_id` key
   /// (JSON null means "caught up — clear the marker"), while the topic/joined
@@ -209,7 +290,7 @@ struct BufferUpdateEvent: Decodable, Sendable {
   var mentions: Int?
 
   private enum CodingKeys: String, CodingKey {
-    case id, networkID, topic, joined, lastSeenID, markerID, markerTS, unread, mentions
+    case id, networkID, topic, joined, archived, lastSeenID, markerID, markerTS, unread, mentions
   }
 
   init(from decoder: Decoder) throws {
@@ -218,6 +299,7 @@ struct BufferUpdateEvent: Decodable, Sendable {
     networkID = try values.decodeIfPresent(UUID.self, forKey: .networkID)
     topic = try values.decodeIfPresent(String.self, forKey: .topic)
     joined = try values.decodeIfPresent(Bool.self, forKey: .joined)
+    archived = try values.decodeIfPresent(Bool.self, forKey: .archived)
     lastSeenID = try values.decodeIfPresent(UUID.self, forKey: .lastSeenID)
     markerID =
       values.contains(.markerID)
@@ -235,6 +317,11 @@ struct BufferCreatedEvent: Codable, Sendable {
   let name: String
   let kind: String
   var createdAt: String?
+}
+
+struct BufferDeletedEvent: Codable, Sendable {
+  let id: UUID
+  let networkID: UUID
 }
 
 struct MemberListEvent: Codable, Sendable {
@@ -292,6 +379,7 @@ struct ChannelListEvent: Decodable, Sendable {
 enum ServerEvent: Sendable {
   case message(Message)
   case bufferCreated(BufferCreatedEvent)
+  case bufferDeleted(BufferDeletedEvent)
   case bufferUpdate(BufferUpdateEvent)
   case bufferSettings(BufferSettingsEvent)
   case networkState(NetworkStateEvent)
@@ -315,6 +403,7 @@ extension ServerEvent: Decodable {
     switch type {
     case "message": self = .message(try Message(from: decoder))
     case "buffer_created": self = .bufferCreated(try BufferCreatedEvent(from: decoder))
+    case "buffer_deleted": self = .bufferDeleted(try BufferDeletedEvent(from: decoder))
     case "buffer_update": self = .bufferUpdate(try BufferUpdateEvent(from: decoder))
     case "buffer_settings": self = .bufferSettings(try BufferSettingsEvent(from: decoder))
     case "network_state": self = .networkState(try NetworkStateEvent(from: decoder))

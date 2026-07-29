@@ -56,6 +56,95 @@ struct AppModelTests {
     #expect(model.selectedBufferID == query.id)
   }
 
+  // Archived buffers (any kind) leave the channel/query groups for the
+  // archived bucket; keyboard navigation skips them while the fold is closed
+  // and includes them once opened.
+  @Test func archivedBuffersFoldOutOfGroupsAndNavigation() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let status = buffer("*status*", kind: "status", networkID: networkID)
+    let active = buffer("#alpha", networkID: networkID)
+    let query = buffer("bob", kind: "query", networkID: networkID)
+    let archivedChannel = buffer("#old", networkID: networkID, joined: false, archived: true)
+    let archivedQuery = buffer("spammer", kind: "query", networkID: networkID, archived: true)
+
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = Dictionary(
+      uniqueKeysWithValues: [status, active, query, archivedChannel, archivedQuery].map {
+        ($0.id, $0)
+      })
+
+    let groups = model.sidebarBuffers(for: networkID)
+    #expect(groups.channels.map(\.id) == [active.id])
+    #expect(groups.queries.map(\.id) == [query.id])
+    #expect(groups.archived.map(\.id) == [archivedChannel.id, archivedQuery.id])
+
+    // Folded (default): navigation cycles without entering the archives.
+    model.selectedBufferID = query.id
+    model.nextBuffer()
+    #expect(model.selectedBufferID == status.id)
+
+    // Open: archived buffers become reachable after the queries.
+    model.toggleArchives(networkID)
+    model.selectedBufferID = query.id
+    model.nextBuffer()
+    #expect(model.selectedBufferID == archivedChannel.id)
+    model.nextBuffer()
+    #expect(model.selectedBufferID == archivedQuery.id)
+  }
+
+  @Test func bufferDeletedDropsStateAndReselects() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let doomed = buffer("spammer", kind: "query", networkID: networkID, archived: true)
+    let survivor = buffer("#alpha", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [doomed.id: doomed, survivor.id: survivor]
+    model.messages[doomed.id] = [message(1, in: doomed, networkID: networkID)]
+    model.members[doomed.id] = []
+    model.selectedBufferID = doomed.id
+
+    model.apply(.bufferDeleted(BufferDeletedEvent(id: doomed.id, networkID: networkID)))
+
+    #expect(model.buffers[doomed.id] == nil)
+    #expect(model.messages[doomed.id] == nil)
+    #expect(model.members[doomed.id] == nil)
+    #expect(model.selectedBufferID == survivor.id)
+  }
+
+  @Test func bufferUpdateArchivedMovesBufferBetweenGroups() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let target = buffer("#alpha", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [target.id: target]
+
+    let archived = try? JSONDecoder.lurker().decode(
+      ServerEvent.self,
+      from: Data(
+        """
+        {"type":"buffer_update","id":"\(target.id.uuidString)",
+         "network_id":"\(networkID.uuidString)","joined":false,"archived":true}
+        """.utf8))
+    #expect(archived != nil)
+    if let archived { model.apply(archived) }
+
+    #expect(model.buffers[target.id]?.archived == true)
+    let groups = model.sidebarBuffers(for: networkID)
+    #expect(groups.channels.isEmpty)
+    #expect(groups.archived.map(\.id) == [target.id])
+  }
+
+  @Test func archivesFoldStatePersistsAcrossRelaunch() {
+    let defaults = isolatedDefaults()
+    let networkID = UUID()
+    let first = AppModel(transport: FixtureTransport(), defaults: defaults)
+    first.toggleArchives(networkID)
+
+    let second = AppModel(transport: FixtureTransport(), defaults: defaults)
+    #expect(second.archivesOpen.contains(networkID))
+  }
+
   @Test func selectBufferPushesCompactConversation() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
@@ -309,6 +398,7 @@ struct AppModelTests {
     networkID: UUID,
     joined: Bool = true,
     pinned: Bool = false,
+    archived: Bool = false,
     lastSeenID: UUID? = nil,
     markerID: UUID? = nil,
     markerTS: String? = nil,
@@ -328,6 +418,7 @@ struct AppModelTests {
       showPresenceEvents: true,
       collapsePresenceEvents: false,
       pinned: pinned,
+      archived: archived,
       unread: unread,
       mentions: mentions
     )

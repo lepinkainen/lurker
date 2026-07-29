@@ -43,6 +43,56 @@ final class LurkerUITests: XCTestCase {
     XCTAssertTrue(composer.exists)
   }
 
+  // Archived fixtures (#old-project channel, driveby query) render behind a
+  // folded per-network Archives row instead of inline in the channel list.
+  func testArchivesFoldHidesAndRevealsArchivedBuffers() throws {
+    XCTAssertTrue(app.staticTexts["#lurker"].waitForExistence(timeout: 5))
+
+    let archivesRow = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Archives")
+    ).firstMatch
+    XCTAssertTrue(archivesRow.waitForExistence(timeout: 3), "missing Archives fold row")
+
+    // Folded by default: archived buffers are not in the sidebar.
+    XCTAssertFalse(app.staticTexts["#old-project"].exists)
+    XCTAssertFalse(app.staticTexts["driveby"].exists)
+    screenshot(named: "apple-archives-folded")
+
+    archivesRow.click()
+    XCTAssertTrue(app.staticTexts["#old-project"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.staticTexts["driveby"].exists)
+    screenshot(named: "apple-archives-open")
+
+    // Context menu on the archived channel: Unarchive + Delete….
+    app.staticTexts["#old-project"].rightClick()
+    XCTAssertTrue(app.menuItems["Delete…"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.menuItems["Unarchive"].exists)
+    screenshot(named: "apple-archived-context-menu")
+    app.menuItems["Delete…"].click()
+
+    // Destructive confirmation alert, then cancel (fixture transport would
+    // ignore the send anyway; the UI contract is what we verify).
+    let deleteForever = app.buttons["Delete Forever"]
+    XCTAssertTrue(deleteForever.waitForExistence(timeout: 3), "missing confirmation alert")
+    screenshot(named: "apple-delete-alert")
+    app.buttons["Cancel"].click()
+
+    // Joined channels offer Archive instead.
+    app.staticTexts["#lurker"].firstMatch.rightClick()
+    XCTAssertTrue(app.menuItems["Archive"].waitForExistence(timeout: 3))
+    XCTAssertFalse(app.menuItems["Delete…"].exists)
+    // Dismiss the menu.
+    app.typeKey(.escape, modifierFlags: [])
+
+    // Fold back so persisted archivesOpen state doesn't leak into other runs.
+    archivesRow.click()
+  }
+
+  private func screenshot(named name: String) {
+    let shot = XCUIScreen.main.screenshot()
+    try? shot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/\(name).png"))
+  }
+
   func testChannelSwitcherOpens() {
     app.typeKey("k", modifierFlags: .command)
     XCTAssertTrue(app.textFields["Jump to a channel or conversation"].waitForExistence(timeout: 2))

@@ -6,6 +6,8 @@ actor FixtureTransport: LurkerTransport {
   static let channelID = UUID(uuidString: "0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20")!
   static let queryID = UUID(uuidString: "0198F5F2-9448-7ED6-B3B4-CD8A1A6E8B21")!
   static let fullChannelID = UUID(uuidString: "0198F5F3-0000-7A8B-9B42-4D6E72C4D8F2")!
+  static let archivedChannelID = UUID(uuidString: "0198F5F3-1000-7A8B-9B42-4D6E72C4D8F3")!
+  static let archivedQueryID = UUID(uuidString: "0198F5F3-2000-7A8B-9B42-4D6E72C4D8F4")!
 
   static let fullTotal = 400
   static let fullPageSize = 50
@@ -149,6 +151,39 @@ actor FixtureTransport: LurkerTransport {
       unread: fullUnread,
       mentions: 0
     )
+    // Archived fixtures: a parted channel and an archived query so previews
+    // and UI tests exercise the folded Archives section.
+    let archivedChannel = Buffer(
+      id: archivedChannelID,
+      networkID: networkID,
+      name: "#old-project",
+      kind: "channel",
+      topic: "Archived: no longer active",
+      joined: false,
+      createdAt: "2026-01-01T00:00:00Z",
+      showEmbeds: true,
+      showPresenceEvents: true,
+      collapsePresenceEvents: false,
+      pinned: false,
+      archived: true,
+      unread: 0,
+      mentions: 0
+    )
+    let archivedQuery = Buffer(
+      id: archivedQueryID,
+      networkID: networkID,
+      name: "driveby",
+      kind: "query",
+      joined: true,
+      createdAt: "2026-01-01T00:00:00Z",
+      showEmbeds: true,
+      showPresenceEvents: true,
+      collapsePresenceEvents: false,
+      pinned: false,
+      archived: true,
+      unread: 0,
+      mentions: 0
+    )
     // Presence rows are interleaved with privmsgs so they render as individual
     // system rows; adjacent presence events would collapse into a summary
     // because the channel has `collapsePresenceEvents: true`.
@@ -247,7 +282,7 @@ actor FixtureTransport: LurkerTransport {
           disabled: false
         )
       ],
-      buffers: [status, channel, query, fullChannel],
+      buffers: [status, channel, query, fullChannel, archivedChannel, archivedQuery],
       initialMessages: [
         channelID.uuidString: messages,
         fullChannelID.uuidString: Array(fullMessages.suffix(fullPageSize)),
@@ -291,7 +326,8 @@ actor FixtureTransport: LurkerTransport {
       showEmbeds: patch.showEmbeds ?? true,
       showPresenceEvents: patch.showPresenceEvents ?? true,
       collapsePresenceEvents: patch.collapsePresenceEvents ?? true,
-      pinned: patch.pinned ?? true
+      pinned: patch.pinned ?? true,
+      archived: patch.archived ?? false
     )
   }
 

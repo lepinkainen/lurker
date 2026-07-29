@@ -88,4 +88,41 @@ struct SlashCommandsTests {
       return
     }
   }
+
+  @Test func archiveAndUnarchiveTargetTheBuffer() {
+    guard case .command(let archive) = SlashCommands.parse("/archive", buffer: buffer) else {
+      Issue.record("Expected /archive command")
+      return
+    }
+    #expect(archive.type == "archive_buffer")
+    #expect(archive.bufferID == buffer.id)
+
+    guard case .command(let unarchive) = SlashCommands.parse("/unarchive", buffer: buffer) else {
+      Issue.record("Expected /unarchive command")
+      return
+    }
+    #expect(unarchive.type == "unarchive_buffer")
+
+    var status = buffer
+    status.kind = "status"
+    guard case .invalid = SlashCommands.parse("/archive", buffer: status) else {
+      Issue.record("Expected /archive to be rejected in status buffer")
+      return
+    }
+  }
+
+  @Test func deleteRequiresArchivedBuffer() {
+    guard case .invalid = SlashCommands.parse("/delete", buffer: buffer) else {
+      Issue.record("Expected /delete to be rejected on a non-archived buffer")
+      return
+    }
+    var archived = buffer
+    archived.archived = true
+    guard case .command(let delete) = SlashCommands.parse("/delete", buffer: archived) else {
+      Issue.record("Expected /delete command on archived buffer")
+      return
+    }
+    #expect(delete.type == "delete_buffer")
+    #expect(delete.bufferID == buffer.id)
+  }
 }

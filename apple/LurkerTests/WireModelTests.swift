@@ -154,6 +154,56 @@ struct WireModelTests {
     #expect(type == "future_event")
   }
 
+  @Test func decodesBufferDeletedAndArchivedFields() throws {
+    let deleted = Data(
+      """
+      {"type":"buffer_deleted",
+       "id":"0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20",
+       "network_id":"0198F5F2-8F2A-7A8B-9B42-4D6E72C4D8F1"}
+      """.utf8)
+    guard
+      case .bufferDeleted(let event) = try JSONDecoder.lurker().decode(
+        ServerEvent.self, from: deleted)
+    else {
+      Issue.record("Expected buffer_deleted event")
+      return
+    }
+    #expect(event.id == UUID(uuidString: "0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20"))
+    #expect(event.networkID == UUID(uuidString: "0198F5F2-8F2A-7A8B-9B42-4D6E72C4D8F1"))
+
+    let update = Data(
+      """
+      {"type":"buffer_update",
+       "id":"0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20",
+       "network_id":"0198F5F2-8F2A-7A8B-9B42-4D6E72C4D8F1",
+       "joined":false,"archived":true}
+      """.utf8)
+    guard
+      case .bufferUpdate(let updated) = try JSONDecoder.lurker().decode(
+        ServerEvent.self, from: update)
+    else {
+      Issue.record("Expected buffer_update event")
+      return
+    }
+    #expect(updated.archived == true)
+
+    let settings = Data(
+      """
+      {"type":"buffer_settings",
+       "id":"0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20",
+       "show_embeds":true,"show_presence_events":true,
+       "collapse_presence_events":false,"pinned":false,"archived":true}
+      """.utf8)
+    guard
+      case .bufferSettings(let event2) = try JSONDecoder.lurker().decode(
+        ServerEvent.self, from: settings)
+    else {
+      Issue.record("Expected buffer_settings event")
+      return
+    }
+    #expect(event2.archived == true)
+  }
+
   @Test func encodesCommandAcronymsAsSnakeCase() throws {
     let command = ClientCommand(
       type: "mark_read",
@@ -300,5 +350,20 @@ struct WireModelTests {
     )
     let rendered = attributedBody(message)
     #expect(rendered.runs.allSatisfy { $0.link == nil })
+  }
+
+  @Test func buildTimeLabelFallsBackToRawString() {
+    let identity = ServiceIdentity(
+      name: "lurker", version: "dev", hash: "unknown", buildTime: "unknown")
+    #expect(identity.buildTimeLabel() == "unknown")
+  }
+
+  @Test func buildTimeLabelFormatsISO8601WithRelativeAge() {
+    let identity = ServiceIdentity(
+      name: "lurker", version: "v1.0.0", hash: "abc123", buildTime: "2026-07-26T12:00:00Z")
+    let now = ISO8601DateFormatter().date(from: "2026-07-29T12:00:00Z")!
+    let label = identity.buildTimeLabel(now: now)
+    #expect(label.hasPrefix("2026-07-26T12:00:00Z ("))
+    #expect(label.hasSuffix(")"))
   }
 }
