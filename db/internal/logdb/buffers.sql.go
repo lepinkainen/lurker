@@ -10,6 +10,15 @@ import (
 	"database/sql"
 )
 
+const deleteLogBuffer = `-- name: DeleteLogBuffer :exec
+DELETE FROM buffers WHERE id = ?
+`
+
+func (q *Queries) DeleteLogBuffer(ctx context.Context, id []byte) error {
+	_, err := q.db.ExecContext(ctx, deleteLogBuffer, id)
+	return err
+}
+
 const getLogBufferTopicLastSeen = `-- name: GetLogBufferTopicLastSeen :one
 SELECT COALESCE(topic,'') AS topic, last_seen_id FROM buffers WHERE name = ?
 `

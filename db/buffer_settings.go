@@ -22,6 +22,7 @@ type BufferSettings struct {
 	ShowPresenceEvents     bool
 	CollapsePresenceEvents bool
 	Pinned                 bool
+	Archived               bool
 	UpdatedAt              string
 }
 
@@ -31,6 +32,7 @@ type BufferSettingsPatch struct {
 	ShowPresenceEvents     *bool
 	CollapsePresenceEvents *bool
 	Pinned                 *bool
+	Archived               *bool
 }
 
 func defaultBufferSettings(bufferID uuid.UUID) BufferSettings {
@@ -44,6 +46,7 @@ func bufferSettingsFromRow(r controldb.BufferSetting) BufferSettings {
 		ShowPresenceEvents:     r.ShowPresenceEvents != 0,
 		CollapsePresenceEvents: r.CollapsePresenceEvents != 0,
 		Pinned:                 r.Pinned != 0,
+		Archived:               r.Archived != 0,
 		UpdatedAt:              r.UpdatedAt,
 	}
 }
@@ -82,7 +85,8 @@ func GetBufferSettings(ctx context.Context, d *sql.DB, bufferID uuid.UUID) (Buff
 	return bufferSettingsFromRow(r), nil
 }
 
-// UpdateBufferSettings applies a partial settings patch for a channel buffer.
+// UpdateBufferSettings applies a partial settings patch for a channel or
+// query buffer. Status buffers have no user-tunable settings.
 func UpdateBufferSettings(ctx context.Context, d *sql.DB, bufferID uuid.UUID, patch BufferSettingsPatch) (BufferSettings, error) {
 	q := controldb.New(d)
 	kind, err := q.GetBufferRegistryKind(ctx, bufferID[:])
@@ -92,7 +96,7 @@ func UpdateBufferSettings(ctx context.Context, d *sql.DB, bufferID uuid.UUID, pa
 		}
 		return BufferSettings{}, err
 	}
-	if kind != BufferChannel {
+	if kind != BufferChannel && kind != BufferQuery {
 		return BufferSettings{}, ErrBufferSettingsUnsupported
 	}
 
@@ -112,6 +116,9 @@ func UpdateBufferSettings(ctx context.Context, d *sql.DB, bufferID uuid.UUID, pa
 	if patch.Pinned != nil {
 		current.Pinned = *patch.Pinned
 	}
+	if patch.Archived != nil {
+		current.Archived = *patch.Archived
+	}
 	current.UpdatedAt = Now()
 	if err := q.UpsertBufferSettings(ctx, controldb.UpsertBufferSettingsParams{
 		BufferID:               bufferID[:],
@@ -119,6 +126,7 @@ func UpdateBufferSettings(ctx context.Context, d *sql.DB, bufferID uuid.UUID, pa
 		ShowPresenceEvents:     boolInt(current.ShowPresenceEvents),
 		CollapsePresenceEvents: boolInt(current.CollapsePresenceEvents),
 		Pinned:                 boolInt(current.Pinned),
+		Archived:               boolInt(current.Archived),
 		UpdatedAt:              current.UpdatedAt,
 	}); err != nil {
 		return BufferSettings{}, err

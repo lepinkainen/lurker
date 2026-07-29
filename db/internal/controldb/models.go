@@ -23,6 +23,7 @@ type BufferSetting struct {
 	CollapsePresenceEvents int64
 	Pinned                 int64
 	UpdatedAt              string
+	Archived               int64
 }
 
 type Highlight struct {

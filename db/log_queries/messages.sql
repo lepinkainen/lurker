@@ -20,3 +20,8 @@ FROM (
   SELECT * FROM messages WHERE buffer_id = ? AND id < ?
   ORDER BY id DESC LIMIT ?
 ) ORDER BY id ASC;
+
+-- name: DeleteLogMessagesForBuffer :exec
+-- Explicit delete (not FK cascade) so the messages_ad trigger fires and
+-- keeps the external-content FTS index in sync.
+DELETE FROM messages WHERE buffer_id = ?;

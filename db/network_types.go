@@ -50,6 +50,7 @@ type Buffer struct {
 	ShowPresenceEvents     bool
 	CollapsePresenceEvents bool
 	Pinned                 bool
+	Archived               bool
 }
 
 // StoredMessage is global/API-facing message view built from per-network log

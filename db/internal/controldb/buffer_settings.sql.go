@@ -32,7 +32,7 @@ func (q *Queries) GetBufferRegistryKind(ctx context.Context, id []byte) (string,
 }
 
 const getBufferSettings = `-- name: GetBufferSettings :one
-SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at
+SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at, archived
 FROM buffer_settings WHERE buffer_id = ?
 `
 
@@ -46,12 +46,13 @@ func (q *Queries) GetBufferSettings(ctx context.Context, bufferID []byte) (Buffe
 		&i.CollapsePresenceEvents,
 		&i.Pinned,
 		&i.UpdatedAt,
+		&i.Archived,
 	)
 	return i, err
 }
 
 const listBufferSettings = `-- name: ListBufferSettings :many
-SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at
+SELECT buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at, archived
 FROM buffer_settings
 `
 
@@ -71,6 +72,7 @@ func (q *Queries) ListBufferSettings(ctx context.Context) ([]BufferSetting, erro
 			&i.CollapsePresenceEvents,
 			&i.Pinned,
 			&i.UpdatedAt,
+			&i.Archived,
 		); err != nil {
 			return nil, err
 		}
@@ -86,14 +88,15 @@ func (q *Queries) ListBufferSettings(ctx context.Context) ([]BufferSetting, erro
 }
 
 const upsertBufferSettings = `-- name: UpsertBufferSettings :exec
-INSERT INTO buffer_settings(buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO buffer_settings(buffer_id, show_embeds, show_presence_events, collapse_presence_events, pinned, updated_at, archived)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(buffer_id) DO UPDATE SET
   show_embeds=excluded.show_embeds,
   show_presence_events=excluded.show_presence_events,
   collapse_presence_events=excluded.collapse_presence_events,
   pinned=excluded.pinned,
-  updated_at=excluded.updated_at
+  updated_at=excluded.updated_at,
+  archived=excluded.archived
 `
 
 type UpsertBufferSettingsParams struct {
@@ -103,6 +106,7 @@ type UpsertBufferSettingsParams struct {
 	CollapsePresenceEvents int64
 	Pinned                 int64
 	UpdatedAt              string
+	Archived               int64
 }
 
 func (q *Queries) UpsertBufferSettings(ctx context.Context, arg UpsertBufferSettingsParams) error {
@@ -113,6 +117,7 @@ func (q *Queries) UpsertBufferSettings(ctx context.Context, arg UpsertBufferSett
 		arg.CollapsePresenceEvents,
 		arg.Pinned,
 		arg.UpdatedAt,
+		arg.Archived,
 	)
 	return err
 }

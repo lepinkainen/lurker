@@ -10,6 +10,17 @@ import (
 	"database/sql"
 )
 
+const deleteLogMessagesForBuffer = `-- name: DeleteLogMessagesForBuffer :exec
+DELETE FROM messages WHERE buffer_id = ?
+`
+
+// Explicit delete (not FK cascade) so the messages_ad trigger fires and
+// keeps the external-content FTS index in sync.
+func (q *Queries) DeleteLogMessagesForBuffer(ctx context.Context, bufferID []byte) error {
+	_, err := q.db.ExecContext(ctx, deleteLogMessagesForBuffer, bufferID)
+	return err
+}
+
 const insertLogMessage = `-- name: InsertLogMessage :execrows
 INSERT OR IGNORE INTO messages
   (id, buffer_id, msgid, ts, sender, userhost, account, kind, target, content, raw)

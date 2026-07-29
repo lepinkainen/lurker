@@ -160,6 +160,43 @@ func (ms *MultiStore) DeleteNetwork(ctx context.Context, networkID uuid.UUID) er
 	return nil
 }
 
+// DeleteBuffer permanently removes a buffer: its message history and log-DB
+// row, then its registry row (buffer_settings cascades). The log DB is
+// cleared first: the two SQLite files cannot share a transaction, and a crash
+// after the log delete merely leaves an empty-but-visible buffer that can be
+// deleted again. The reverse order would leave orphaned history that
+// EnsureBuffer's adopt-existing-id logic silently resurrects on the next
+// join/PM with the same name.
+func (ms *MultiStore) DeleteBuffer(ctx context.Context, bufferID uuid.UUID) error {
+	networkID, _, kind, err := ms.LookupBuffer(ctx, bufferID)
+	if err != nil {
+		return err
+	}
+	if kind == BufferStatus {
+		return fmt.Errorf("db: cannot delete status buffer %s", bufferID)
+	}
+	logStore, err := ms.LogStore(networkID)
+	if err != nil {
+		return err
+	}
+	tx, err := logStore.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := logdb.New(tx)
+	if err := q.DeleteLogMessagesForBuffer(ctx, bufferID[:]); err != nil {
+		return err
+	}
+	if err := q.DeleteLogBuffer(ctx, bufferID[:]); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return controldb.New(ms.Control).DeleteBufferRegistry(ctx, bufferID[:])
+}
+
 // RenameNetworkLogDB renames the on-disk per-network log DB file.
 func (ms *MultiStore) RenameNetworkLogDB(oldName, newName string) error {
 	oldPath, err := LogDBPath(ms.DataDir, oldName)
@@ -400,6 +437,7 @@ func applyBufferSettings(ctx context.Context, control *sql.DB, buf *Buffer) {
 	buf.ShowPresenceEvents = settings.ShowPresenceEvents
 	buf.CollapsePresenceEvents = settings.CollapsePresenceEvents
 	buf.Pinned = settings.Pinned
+	buf.Archived = settings.Archived
 }
 
 // LookupBuffer resolves a global buffer ID to network/name/kind.
@@ -463,6 +501,7 @@ func (ms *MultiStore) networkBuffers(ctx context.Context, n Network, logStore *L
 			b.ShowPresenceEvents = s.ShowPresenceEvents
 			b.CollapsePresenceEvents = s.CollapsePresenceEvents
 			b.Pinned = s.Pinned
+			b.Archived = s.Archived
 		} else {
 			b.ShowEmbeds = true
 			b.ShowPresenceEvents = true

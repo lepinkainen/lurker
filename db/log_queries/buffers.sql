@@ -29,3 +29,6 @@ INSERT INTO buffers(id, name, kind, created_at) VALUES (?, ?, ?, ?);
 
 -- name: GetLogBufferTopicLastSeen :one
 SELECT COALESCE(topic,'') AS topic, last_seen_id FROM buffers WHERE name = ?;
+
+-- name: DeleteLogBuffer :exec
+DELETE FROM buffers WHERE id = ?;

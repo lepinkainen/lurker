@@ -9,6 +9,15 @@ import (
 	"context"
 )
 
+const deleteBufferRegistry = `-- name: DeleteBufferRegistry :exec
+DELETE FROM buffer_registry WHERE id = ?
+`
+
+func (q *Queries) DeleteBufferRegistry(ctx context.Context, id []byte) error {
+	_, err := q.db.ExecContext(ctx, deleteBufferRegistry, id)
+	return err
+}
+
 const insertBufferRegistry = `-- name: InsertBufferRegistry :exec
 INSERT INTO buffer_registry(id, network_id, name, kind, created_at) VALUES (?, ?, ?, ?, ?)
 `

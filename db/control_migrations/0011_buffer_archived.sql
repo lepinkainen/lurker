@@ -1,0 +1,1 @@
+ALTER TABLE buffer_settings ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
