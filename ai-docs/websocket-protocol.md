@@ -168,6 +168,7 @@ Important event shapes:
 - `name`
 - `kind`
 - `created_at`
+- `sort_order` — 0 while the network's channel order is untouched; MAX+1 once any channel has a manual position, so new channels append to the end of the user's order
 
 `buffer_deleted`
 

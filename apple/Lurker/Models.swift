@@ -324,6 +324,8 @@ struct BufferCreatedEvent: Codable, Sendable {
   let name: String
   let kind: String
   var createdAt: String?
+  // Absent on pre-sort_order backends.
+  var sortOrder: Int?
 }
 
 struct BufferDeletedEvent: Codable, Sendable {

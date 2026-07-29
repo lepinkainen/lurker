@@ -537,6 +537,7 @@ final class AppModel {
           showPresenceEvents: true,
           collapsePresenceEvents: false,
           pinned: false,
+          sortOrder: event.sortOrder ?? 0,
           unread: 0,
           mentions: 0
         )

@@ -336,6 +336,7 @@ func (ms *MultiStore) ensureBufferRegistryRow(ctx context.Context, networkID uui
 		buf.ID = id
 		buf.Kind = row.Kind
 		buf.CreatedAt = row.CreatedAt
+		buf.SortOrder = row.SortOrder
 		return false, nil
 	case errors.Is(err, sql.ErrNoRows):
 		if adopt {
@@ -343,14 +344,24 @@ func (ms *MultiStore) ensureBufferRegistryRow(ctx context.Context, networkID uui
 		} else {
 			buf.ID = newID()
 		}
+		// New channels append to the end of any manual order; 0 (alphabetical
+		// tie) while the network's order is untouched. Queries/status stay 0.
+		var sortOrder int64
+		if kind == BufferChannel {
+			if sortOrder, err = q.NextChannelSortOrder(ctx, networkID[:]); err != nil {
+				return false, err
+			}
+		}
 		ierr := q.InsertBufferRegistry(ctx, controldb.InsertBufferRegistryParams{
 			ID:        buf.ID[:],
 			NetworkID: networkID[:],
 			Name:      name,
 			Kind:      kind,
 			CreatedAt: now,
+			SortOrder: sortOrder,
 		})
 		if ierr == nil {
+			buf.SortOrder = sortOrder
 			return true, nil
 		}
 		row2, rerr := q.LookupBufferRegistryByName(ctx, lookup)
@@ -364,6 +375,7 @@ func (ms *MultiStore) ensureBufferRegistryRow(ctx context.Context, networkID uui
 		buf.ID = id
 		buf.Kind = row2.Kind
 		buf.CreatedAt = row2.CreatedAt
+		buf.SortOrder = row2.SortOrder
 		return false, nil
 	default:
 		return false, err

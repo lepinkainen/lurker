@@ -102,6 +102,7 @@ type BufferCreatedEvent struct {
 	Name      string    `json:"name"`
 	Kind      string    `json:"kind"`
 	CreatedAt string    `json:"created_at"`
+	SortOrder int64     `json:"sort_order"`
 }
 
 // BufferUpdateEvent announces mutable buffer state changes. Pointer fields

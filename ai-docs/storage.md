@@ -44,7 +44,7 @@ The `networks` table stores:
 
 `highlights` stores the global (all-networks) user-defined highlight word list. Columns: `id` (PK, UUIDv7 BLOB), `pattern` (TEXT, unique `COLLATE NOCASE`), `created_at`. Loaded into the in-process matcher (`irc.SetHighlightPatterns`) at startup and on every `PUT /api/settings/highlights`; match results ship as `highlight`/`highlight_pattern` message flags and are never stored per-message.
 
-The `buffer_registry` table stores the global API-facing buffer ID namespace. Buffer IDs are UUIDv7 values stored as 16-byte SQLite `BLOB`s and serialized over JSON as strings. Migration 0012 adds `sort_order` (INTEGER, default 0) for manual channel ordering within a network (`POST /api/networks/{id}/buffers/reorder`); channels display-sort by `(sort_order, name)`. Like all UI-only settings without a config key, it is DB-owned and untouched by boot reconciliation.
+The `buffer_registry` table stores the global API-facing buffer ID namespace. Buffer IDs are UUIDv7 values stored as 16-byte SQLite `BLOB`s and serialized over JSON as strings. Migration 0012 adds `sort_order` (INTEGER, default 0) for manual channel ordering within a network (`POST /api/networks/{id}/buffers/reorder`); channels display-sort by `(sort_order, name)`. New channel rows get `sort_order = MAX(sibling)+1` when any sibling channel has a manual position, else 0 — so untouched networks stay alphabetical and reordered networks append new channels at the end. Like all UI-only settings without a config key, it is DB-owned and untouched by boot reconciliation.
 
 ### Per-network log DBs
 

@@ -19,7 +19,7 @@ func (q *Queries) DeleteBufferRegistry(ctx context.Context, id []byte) error {
 }
 
 const insertBufferRegistry = `-- name: InsertBufferRegistry :exec
-INSERT INTO buffer_registry(id, network_id, name, kind, created_at) VALUES (?, ?, ?, ?, ?)
+INSERT INTO buffer_registry(id, network_id, name, kind, created_at, sort_order) VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type InsertBufferRegistryParams struct {
@@ -28,6 +28,7 @@ type InsertBufferRegistryParams struct {
 	Name      string
 	Kind      string
 	CreatedAt string
+	SortOrder int64
 }
 
 func (q *Queries) InsertBufferRegistry(ctx context.Context, arg InsertBufferRegistryParams) error {
@@ -37,6 +38,7 @@ func (q *Queries) InsertBufferRegistry(ctx context.Context, arg InsertBufferRegi
 		arg.Name,
 		arg.Kind,
 		arg.CreatedAt,
+		arg.SortOrder,
 	)
 	return err
 }
@@ -132,7 +134,7 @@ func (q *Queries) LookupBufferRegistry(ctx context.Context, id []byte) (LookupBu
 }
 
 const lookupBufferRegistryByName = `-- name: LookupBufferRegistryByName :one
-SELECT id, kind, created_at FROM buffer_registry WHERE network_id = ? AND name = ?
+SELECT id, kind, created_at, sort_order FROM buffer_registry WHERE network_id = ? AND name = ?
 `
 
 type LookupBufferRegistryByNameParams struct {
@@ -144,13 +146,36 @@ type LookupBufferRegistryByNameRow struct {
 	ID        []byte
 	Kind      string
 	CreatedAt string
+	SortOrder int64
 }
 
 func (q *Queries) LookupBufferRegistryByName(ctx context.Context, arg LookupBufferRegistryByNameParams) (LookupBufferRegistryByNameRow, error) {
 	row := q.db.QueryRowContext(ctx, lookupBufferRegistryByName, arg.NetworkID, arg.Name)
 	var i LookupBufferRegistryByNameRow
-	err := row.Scan(&i.ID, &i.Kind, &i.CreatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.CreatedAt,
+		&i.SortOrder,
+	)
 	return i, err
+}
+
+const nextChannelSortOrder = `-- name: NextChannelSortOrder :one
+SELECT CAST(
+  CASE WHEN COALESCE(MAX(sort_order), 0) > 0 THEN MAX(sort_order) + 1 ELSE 0 END
+  AS INTEGER
+) FROM buffer_registry WHERE network_id = ? AND kind = 'channel'
+`
+
+// 0 while the network's channel order is untouched (pure-alphabetical
+// default); MAX+1 once any channel has a manual position, so new channels
+// append to the end of the user's order instead of jumping to the top.
+func (q *Queries) NextChannelSortOrder(ctx context.Context, networkID []byte) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextChannelSortOrder, networkID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const setBufferSortOrder = `-- name: SetBufferSortOrder :exec

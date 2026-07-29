@@ -60,7 +60,7 @@ func PublishBufferCreated(h *hub.Hub, buf ircdb.Buffer) {
 	if h == nil {
 		return
 	}
-	h.Publish(&BufferCreatedEvent{Type: "buffer_created", ID: buf.ID, NetworkID: buf.NetworkID, Name: buf.Name, Kind: buf.Kind, CreatedAt: buf.CreatedAt})
+	h.Publish(&BufferCreatedEvent{Type: "buffer_created", ID: buf.ID, NetworkID: buf.NetworkID, Name: buf.Name, Kind: buf.Kind, CreatedAt: buf.CreatedAt, SortOrder: buf.SortOrder})
 }
 
 // PublishNetworkState publishes a network_state event to h. No-op if h is nil.

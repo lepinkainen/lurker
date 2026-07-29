@@ -144,6 +144,37 @@ func TestReorderNetworkBuffersUnknownNetwork(t *testing.T) {
 	}
 }
 
+func TestNewChannelAppendsToManualOrder(t *testing.T) {
+	stores, _, handler, n := newBufferReorderTestServer(t)
+	a := ensureChannel(t, stores, n.ID, "#alpha")
+	b := ensureChannel(t, stores, n.ID, "#beta")
+
+	// Untouched network: new channels keep sort_order 0 (alphabetical default).
+	if orders := channelOrder(t, stores, n.ID); orders[a] != 0 || orders[b] != 0 {
+		t.Fatalf("expected all-zero sort orders before manual reorder: %v", orders)
+	}
+
+	if rec := postBufferReorder(handler, n.ID.String(), fmt.Sprintf(`{"ids":[%q,%q]}`, b, a)); rec.Code != http.StatusOK {
+		t.Fatalf("reorder status = %d", rec.Code)
+	}
+
+	// Manual order exists: a newly joined channel appends after it.
+	c := ensureChannel(t, stores, n.ID, "#aaa-new")
+	orders := channelOrder(t, stores, n.ID)
+	if orders[b] != 0 || orders[a] != 1 || orders[c] != 2 {
+		t.Fatalf("expected new channel appended to manual order: %v", orders)
+	}
+
+	// Queries stay at 0 regardless.
+	q, _, buf, err := stores.EnsureBuffer(t.Context(), n.ID, "someone", ircdb.BufferQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buf.SortOrder != 0 {
+		t.Fatalf("query buffer %s sort_order = %d, want 0", q, buf.SortOrder)
+	}
+}
+
 func TestStateExposesBufferSortOrder(t *testing.T) {
 	stores, _, handler, n := newBufferReorderTestServer(t)
 	a := ensureChannel(t, stores, n.ID, "#alpha")

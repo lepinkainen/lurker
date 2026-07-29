@@ -9,8 +9,15 @@ struct SidebarDrag: Equatable {
     case channel(networkID: UUID, bufferID: UUID)
   }
 
+  /// Rows insert-before; the end targets make the last position reachable.
+  enum Target: Equatable {
+    case row(UUID)
+    case endOfNetworks
+    case endOfChannels(UUID)
+  }
+
   var kind: Kind
-  var over: UUID?
+  var over: Target?
 }
 
 struct SidebarView: View {
@@ -117,7 +124,9 @@ struct SidebarView: View {
       }
       .opacity(drag?.kind == .network(network.id) ? 0.5 : 1)
       .overlay(alignment: .top) {
-        if drag?.over == network.id, case .network(let fromID) = drag?.kind, fromID != network.id {
+        if drag?.over == .row(network.id), case .network(let fromID) = drag?.kind,
+          fromID != network.id
+        {
           DropIndicator()
         }
       }
@@ -128,13 +137,10 @@ struct SidebarView: View {
       .onDrop(
         of: [.text],
         delegate: SidebarDropDelegate(
-          targetID: network.id,
-          accepts: { kind in
-            if case .network = kind { return true }
-            return false
-          },
+          target: .row(network.id),
+          accepts: isNetworkDrag,
           drag: $drag,
-          commit: { fromID in commitNetworkDrop(from: fromID, to: network.id) }
+          commit: { fromID in commitNetworkDrop(from: fromID, toRow: network.id) }
         ))
       if !isCollapsed {
         // Status buffer is represented by the network header row above, so the
@@ -152,7 +158,7 @@ struct SidebarView: View {
             drag?.kind == .channel(networkID: network.id, bufferID: buffer.id) ? 0.5 : 1
           )
           .overlay(alignment: .top) {
-            if drag?.over == buffer.id,
+            if drag?.over == .row(buffer.id),
               case .channel(let dragNetworkID, let fromID) = drag?.kind,
               dragNetworkID == network.id, fromID != buffer.id
             {
@@ -167,14 +173,27 @@ struct SidebarView: View {
           .onDrop(
             of: [.text],
             delegate: SidebarDropDelegate(
-              targetID: buffer.id,
-              accepts: { kind in
-                if case .channel(let dragNetworkID, _) = kind { return dragNetworkID == network.id }
-                return false
-              },
+              target: .row(buffer.id),
+              accepts: { isChannelDrag($0, of: network.id) },
               drag: $drag,
               commit: { fromID in
-                commitChannelDrop(networkID: network.id, from: fromID, to: buffer.id)
+                commitChannelDrop(networkID: network.id, from: fromID, toRow: buffer.id)
+              }
+            ))
+        }
+        if isChannelDragActive(of: network.id) {
+          EndDropZone(
+            isActive: drag?.over == .endOfChannels(network.id),
+            indent: 14
+          )
+          .onDrop(
+            of: [.text],
+            delegate: SidebarDropDelegate(
+              target: .endOfChannels(network.id),
+              accepts: { isChannelDrag($0, of: network.id) },
+              drag: $drag,
+              commit: { fromID in
+                commitChannelDrop(networkID: network.id, from: fromID, toRow: nil)
               }
             ))
         }
@@ -209,6 +228,18 @@ struct SidebarView: View {
       }
     }
 
+    if isNetworkDragActive {
+      EndDropZone(isActive: drag?.over == .endOfNetworks)
+        .onDrop(
+          of: [.text],
+          delegate: SidebarDropDelegate(
+            target: .endOfNetworks,
+            accepts: isNetworkDrag,
+            drag: $drag,
+            commit: { fromID in commitNetworkDrop(from: fromID, toRow: nil) }
+          ))
+    }
+
     let disabled = model.orderedNetworks.filter(\.disabled)
     if !disabled.isEmpty {
       SidebarSectionHeader("Disabled")
@@ -222,26 +253,53 @@ struct SidebarView: View {
     }
   }
 
-  /// Insert the dragged network before the drop target (enabled networks
-  /// only; the model appends disabled networks for the API's complete set).
-  private func commitNetworkDrop(from fromID: UUID, to targetID: UUID) {
-    var ids = model.orderedNetworks.filter { !$0.disabled }.map(\.id)
-    guard let fromIndex = ids.firstIndex(of: fromID) else { return }
-    ids.remove(at: fromIndex)
-    guard let targetIndex = ids.firstIndex(of: targetID) else { return }
-    ids.insert(fromID, at: targetIndex)
-    model.reorderNetworks(ids)
+  private func isNetworkDrag(_ kind: SidebarDrag.Kind) -> Bool {
+    if case .network = kind { return true }
+    return false
   }
 
-  /// Insert the dragged channel before the drop target within its network's
-  /// visible channels group.
-  private func commitChannelDrop(networkID: UUID, from fromID: UUID, to targetID: UUID) {
+  private var isNetworkDragActive: Bool {
+    guard let kind = drag?.kind else { return false }
+    return isNetworkDrag(kind)
+  }
+
+  private func isChannelDrag(_ kind: SidebarDrag.Kind, of networkID: UUID) -> Bool {
+    if case .channel(let dragNetworkID, _) = kind { return dragNetworkID == networkID }
+    return false
+  }
+
+  private func isChannelDragActive(of networkID: UUID) -> Bool {
+    guard let kind = drag?.kind else { return false }
+    return isChannelDrag(kind, of: networkID)
+  }
+
+  /// Insert the dragged network before `toRow`, or append when nil (end
+  /// zone). Enabled networks only; the model appends disabled networks for
+  /// the API's complete set.
+  private func commitNetworkDrop(from fromID: UUID, toRow targetID: UUID?) {
+    var ids = model.orderedNetworks.filter { !$0.disabled }.map(\.id)
+    guard let reordered = movedBefore(ids: &ids, from: fromID, toRow: targetID) else { return }
+    model.reorderNetworks(reordered)
+  }
+
+  /// Insert the dragged channel before `toRow`, or append when nil, within
+  /// its network's visible channels group.
+  private func commitChannelDrop(networkID: UUID, from fromID: UUID, toRow targetID: UUID?) {
     var ids = model.sidebarBuffers(for: networkID).channels.map(\.id)
-    guard let fromIndex = ids.firstIndex(of: fromID) else { return }
+    guard let reordered = movedBefore(ids: &ids, from: fromID, toRow: targetID) else { return }
+    model.reorderChannels(networkID: networkID, orderedIDs: reordered)
+  }
+
+  private func movedBefore(ids: inout [UUID], from fromID: UUID, toRow targetID: UUID?) -> [UUID]? {
+    guard let fromIndex = ids.firstIndex(of: fromID) else { return nil }
     ids.remove(at: fromIndex)
-    guard let targetIndex = ids.firstIndex(of: targetID) else { return }
-    ids.insert(fromID, at: targetIndex)
-    model.reorderChannels(networkID: networkID, orderedIDs: ids)
+    if let targetID {
+      guard let targetIndex = ids.firstIndex(of: targetID) else { return nil }
+      ids.insert(fromID, at: targetIndex)
+    } else {
+      ids.append(fromID)
+    }
+    return ids
   }
 }
 
@@ -258,9 +316,9 @@ private struct DropIndicator: View {
 
 /// Shared drop delegate for sidebar reordering. `accepts` filters by drag
 /// species (network vs channel-of-this-network); `commit` receives the
-/// dragged id once the drop lands on `targetID`.
+/// dragged id once the drop lands on `target`.
 private struct SidebarDropDelegate: DropDelegate {
-  let targetID: UUID
+  let target: SidebarDrag.Target
   let accepts: (SidebarDrag.Kind) -> Bool
   @Binding var drag: SidebarDrag?
   let commit: (UUID) -> Void
@@ -273,18 +331,23 @@ private struct SidebarDropDelegate: DropDelegate {
     }
   }
 
+  private var isSelfTarget: Bool {
+    if case .row(let id) = target { return id == draggedID }
+    return false
+  }
+
   func validateDrop(info _: DropInfo) -> Bool {
     guard let kind = drag?.kind else { return false }
     return accepts(kind)
   }
 
   func dropEntered(info _: DropInfo) {
-    guard let kind = drag?.kind, accepts(kind), draggedID != targetID else { return }
-    drag?.over = targetID
+    guard let kind = drag?.kind, accepts(kind), !isSelfTarget else { return }
+    drag?.over = target
   }
 
   func dropExited(info _: DropInfo) {
-    if drag?.over == targetID {
+    if drag?.over == target {
       drag?.over = nil
     }
   }
@@ -295,12 +358,31 @@ private struct SidebarDropDelegate: DropDelegate {
 
   func performDrop(info _: DropInfo) -> Bool {
     defer { drag = nil }
-    guard let kind = drag?.kind, accepts(kind), let fromID = draggedID, fromID != targetID
+    guard let kind = drag?.kind, accepts(kind), let fromID = draggedID, !isSelfTarget
     else {
       return false
     }
     commit(fromID)
     return true
+  }
+}
+
+/// A drop target after the last row of a group, visible only while a matching
+/// drag is active — without it the final position would be unreachable.
+private struct EndDropZone: View {
+  let isActive: Bool
+  var indent: CGFloat = 0
+
+  var body: some View {
+    ZStack(alignment: .top) {
+      Color.clear
+      if isActive {
+        DropIndicator()
+          .padding(.leading, indent)
+      }
+    }
+    .frame(height: 12)
+    .contentShape(.rect)
   }
 }
 
