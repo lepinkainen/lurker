@@ -63,6 +63,15 @@ Config inputs: `DATA_DIR` (default `./data`), `ADDR` (`:8080`), `CONFIG_PATH` (`
 - IRC servers do **not** echo messages back — outbound messages need local echo or explicit persistence. Never assume echo-message capability.
 - Preserve entire `data/` directory across deploys.
 
+### Client/backend version skew
+
+The backend is deployed as a Docker image from GHCR, which may lag behind locally built clients (web/tui/apple). Whenever a change spans both a client and the backend, say explicitly in your summary which of these applies:
+
+- **Requires backend update** — the client feature is broken or errors against an older backend (new endpoint, new WS event, changed payload).
+- **Nice to have** — clients still work against an older backend, but something is slightly degraded (missing field falls back, optional enrichment absent).
+
+This prevents wasted debugging of a "missing" feature that is actually a stale backend image. Clients show the backend's build time (from `/whoami` `build_time`) in the web settings dialog and the macOS Settings → About section — point the user there when in doubt.
+
 ### Constraints
 
 - `llm-shared/` is a git submodule. Do not edit. Exclude when scanning. Report issues, don't fix.

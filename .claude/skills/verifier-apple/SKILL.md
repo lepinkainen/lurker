@@ -34,6 +34,8 @@ xcodebuild -quiet -project apple/Lurker.xcodeproj -scheme Lurker -configuration 
 
 (`task test-apple-ui` runs the whole UI suite with the same flags.) Requires Xcode to have UI-automation permission in System Settings; the runner is ad-hoc signed.
 
+- **User must be present:** enabling automation mode triggers a Touch ID / password prompt that only the user can approve. Without it the run fails after a long hang with "The test runner failed to initialize for UI testing. (Underlying Error: Timed out while enabling automation mode.)". Ask the user to stand by before starting an XCUITest run; if they're away, fall back to `task test-apple` unit tests and Mode B for evidence.
+
 Fixture data (`apple/Lurker/FixtureTransport.swift`): network `Libera`; `#lurker` (pinned, topic "Native client development…", messages from `tove`/`hilde`, a preview-card message) and `#lurker-full` (long backlog, `unread: 10`, `lastSeenID`/`markerID` set — the unread bar + "New messages" divider fixture). Extend the fixtures when your change needs data they lack.
 
 Accessibility quirks that cost time (from the existing tests):
