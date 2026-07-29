@@ -22,11 +22,17 @@
 		A1000000000000000000000E /* SlashCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000E /* SlashCommands.swift */; };
 		A10000000000000000000010 /* Platform.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000012 /* Platform.swift */; };
 		A10000000000000000000011 /* ChannelListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000013 /* ChannelListView.swift */; };
+		A10000000000000000000012 /* ComposerAutocomplete.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000014 /* ComposerAutocomplete.swift */; };
+		A10000000000000000000013 /* InputHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000015 /* InputHistory.swift */; };
+		A10000000000000000000014 /* ComposerPopupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000016 /* ComposerPopupView.swift */; };
 		A1000000000000000000000F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* Assets.xcassets */; };
+		A10000000000000000000015 /* emoji-map.json in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000017 /* emoji-map.json */; };
 		A20000000000000000000001 /* EndpointPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* EndpointPolicyTests.swift */; };
 		A20000000000000000000002 /* SlashCommandsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* SlashCommandsTests.swift */; };
 		A20000000000000000000003 /* WireModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* WireModelTests.swift */; };
 		A20000000000000000000004 /* AppModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000004 /* AppModelTests.swift */; };
+		A20000000000000000000005 /* ComposerAutocompleteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000005 /* ComposerAutocompleteTests.swift */; };
+		A20000000000000000000006 /* InputHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000006 /* InputHistoryTests.swift */; };
 		A30000000000000000000001 /* LurkerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000001 /* LurkerUITests.swift */; };
 /* End PBXBuildFile section */
 
@@ -67,10 +73,16 @@
 		B10000000000000000000011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10000000000000000000012 /* Platform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Platform.swift; sourceTree = "<group>"; };
 		B10000000000000000000013 /* ChannelListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelListView.swift; sourceTree = "<group>"; };
+		B10000000000000000000014 /* ComposerAutocomplete.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerAutocomplete.swift; sourceTree = "<group>"; };
+		B10000000000000000000015 /* InputHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputHistory.swift; sourceTree = "<group>"; };
+		B10000000000000000000016 /* ComposerPopupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerPopupView.swift; sourceTree = "<group>"; };
+		B10000000000000000000017 /* emoji-map.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "emoji-map.json"; path = "../../web/src/emoji-map.json"; sourceTree = "<group>"; };
 		B20000000000000000000001 /* EndpointPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndpointPolicyTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* SlashCommandsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommandsTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000003 /* WireModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireModelTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000004 /* AppModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelTests.swift; sourceTree = "<group>"; };
+		B20000000000000000000005 /* ComposerAutocompleteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerAutocompleteTests.swift; sourceTree = "<group>"; };
+		B20000000000000000000006 /* InputHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputHistoryTests.swift; sourceTree = "<group>"; };
 		B30000000000000000000001 /* LurkerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LurkerUITests.swift; sourceTree = "<group>"; };
 		B40000000000000000000001 /* Lurker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Lurker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B40000000000000000000002 /* LurkerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LurkerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -100,7 +112,10 @@
 				B10000000000000000000001 /* AppModel.swift */,
 				B10000000000000000000013 /* ChannelListView.swift */,
 				B10000000000000000000002 /* ChannelSwitcher.swift */,
+				B10000000000000000000014 /* ComposerAutocomplete.swift */,
+				B10000000000000000000016 /* ComposerPopupView.swift */,
 				B10000000000000000000003 /* ConversationView.swift */,
+				B10000000000000000000015 /* InputHistory.swift */,
 				B10000000000000000000004 /* EndpointPolicy.swift */,
 				B10000000000000000000005 /* FixtureTransport.swift */,
 				B10000000000000000000006 /* LurkerAPI.swift */,
@@ -116,6 +131,7 @@
 				B1000000000000000000000F /* Info.plist */,
 				B10000000000000000000010 /* Lurker.entitlements */,
 				B10000000000000000000011 /* Assets.xcassets */,
+				B10000000000000000000017 /* emoji-map.json */,
 			);
 			path = Lurker;
 			sourceTree = "<group>";
@@ -127,6 +143,8 @@
 				B20000000000000000000002 /* SlashCommandsTests.swift */,
 				B20000000000000000000003 /* WireModelTests.swift */,
 				B20000000000000000000004 /* AppModelTests.swift */,
+				B20000000000000000000005 /* ComposerAutocompleteTests.swift */,
+				B20000000000000000000006 /* InputHistoryTests.swift */,
 			);
 			path = LurkerTests;
 			sourceTree = "<group>";
@@ -228,7 +246,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		E10000000000000000000003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000F /* Assets.xcassets in Resources */); runOnlyForDeploymentPostprocessing = 0; };
+		E10000000000000000000003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000F /* Assets.xcassets in Resources */, A10000000000000000000015 /* emoji-map.json in Resources */); runOnlyForDeploymentPostprocessing = 0; };
 		E20000000000000000000003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		E30000000000000000000003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
@@ -243,14 +261,15 @@
 				A10000000000000000000007, A10000000000000000000008, A10000000000000000000009,
 				A1000000000000000000000A, A1000000000000000000000B, A1000000000000000000000C,
 				A1000000000000000000000D, A1000000000000000000000E, A10000000000000000000010,
-				A10000000000000000000011,
+				A10000000000000000000011, A10000000000000000000012, A10000000000000000000013,
+				A10000000000000000000014,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		E20000000000000000000002 = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003, A20000000000000000000004);
+			files = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003, A20000000000000000000004, A20000000000000000000005, A20000000000000000000006);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		E30000000000000000000002 = {

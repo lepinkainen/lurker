@@ -5,23 +5,43 @@ enum ComposerResult: Equatable, Sendable {
   case invalid(String)
 }
 
+struct SlashCommandHelp: Equatable, Identifiable, Sendable {
+  let command: String
+  let arguments: String
+  let description: String
+
+  var id: String { command }
+}
+
 enum SlashCommands {
-  static let help: [(command: String, arguments: String, description: String)] = [
-    ("/me", "<action>", "Send an action"),
-    ("/join", "<channel>", "Join a channel"),
-    ("/part", "[reason]", "Leave this channel"),
-    ("/query", "<nick>", "Open a conversation"),
-    ("/msg", "<nick> <message>", "Send a direct message"),
-    ("/nick", "<new nick>", "Change your nickname"),
-    ("/whois", "<nick>", "Look up a user"),
-    ("/away", "[message]", "Set away status"),
-    ("/back", "", "Clear away status"),
-    ("/topic", "[topic]", "Set the channel topic"),
-    ("/list", "[filter]", "List channels on the network"),
-    ("/archive", "", "Archive this buffer"),
-    ("/unarchive", "", "Unarchive this buffer"),
-    ("/delete", "", "Delete this archived buffer and its history"),
+  static let help: [SlashCommandHelp] = [
+    .init(command: "/me", arguments: "<action>", description: "Send an action"),
+    .init(command: "/join", arguments: "<channel>", description: "Join a channel"),
+    .init(command: "/part", arguments: "[reason]", description: "Leave this channel"),
+    .init(command: "/query", arguments: "<nick>", description: "Open a conversation"),
+    .init(command: "/msg", arguments: "<nick> <message>", description: "Send a direct message"),
+    .init(command: "/nick", arguments: "<new nick>", description: "Change your nickname"),
+    .init(command: "/whois", arguments: "<nick>", description: "Look up a user"),
+    .init(command: "/away", arguments: "[message]", description: "Set away status"),
+    .init(command: "/back", arguments: "", description: "Clear away status"),
+    .init(command: "/topic", arguments: "[topic]", description: "Set the channel topic"),
+    .init(command: "/list", arguments: "[filter]", description: "List channels on the network"),
+    .init(command: "/archive", arguments: "", description: "Archive this buffer"),
+    .init(command: "/unarchive", arguments: "", description: "Unarchive this buffer"),
+    .init(
+      command: "/delete", arguments: "",
+      description: "Delete this archived buffer and its history"),
   ]
+
+  /// Commands whose name prefix-matches the first token of a `/`-leading
+  /// composer text (web parity: matchSlashCommands — display-only popup, so
+  /// the popup stays up while typing arguments as long as the prefix holds).
+  static func matching(_ text: String) -> [SlashCommandHelp] {
+    guard text.hasPrefix("/") else { return [] }
+    let query = text.dropFirst().split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+    let lowered = "/" + query.lowercased()
+    return help.filter { $0.command.hasPrefix(lowered) }
+  }
 
   static func parse(_ input: String, buffer: Buffer) -> ComposerResult {
     let value = input.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -72,6 +72,8 @@ final class AppModel {
   var showingSettings = false
   var composerText = ""
   var composerError: String?
+  // Per-buffer sent-line history and drafts (in-memory, web parity).
+  var inputHistory = InputHistory()
   // Per-network Archives fold state; folded by default, persisted across
   // launches like the other sidebar-adjacent Defaults.
   var archivesOpen: Set<UUID> = []
@@ -214,7 +216,12 @@ final class AppModel {
     // Opening a buffer never acks it: badge, divider, and unread bar clear
     // together only on an explicit ack (bar tap / Esc). See
     // ai-docs/behaviors/new-messages-marker.md.
+    if let previous = selectedBufferID {
+      inputHistory.stashDraft(composerText, buffer: previous)
+    }
     selectedBufferID = id
+    composerText = inputHistory.restoreDraft(buffer: id)
+    composerError = nil
     defaults.set(id.uuidString, forKey: Defaults.selectedBuffer)
   }
 
@@ -286,10 +293,28 @@ final class AppModel {
     case .invalid(let error):
       composerError = error
     case .command(let command):
+      // Only plain messages enter arrow-up history; slash commands do not
+      // (web parity: recordSentInput).
+      if !value.hasPrefix("/") {
+        inputHistory.record(value, buffer: buffer.id)
+      }
       composerError = nil
       composerText = ""
       send(command)
     }
+  }
+
+  /// Arrow-up/down history browsing from the composer. Returns true when the
+  /// key was consumed (text replaced), false to let the caret move normally.
+  func navigateHistory(up: Bool) -> Bool {
+    guard let bufferID = selectedBufferID else { return false }
+    let replacement =
+      up
+      ? inputHistory.navigateUp(buffer: bufferID, current: composerText)
+      : inputHistory.navigateDown(buffer: bufferID)
+    guard let replacement else { return false }
+    composerText = replacement
+    return true
   }
 
   func command(_ command: ClientCommand) {

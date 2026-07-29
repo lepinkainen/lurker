@@ -525,6 +525,10 @@ private struct ComposerView: View {
   @Environment(AppModel.self) private var model
   let buffer: Buffer
   @FocusState private var focused: Bool
+  @State private var popupSelection = 0
+  // The popup derives from the text, so Esc-dismissal needs an explicit flag;
+  // any text change re-arms it.
+  @State private var popupDismissed = false
 
   var body: some View {
     @Bindable var model = model
@@ -547,6 +551,20 @@ private struct ComposerView: View {
           .focused($focused)
           .onSubmit(model.sendComposer)
           .disabled(!canSend)
+          .onKeyPress(keys: [.tab, .return]) { press in
+            guard press.modifiers.isEmpty else { return .ignored }
+            return acceptSelection() ? .handled : .ignored
+          }
+          .onKeyPress(keys: [.upArrow, .downArrow]) { press in
+            // Modified arrows (⌥↑ etc.) belong to the menu-bar shortcuts.
+            guard press.modifiers.isEmpty else { return .ignored }
+            return handleArrow(up: press.key == .upArrow)
+          }
+          .onKeyPress(.escape) {
+            guard popup != .none else { return .ignored }
+            popupDismissed = true
+            return .handled
+          }
         Button(action: model.sendComposer) {
           Image(systemName: "arrow.up.circle.fill")
             .font(.title2)
@@ -566,15 +584,72 @@ private struct ComposerView: View {
             focused ? Color.accentColor : Color.lurkerSeparator,
             lineWidth: focused ? 1.5 : 0.5)
       }
+      // Anchored above the bar without affecting its layout.
+      .overlay(alignment: .topLeading) {
+        if popup != .none {
+          ComposerPopupView(popup: popup, selection: popupSelection) { index in
+            accept(index: index)
+          }
+          .alignmentGuide(.top) { $0[.bottom] + 4 }
+        }
+      }
     }
     .padding(10)
     .background(.bar)
     .onChange(of: model.focusComposerRequest) { _, _ in focused = true }
+    .onChange(of: model.composerText) { _, _ in
+      popupSelection = 0
+      popupDismissed = false
+    }
     #if os(macOS)
       // Autofocus on buffer switch is desktop-only: on iOS programmatic focus
       // raises the software keyboard over the timeline the user came to read.
       .onChange(of: buffer.id) { _, _ in focused = true }
     #endif
+  }
+
+  private var popup: ComposerPopup {
+    guard !popupDismissed, canSend else { return .none }
+    return ComposerPopup.resolve(
+      text: model.composerText,
+      buffer: buffer,
+      members: model.members[buffer.id] ?? [],
+      ownNick: model.selectedNetwork?.nick
+    )
+  }
+
+  /// Tab/Enter acceptance of the highlighted nick/emoji row. The command
+  /// popup is display-only, so those keys fall through (Enter submits).
+  private func acceptSelection() -> Bool {
+    accept(index: popupSelection)
+  }
+
+  @discardableResult
+  private func accept(index: Int) -> Bool {
+    switch popup {
+    case .nick(let nicks):
+      guard nicks.indices.contains(index) else { return false }
+      model.composerText = NickCompletion.apply(nick: nicks[index])
+      return true
+    case .emoji(let matches):
+      guard matches.indices.contains(index) else { return false }
+      model.composerText = EmojiCompletion.apply(
+        text: model.composerText, match: matches[index])
+      return true
+    case .command, .none:
+      return false
+    }
+  }
+
+  /// Bare ↑/↓ cycle the popup selection when one is open, otherwise browse
+  /// per-buffer input history.
+  private func handleArrow(up: Bool) -> KeyPress.Result {
+    let count = popup.selectableCount
+    if count > 0 {
+      popupSelection = ((popupSelection + (up ? -1 : 1)) % count + count) % count
+      return .handled
+    }
+    return model.navigateHistory(up: up) ? .handled : .ignored
   }
 
   private var canSend: Bool {

@@ -311,6 +311,43 @@ struct AppModelTests {
     #expect(model.composerError != nil)
   }
 
+  @Test func sendComposerRecordsPlainMessagesNotSlashCommands() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let chan = buffer("#alpha", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [chan.id: chan]
+    model.selectedBufferID = chan.id
+
+    model.composerText = "hello there"
+    model.sendComposer()
+    model.composerText = "/me waves"
+    model.sendComposer()
+
+    #expect(model.navigateHistory(up: true))
+    #expect(model.composerText == "hello there")
+    #expect(!model.navigateHistory(up: true) || model.composerText == "hello there")
+  }
+
+  @Test func bufferSwitchPreservesDraftsPerBuffer() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let first = buffer("#alpha", networkID: networkID)
+    let second = buffer("#beta", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [first.id: first, second.id: second]
+
+    model.selectBuffer(first.id)
+    model.composerText = "draft in alpha"
+    model.selectBuffer(second.id)
+    #expect(model.composerText == "")
+    model.composerText = "draft in beta"
+    model.selectBuffer(first.id)
+    #expect(model.composerText == "draft in alpha")
+    model.selectBuffer(second.id)
+    #expect(model.composerText == "draft in beta")
+  }
+
   @Test func networkAggregateCountsSumAllBuffers() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
