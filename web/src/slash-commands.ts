@@ -141,6 +141,20 @@ const registry: SlashCommandEntry[] = [
   command("/ignorelist", "", "List ignored masks", ({ buffer, sendCmd }) => {
     sendCmd({ type: "ignorelist", network_id: buffer.network_id });
   }),
+  command("/archive", "", "Archive this buffer", ({ buffer, sendCmd }) => {
+    if (buffer.kind === "status") return;
+    sendCmd({ type: "archive_buffer", buffer_id: buffer.id });
+  }),
+  command("/unarchive", "", "Unarchive this buffer", ({ buffer, sendCmd }) => {
+    if (buffer.kind === "status") return;
+    sendCmd({ type: "unarchive_buffer", buffer_id: buffer.id });
+  }),
+  command("/delete", "", "Delete this buffer and its history", ({ buffer, sendCmd }) => {
+    // Server enforces archived-only too; the guard keeps misfires silent
+    // since WS error envelopes aren't surfaced in the UI yet.
+    if (buffer.kind === "status" || buffer.archived !== true) return;
+    sendCmd({ type: "delete_buffer", buffer_id: buffer.id });
+  }),
 ];
 
 const registryByName = new Map(registry.flatMap((entry) => entry.names.map((name) => [name, entry] as const)));

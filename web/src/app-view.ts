@@ -1,4 +1,5 @@
 import { activeBuffer, type Member, type Message, type Network, state } from "./app-state";
+import { getStartupFallbackBufferIds } from "./buffers";
 import { tryRenderActiveChannelList } from "./channel-list";
 import type { DomRefs } from "./dom";
 import { updateInputEnabled } from "./input";
@@ -66,7 +67,8 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
         sendCmd: deps.sendCmd,
       }),
     updateInputEnabled: () => updateInputEnabled(d.inputEl),
-    renderSidebar: () => renderSidebar({ sbScrollEl: d.sbScrollEl, setActive: deps.setActive, iconEl }),
+    renderSidebar: () =>
+      renderSidebar({ sbScrollEl: d.sbScrollEl, setActive: deps.setActive, iconEl, sendCmd: deps.sendCmd }),
     appendMessage: (msg: Message) => {
       onMessage(msg, {
         renderActiveView: view.renderActiveView,
@@ -91,6 +93,27 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
       if (bufferId !== state.activeId) return;
       view.renderHeader();
       view.renderMembers();
+    },
+    // removeBuffer handles a buffer_deleted broadcast: drop every trace of
+    // the buffer and, if it was active, fall back like at startup.
+    removeBuffer: (bufferId: string) => {
+      if (!state.buffers.delete(bufferId)) return;
+      state.messages.delete(bufferId);
+      state.members.delete(bufferId);
+      state.inputHistory.delete(bufferId);
+      state.loadingHistory.delete(bufferId);
+      state.historyExhausted.delete(bufferId);
+      if (state.activeId === bufferId) {
+        state.activeId = null;
+        const next = getStartupFallbackBufferIds()[0];
+        if (next) {
+          deps.setActive(next);
+          return;
+        }
+        view.renderHeader();
+        view.renderActiveView();
+      }
+      view.renderSidebar();
     },
   };
   return view;

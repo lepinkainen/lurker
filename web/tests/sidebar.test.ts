@@ -123,17 +123,83 @@ describe("renderSidebar", () => {
     expect(d.setActive).toHaveBeenCalledWith("10");
   });
 
-  it("renders archive fold for parted channels", () => {
+  it("renders archive fold for archived buffers of any kind", () => {
     state.networks.set("1", net({ id: "1" }));
-    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#left", kind: "channel", joined: false }));
+    state.buffers.set(
+      "10",
+      buf({ id: "10", network_id: "1", name: "#left", kind: "channel", joined: false, archived: true }),
+    );
+    state.buffers.set("11", buf({ id: "11", network_id: "1", name: "spammer", kind: "query", archived: true }));
     const d = deps();
     renderSidebar(d);
     const arch = d.sbScrollEl.querySelector(".sbrow.archives");
     expect(arch).not.toBeNull();
-    expect(arch?.querySelector(".archcount")?.textContent).toBe("1");
+    expect(arch?.querySelector(".archcount")?.textContent).toBe("2");
     expect(d.sbScrollEl.querySelectorAll(".sbrow.parted").length).toBe(0);
     state.layout.archivesOpen[1] = true;
     renderSidebar(d);
+    expect(d.sbScrollEl.querySelectorAll(".sbrow.parted").length).toBe(2);
+  });
+
+  it("does not archive merely-parted channels (reconnect flicker guard)", () => {
+    state.networks.set("1", net({ id: "1" }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#down", kind: "channel", joined: false }));
+    const d = deps();
+    renderSidebar(d);
+    expect(d.sbScrollEl.querySelector(".sbrow.archives")).toBeNull();
+    // Still rendered in the normal channel list, dimmed via the parted class.
     expect(d.sbScrollEl.querySelectorAll(".sbrow.parted").length).toBe(1);
+  });
+
+  it("gives query rows an options toggle and archives them from the dialog", () => {
+    state.networks.set("1", net({ id: "1" }));
+    state.buffers.set("11", buf({ id: "11", network_id: "1", name: "alice", kind: "query" }));
+    const d = deps();
+    renderSidebar(d);
+    const opt = d.sbScrollEl.querySelector<HTMLElement>(".sbrow.query .chan-options");
+    expect(opt).not.toBeNull();
+    opt?.click();
+    const dialog = document.body.querySelector("dialog");
+    expect(dialog).not.toBeNull();
+    const labels = [...(dialog?.querySelectorAll(".nf-checkbox-label") ?? [])].map((l) => l.textContent);
+    expect(labels).toContain("Archive conversation");
+    dialog?.remove();
+  });
+
+  it("offers two-step delete for archived buffers and sends delete_buffer", () => {
+    state.networks.set("1", net({ id: "1" }));
+    state.buffers.set(
+      "10",
+      buf({ id: "10", network_id: "1", name: "#left", kind: "channel", joined: false, archived: true }),
+    );
+    state.layout.archivesOpen[1] = true;
+    const d = deps();
+    const sendCmd = vi.fn();
+    d.sendCmd = sendCmd;
+    renderSidebar(d);
+
+    d.sbScrollEl.querySelector<HTMLElement>(".sbrow.parted .chan-options")?.click();
+    const dialog = document.body.querySelector("dialog");
+    expect(dialog).not.toBeNull();
+    const del = dialog?.querySelector<HTMLElement>(".chan-delete-btn");
+    expect(del).not.toBeNull();
+    del?.click();
+    expect(sendCmd).not.toHaveBeenCalled();
+    dialog?.querySelector<HTMLElement>(".chan-delete-confirm")?.click();
+    expect(sendCmd).toHaveBeenCalledWith({ type: "delete_buffer", buffer_id: "10" });
+    dialog?.remove();
+  });
+
+  it("hides delete for non-archived buffers", () => {
+    state.networks.set("1", net({ id: "1" }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#active", kind: "channel", joined: true }));
+    const d = deps();
+    d.sendCmd = vi.fn();
+    renderSidebar(d);
+    d.sbScrollEl.querySelector<HTMLElement>(".sbrow.chan .chan-options")?.click();
+    const dialog = document.body.querySelector("dialog");
+    expect(dialog).not.toBeNull();
+    expect(dialog?.querySelector(".chan-delete-btn")).toBeNull();
+    dialog?.remove();
   });
 });

@@ -14,6 +14,7 @@ type WSMessage =
       topic_set_by?: string;
       topic_set_at?: string;
       joined?: boolean;
+      archived?: boolean;
       last_seen_id?: string;
       // mark_read variant: marker_id always present (null = clear); the
       // topic/joined variant omits it entirely (= unchanged).
@@ -29,7 +30,9 @@ type WSMessage =
       show_presence_events: boolean;
       collapse_presence_events: boolean;
       pinned: boolean;
+      archived: boolean;
     }
+  | { type: "buffer_deleted"; id: string; network_id: string }
   | { type: "network_state"; network_id: string; state: string }
   | { type: "history_result"; buffer_id: string; messages?: Message[] }
   | { type: "preview"; buffer_id: string; message_id: string; previews?: Message["previews"] }
@@ -68,6 +71,9 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
         view.renderSidebar();
         break;
       }
+      case "buffer_deleted":
+        view.removeBuffer(m.id);
+        break;
       case "buffer_update":
       case "buffer_settings":
         // Updates targeting the active buffer must rerender the message view:

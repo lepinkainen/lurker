@@ -108,6 +108,41 @@ describe("createAppView", () => {
     expect(d.messagesEl.querySelector(".cl-panel")).toBeNull();
   });
 
+  it("removeBuffer drops all buffer state and reselects when active", () => {
+    state.networks.set("1", net({ id: "1" }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#doomed" }));
+    state.buffers.set("11", buf({ id: "11", network_id: "1", name: "#other" }));
+    state.messages.set("10", [{ id: "m1", buffer_id: "10" }]);
+    state.members.set("10", []);
+    state.activeId = "10";
+    const d = refs();
+    const setActive = vi.fn();
+    const view = createAppView(d, { sendCmd: vi.fn(), setActive, stick: createScrollStick(d.messagesEl) });
+
+    view.removeBuffer("10");
+
+    expect(state.buffers.has("10")).toBe(false);
+    expect(state.messages.has("10")).toBe(false);
+    expect(state.members.has("10")).toBe(false);
+    expect(setActive).toHaveBeenCalledWith("11");
+  });
+
+  it("removeBuffer leaves selection alone for inactive buffers", () => {
+    state.networks.set("1", net({ id: "1" }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#doomed" }));
+    state.buffers.set("11", buf({ id: "11", network_id: "1", name: "#active" }));
+    state.activeId = "11";
+    const d = refs();
+    const setActive = vi.fn();
+    const view = createAppView(d, { sendCmd: vi.fn(), setActive, stick: createScrollStick(d.messagesEl) });
+
+    view.removeBuffer("10");
+
+    expect(state.buffers.has("10")).toBe(false);
+    expect(setActive).not.toHaveBeenCalled();
+    expect(state.activeId).toBe("11");
+  });
+
   it("wires sidebar buffer clicks through provided setActive callback", () => {
     state.networks.set("1", net({ id: "1" }));
     state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#go" }));

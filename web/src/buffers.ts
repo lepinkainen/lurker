@@ -15,9 +15,11 @@ export function orderedNetworks(): Network[] {
 export function groupedBuffers(networkId: string) {
   const netBufs = [...state.buffers.values()].filter((buffer) => buffer.network_id === networkId);
   const status = netBufs.find((buffer) => buffer.kind === "status") ?? null;
-  const channels = netBufs.filter((buffer) => buffer.kind === "channel" && buffer.joined === true).sort(byName);
-  const queries = netBufs.filter((buffer) => buffer.kind === "query").sort(byName);
-  const parted = netBufs.filter((buffer) => buffer.kind === "channel" && buffer.joined !== true).sort(byName);
+  const channels = netBufs.filter((buffer) => buffer.kind === "channel" && buffer.archived !== true).sort(byName);
+  const queries = netBufs.filter((buffer) => buffer.kind === "query" && buffer.archived !== true).sort(byName);
+  // The Archive section is driven by the persisted archived flag (any kind),
+  // not by joined state — a reconnect must not shuffle channels around.
+  const parted = netBufs.filter((buffer) => buffer.kind !== "status" && buffer.archived === true).sort(byName);
   return { status, channels, queries, parted };
 }
 

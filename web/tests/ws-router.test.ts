@@ -21,6 +21,7 @@ function fakeView(): FakeView {
     patchPreview: vi.fn(),
     updateBuffer: vi.fn(),
     setMembers: vi.fn(),
+    removeBuffer: vi.fn(),
   } as unknown as FakeView;
 }
 
@@ -50,6 +51,12 @@ describe("ws-router state transformations", () => {
       collapse_presence_events: false,
       pinned: false,
     });
+  });
+
+  it("buffer_deleted delegates to view.removeBuffer", () => {
+    const view = fakeView();
+    createWSRouter(view)({ type: "buffer_deleted", id: "b1", network_id: "n1" });
+    expect(view.removeBuffer).toHaveBeenCalledWith("b1");
   });
 
   it("network_state updates network status in state on change", () => {

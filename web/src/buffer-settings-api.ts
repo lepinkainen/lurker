@@ -1,7 +1,7 @@
 import type { Buffer } from "./app-state";
 
 export type BufferSettingsPatch = Partial<
-  Pick<Buffer, "show_embeds" | "show_presence_events" | "collapse_presence_events" | "pinned">
+  Pick<Buffer, "show_embeds" | "show_presence_events" | "collapse_presence_events" | "pinned" | "archived">
 >;
 
 export async function patchBufferSettings(

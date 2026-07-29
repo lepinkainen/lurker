@@ -11,6 +11,9 @@ export type SidebarDeps = {
   sbScrollEl: HTMLDivElement;
   setActive: (id: string) => void;
   iconEl: (symbolId: string, size: number, opts?: { className?: string; label?: string }) => SVGSVGElement;
+  // WS command sender for destructive actions (delete_buffer). Optional so
+  // render-only tests can omit it; menus hide delete when absent.
+  sendCmd?: (cmd: Record<string, unknown>) => void;
 };
 
 export function renderSidebar(deps: SidebarDeps) {
@@ -231,8 +234,10 @@ function bufferRow(buffer: Buffer, deps: SidebarDeps, opts: { pinned?: boolean }
   btn.appendChild(span("name", buffer.kind === "status" ? "(status)" : buffer.name));
   if (buffer.mentions > 0) btn.appendChild(badge("mentionbadge", buffer.mentions));
   else if (buffer.unread > 0) btn.appendChild(badge("unreadbadge", buffer.unread));
-  if (buffer.kind === "channel") {
+  if (buffer.kind === "channel" || buffer.kind === "query") {
     btn.appendChild(channelOptionsToggle(buffer, deps));
+  }
+  if (buffer.kind === "channel") {
     btn.appendChild(pinToggle(buffer, deps));
   }
   btn.addEventListener("click", () => deps.setActive(buffer.id));
@@ -248,7 +253,7 @@ function bufferRowClass(buffer: Buffer, pinned = false) {
     buffer.id === state.activeId && "active",
     buffer.unread > 0 && "unread",
     buffer.mentions > 0 && "mention",
-    buffer.kind === "channel" && buffer.joined !== true && "parted",
+    (buffer.archived === true || (buffer.kind === "channel" && buffer.joined !== true)) && "parted",
   ]
     .filter(Boolean)
     .join(" ");
@@ -308,23 +313,35 @@ function openChannelOptions(buffer: Buffer, deps: SidebarDeps) {
   const title = document.createElement("h2");
   title.className = "nf-title";
   title.textContent = `${buffer.name} display`;
+  inner.append(title);
 
-  inner.append(
-    title,
-    settingCheckbox("Pin", buffer.pinned, (checked) => updateBufferSettings(buffer, { pinned: checked }, deps)),
-    settingCheckbox("Show embeds", buffer.show_embeds, (checked) =>
-      updateBufferSettings(buffer, { show_embeds: checked }, deps),
-    ),
-    settingCheckbox("Show nick changes, joins and parts", buffer.show_presence_events, (checked) =>
-      updateBufferSettings(buffer, { show_presence_events: checked }, deps),
-    ),
-  );
-  if (buffer.show_presence_events) {
+  if (buffer.kind === "channel") {
     inner.append(
-      settingCheckbox("Collapse presence events", buffer.collapse_presence_events, (checked) =>
-        updateBufferSettings(buffer, { collapse_presence_events: checked }, deps),
+      settingCheckbox("Pin", buffer.pinned, (checked) => updateBufferSettings(buffer, { pinned: checked }, deps)),
+      settingCheckbox("Show embeds", buffer.show_embeds, (checked) =>
+        updateBufferSettings(buffer, { show_embeds: checked }, deps),
+      ),
+      settingCheckbox("Show nick changes, joins and parts", buffer.show_presence_events, (checked) =>
+        updateBufferSettings(buffer, { show_presence_events: checked }, deps),
       ),
     );
+    if (buffer.show_presence_events) {
+      inner.append(
+        settingCheckbox("Collapse presence events", buffer.collapse_presence_events, (checked) =>
+          updateBufferSettings(buffer, { collapse_presence_events: checked }, deps),
+        ),
+      );
+    }
+  }
+  if (buffer.kind === "query") {
+    inner.append(
+      settingCheckbox("Archive conversation", buffer.archived === true, (checked) =>
+        updateBufferSettings(buffer, { archived: checked }, deps),
+      ),
+    );
+  }
+  if (buffer.archived === true && deps.sendCmd) {
+    inner.append(deleteBufferRow(buffer, deps, () => dialog.close()));
   }
 
   const actions = document.createElement("div");
@@ -344,6 +361,38 @@ function openChannelOptions(buffer: Buffer, deps: SidebarDeps) {
   });
   document.body.appendChild(dialog);
   dialog.showModal();
+}
+
+// deleteBufferRow renders a two-step destructive delete: the first click
+// swaps in an explicit confirmation, the second sends delete_buffer. State
+// updates arrive via the buffer_deleted broadcast — nothing optimistic here.
+function deleteBufferRow(buffer: Buffer, deps: SidebarDeps, closeDialog: () => void) {
+  const wrap = document.createElement("div");
+  wrap.className = "nf-checkbox-wrap chan-delete";
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "nf-btn danger chan-delete-btn";
+  del.textContent = buffer.kind === "query" ? "Delete conversation…" : "Delete channel…";
+  del.addEventListener("click", () => {
+    wrap.replaceChildren(
+      span("chan-delete-warn", `Delete ${buffer.name} and all its history? This cannot be undone.`),
+      confirmDeleteButton(buffer, deps, closeDialog),
+    );
+  });
+  wrap.append(del);
+  return wrap;
+}
+
+function confirmDeleteButton(buffer: Buffer, deps: SidebarDeps, closeDialog: () => void) {
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.className = "nf-btn danger chan-delete-confirm";
+  confirm.textContent = "Delete forever";
+  confirm.addEventListener("click", () => {
+    deps.sendCmd?.({ type: "delete_buffer", buffer_id: buffer.id });
+    closeDialog();
+  });
+  return confirm;
 }
 
 function settingCheckbox(labelText: string, checked: boolean, onChange: (checked: boolean) => Promise<void>) {
@@ -368,7 +417,9 @@ function settingCheckbox(labelText: string, checked: boolean, onChange: (checked
 
 async function updateBufferSettings(
   buffer: Buffer,
-  patch: Partial<Pick<Buffer, "show_embeds" | "show_presence_events" | "collapse_presence_events" | "pinned">>,
+  patch: Partial<
+    Pick<Buffer, "show_embeds" | "show_presence_events" | "collapse_presence_events" | "pinned" | "archived">
+  >,
   deps: SidebarDeps,
 ) {
   const previous = { ...buffer };

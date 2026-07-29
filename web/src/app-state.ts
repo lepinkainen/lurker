@@ -50,6 +50,10 @@ export type Buffer = {
   show_presence_events: boolean;
   collapse_presence_events: boolean;
   pinned: boolean;
+  // Persisted server-side flag driving the Archive section. Channels are
+  // archived automatically on part/kick and unarchived on join; queries are
+  // archived manually and unarchived by new activity.
+  archived?: boolean;
 };
 
 // One run of uniformly-formatted text, parsed server-side from mIRC control
