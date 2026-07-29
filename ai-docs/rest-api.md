@@ -124,12 +124,13 @@ Current behavior:
   "show_presence_events": true,
   "collapse_presence_events": false,
   "pinned": false,
+  "archived": false,
   "unread": 3,
   "mentions": 1
 }
 ```
 
-The settings fields (`show_embeds`, `show_presence_events`, `collapse_presence_events`, `pinned`) are persisted server-side in the control DB and included in `/api/state` and streamed `buffer_settings` events.
+The settings fields (`show_embeds`, `show_presence_events`, `collapse_presence_events`, `pinned`, `archived`) are persisted server-side in the control DB and included in `/api/state` and streamed `buffer_settings` events. `archived` drives the sidebar Archive section (see `ai-docs/websocket-protocol.md`); clients bucket by it, not by `joined`.
 
 Read state is server-derived (see `ai-docs/behaviors/new-messages-marker.md`): `unread`/`mentions` count messages past `last_seen_id` (capped at 1000; self-authored and presence/system kinds excluded). `marker_id` is the "New messages" marker — the oldest counting unread message — with `marker_ts` its RFC3339 timestamp (derived from the UUIDv7) for "new since" display; both omitted when the buffer is caught up.
 
@@ -308,7 +309,8 @@ Request body (all fields optional):
   "show_embeds": true,
   "show_presence_events": true,
   "collapse_presence_events": false,
-  "pinned": false
+  "pinned": false,
+  "archived": false
 }
 ```
 
@@ -321,11 +323,12 @@ Response is the full `buffer_settings` event shape:
   "show_embeds": true,
   "show_presence_events": true,
   "collapse_presence_events": false,
-  "pinned": false
+  "pinned": false,
+  "archived": false
 }
 ```
 
-The same event is published to the hub so other connected WebSocket clients stay in sync. Settings are only supported for channel buffers (`kind = "channel"`).
+The same event is published to the hub so other connected WebSocket clients stay in sync. Settings are supported for channel and query buffers; status buffers return 400. `archived` can also be toggled over WS via `archive_buffer`/`unarchive_buffer`, and the IRC runtime maintains it automatically for channels (set on self-part/kick, cleared on self-join).
 
 ## Config YAML endpoints
 

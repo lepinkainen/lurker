@@ -68,6 +68,11 @@ Current client command envelope fields:
 
 - `query` — open a new query buffer for a nick (uses `network_id` + `target`)
 
+#### Buffer lifecycle
+
+- `archive_buffer` / `unarchive_buffer` — set/clear the persisted `archived` flag on a channel or query buffer (uses `buffer_id`; status buffers are rejected). Broadcasts a `buffer_settings` event. Channels are normally archived implicitly by part/kick and unarchived by join — this is the manual path (queries, `/archive`, `/unarchive`). Allowed on non-IRC networks.
+- `delete_buffer` — permanently delete a buffer and its entire message history (uses `buffer_id`). Only **archived** buffers may be deleted; status buffers never. Errors: missing `buffer_id`, unknown buffer, status kind, not archived. On success the server acks and broadcasts `buffer_deleted`. Allowed on non-IRC networks.
+
 #### History and state
 
 - `history` — fetch recent or older messages for a buffer
@@ -123,7 +128,8 @@ Currently published events:
 
 - `message` — inbound or locally-logged outbound message
 - `buffer_created` — first-time buffer registration
-- `buffer_update` — topic, topic setter/set-time, joined state, or last-seen-ID changes
+- `buffer_deleted` — buffer and its history permanently deleted
+- `buffer_update` — topic, topic setter/set-time, joined/archived state, or last-seen-ID changes
 - `network_state` — connection state transitions
 - `member_list` — full channel member list snapshot
 - `preview` — URL previews ready for a message
@@ -162,13 +168,20 @@ Important event shapes:
 - `kind`
 - `created_at`
 
+`buffer_deleted`
+
+- `id`
+- `network_id`
+
+Broadcast after a successful `delete_buffer`. Clients drop the buffer and all per-buffer state (messages, members, unread/mention counts, marker); if it was the active buffer, they reselect using their startup fallback order. Deletion is never optimistic — this event drives the state change.
+
 `buffer_update`
 
 Partial update: every field below except `id`/`network_id` is optional, and an absent field means "unchanged" — clients must only apply keys present in the JSON. A present-but-empty `topic` means the topic was cleared.
 
 Two server-side variants share this type:
 
-- **topic/joined variant** (IRC runtime): `topic`, `topic_set_by`, `topic_set_at`, `joined` — never carries read-state fields.
+- **topic/joined variant** (IRC runtime): `topic`, `topic_set_by`, `topic_set_at`, `joined`, `archived` — never carries read-state fields.
 - **mark_read echo** (broadcast to all clients, sender included): `last_seen_id`, `marker_id`, `marker_ts`, `unread`, `mentions` — never carries topic/joined. `marker_id` is **always present** on this variant; JSON `null` means the buffer is caught up and clients must drop the "New messages" marker/bar/badges.
 
 - `id`
@@ -177,6 +190,7 @@ Two server-side variants share this type:
 - `topic_set_by` — nick that set the topic (from RPL_TOPICWHOTIME 333 or a live TOPIC change)
 - `topic_set_at` — when the topic was set, storage timestamp format (`2006-01-02T15:04:05.000Z`)
 - `joined` — never sent on topic-only updates: a topic reply (332/333) is not proof of membership
+- `archived` — persisted archive flag; sent when it changes. Self-part/kick sets it, self-join clears it, a new message to an archived query clears it. Disconnects never archive (only real membership intent does), so reconnects don't shuffle the sidebar
 - `last_seen_id`
 - `marker_id` — server-derived "New messages" marker: id of the oldest unread message that counts (self-authored and presence/system kinds never count or anchor)
 - `marker_ts` — RFC3339 timestamp of the marker message (from its UUIDv7), for "new since HH:MM" display when the message isn't loaded client-side; omitted when `marker_id` is null
@@ -218,6 +232,7 @@ Only previews with `kind` = `image` or `opengraph` are published. Negative resul
 - `show_presence_events`
 - `collapse_presence_events`
 - `pinned`
+- `archived` — clients bucket sidebar sections by this flag (not by `joined`): non-status buffers with `archived` render in the per-network folded "Archive" section
 
 `netsplit`
 
