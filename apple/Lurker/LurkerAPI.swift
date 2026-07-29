@@ -39,9 +39,16 @@ protocol LurkerTransport: Sendable {
   func fetchState() async throws -> StateSnapshot
   func fetchHistory(bufferID: UUID, before: UUID?) async throws -> [Message]
   func updateBuffer(id: UUID, patch: BufferSettingsPatch) async throws -> BufferSettingsEvent
+  func reorderNetworks(ids: [UUID]) async throws -> [Network]
+  func reorderBuffers(networkID: UUID, ids: [UUID]) async throws -> BufferReorderEvent
   func openEvents() async -> AsyncThrowingStream<ServerEvent, Error>
   func send(_ command: ClientCommand) async throws
   func disconnect() async
+}
+
+/// Request body shared by both reorder endpoints.
+struct ReorderRequest: Codable, Sendable {
+  let ids: [UUID]
 }
 
 private final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
@@ -112,6 +119,23 @@ actor LurkerAPI: LurkerTransport {
     request.httpMethod = "PATCH"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try encoder.encode(patch)
+    return try await requestJSON(request)
+  }
+
+  func reorderNetworks(ids: [UUID]) async throws -> [Network] {
+    var request = URLRequest(url: url("api/networks/reorder"))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try encoder.encode(ReorderRequest(ids: ids))
+    let response: NetworkReorderResponse = try await requestJSON(request)
+    return response.networks
+  }
+
+  func reorderBuffers(networkID: UUID, ids: [UUID]) async throws -> BufferReorderEvent {
+    var request = URLRequest(url: url("api/networks/\(networkID.uuidString)/buffers/reorder"))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try encoder.encode(ReorderRequest(ids: ids))
     return try await requestJSON(request)
   }
 

@@ -186,6 +186,131 @@ struct AppModelTests {
     #expect(model.selectedBufferID == channel.id)
   }
 
+  @Test func channelsSortBySortOrderThenName() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    var alpha = buffer("#alpha", networkID: networkID)
+    var beta = buffer("#beta", networkID: networkID)
+    let gamma = buffer("#gamma", networkID: networkID)
+    alpha.sortOrder = 2
+    beta.sortOrder = 1
+    // gamma keeps default 0: sorts first, ties would fall back to name.
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = Dictionary(
+      uniqueKeysWithValues: [alpha, beta, gamma].map { ($0.id, $0) })
+
+    let groups = model.sidebarBuffers(for: networkID)
+    #expect(groups.channels.map(\.id) == [gamma.id, beta.id, alpha.id])
+  }
+
+  @Test func bufferDecodesWithoutSortOrderAsZero() throws {
+    // Old backends omit sort_order; the client must default to 0 so ordering
+    // stays alphabetical (version-skew guard).
+    let json = """
+      {"id":"\(UUID().uuidString)","network_id":"\(UUID().uuidString)","name":"#a",
+       "kind":"channel","joined":true,"created_at":"2026-01-01T00:00:00Z",
+       "show_embeds":true,"show_presence_events":true,"collapse_presence_events":false,
+       "pinned":false,"archived":false,"unread":0,"mentions":0}
+      """
+    let decoded = try JSONDecoder.lurker().decode(Buffer.self, from: Data(json.utf8))
+    #expect(decoded.sortOrder == 0)
+  }
+
+  @Test func applyBufferReorderUpdatesSortOrders() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let alpha = buffer("#alpha", networkID: networkID)
+    let beta = buffer("#beta", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = Dictionary(uniqueKeysWithValues: [alpha, beta].map { ($0.id, $0) })
+
+    model.apply(
+      .bufferReorder(
+        BufferReorderEvent(
+          networkID: networkID,
+          buffers: [
+            BufferSortEntry(id: beta.id, sortOrder: 0),
+            BufferSortEntry(id: alpha.id, sortOrder: 1),
+          ])))
+
+    let groups = model.sidebarBuffers(for: networkID)
+    #expect(groups.channels.map(\.id) == [beta.id, alpha.id])
+  }
+
+  @Test func reorderChannelsRollsBackOnFailure() async {
+    let transport = FixtureTransport()
+    await transport.setFailReorders(true)
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    let networkID = UUID()
+    let alpha = buffer("#alpha", networkID: networkID)
+    let beta = buffer("#beta", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = Dictionary(uniqueKeysWithValues: [alpha, beta].map { ($0.id, $0) })
+
+    await model.reorderChannels(networkID: networkID, orderedIDs: [beta.id, alpha.id])?.value
+
+    #expect(model.buffers[beta.id]?.sortOrder == 0)
+    #expect(model.buffers[alpha.id]?.sortOrder == 0)
+    #expect(model.composerError != nil)
+  }
+
+  @Test func reorderChannelsAppliesServerOrder() async {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let alpha = buffer("#alpha", networkID: networkID)
+    let beta = buffer("#beta", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = Dictionary(uniqueKeysWithValues: [alpha, beta].map { ($0.id, $0) })
+
+    await model.reorderChannels(networkID: networkID, orderedIDs: [beta.id, alpha.id])?.value
+
+    #expect(model.buffers[beta.id]?.sortOrder == 0)
+    #expect(model.buffers[alpha.id]?.sortOrder == 1)
+    #expect(model.composerError == nil)
+  }
+
+  @Test func reorderNetworksSendsCompleteSetIncludingDisabled() async {
+    let transport = FixtureTransport()
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    let firstID = UUID()
+    let secondID = UUID()
+    let disabledID = UUID()
+    var first = network(id: firstID)
+    var second = network(id: secondID)
+    var off = network(id: disabledID)
+    first.sortOrder = 0
+    second.sortOrder = 1
+    off.sortOrder = 2
+    off.disabled = true
+    model.networks = [firstID: first, secondID: second, disabledID: off]
+
+    await model.reorderNetworks([secondID, firstID])?.value
+
+    let sent = await transport.reorderedNetworkIDs
+    #expect(sent == [secondID, firstID, disabledID])
+    #expect(model.networks[secondID]?.sortOrder == 0)
+    #expect(model.networks[firstID]?.sortOrder == 1)
+  }
+
+  @Test func reorderNetworksRollsBackOnFailure() async {
+    let transport = FixtureTransport()
+    await transport.setFailReorders(true)
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    let firstID = UUID()
+    let secondID = UUID()
+    var first = network(id: firstID)
+    var second = network(id: secondID)
+    first.sortOrder = 0
+    second.sortOrder = 1
+    model.networks = [firstID: first, secondID: second]
+
+    await model.reorderNetworks([secondID, firstID])?.value
+
+    #expect(model.networks[firstID]?.sortOrder == 0)
+    #expect(model.networks[secondID]?.sortOrder == 1)
+    #expect(model.composerError != nil)
+  }
+
   @Test func networkAggregateCountsSumAllBuffers() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()

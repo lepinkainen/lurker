@@ -107,12 +107,16 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
   // archived automatically on part/kick and unarchived on join; queries are
   // archived manually and unarchived by new activity.
   var archived: Bool = false
+  // Manual channel ordering; channels sort (sortOrder, name). Defaults to 0
+  // when absent so pre-sort_order backends keep alphabetical order.
+  var sortOrder: Int = 0
   var unread: Int
   var mentions: Int
 
   private enum CodingKeys: String, CodingKey {
     case id, networkID, name, kind, topic, joined, lastSeenID, markerID, markerTS, createdAt,
-      showEmbeds, showPresenceEvents, collapsePresenceEvents, pinned, archived, unread, mentions
+      showEmbeds, showPresenceEvents, collapsePresenceEvents, pinned, archived, sortOrder, unread,
+      mentions
   }
 
   init(
@@ -131,6 +135,7 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
     collapsePresenceEvents: Bool,
     pinned: Bool,
     archived: Bool = false,
+    sortOrder: Int = 0,
     unread: Int,
     mentions: Int
   ) {
@@ -149,6 +154,7 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
     self.collapsePresenceEvents = collapsePresenceEvents
     self.pinned = pinned
     self.archived = archived
+    self.sortOrder = sortOrder
     self.unread = unread
     self.mentions = mentions
   }
@@ -170,6 +176,7 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
     collapsePresenceEvents = try values.decode(Bool.self, forKey: .collapsePresenceEvents)
     pinned = try values.decode(Bool.self, forKey: .pinned)
     archived = try values.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+    sortOrder = try values.decodeIfPresent(Int.self, forKey: .sortOrder) ?? 0
     unread = try values.decode(Int.self, forKey: .unread)
     mentions = try values.decode(Int.self, forKey: .mentions)
   }
@@ -324,6 +331,23 @@ struct BufferDeletedEvent: Codable, Sendable {
   let networkID: UUID
 }
 
+/// One (buffer, sort_order) pair in a `buffer_reorder` event.
+struct BufferSortEntry: Codable, Sendable, Hashable {
+  let id: UUID
+  let sortOrder: Int
+}
+
+/// Broadcast after POST /api/networks/{id}/buffers/reorder; carries the
+/// resulting order of ALL channel buffers of the network.
+struct BufferReorderEvent: Codable, Sendable {
+  let networkID: UUID
+  let buffers: [BufferSortEntry]
+}
+
+struct NetworkReorderResponse: Codable, Sendable {
+  let networks: [Network]
+}
+
 struct MemberListEvent: Codable, Sendable {
   let networkID: UUID
   let bufferID: UUID
@@ -382,6 +406,7 @@ enum ServerEvent: Sendable {
   case bufferDeleted(BufferDeletedEvent)
   case bufferUpdate(BufferUpdateEvent)
   case bufferSettings(BufferSettingsEvent)
+  case bufferReorder(BufferReorderEvent)
   case networkState(NetworkStateEvent)
   case history(HistoryResult)
   case preview(PreviewEvent)
@@ -406,6 +431,7 @@ extension ServerEvent: Decodable {
     case "buffer_deleted": self = .bufferDeleted(try BufferDeletedEvent(from: decoder))
     case "buffer_update": self = .bufferUpdate(try BufferUpdateEvent(from: decoder))
     case "buffer_settings": self = .bufferSettings(try BufferSettingsEvent(from: decoder))
+    case "buffer_reorder": self = .bufferReorder(try BufferReorderEvent(from: decoder))
     case "network_state": self = .networkState(try NetworkStateEvent(from: decoder))
     case "history_result": self = .history(try HistoryResult(from: decoder))
     case "preview": self = .preview(try PreviewEvent(from: decoder))

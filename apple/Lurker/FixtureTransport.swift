@@ -331,6 +331,33 @@ actor FixtureTransport: LurkerTransport {
     )
   }
 
+  // Tests flip this to exercise the optimistic-reorder rollback paths.
+  private var failReorders = false
+  private(set) var reorderedNetworkIDs: [UUID]?
+  private(set) var reorderedBufferIDs: [UUID]?
+
+  func setFailReorders(_ fail: Bool) {
+    failReorders = fail
+  }
+
+  struct FixtureError: Error {}
+
+  func reorderNetworks(ids: [UUID]) async throws -> [Network] {
+    if failReorders { throw FixtureError() }
+    reorderedNetworkIDs = ids
+    // Empty response: the caller's optimistic order stands (tests inject
+    // their own networks, which the fixture snapshot knows nothing about).
+    return []
+  }
+
+  func reorderBuffers(networkID: UUID, ids: [UUID]) async throws -> BufferReorderEvent {
+    if failReorders { throw FixtureError() }
+    reorderedBufferIDs = ids
+    return BufferReorderEvent(
+      networkID: networkID,
+      buffers: ids.enumerated().map { BufferSortEntry(id: $1, sortOrder: $0) })
+  }
+
   func openEvents() async -> AsyncThrowingStream<ServerEvent, Error> {
     AsyncThrowingStream { _ in }
   }

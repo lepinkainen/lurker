@@ -331,6 +331,55 @@ final class AppModel {
     }
   }
 
+  /// Reorder enabled networks via drag and drop. The backend requires the
+  /// complete network id set, so disabled networks are appended in their
+  /// current order. Optimistic: applies locally, rolls back on failure.
+  @discardableResult
+  func reorderNetworks(_ orderedEnabledIDs: [UUID]) -> Task<Void, Never>? {
+    guard let transport else { return nil }
+    let disabledIDs = orderedNetworks.filter(\.disabled).map(\.id)
+    let ids = orderedEnabledIDs + disabledIDs
+    let previous = networks
+    for (index, id) in ids.enumerated() {
+      networks[id]?.sortOrder = index
+    }
+    return Task {
+      do {
+        let updated = try await transport.reorderNetworks(ids: ids)
+        for network in updated {
+          // Keep live status: the REST response has no runtime state.
+          var merged = network
+          merged.status = networks[network.id]?.status
+          networks[network.id] = merged
+        }
+      } catch {
+        networks = previous
+        composerError = error.localizedDescription
+      }
+    }
+  }
+
+  /// Reorder the visible (non-pinned, non-archived) channels of a network.
+  /// Optimistic with rollback; the server broadcasts buffer_reorder to other
+  /// clients and returns the same event shape here.
+  @discardableResult
+  func reorderChannels(networkID: UUID, orderedIDs: [UUID]) -> Task<Void, Never>? {
+    guard let transport else { return nil }
+    let previous = buffers
+    for (index, id) in orderedIDs.enumerated() {
+      buffers[id]?.sortOrder = index
+    }
+    return Task {
+      do {
+        let event = try await transport.reorderBuffers(networkID: networkID, ids: orderedIDs)
+        apply(.bufferReorder(event))
+      } catch {
+        buffers = previous
+        composerError = error.localizedDescription
+      }
+    }
+  }
+
   func nextBuffer(unreadOnly: Bool = false, mentionsOnly: Bool = false, direction: Int = 1) {
     var candidates = sidebarBufferOrder()
     if unreadOnly {
@@ -476,6 +525,10 @@ final class AppModel {
       updateBadge()
     case .bufferSettings(let event):
       apply(event)
+    case .bufferReorder(let event):
+      for entry in event.buffers {
+        buffers[entry.id]?.sortOrder = entry.sortOrder
+      }
     case .networkState(let event):
       guard var network = networks[event.networkID] else { return }
       network.status = event.state
@@ -651,7 +704,9 @@ final class AppModel {
     }
     return SidebarBufferGroups(
       status: values.filter { $0.kind == "status" }.sorted(by: bufferOrder),
-      channels: values.filter { $0.kind == "channel" && !$0.archived }.sorted(by: bufferOrder),
+      // Channels honor manual ordering (sortOrder, then name); other groups
+      // stay purely alphabetical.
+      channels: values.filter { $0.kind == "channel" && !$0.archived }.sorted(by: channelOrder),
       queries: values.filter { $0.kind == "query" && !$0.archived }.sorted(by: bufferOrder),
       archived: values.filter { $0.kind != "status" && $0.archived }.sorted(by: bufferOrder)
     )
@@ -694,6 +749,10 @@ private func messageOrder(_ lhs: Message, _ rhs: Message) -> Bool {
 
 private func bufferOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
   lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+}
+
+private func channelOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
+  lhs.sortOrder == rhs.sortOrder ? bufferOrder(lhs, rhs) : lhs.sortOrder < rhs.sortOrder
 }
 
 #if DEBUG
