@@ -166,9 +166,11 @@ tasks:
       - air
 
   seed-test:
-    desc: Seed ./data-test with fake networks, buffers, and messages
+    desc: Seed ./data-test (override with SEED_DIR=...) with fake networks, buffers, and messages
+    vars:
+      SEED_DIR: '{{.SEED_DIR | default "./data-test"}}'
     cmds:
-      - go run ./cmd/seedtest --data-dir ./data-test --reset
+      - go run ./cmd/seedtest --data-dir {{.SEED_DIR}} --reset
 
   fake-ircd:
     desc: Run minimal IRC server on :6667 with message injection on :6668

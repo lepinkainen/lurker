@@ -60,6 +60,13 @@ type seedLine struct {
 	Offset  time.Duration
 }
 
+// seedBufferRef identifies a seeded buffer by network and buffer name so
+// fixtures can refer to buffers before their global IDs are known.
+type seedBufferRef struct {
+	Network string
+	Buffer  string
+}
+
 func main() {
 	dataDir := flag.String("data-dir", "./data-test", "data directory to seed")
 	reset := flag.Bool("reset", false, "remove the data directory before seeding")
@@ -119,6 +126,7 @@ func writeConfigYAML(dataDir string, networks []seedNetwork) error {
 
 func seed(ctx context.Context, stores *ircdb.MultiStore, networks []seedNetwork) error {
 	base := time.Now().Add(-6 * time.Hour)
+	channelIDs := map[seedBufferRef]uuid.UUID{}
 	for _, n := range networks {
 		net, err := stores.UpsertNetwork(ctx, ircdb.Network{
 			Name: n.Name, Host: n.Host, Port: n.Port, TLS: n.TLS,
@@ -140,9 +148,11 @@ func seed(ctx context.Context, stores *ircdb.MultiStore, networks []seedNetwork)
 		}
 
 		for _, c := range n.Channels {
-			if err := seedChannelBuffer(ctx, stores, logStore, net.ID, c, base); err != nil {
+			id, err := seedChannelBuffer(ctx, stores, logStore, net.ID, c, base)
+			if err != nil {
 				return fmt.Errorf("seed channel %s/%s: %w", n.Name, c.Name, err)
 			}
+			channelIDs[seedBufferRef{Network: n.Name, Buffer: c.Name}] = id
 		}
 		for _, q := range n.Queries {
 			if err := seedQueryBuffer(ctx, stores, logStore, net.ID, q, base); err != nil {
@@ -150,7 +160,47 @@ func seed(ctx context.Context, stores *ircdb.MultiStore, networks []seedNetwork)
 			}
 		}
 	}
+	return seedPinned(ctx, stores, channelIDs, pinnedFixture())
+}
+
+// seedPinned pins the fixture channels and normalizes their pin_order to
+// 0..n-1 in the declared order. It deliberately goes through the same
+// functions the REST API uses (UpdateBufferSettings for the pin flag,
+// ReorderPinnedBuffers for the ordering) so seeded data cannot drift from the
+// invariants real clients rely on.
+func seedPinned(ctx context.Context, stores *ircdb.MultiStore, channelIDs map[seedBufferRef]uuid.UUID, refs []seedBufferRef) error {
+	if len(refs) == 0 {
+		return nil
+	}
+	pinned := true
+	order := make([]uuid.UUID, 0, len(refs))
+	for _, ref := range refs {
+		id, ok := channelIDs[ref]
+		if !ok {
+			return fmt.Errorf("pin fixture: unknown channel %s/%s", ref.Network, ref.Buffer)
+		}
+		if _, err := ircdb.UpdateBufferSettings(ctx, stores.Control, id, ircdb.BufferSettingsPatch{Pinned: &pinned}); err != nil {
+			return fmt.Errorf("pin %s/%s: %w", ref.Network, ref.Buffer, err)
+		}
+		order = append(order, id)
+	}
+	entries, err := ircdb.ReorderPinnedBuffers(ctx, stores.Control, order)
+	if err != nil {
+		return fmt.Errorf("reorder pinned buffers: %w", err)
+	}
+	for _, ref := range refs {
+		slog.Info("pinned buffer", "network", ref.Network, "buffer", ref.Buffer, "pin_order", pinOrderOf(entries, channelIDs[ref]))
+	}
 	return nil
+}
+
+func pinOrderOf(entries []ircdb.BufferSortEntry, id uuid.UUID) int64 {
+	for _, e := range entries {
+		if e.ID == id {
+			return e.SortOrder
+		}
+	}
+	return -1
 }
 
 func seedStatus(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID uuid.UUID, base time.Time) error {
@@ -167,20 +217,25 @@ func seedStatus(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogSto
 	return insertLines(ctx, log, localID, lines, base)
 }
 
-func seedChannelBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID uuid.UUID, c seedChannel, base time.Time) error {
+// seedChannelBuffer seeds one channel and returns its global buffer ID so
+// callers can apply cross-network settings (e.g. pinning) afterwards.
+func seedChannelBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID uuid.UUID, c seedChannel, base time.Time) (uuid.UUID, error) {
 	localID, err := resolveLocalBuffer(ctx, stores, log, networkID, c.Name, ircdb.BufferChannel)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	if c.Topic != "" {
 		if err := ircdb.UpdateLogBufferTopicState(ctx, log.DB, c.Name, &c.Topic, nil, nil); err != nil {
-			return err
+			return uuid.Nil, err
 		}
 	}
 	if err := setArchived(ctx, stores, localID, c.Archived); err != nil {
-		return err
+		return uuid.Nil, err
 	}
-	return insertLines(ctx, log, localID, c.Lines, base)
+	if err := insertLines(ctx, log, localID, c.Lines, base); err != nil {
+		return uuid.Nil, err
+	}
+	return localID, nil
 }
 
 // setArchived flips the persisted archived flag so seeded sidebars exercise
@@ -224,6 +279,19 @@ func insertLines(ctx context.Context, log *ircdb.LogStore, bufferID uuid.UUID, l
 		}
 	}
 	return nil
+}
+
+// pinnedFixture lists the channels the seeder pins, in the order they should
+// appear in the Pinned section (pin_order 0, 1, 2). The order deliberately
+// spans two networks and is neither alphabetical (#debian < #go-nuts <
+// #lurker) nor seed order, so a client that ignores pin_order and falls back
+// to name or insertion order is immediately visible.
+func pinnedFixture() []seedBufferRef {
+	return []seedBufferRef{
+		{Network: "libera", Buffer: "#go-nuts"},
+		{Network: "oftc", Buffer: "#debian"},
+		{Network: "libera", Buffer: "#lurker"},
+	}
 }
 
 func fixture() []seedNetwork {
