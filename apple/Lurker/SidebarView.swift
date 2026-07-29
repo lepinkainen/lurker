@@ -79,45 +79,57 @@ struct SidebarView: View {
       let groups = model.sidebarBuffers(for: network.id)
       let statusBuffer = groups.status.first
       let statusBufferID = statusBuffer?.id
+      let isCollapsed = model.collapsedNetworks.contains(network.id)
+      // Collapsed headers aggregate the whole network (web parity); expanded
+      // headers keep showing only the status buffer's own counts.
+      let headerCounts =
+        isCollapsed
+        ? model.networkAggregateCounts(network.id)
+        : (unread: statusBuffer?.unread ?? 0, mentions: statusBuffer?.mentions ?? 0)
       NetworkHeaderRow(
         network: network,
         isSelected: statusBufferID != nil && model.selectedBufferID == statusBufferID,
-        unread: statusBuffer?.unread ?? 0,
-        mentions: statusBuffer?.mentions ?? 0
+        isCollapsed: isCollapsed,
+        unread: headerCounts.unread,
+        mentions: headerCounts.mentions
       ) {
         guard let statusBufferID else { return }
         model.selectBuffer(statusBufferID)
       } statusAction: {
         guard let statusBufferID else { return }
         model.selectBuffer(statusBufferID)
+      } collapseAction: {
+        model.toggleNetworkCollapsed(network.id)
       }
-      // Status buffer is represented by the network header row above, so the
-      // per-network rows list only channels and queries (no duplicate "Status").
-      ForEach(groups.channels + groups.queries) { buffer in
-        SidebarRow(isSelected: model.selectedBufferID == buffer.id) {
-          model.selectBuffer(buffer.id)
-        } content: {
-          BufferRow(buffer: buffer, network: network)
-            .padding(.leading, 14)
+      if !isCollapsed {
+        // Status buffer is represented by the network header row above, so the
+        // per-network rows list only channels and queries (no duplicate "Status").
+        ForEach(groups.channels + groups.queries) { buffer in
+          SidebarRow(isSelected: model.selectedBufferID == buffer.id) {
+            model.selectBuffer(buffer.id)
+          } content: {
+            BufferRow(buffer: buffer, network: network)
+              .padding(.leading, 14)
+          }
+          .bufferMenu(buffer, model: model) { pendingDelete = $0 }
         }
-        .bufferMenu(buffer, model: model) { pendingDelete = $0 }
-      }
-      if !groups.archived.isEmpty {
-        ArchivesToggleRow(
-          count: groups.archived.count,
-          isOpen: model.archivesOpen.contains(network.id)
-        ) {
-          model.toggleArchives(network.id)
-        }
-        if model.archivesOpen.contains(network.id) {
-          ForEach(groups.archived) { buffer in
-            SidebarRow(isSelected: model.selectedBufferID == buffer.id) {
-              model.selectBuffer(buffer.id)
-            } content: {
-              BufferRow(buffer: buffer, network: network)
-                .padding(.leading, 22)
+        if !groups.archived.isEmpty {
+          ArchivesToggleRow(
+            count: groups.archived.count,
+            isOpen: model.archivesOpen.contains(network.id)
+          ) {
+            model.toggleArchives(network.id)
+          }
+          if model.archivesOpen.contains(network.id) {
+            ForEach(groups.archived) { buffer in
+              SidebarRow(isSelected: model.selectedBufferID == buffer.id) {
+                model.selectBuffer(buffer.id)
+              } content: {
+                BufferRow(buffer: buffer, network: network)
+                  .padding(.leading, 22)
+              }
+              .bufferMenu(buffer, model: model) { pendingDelete = $0 }
             }
-            .bufferMenu(buffer, model: model) { pendingDelete = $0 }
           }
         }
       }
@@ -213,13 +225,27 @@ private struct SidebarRow<Content: View>: View {
 private struct NetworkHeaderRow: View {
   let network: Network
   let isSelected: Bool
+  let isCollapsed: Bool
   let unread: Int
   let mentions: Int
   let action: () -> Void
   let statusAction: () -> Void
+  let collapseAction: () -> Void
 
   var body: some View {
     HStack(spacing: 4) {
+      Button(action: collapseAction) {
+        Image(systemName: "chevron.right")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.secondary)
+          .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+          .frame(width: 16, height: 16)
+          .contentShape(.rect)
+      }
+      .buttonStyle(.plain)
+      .padding(.leading, 4)
+      .accessibilityLabel(isCollapsed ? "Expand \(network.name)" : "Collapse \(network.name)")
+
       Button(action: action) {
         HStack(spacing: 7) {
           Circle()
@@ -235,7 +261,7 @@ private struct NetworkHeaderRow: View {
             CountBadge(count: unread, mention: false)
           }
         }
-        .padding(.horizontal, 8)
+        .padding(.trailing, 8)
         .padding(.vertical, 4)
         .contentShape(.rect)
       }

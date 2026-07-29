@@ -145,6 +145,66 @@ struct AppModelTests {
     #expect(second.archivesOpen.contains(networkID))
   }
 
+  @Test func networkCollapseStatePersistsAcrossRelaunch() {
+    let defaults = isolatedDefaults()
+    let networkID = UUID()
+    let first = AppModel(transport: FixtureTransport(), defaults: defaults)
+    first.toggleNetworkCollapsed(networkID)
+
+    let second = AppModel(transport: FixtureTransport(), defaults: defaults)
+    #expect(second.collapsedNetworks.contains(networkID))
+
+    second.toggleNetworkCollapsed(networkID)
+    let third = AppModel(transport: FixtureTransport(), defaults: defaults)
+    #expect(!third.collapsedNetworks.contains(networkID))
+  }
+
+  // A collapsed network keeps only its status buffer in the navigation order:
+  // the header still represents the status buffer, channels/queries are hidden.
+  @Test func collapsedNetworkNavigatesOnlyToStatus() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let status = buffer("*status*", kind: "status", networkID: networkID)
+    let channel = buffer("#alpha", networkID: networkID)
+    let query = buffer("bob", kind: "query", networkID: networkID)
+    let otherNetworkID = UUID()
+    let otherStatus = buffer("*status*", kind: "status", networkID: otherNetworkID)
+
+    model.networks[networkID] = network(id: networkID)
+    model.networks[otherNetworkID] = network(id: otherNetworkID)
+    model.buffers = Dictionary(
+      uniqueKeysWithValues: [status, channel, query, otherStatus].map { ($0.id, $0) })
+
+    model.toggleNetworkCollapsed(networkID)
+    model.selectedBufferID = status.id
+    model.nextBuffer()
+    #expect(model.selectedBufferID == otherStatus.id)
+
+    model.toggleNetworkCollapsed(networkID)
+    model.selectedBufferID = status.id
+    model.nextBuffer()
+    #expect(model.selectedBufferID == channel.id)
+  }
+
+  @Test func networkAggregateCountsSumAllBuffers() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let status = buffer("*status*", kind: "status", networkID: networkID, unread: 1)
+    let pinned = buffer("#pinned", networkID: networkID, pinned: true, unread: 2, mentions: 1)
+    let channel = buffer("#alpha", networkID: networkID, unread: 3)
+    let archived = buffer(
+      "#old", networkID: networkID, joined: false, archived: true, unread: 4, mentions: 2)
+    let foreign = buffer("#other", networkID: UUID(), unread: 100, mentions: 100)
+
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = Dictionary(
+      uniqueKeysWithValues: [status, pinned, channel, archived, foreign].map { ($0.id, $0) })
+
+    let counts = model.networkAggregateCounts(networkID)
+    #expect(counts.unread == 10)
+    #expect(counts.mentions == 3)
+  }
+
   @Test func selectBufferPushesCompactConversation() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()

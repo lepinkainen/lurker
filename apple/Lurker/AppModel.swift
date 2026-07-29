@@ -50,6 +50,7 @@ final class AppModel {
     static let inspectorVisible = "mac.inspectorVisible"
     static let notifications = "mac.notifications"
     static let archivesOpen = "mac.archivesOpen"
+    static let collapsedNetworks = "mac.collapsedNetworks"
   }
 
   var networks: [UUID: Network] = [:]
@@ -74,6 +75,8 @@ final class AppModel {
   // Per-network Archives fold state; folded by default, persisted across
   // launches like the other sidebar-adjacent Defaults.
   var archivesOpen: Set<UUID> = []
+  // Per-network sidebar collapse; expanded by default, persisted.
+  var collapsedNetworks: Set<UUID> = []
   var notificationsEnabled = true
   var columnVisibility: NavigationSplitViewVisibility = .all
   // iOS compact width: whether ConversationView is pushed over the sidebar.
@@ -110,6 +113,10 @@ final class AppModel {
     notificationsEnabled = defaults.object(forKey: Defaults.notifications) as? Bool ?? true
     archivesOpen = Set(
       (defaults.stringArray(forKey: Defaults.archivesOpen) ?? []).compactMap(UUID.init(uuidString:))
+    )
+    collapsedNetworks = Set(
+      (defaults.stringArray(forKey: Defaults.collapsedNetworks) ?? [])
+        .compactMap(UUID.init(uuidString:))
     )
     if transport != nil {
       connectionState = .connecting
@@ -238,6 +245,25 @@ final class AppModel {
       archivesOpen.remove(networkID)
     }
     defaults.set(archivesOpen.map(\.uuidString).sorted(), forKey: Defaults.archivesOpen)
+  }
+
+  func toggleNetworkCollapsed(_ networkID: UUID) {
+    if !collapsedNetworks.insert(networkID).inserted {
+      collapsedNetworks.remove(networkID)
+    }
+    defaults.set(
+      collapsedNetworks.map(\.uuidString).sorted(), forKey: Defaults.collapsedNetworks)
+  }
+
+  /// Unread/mention totals across every buffer of a network (status, pinned,
+  /// and archived included) for the collapsed-header badge, mirroring the
+  /// web's collapsed-network aggregation.
+  func networkAggregateCounts(_ networkID: UUID) -> (unread: Int, mentions: Int) {
+    buffers.values.filter { $0.networkID == networkID }
+      .reduce(into: (unread: 0, mentions: 0)) { acc, buffer in
+        acc.unread += buffer.unread
+        acc.mentions += buffer.mentions
+      }
   }
 
   /// Manual archive/unarchive (queries; channels normally flow through
@@ -595,6 +621,12 @@ final class AppModel {
     var result = pinnedBuffers.map(\.id)
     for network in orderedNetworks where !network.disabled {
       let groups = sidebarBuffers(for: network.id)
+      // Collapsed networks keep only their status buffer navigable (the
+      // header still represents it), mirroring the web's visible order.
+      if collapsedNetworks.contains(network.id) {
+        result.append(contentsOf: groups.status.map(\.id))
+        continue
+      }
       var ids = (groups.status + groups.channels + groups.queries).map(\.id)
       // Folded archives are invisible; keyboard navigation and selection
       // restore skip them (mirrors the web's visible-sidebar order).
