@@ -3,6 +3,7 @@ package irc
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -82,6 +83,21 @@ func (h *handler) publishBufferUpdate(ev BufferUpdateEvent) {
 		return
 	}
 	h.hub.Publish(&ev)
+}
+
+// syncBufferArchived persists the archived flag for a buffer and reports
+// whether it actually changed (no write, no event churn when already in the
+// desired state — remote joins hit this path on every JOIN event).
+func (h *handler) syncBufferArchived(ctx context.Context, bufferID uuid.UUID, archived bool) bool {
+	current, err := ircdb.GetBufferSettings(ctx, h.stores.Control, bufferID)
+	if err == nil && current.Archived == archived {
+		return false
+	}
+	if _, err := ircdb.UpdateBufferSettings(ctx, h.stores.Control, bufferID, ircdb.BufferSettingsPatch{Archived: &archived}); err != nil {
+		slog.Error("sync buffer archived", "err", err, "network", h.networkName, "buffer", bufferID)
+		return false
+	}
+	return true
 }
 
 func (h *handler) publishNetworkState(state NetworkState) {

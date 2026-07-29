@@ -100,6 +100,13 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 		slog.Error("ensure buffer", "err", err, "network", h.networkName, "buffer", bufName)
 		return
 	}
+	// New activity in an archived query resurfaces the conversation
+	// (IRCCloud behavior); persistent spam is handled by buffer deletion.
+	if bufKind == ircdb.BufferQuery {
+		if h.syncBufferArchived(ctx, bufID, false) {
+			h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: bufID, NetworkID: h.networkID, Archived: ptrTo(false)})
+		}
+	}
 	id, storedTS, inserted, err := ircdb.InsertLogMessage(ctx, h.db, ircdb.LogMessageInput{
 		BufferID:  bufID,
 		MsgID:     msgID,

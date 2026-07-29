@@ -78,7 +78,11 @@ func (h *handler) onKick(c *girc.Client, e girc.Event) {
 			if h.setJoinedHook != nil {
 				h.setJoinedHook(channel, false)
 			}
-			h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: ptrTo(false)})
+			ev := BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: ptrTo(false)}
+			if h.syncBufferArchived(ctx, globalBufID, true) {
+				ev.Archived = ptrTo(true)
+			}
+			h.publishBufferUpdate(ev)
 			h.publishMemberList(c, channel)
 		}
 	}
@@ -258,7 +262,14 @@ func (h *handler) updateChannelJoined(channel string, joined bool, presenceState
 	if h.setJoinedHook != nil {
 		h.setJoinedHook(channel, joined)
 	}
-	h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: ptrTo(joined)})
+	ev := BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: ptrTo(joined)}
+	// Join/part reflects user intent, so it drives the archived flag: a
+	// parted channel moves to Archives, a (re)joined one comes back.
+	// Disconnects (markAllChannelsParted) deliberately do NOT archive.
+	if h.syncBufferArchived(ctx, globalBufID, !joined) {
+		ev.Archived = ptrTo(!joined)
+	}
+	h.publishBufferUpdate(ev)
 	if h.hub != nil && source != nil {
 		h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, BufferID: globalBufID, Nick: source.Name, State: presenceState})
 	}

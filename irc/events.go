@@ -115,6 +115,7 @@ type BufferUpdateEvent struct {
 	TopicSetBy *string   `json:"topic_set_by,omitempty"`
 	TopicSetAt *string   `json:"topic_set_at,omitempty"` // db.FormatTime format
 	Joined     *bool     `json:"joined,omitempty"`
+	Archived   *bool     `json:"archived,omitempty"`
 	LastSeenID uuid.UUID `json:"last_seen_id,omitzero"`
 }
 
