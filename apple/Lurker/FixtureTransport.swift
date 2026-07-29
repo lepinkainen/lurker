@@ -338,14 +338,25 @@ actor FixtureTransport: LurkerTransport {
     return Array(all[lower..<beforeIndex])
   }
 
+  // Mirrors the backend's MAX(pinned)+1 append semantics: each unpinned->pinned
+  // transition gets the next counter value, so fixture pinning exercises the
+  // same "new pins append to the end" contract as the real server.
+  private var nextPinOrder = 1
+
   func updateBuffer(id: UUID, patch: BufferSettingsPatch) async throws -> BufferSettingsEvent {
-    BufferSettingsEvent(
+    var pinOrder: Int?
+    if patch.pinned == true {
+      pinOrder = nextPinOrder
+      nextPinOrder += 1
+    }
+    return BufferSettingsEvent(
       id: id,
       showEmbeds: patch.showEmbeds ?? true,
       showPresenceEvents: patch.showPresenceEvents ?? true,
       collapsePresenceEvents: patch.collapsePresenceEvents ?? true,
       pinned: patch.pinned ?? true,
-      archived: patch.archived ?? false
+      archived: patch.archived ?? false,
+      pinOrder: pinOrder
     )
   }
 
@@ -353,6 +364,7 @@ actor FixtureTransport: LurkerTransport {
   private var failReorders = false
   private(set) var reorderedNetworkIDs: [UUID]?
   private(set) var reorderedBufferIDs: [UUID]?
+  private(set) var reorderedPinnedIDs: [UUID]?
 
   func setFailReorders(_ fail: Bool) {
     failReorders = fail
@@ -374,6 +386,13 @@ actor FixtureTransport: LurkerTransport {
     return BufferReorderEvent(
       networkID: networkID,
       buffers: ids.enumerated().map { BufferSortEntry(id: $1, sortOrder: $0) })
+  }
+
+  func reorderPinnedBuffers(ids: [UUID]) async throws -> PinnedReorderEvent {
+    if failReorders { throw FixtureError() }
+    reorderedPinnedIDs = ids
+    return PinnedReorderEvent(
+      buffers: ids.enumerated().map { PinnedSortEntry(id: $1, pinOrder: $0) })
   }
 
   func openEvents() async -> AsyncThrowingStream<ServerEvent, Error> {

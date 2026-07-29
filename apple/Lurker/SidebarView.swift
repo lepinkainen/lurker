@@ -7,13 +7,26 @@ struct SidebarDrag: Equatable {
   enum Kind: Equatable {
     case network(UUID)
     case channel(networkID: UUID, bufferID: UUID)
+    case pinned(UUID)
+
+    /// The dragged row's own id, regardless of species — used for the
+    /// `NSItemProvider` payload and as the drop delegate's `draggedID`.
+    var id: UUID {
+      switch self {
+      case .network(let id): id
+      case .channel(_, let bufferID): bufferID
+      case .pinned(let id): id
+      }
+    }
   }
 
   /// Rows insert-before; the end targets make the last position reachable.
   enum Target: Equatable {
     case row(UUID)
+    case pinnedRow(UUID)
     case endOfNetworks
     case endOfChannels(UUID)
+    case endOfPinned
   }
 
   var kind: Kind
@@ -122,6 +135,26 @@ struct SidebarView: View {
           BufferRow(buffer: buffer, network: model.networks[buffer.networkID])
         }
         .bufferMenu(buffer, model: model) { pendingDelete = $0 }
+        // A pinned channel also renders under its network, so pinned rows use
+        // dedicated drag kind/targets to keep the two lists independent.
+        .sidebarDraggable(
+          kind: .pinned(buffer.id),
+          target: .pinnedRow(buffer.id),
+          accepts: isPinnedDrag,
+          drag: $drag,
+          commit: { fromID in commitPinnedDrop(from: fromID, toRow: buffer.id) }
+        )
+      }
+      if isPinnedDragActive {
+        EndDropZone(isActive: drag?.over == .endOfPinned)
+          .onDrop(
+            of: [.text],
+            delegate: SidebarDropDelegate(
+              target: .endOfPinned,
+              accepts: isPinnedDrag,
+              drag: $drag,
+              commit: { fromID in commitPinnedDrop(from: fromID, toRow: nil) }
+            ))
       }
     }
 
@@ -153,28 +186,13 @@ struct SidebarView: View {
       }
       // Drag reordering is desktop-only: on iOS onDrag's long-press would
       // fight the rows' context menus.
-      #if os(macOS)
-        .opacity(drag?.kind == .network(network.id) ? 0.5 : 1)
-        .overlay(alignment: .top) {
-          if drag?.over == .row(network.id), case .network(let fromID) = drag?.kind,
-            fromID != network.id
-          {
-            DropIndicator()
-          }
-        }
-        .onDrag {
-          drag = SidebarDrag(kind: .network(network.id))
-          return NSItemProvider(object: network.id.uuidString as NSString)
-        }
-        .onDrop(
-          of: [.text],
-          delegate: SidebarDropDelegate(
-            target: .row(network.id),
-            accepts: isNetworkDrag,
-            drag: $drag,
-            commit: { fromID in commitNetworkDrop(from: fromID, toRow: network.id) }
-          ))
-      #endif
+      .sidebarDraggable(
+        kind: .network(network.id),
+        target: .row(network.id),
+        accepts: isNetworkDrag,
+        drag: $drag,
+        commit: { fromID in commitNetworkDrop(from: fromID, toRow: network.id) }
+      )
       if !isCollapsed {
         // Status buffer is represented by the network header row above, so the
         // per-network rows list only channels and queries (no duplicate "Status").
@@ -187,34 +205,16 @@ struct SidebarView: View {
               .padding(.leading, 14)
           }
           .bufferMenu(buffer, model: model) { pendingDelete = $0 }
-          #if os(macOS)
-            .opacity(
-              drag?.kind == .channel(networkID: network.id, bufferID: buffer.id) ? 0.5 : 1
-            )
-            .overlay(alignment: .top) {
-              if drag?.over == .row(buffer.id),
-                case .channel(let dragNetworkID, let fromID) = drag?.kind,
-                dragNetworkID == network.id, fromID != buffer.id
-              {
-                DropIndicator()
-                .padding(.leading, 14)
-              }
+          .sidebarDraggable(
+            kind: .channel(networkID: network.id, bufferID: buffer.id),
+            target: .row(buffer.id),
+            indicatorInset: 14,
+            accepts: { isChannelDrag($0, of: network.id) },
+            drag: $drag,
+            commit: { fromID in
+              commitChannelDrop(networkID: network.id, from: fromID, toRow: buffer.id)
             }
-            .onDrag {
-              drag = SidebarDrag(kind: .channel(networkID: network.id, bufferID: buffer.id))
-              return NSItemProvider(object: buffer.id.uuidString as NSString)
-            }
-            .onDrop(
-              of: [.text],
-              delegate: SidebarDropDelegate(
-                target: .row(buffer.id),
-                accepts: { isChannelDrag($0, of: network.id) },
-                drag: $drag,
-                commit: { fromID in
-                  commitChannelDrop(networkID: network.id, from: fromID, toRow: buffer.id)
-                }
-              ))
-          #endif
+          )
         }
         if isChannelDragActive(of: network.id) {
           EndDropZone(
@@ -298,6 +298,16 @@ struct SidebarView: View {
     return isNetworkDrag(kind)
   }
 
+  private func isPinnedDrag(_ kind: SidebarDrag.Kind) -> Bool {
+    if case .pinned = kind { return true }
+    return false
+  }
+
+  private var isPinnedDragActive: Bool {
+    guard let kind = drag?.kind else { return false }
+    return isPinnedDrag(kind)
+  }
+
   private func isChannelDrag(_ kind: SidebarDrag.Kind, of networkID: UUID) -> Bool {
     if case .channel(let dragNetworkID, _) = kind { return dragNetworkID == networkID }
     return false
@@ -325,6 +335,14 @@ struct SidebarView: View {
     model.reorderChannels(networkID: networkID, orderedIDs: reordered)
   }
 
+  /// Insert the dragged pinned buffer before `toRow`, or append when nil,
+  /// within the pinned section.
+  private func commitPinnedDrop(from fromID: UUID, toRow targetID: UUID?) {
+    var ids = model.pinnedBuffers.map(\.id)
+    guard let reordered = movedBefore(ids: &ids, from: fromID, toRow: targetID) else { return }
+    model.reorderPinnedBuffers(reordered)
+  }
+
   private func movedBefore(ids: inout [UUID], from fromID: UUID, toRow targetID: UUID?) -> [UUID]? {
     guard let fromIndex = ids.firstIndex(of: fromID) else { return nil }
     ids.remove(at: fromIndex)
@@ -335,6 +353,50 @@ struct SidebarView: View {
       ids.append(fromID)
     }
     return ids
+  }
+}
+
+extension View {
+  /// The shared macOS sidebar row drag/drop cluster: dim the row while it's
+  /// the one being dragged, show a drop indicator when a matching drag hovers
+  /// this row's target, and wire up `onDrag`/`onDrop`. No-ops on non-macOS
+  /// platforms — drag reordering is desktop-only there. `SidebarDropDelegate`
+  /// already refuses to set `over` to a row's own target (`isSelfTarget`), so
+  /// the indicator only needs to check `over == target` and `accepts`.
+  fileprivate func sidebarDraggable(
+    kind: SidebarDrag.Kind,
+    target: SidebarDrag.Target,
+    indicatorInset: CGFloat = 0,
+    accepts: @escaping (SidebarDrag.Kind) -> Bool,
+    drag: Binding<SidebarDrag?>,
+    commit: @escaping (UUID) -> Void
+  ) -> some View {
+    #if os(macOS)
+      self
+        .opacity(drag.wrappedValue?.kind == kind ? 0.5 : 1)
+        .overlay(alignment: .top) {
+          if let dragKind = drag.wrappedValue?.kind, drag.wrappedValue?.over == target,
+            accepts(dragKind)
+          {
+            DropIndicator()
+              .padding(.leading, indicatorInset)
+          }
+        }
+        .onDrag {
+          drag.wrappedValue = SidebarDrag(kind: kind)
+          return NSItemProvider(object: kind.id.uuidString as NSString)
+        }
+        .onDrop(
+          of: [.text],
+          delegate: SidebarDropDelegate(
+            target: target,
+            accepts: accepts,
+            drag: drag,
+            commit: commit
+          ))
+    #else
+      self
+    #endif
   }
 }
 
@@ -359,16 +421,14 @@ private struct SidebarDropDelegate: DropDelegate {
   let commit: (UUID) -> Void
 
   private var draggedID: UUID? {
-    switch drag?.kind {
-    case .network(let id): id
-    case .channel(_, let id): id
-    case nil: nil
-    }
+    drag?.kind.id
   }
 
   private var isSelfTarget: Bool {
-    if case .row(let id) = target { return id == draggedID }
-    return false
+    switch target {
+    case .row(let id), .pinnedRow(let id): id == draggedID
+    default: false
+    }
   }
 
   func validateDrop(info _: DropInfo) -> Bool {

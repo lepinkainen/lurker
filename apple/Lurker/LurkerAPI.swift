@@ -41,6 +41,7 @@ protocol LurkerTransport: Sendable {
   func updateBuffer(id: UUID, patch: BufferSettingsPatch) async throws -> BufferSettingsEvent
   func reorderNetworks(ids: [UUID]) async throws -> [Network]
   func reorderBuffers(networkID: UUID, ids: [UUID]) async throws -> BufferReorderEvent
+  func reorderPinnedBuffers(ids: [UUID]) async throws -> PinnedReorderEvent
   func openEvents() async -> AsyncThrowingStream<ServerEvent, Error>
   func send(_ command: ClientCommand) async throws
   func disconnect() async
@@ -133,6 +134,14 @@ actor LurkerAPI: LurkerTransport {
 
   func reorderBuffers(networkID: UUID, ids: [UUID]) async throws -> BufferReorderEvent {
     var request = URLRequest(url: url("api/networks/\(networkID.uuidString)/buffers/reorder"))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try encoder.encode(ReorderRequest(ids: ids))
+    return try await requestJSON(request)
+  }
+
+  func reorderPinnedBuffers(ids: [UUID]) async throws -> PinnedReorderEvent {
+    var request = URLRequest(url: url("api/buffers/pinned/reorder"))
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try encoder.encode(ReorderRequest(ids: ids))

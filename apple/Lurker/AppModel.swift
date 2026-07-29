@@ -405,7 +405,7 @@ final class AppModel {
     }
   }
 
-  /// Reorder the visible (non-pinned, non-archived) channels of a network.
+  /// Reorder the visible (non-archived) channels of a network.
   /// Optimistic with rollback; the server broadcasts buffer_reorder to other
   /// clients and returns the same event shape here.
   @discardableResult
@@ -591,6 +591,10 @@ final class AppModel {
       for entry in event.buffers {
         buffers[entry.id]?.sortOrder = entry.sortOrder
       }
+    case .pinnedReorder(let event):
+      for entry in event.buffers {
+        buffers[entry.id]?.pinOrder = entry.pinOrder
+      }
     case .networkState(let event):
       guard var network = networks[event.networkID] else { return }
       network.status = event.state
@@ -641,6 +645,7 @@ final class AppModel {
     buffer.collapsePresenceEvents = event.collapsePresenceEvents
     buffer.pinned = event.pinned
     buffer.archived = event.archived
+    if let pinOrder = event.pinOrder { buffer.pinOrder = pinOrder }
     buffers[event.id] = buffer
   }
 
@@ -763,13 +768,37 @@ final class AppModel {
   var pinnedBuffers: [Buffer] {
     buffers.values
       .filter { $0.pinned && $0.kind == "channel" }
-      .sorted(by: bufferOrder)
+      .sorted(by: pinnedOrder)
+  }
+
+  /// Reorder the pinned section via drag and drop. Optimistic with rollback;
+  /// the server broadcasts pinned_reorder to other clients and returns the
+  /// same event shape here.
+  @discardableResult
+  func reorderPinnedBuffers(_ orderedIDs: [UUID]) -> Task<Void, Never>? {
+    guard let transport else { return nil }
+    // Field-level snapshot, same reasoning as reorderNetworks.
+    let previous = orderedIDs.compactMap { id in buffers[id].map { (id, $0.pinOrder) } }
+    for (index, id) in orderedIDs.enumerated() {
+      buffers[id]?.pinOrder = index
+    }
+    return Task {
+      do {
+        let event = try await transport.reorderPinnedBuffers(ids: orderedIDs)
+        apply(.pinnedReorder(event))
+      } catch {
+        for (id, pinOrder) in previous {
+          buffers[id]?.pinOrder = pinOrder
+        }
+        composerError = error.localizedDescription
+      }
+    }
   }
 
   func sidebarBuffers(for networkID: UUID) -> SidebarBufferGroups {
-    let values = buffers.values.filter {
-      $0.networkID == networkID && !($0.kind == "channel" && $0.pinned)
-    }
+    // Pinned channels stay listed under their network in addition to the
+    // Pinned section.
+    let values = buffers.values.filter { $0.networkID == networkID }
     return SidebarBufferGroups(
       status: values.filter { $0.kind == "status" }.sorted(by: bufferOrder),
       // Channels honor manual ordering (sortOrder, then name); other groups
@@ -830,6 +859,10 @@ private func bufferOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
 
 private func channelOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
   lhs.sortOrder == rhs.sortOrder ? bufferOrder(lhs, rhs) : lhs.sortOrder < rhs.sortOrder
+}
+
+private func pinnedOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
+  lhs.pinOrder == rhs.pinOrder ? bufferOrder(lhs, rhs) : lhs.pinOrder < rhs.pinOrder
 }
 
 #if DEBUG

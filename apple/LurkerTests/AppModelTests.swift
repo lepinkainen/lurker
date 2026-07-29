@@ -44,16 +44,69 @@ struct AppModelTests {
       uniqueKeysWithValues: [status, pinned, joined, query, notJoined].map { ($0.id, $0) })
 
     #expect(model.pinnedBuffers.map(\.id) == [pinned.id])
+    // Pinned channels stay listed under their network too.
     let groups = model.sidebarBuffers(for: networkID)
-    #expect(groups.all.map(\.id) == [status.id, joined.id, notJoined.id, query.id])
+    #expect(groups.all.map(\.id) == [status.id, joined.id, notJoined.id, pinned.id, query.id])
 
-    model.selectedBufferID = status.id
+    // Keyboard navigation visits the pinned buffer once (its Pinned-section
+    // slot); the duplicate under the network is skipped.
+    model.selectedBufferID = pinned.id
+    model.nextBuffer()
+    #expect(model.selectedBufferID == status.id)
     model.nextBuffer()
     #expect(model.selectedBufferID == joined.id)
     model.nextBuffer()
     #expect(model.selectedBufferID == notJoined.id)
     model.nextBuffer()
     #expect(model.selectedBufferID == query.id)
+  }
+
+  @Test func pinnedBuffersSortByPinOrderThenName() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    var alpha = buffer("#alpha", networkID: networkID, pinned: true)
+    var zeta = buffer("#zeta", networkID: networkID, pinned: true)
+    let mid = buffer("#mid", networkID: networkID, pinned: true)
+    alpha.pinOrder = 2
+    zeta.pinOrder = 1
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = Dictionary(uniqueKeysWithValues: [alpha, zeta, mid].map { ($0.id, $0) })
+
+    // mid has pinOrder 0, then zeta (1), then alpha (2).
+    #expect(model.pinnedBuffers.map(\.id) == [mid.id, zeta.id, alpha.id])
+  }
+
+  @Test func reorderPinnedBuffersAppliesServerOrder() async {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let alpha = buffer("#alpha", networkID: networkID, pinned: true)
+    let beta = buffer("#beta", networkID: networkID, pinned: true)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = Dictionary(uniqueKeysWithValues: [alpha, beta].map { ($0.id, $0) })
+
+    await model.reorderPinnedBuffers([beta.id, alpha.id])?.value
+
+    #expect(model.buffers[beta.id]?.pinOrder == 0)
+    #expect(model.buffers[alpha.id]?.pinOrder == 1)
+    #expect(model.pinnedBuffers.map(\.id) == [beta.id, alpha.id])
+    #expect(model.composerError == nil)
+  }
+
+  @Test func reorderPinnedBuffersRollsBackOnFailure() async {
+    let transport = FixtureTransport()
+    await transport.setFailReorders(true)
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    let networkID = UUID()
+    let alpha = buffer("#alpha", networkID: networkID, pinned: true)
+    let beta = buffer("#beta", networkID: networkID, pinned: true)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = Dictionary(uniqueKeysWithValues: [alpha, beta].map { ($0.id, $0) })
+
+    await model.reorderPinnedBuffers([beta.id, alpha.id])?.value
+
+    #expect(model.buffers[beta.id]?.pinOrder == 0)
+    #expect(model.buffers[alpha.id]?.pinOrder == 0)
+    #expect(model.composerError != nil)
   }
 
   // Archived buffers (any kind) leave the channel/query groups for the
