@@ -14,6 +14,7 @@ type BufferRegistry struct {
 	Name      string
 	Kind      string
 	CreatedAt string
+	SortOrder int64
 }
 
 type BufferSetting struct {

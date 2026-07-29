@@ -46,6 +46,7 @@ type Buffer struct {
 	TopicSetAt             string
 	LastSeenID             uuid.UUID
 	CreatedAt              string
+	SortOrder              int64
 	ShowEmbeds             bool
 	ShowPresenceEvents     bool
 	CollapsePresenceEvents bool

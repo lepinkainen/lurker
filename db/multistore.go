@@ -495,6 +495,7 @@ func (ms *MultiStore) networkBuffers(ctx context.Context, n Network, logStore *L
 			Name:      r.Name,
 			Kind:      r.Kind,
 			CreatedAt: r.CreatedAt,
+			SortOrder: r.SortOrder,
 		}
 		if s, ok := settings[b.ID]; ok {
 			b.ShowEmbeds = s.ShowEmbeds

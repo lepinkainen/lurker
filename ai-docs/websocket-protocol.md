@@ -135,6 +135,7 @@ Currently published events:
 - `preview` — URL previews ready for a message
 - `presence` — lightweight join/part/quit/kick/nick-change events
 - `buffer_settings` — per-buffer display preferences changed
+- `buffer_reorder` — manual channel ordering changed for one network
 - `channel_list` — streaming /LIST results
 - `netsplit` — retroactive netsplit annotation for already-published messages
 - `highlights` — global highlight pattern list changed (`{patterns: [...]}`); matching itself stays server-side, the event only lets open settings UIs refresh
@@ -233,6 +234,11 @@ Only previews with `kind` = `image` or `opengraph` are published. Negative resul
 - `collapse_presence_events`
 - `pinned`
 - `archived` — clients bucket sidebar sections by this flag (not by `joined`): non-status buffers with `archived` render in the per-network folded "Archive" section
+
+`buffer_reorder`
+
+- `network_id`
+- `buffers` — `[{id, sort_order}, ...]` covering **all** channel buffers of the network after a `POST /api/networks/{id}/buffers/reorder`. Channels display-sort by `(sort_order, name)`; clients without manual ordering ignore the event.
 
 `netsplit`
 

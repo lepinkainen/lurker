@@ -120,6 +120,7 @@ Current behavior:
   "marker_id": "...",
   "marker_ts": "2026-01-01T00:00:00Z",
   "created_at": "2026-01-01T00:00:00Z",
+  "sort_order": 0,
   "show_embeds": true,
   "show_presence_events": true,
   "collapse_presence_events": false,
@@ -130,7 +131,7 @@ Current behavior:
 }
 ```
 
-The settings fields (`show_embeds`, `show_presence_events`, `collapse_presence_events`, `pinned`, `archived`) are persisted server-side in the control DB and included in `/api/state` and streamed `buffer_settings` events. `archived` drives the sidebar Archive section (see `ai-docs/websocket-protocol.md`); clients bucket by it, not by `joined`.
+The settings fields (`show_embeds`, `show_presence_events`, `collapse_presence_events`, `pinned`, `archived`) are persisted server-side in the control DB and included in `/api/state` and streamed `buffer_settings` events. `sort_order` is the manual channel ordering position (see `POST /api/networks/{id}/buffers/reorder`); channels sort by `(sort_order, name)` — the default 0 keeps untouched sets alphabetical. Clients that don't support manual ordering may ignore it. `archived` drives the sidebar Archive section (see `ai-docs/websocket-protocol.md`); clients bucket by it, not by `joined`.
 
 Read state is server-derived (see `ai-docs/behaviors/new-messages-marker.md`): `unread`/`mentions` count messages past `last_seen_id` (capped at 1000; self-authored and presence/system kinds excluded). `marker_id` is the "New messages" marker — the oldest counting unread message — with `marker_ts` its RFC3339 timestamp (derived from the UUIDv7) for "new since" display; both omitted when the buffer is caught up.
 
@@ -239,6 +240,35 @@ Behavior:
 - expects a complete ordered list of all network IDs
 - updates `sort_order` transactionally
 - returns the reordered `networks` list
+
+## `POST /api/networks/{id}/buffers/reorder`
+
+Purpose:
+
+- persist manual channel ordering within a network's sidebar section
+
+Request body:
+
+```json
+{ "ids": ["0198f5f2-8f2a-7a8b-9b42-4d6e72c4d8f1", "0198f5f2-9348-7ed6-b3b4-cd8a1a6e8b20"] }
+```
+
+Behavior:
+
+- IDs must be **channel** buffers belonging to the network — a **partial** set is allowed (unlike network reorder); unlisted channels keep their current `sort_order`
+- listed IDs get `sort_order = 0..n-1` transactionally
+- 404 unknown network; 400 on empty list, duplicates, foreign IDs, or non-channel kinds
+- response is the `buffer_reorder` event shape (also broadcast to all WebSocket clients), carrying **all** channel buffers of the network:
+
+```json
+{
+  "type": "buffer_reorder",
+  "network_id": "...",
+  "buffers": [{ "id": "...", "sort_order": 0 }, { "id": "...", "sort_order": 1 }]
+}
+```
+
+Channels display-sort by `(sort_order, name)`; queries, archived, and pinned groups stay alphabetical.
 
 ## `PATCH /api/networks/{id}`
 

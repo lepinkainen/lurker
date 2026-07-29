@@ -50,6 +50,7 @@ type bufferDTO struct {
 	MarkerID               uuid.UUID `json:"marker_id,omitzero"`
 	MarkerTS               string    `json:"marker_ts,omitzero"`
 	CreatedAt              string    `json:"created_at"`
+	SortOrder              int64     `json:"sort_order"`
 	ShowEmbeds             bool      `json:"show_embeds"`
 	ShowPresenceEvents     bool      `json:"show_presence_events"`
 	CollapsePresenceEvents bool      `json:"collapse_presence_events"`
@@ -136,7 +137,8 @@ func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb
 		ID: b.ID, NetworkID: b.NetworkID, Name: b.Name, Kind: b.Kind,
 		Topic: mirc.Strip(b.Topic), TopicSetBy: b.TopicSetBy, TopicSetAt: b.TopicSetAt,
 		Joined: joined, LastSeenID: b.LastSeenID, CreatedAt: b.CreatedAt,
-		MarkerID: counts.MarkerID, MarkerTS: markerTS(counts.MarkerID),
+		SortOrder: b.SortOrder,
+		MarkerID:  counts.MarkerID, MarkerTS: markerTS(counts.MarkerID),
 		ShowEmbeds: b.ShowEmbeds, ShowPresenceEvents: b.ShowPresenceEvents,
 		CollapsePresenceEvents: b.CollapsePresenceEvents, Pinned: b.Pinned,
 		Archived: b.Archived,

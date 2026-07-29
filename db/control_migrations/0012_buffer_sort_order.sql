@@ -1,0 +1,1 @@
+ALTER TABLE buffer_registry ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;

@@ -42,7 +42,7 @@ func (q *Queries) InsertBufferRegistry(ctx context.Context, arg InsertBufferRegi
 }
 
 const listBufferRegistryForNetwork = `-- name: ListBufferRegistryForNetwork :many
-SELECT id, name, kind, created_at FROM buffer_registry WHERE network_id = ? ORDER BY id
+SELECT id, name, kind, created_at, sort_order FROM buffer_registry WHERE network_id = ? ORDER BY id
 `
 
 type ListBufferRegistryForNetworkRow struct {
@@ -50,6 +50,7 @@ type ListBufferRegistryForNetworkRow struct {
 	Name      string
 	Kind      string
 	CreatedAt string
+	SortOrder int64
 }
 
 func (q *Queries) ListBufferRegistryForNetwork(ctx context.Context, networkID []byte) ([]ListBufferRegistryForNetworkRow, error) {
@@ -66,7 +67,40 @@ func (q *Queries) ListBufferRegistryForNetwork(ctx context.Context, networkID []
 			&i.Name,
 			&i.Kind,
 			&i.CreatedAt,
+			&i.SortOrder,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChannelBuffersForNetwork = `-- name: ListChannelBuffersForNetwork :many
+SELECT id, sort_order FROM buffer_registry WHERE network_id = ? AND kind = 'channel' ORDER BY id
+`
+
+type ListChannelBuffersForNetworkRow struct {
+	ID        []byte
+	SortOrder int64
+}
+
+func (q *Queries) ListChannelBuffersForNetwork(ctx context.Context, networkID []byte) ([]ListChannelBuffersForNetworkRow, error) {
+	rows, err := q.db.QueryContext(ctx, listChannelBuffersForNetwork, networkID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListChannelBuffersForNetworkRow{}
+	for rows.Next() {
+		var i ListChannelBuffersForNetworkRow
+		if err := rows.Scan(&i.ID, &i.SortOrder); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -117,4 +151,18 @@ func (q *Queries) LookupBufferRegistryByName(ctx context.Context, arg LookupBuff
 	var i LookupBufferRegistryByNameRow
 	err := row.Scan(&i.ID, &i.Kind, &i.CreatedAt)
 	return i, err
+}
+
+const setBufferSortOrder = `-- name: SetBufferSortOrder :exec
+UPDATE buffer_registry SET sort_order = ? WHERE id = ?
+`
+
+type SetBufferSortOrderParams struct {
+	SortOrder int64
+	ID        []byte
+}
+
+func (q *Queries) SetBufferSortOrder(ctx context.Context, arg SetBufferSortOrderParams) error {
+	_, err := q.db.ExecContext(ctx, setBufferSortOrder, arg.SortOrder, arg.ID)
+	return err
 }

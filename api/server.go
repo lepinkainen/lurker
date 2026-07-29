@@ -78,6 +78,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/upload", s.upload)
 	mux.HandleFunc("POST /api/networks", s.createNetwork)
 	mux.HandleFunc("POST /api/networks/reorder", s.reorderNetworks)
+	mux.HandleFunc("POST /api/networks/{id}/buffers/reorder", s.reorderNetworkBuffers)
 	mux.HandleFunc("PATCH /api/networks/{id}", s.patchNetwork)
 	mux.HandleFunc("DELETE /api/networks/{id}", s.deleteNetwork)
 	mux.HandleFunc("GET /api/networks/{id}/connect-commands", s.getNetworkConnectCommands)
