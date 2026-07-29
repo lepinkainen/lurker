@@ -200,9 +200,12 @@ func (s *Server) runStreamReader(ctx context.Context, c *websocket.Conn, cancel 
 // mutation (PRIVMSG, JOIN, MODE, …) and is rejected for datasource networks
 // such as Bluesky.
 var commandsAllowedForNonIRC = map[string]struct{}{
-	"input":     {},
-	"history":   {},
-	"mark_read": {},
+	"input":            {},
+	"history":          {},
+	"mark_read":        {},
+	"archive_buffer":   {},
+	"unarchive_buffer": {},
+	"delete_buffer":    {},
 }
 
 func (s *Server) handleCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
@@ -284,8 +287,27 @@ func (s *Server) handleCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd
 	case "ignorelist":
 		s.cmdIgnorelist(ctx, c, cmd)
 	default:
+		if s.handleBufferLifecycleCmd(ctx, c, cmd) {
+			return
+		}
 		writeWSErr(ctx, c, cmd.ReqID, "unknown command: "+cmd.Type)
 	}
+}
+
+// handleBufferLifecycleCmd dispatches archive/unarchive/delete buffer
+// commands. Returns false when cmd.Type is not a lifecycle command.
+func (s *Server) handleBufferLifecycleCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd) bool {
+	switch cmd.Type {
+	case "archive_buffer":
+		s.cmdArchiveBuffer(ctx, c, cmd, true)
+	case "unarchive_buffer":
+		s.cmdArchiveBuffer(ctx, c, cmd, false)
+	case "delete_buffer":
+		s.cmdDeleteBuffer(ctx, c, cmd)
+	default:
+		return false
+	}
+	return true
 }
 
 // cmdInput is the unified input verb: a free-form line ("/join #foo" or

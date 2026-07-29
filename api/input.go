@@ -127,6 +127,12 @@ func parseInput(content string, buffer inputBuffer) (clientCmd, error) {
 		cmd.Target = args
 	case "ignorelist":
 		cmd.Type = "ignorelist"
+	case "archive":
+		cmd.Type = "archive_buffer"
+	case "unarchive":
+		cmd.Type = "unarchive_buffer"
+	case "delete":
+		cmd.Type = "delete_buffer"
 	default:
 		return clientCmd{}, ErrUnknownSlashCommand
 	}

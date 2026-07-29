@@ -100,6 +100,21 @@ func TestParseInput(t *testing.T) {
 			want:    clientCmd{Type: "join", BufferID: bufID, NetworkID: netID, Channel: "#x"},
 		},
 		{
+			name:    "archive maps to archive_buffer",
+			content: "/archive",
+			want:    clientCmd{Type: "archive_buffer", BufferID: bufID, NetworkID: netID},
+		},
+		{
+			name:    "unarchive maps to unarchive_buffer",
+			content: "/unarchive",
+			want:    clientCmd{Type: "unarchive_buffer", BufferID: bufID, NetworkID: netID},
+		},
+		{
+			name:    "delete maps to delete_buffer",
+			content: "/delete",
+			want:    clientCmd{Type: "delete_buffer", BufferID: bufID, NetworkID: netID},
+		},
+		{
 			name:    "empty content is error",
 			content: "   ",
 			wantErr: ErrEmptyInput,

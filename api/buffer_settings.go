@@ -14,6 +14,7 @@ type bufferSettingsPatchDTO struct {
 	ShowPresenceEvents     *bool `json:"show_presence_events"`
 	CollapsePresenceEvents *bool `json:"collapse_presence_events"`
 	Pinned                 *bool `json:"pinned"`
+	Archived               *bool `json:"archived"`
 }
 
 type bufferSettingsEvent struct {
@@ -23,6 +24,16 @@ type bufferSettingsEvent struct {
 	ShowPresenceEvents     bool      `json:"show_presence_events"`
 	CollapsePresenceEvents bool      `json:"collapse_presence_events"`
 	Pinned                 bool      `json:"pinned"`
+	Archived               bool      `json:"archived"`
+}
+
+func bufferSettingsEventFrom(s ircdb.BufferSettings) bufferSettingsEvent {
+	return bufferSettingsEvent{
+		Type: "buffer_settings", ID: s.BufferID,
+		ShowEmbeds: s.ShowEmbeds, ShowPresenceEvents: s.ShowPresenceEvents,
+		CollapsePresenceEvents: s.CollapsePresenceEvents, Pinned: s.Pinned,
+		Archived: s.Archived,
+	}
 }
 
 func (s *Server) patchBufferSettings(w http.ResponseWriter, r *http.Request) {
@@ -40,23 +51,20 @@ func (s *Server) patchBufferSettings(w http.ResponseWriter, r *http.Request) {
 		ShowPresenceEvents:     in.ShowPresenceEvents,
 		CollapsePresenceEvents: in.CollapsePresenceEvents,
 		Pinned:                 in.Pinned,
+		Archived:               in.Archived,
 	})
 	if err != nil {
 		switch {
 		case errors.Is(err, ircdb.ErrBufferNotFound):
 			http.Error(w, "unknown buffer", http.StatusNotFound)
 		case errors.Is(err, ircdb.ErrBufferSettingsUnsupported):
-			http.Error(w, "settings are only supported for channel buffers", http.StatusBadRequest)
+			http.Error(w, "settings are only supported for channel and query buffers", http.StatusBadRequest)
 		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
-	event := bufferSettingsEvent{
-		Type: "buffer_settings", ID: settings.BufferID,
-		ShowEmbeds: settings.ShowEmbeds, ShowPresenceEvents: settings.ShowPresenceEvents,
-		CollapsePresenceEvents: settings.CollapsePresenceEvents, Pinned: settings.Pinned,
-	}
+	event := bufferSettingsEventFrom(settings)
 	if s.Hub != nil {
 		s.Hub.Publish(event)
 	}
