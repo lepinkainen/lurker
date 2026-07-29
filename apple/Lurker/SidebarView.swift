@@ -24,6 +24,7 @@ struct SidebarView: View {
   @Environment(AppModel.self) private var model
   @State private var pendingDelete: Buffer?
   @State private var drag: SidebarDrag?
+  @State private var dragCleanupTask: Task<Void, Never>?
 
   var body: some View {
     ScrollView {
@@ -33,6 +34,34 @@ struct SidebarView: View {
       .padding(.vertical, 6)
     }
     .navigationTitle("Lurker")
+    .onChange(of: drag != nil) { _, active in
+      // SwiftUI's onDrag has no cancellation callback: an Esc-cancelled or
+      // dropped-nowhere drag would leave the lifted row ghosted forever.
+      // While a drag is active, watch for the mouse button being released
+      // without a performDrop having cleared the state.
+      dragCleanupTask?.cancel()
+      dragCleanupTask = nil
+      guard active else { return }
+      #if os(macOS)
+        dragCleanupTask = Task { @MainActor in
+          var idleTicks = 0
+          while !Task.isCancelled, drag != nil {
+            try? await Task.sleep(for: .milliseconds(250))
+            if NSEvent.pressedMouseButtons == 0 {
+              // Two consecutive idle ticks so a legitimate drop's
+              // performDrop always wins the race.
+              idleTicks += 1
+              if idleTicks >= 2 {
+                drag = nil
+                break
+              }
+            } else {
+              idleTicks = 0
+            }
+          }
+        }
+      #endif
+    }
     .alert(
       "Delete \(pendingDelete?.name ?? "buffer")?",
       isPresented: Binding(
@@ -122,26 +151,30 @@ struct SidebarView: View {
       } collapseAction: {
         model.toggleNetworkCollapsed(network.id)
       }
-      .opacity(drag?.kind == .network(network.id) ? 0.5 : 1)
-      .overlay(alignment: .top) {
-        if drag?.over == .row(network.id), case .network(let fromID) = drag?.kind,
-          fromID != network.id
-        {
-          DropIndicator()
+      // Drag reordering is desktop-only: on iOS onDrag's long-press would
+      // fight the rows' context menus.
+      #if os(macOS)
+        .opacity(drag?.kind == .network(network.id) ? 0.5 : 1)
+        .overlay(alignment: .top) {
+          if drag?.over == .row(network.id), case .network(let fromID) = drag?.kind,
+            fromID != network.id
+          {
+            DropIndicator()
+          }
         }
-      }
-      .onDrag {
-        drag = SidebarDrag(kind: .network(network.id))
-        return NSItemProvider(object: network.id.uuidString as NSString)
-      }
-      .onDrop(
-        of: [.text],
-        delegate: SidebarDropDelegate(
-          target: .row(network.id),
-          accepts: isNetworkDrag,
-          drag: $drag,
-          commit: { fromID in commitNetworkDrop(from: fromID, toRow: network.id) }
-        ))
+        .onDrag {
+          drag = SidebarDrag(kind: .network(network.id))
+          return NSItemProvider(object: network.id.uuidString as NSString)
+        }
+        .onDrop(
+          of: [.text],
+          delegate: SidebarDropDelegate(
+            target: .row(network.id),
+            accepts: isNetworkDrag,
+            drag: $drag,
+            commit: { fromID in commitNetworkDrop(from: fromID, toRow: network.id) }
+          ))
+      #endif
       if !isCollapsed {
         // Status buffer is represented by the network header row above, so the
         // per-network rows list only channels and queries (no duplicate "Status").
@@ -154,32 +187,34 @@ struct SidebarView: View {
               .padding(.leading, 14)
           }
           .bufferMenu(buffer, model: model) { pendingDelete = $0 }
-          .opacity(
-            drag?.kind == .channel(networkID: network.id, bufferID: buffer.id) ? 0.5 : 1
-          )
-          .overlay(alignment: .top) {
-            if drag?.over == .row(buffer.id),
-              case .channel(let dragNetworkID, let fromID) = drag?.kind,
-              dragNetworkID == network.id, fromID != buffer.id
-            {
-              DropIndicator()
+          #if os(macOS)
+            .opacity(
+              drag?.kind == .channel(networkID: network.id, bufferID: buffer.id) ? 0.5 : 1
+            )
+            .overlay(alignment: .top) {
+              if drag?.over == .row(buffer.id),
+                case .channel(let dragNetworkID, let fromID) = drag?.kind,
+                dragNetworkID == network.id, fromID != buffer.id
+              {
+                DropIndicator()
                 .padding(.leading, 14)
-            }
-          }
-          .onDrag {
-            drag = SidebarDrag(kind: .channel(networkID: network.id, bufferID: buffer.id))
-            return NSItemProvider(object: buffer.id.uuidString as NSString)
-          }
-          .onDrop(
-            of: [.text],
-            delegate: SidebarDropDelegate(
-              target: .row(buffer.id),
-              accepts: { isChannelDrag($0, of: network.id) },
-              drag: $drag,
-              commit: { fromID in
-                commitChannelDrop(networkID: network.id, from: fromID, toRow: buffer.id)
               }
-            ))
+            }
+            .onDrag {
+              drag = SidebarDrag(kind: .channel(networkID: network.id, bufferID: buffer.id))
+              return NSItemProvider(object: buffer.id.uuidString as NSString)
+            }
+            .onDrop(
+              of: [.text],
+              delegate: SidebarDropDelegate(
+                target: .row(buffer.id),
+                accepts: { isChannelDrag($0, of: network.id) },
+                drag: $drag,
+                commit: { fromID in
+                  commitChannelDrop(networkID: network.id, from: fromID, toRow: buffer.id)
+                }
+              ))
+          #endif
         }
         if isChannelDragActive(of: network.id) {
           EndDropZone(

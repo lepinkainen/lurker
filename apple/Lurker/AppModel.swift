@@ -216,6 +216,14 @@ final class AppModel {
     // Opening a buffer never acks it: badge, divider, and unread bar clear
     // together only on an explicit ack (bar tap / Esc). See
     // ai-docs/behaviors/new-messages-marker.md.
+    applySelection(id)
+  }
+
+  /// Shared selection change: stashes the outgoing buffer's draft and
+  /// restores the incoming one's. Passive paths (selection restore after a
+  /// snapshot or buffer deletion) use this directly so drafts never leak
+  /// between buffers, without selectBuffer's compact-width push.
+  private func applySelection(_ id: UUID) {
     if let previous = selectedBufferID {
       inputHistory.stashDraft(composerText, buffer: previous)
     }
@@ -364,7 +372,10 @@ final class AppModel {
     guard let transport else { return nil }
     let disabledIDs = orderedNetworks.filter(\.disabled).map(\.id)
     let ids = orderedEnabledIDs + disabledIDs
-    let previous = networks
+    // Snapshot only what the optimistic update touches: rolling back a full
+    // dictionary copy would wipe WS updates applied while the POST is in
+    // flight.
+    let previous = ids.compactMap { id in networks[id].map { (id, $0.sortOrder) } }
     for (index, id) in ids.enumerated() {
       networks[id]?.sortOrder = index
     }
@@ -372,13 +383,16 @@ final class AppModel {
       do {
         let updated = try await transport.reorderNetworks(ids: ids)
         for network in updated {
-          // Keep live status: the REST response has no runtime state.
+          // The response carries a fresh status snapshot; fall back to the
+          // local value only when the server omitted it.
           var merged = network
-          merged.status = networks[network.id]?.status
+          merged.status = network.status ?? networks[network.id]?.status
           networks[network.id] = merged
         }
       } catch {
-        networks = previous
+        for (id, sortOrder) in previous {
+          networks[id]?.sortOrder = sortOrder
+        }
         composerError = error.localizedDescription
       }
     }
@@ -390,7 +404,8 @@ final class AppModel {
   @discardableResult
   func reorderChannels(networkID: UUID, orderedIDs: [UUID]) -> Task<Void, Never>? {
     guard let transport else { return nil }
-    let previous = buffers
+    // Field-level snapshot, same reasoning as reorderNetworks.
+    let previous = orderedIDs.compactMap { id in buffers[id].map { (id, $0.sortOrder) } }
     for (index, id) in orderedIDs.enumerated() {
       buffers[id]?.sortOrder = index
     }
@@ -399,7 +414,9 @@ final class AppModel {
         let event = try await transport.reorderBuffers(networkID: networkID, ids: orderedIDs)
         apply(.bufferReorder(event))
       } catch {
-        buffers = previous
+        for (id, sortOrder) in previous {
+          buffers[id]?.sortOrder = sortOrder
+        }
         composerError = error.localizedDescription
       }
     }
@@ -704,7 +721,12 @@ final class AppModel {
     if let selectedBufferID, buffers[selectedBufferID] != nil {
       return
     }
-    selectedBufferID = sidebarBufferOrder().first
+    guard let fallback = sidebarBufferOrder().first else {
+      selectedBufferID = nil
+      composerText = ""
+      return
+    }
+    applySelection(fallback)
   }
 
   private func sidebarBufferOrder() -> [UUID] {

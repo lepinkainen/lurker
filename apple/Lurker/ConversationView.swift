@@ -479,7 +479,13 @@ private struct PreviewCard: View {
     // "opengraph" (card); anything else is dropped (web parity: preview.ts).
     switch preview.kind {
     case "image":
-      linked { InlineImageView(preview: preview) }
+      // Image URLs the client refuses to load inline (plain http) still get
+      // the card so the preview isn't silently dropped.
+      if let imageURL = model.inlineImageURL(preview) {
+        linked { InlineImageView(url: imageURL) }
+      } else {
+        linked { card }
+      }
     case "opengraph":
       linked { card }
     default:
@@ -537,33 +543,30 @@ private struct PreviewCard: View {
 /// Full inline rendering for kind == "image" previews: the preview URL is
 /// the image (web parity: renderImagePreview, max 480×320, contain-fit).
 private struct InlineImageView: View {
-  @Environment(AppModel.self) private var model
-  let preview: Preview
+  let url: URL
 
   var body: some View {
-    if let imageURL = model.inlineImageURL(preview) {
-      AsyncImage(url: imageURL) { phase in
-        switch phase {
-        case .success(let image):
-          image
-            .resizable()
-            .scaledToFit()
-            .frame(maxWidth: 480, maxHeight: 320, alignment: .leading)
-            .clipShape(.rect(cornerRadius: 8))
-            .overlay {
-              RoundedRectangle(cornerRadius: 8)
-                .stroke(.separator, lineWidth: 0.5)
-            }
-        case .failure:
-          // Broken image: nothing — the raw link stays in the message text.
-          EmptyView()
-        default:
-          // Fixed-size placeholder: server width/height are usually 0 for
-          // image previews, so they can't drive layout.
-          Color.secondary.opacity(0.08)
-            .frame(width: 240, height: 135)
-            .clipShape(.rect(cornerRadius: 8))
-        }
+    AsyncImage(url: url) { phase in
+      switch phase {
+      case .success(let image):
+        image
+          .resizable()
+          .scaledToFit()
+          .frame(maxWidth: 480, maxHeight: 320, alignment: .leading)
+          .clipShape(.rect(cornerRadius: 8))
+          .overlay {
+            RoundedRectangle(cornerRadius: 8)
+              .stroke(.separator, lineWidth: 0.5)
+          }
+      case .failure:
+        // Broken image: nothing — the raw link stays in the message text.
+        EmptyView()
+      default:
+        // Fixed-size placeholder: server width/height are usually 0 for
+        // image previews, so they can't drive layout.
+        Color.secondary.opacity(0.08)
+          .frame(width: 240, height: 135)
+          .clipShape(.rect(cornerRadius: 8))
       }
     }
   }
@@ -580,6 +583,8 @@ private struct ComposerView: View {
 
   var body: some View {
     @Bindable var model = model
+    // Resolve once per render; the key handlers resolve once per event.
+    let popup = self.popup
     VStack(alignment: .leading, spacing: 4) {
       if let error = model.composerError {
         Text(error)
@@ -609,7 +614,7 @@ private struct ComposerView: View {
             return handleArrow(up: press.key == .upArrow)
           }
           .onKeyPress(.escape) {
-            guard popup != .none else { return .ignored }
+            guard self.popup != .none else { return .ignored }
             popupDismissed = true
             return .handled
           }
@@ -635,8 +640,13 @@ private struct ComposerView: View {
       // Anchored above the bar without affecting its layout.
       .overlay(alignment: .topLeading) {
         if popup != .none {
-          ComposerPopupView(popup: popup, selection: popupSelection) { index in
-            accept(index: index)
+          // Clamp: the match list can shrink out from under the selection
+          // (e.g. a member leaves mid-completion).
+          ComposerPopupView(
+            popup: popup,
+            selection: min(popupSelection, max(0, popup.selectableCount - 1))
+          ) { index in
+            accept(index: index, in: popup)
           }
           .alignmentGuide(.top) { $0[.bottom] + 4 }
         }
@@ -666,14 +676,18 @@ private struct ComposerView: View {
     )
   }
 
-  /// Tab/Enter acceptance of the highlighted nick/emoji row. The command
-  /// popup is display-only, so those keys fall through (Enter submits).
+  /// Tab/Enter acceptance of the highlighted nick/emoji row, clamped in case
+  /// the match list shrank since the selection was made. The command popup is
+  /// display-only, so those keys fall through (Enter submits).
   private func acceptSelection() -> Bool {
-    accept(index: popupSelection)
+    let popup = self.popup
+    let count = popup.selectableCount
+    guard count > 0 else { return false }
+    return accept(index: min(popupSelection, count - 1), in: popup)
   }
 
   @discardableResult
-  private func accept(index: Int) -> Bool {
+  private func accept(index: Int, in popup: ComposerPopup) -> Bool {
     switch popup {
     case .nick(let nicks):
       guard nicks.indices.contains(index) else { return false }
@@ -694,7 +708,8 @@ private struct ComposerView: View {
   private func handleArrow(up: Bool) -> KeyPress.Result {
     let count = popup.selectableCount
     if count > 0 {
-      popupSelection = ((popupSelection + (up ? -1 : 1)) % count + count) % count
+      let current = min(popupSelection, count - 1)
+      popupSelection = ((current + (up ? -1 : 1)) % count + count) % count
       return .handled
     }
     return model.navigateHistory(up: up) ? .handled : .ignored

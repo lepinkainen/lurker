@@ -292,6 +292,51 @@ struct AppModelTests {
     #expect(model.networks[firstID]?.sortOrder == 1)
   }
 
+  @Test func reorderRollbackPreservesInFlightUpdates() async {
+    let transport = FixtureTransport()
+    await transport.setFailReorders(true)
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    let networkID = UUID()
+    let alpha = buffer("#alpha", networkID: networkID)
+    let beta = buffer("#beta", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = Dictionary(uniqueKeysWithValues: [alpha, beta].map { ($0.id, $0) })
+
+    let task = model.reorderChannels(networkID: networkID, orderedIDs: [beta.id, alpha.id])
+    // A WS update lands while the reorder POST is in flight; the failure
+    // rollback must revert only sortOrder, not this.
+    let update = try? JSONDecoder.lurker().decode(
+      ServerEvent.self,
+      from: Data(
+        """
+        {"type":"buffer_update","id":"\(alpha.id.uuidString)",
+         "network_id":"\(networkID.uuidString)","unread":7}
+        """.utf8))
+    #expect(update != nil)
+    if let update { model.apply(update) }
+    await task?.value
+
+    #expect(model.buffers[alpha.id]?.unread == 7)
+    #expect(model.buffers[alpha.id]?.sortOrder == 0)
+    #expect(model.buffers[beta.id]?.sortOrder == 0)
+  }
+
+  @Test func deletingSelectedBufferDoesNotLeakDraft() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let doomed = buffer("spammer", kind: "query", networkID: networkID, archived: true)
+    let survivor = buffer("#alpha", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [doomed.id: doomed, survivor.id: survivor]
+    model.selectBuffer(doomed.id)
+    model.composerText = "half-typed message"
+
+    model.apply(.bufferDeleted(BufferDeletedEvent(id: doomed.id, networkID: networkID)))
+
+    #expect(model.selectedBufferID == survivor.id)
+    #expect(model.composerText == "")
+  }
+
   @Test func reorderNetworksRollsBackOnFailure() async {
     let transport = FixtureTransport()
     await transport.setFailReorders(true)
