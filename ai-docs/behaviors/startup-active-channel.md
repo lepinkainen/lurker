@@ -14,7 +14,7 @@ Client picks the active buffer on startup using this priority chain:
 
 1. **URL hash / deep-link.** If the URL points to a buffer that exists, use it. Lets the user bookmark a specific channel; reloading the page restores that buffer.
 2. **Persisted "last viewed" buffer.** Whenever the active buffer changes, the client persists its id. On startup, if the persisted value resolves to an available buffer, use it. Lets the user close the tab, type the root URL, and resume where they left off.
-3. **First channel in sort order, pinned first.** Pinned channels come first (sorted by their network's `sort_order`). Then per network in `sort_order`, joined channels by name.
+3. **First channel in sort order, pinned first.** Pinned channels come first (sorted by `pin_order`, then channel name — matching the sidebar's Pinned section). Then per network in `sort_order`, joined channels by name.
 4. **Any buffer, status windows last.** Per network in `sort_order`: channels → queries → parted channels → status window. The server/status buffer is the absolute last resort.
 
 If there are no buffers at all, no buffer is active; UI shows empty state.
@@ -31,7 +31,7 @@ If there are no buffers at all, no buffer is active; UI shows empty state.
 
 1. User was on `#foo` on network `libera`. Before next start, `#foo` is parted (or `libera` is removed/disabled).
 2. Client starts. Persisted buffer no longer resolves.
-3. Active buffer = first pinned channel by network `sort_order`. If none pinned, first joined channel of the first network in `sort_order`. Status windows are skipped unless they are the only buffers available.
+3. Active buffer = first pinned channel by `pin_order`. If none pinned, first joined channel of the first network in `sort_order`. Status windows are skipped unless they are the only buffers available.
 
 ### Case C — no persisted value
 

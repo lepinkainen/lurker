@@ -2,10 +2,15 @@ import { type Buffer, type Network, saveLayout, state } from "./app-state";
 import { patchBufferSettings } from "./buffer-settings-api";
 import { orderedNetworks } from "./buffers";
 import { dotClass } from "./format";
-import { reorderNetworks, setNetworkDisabled } from "./network-api";
+import { reorderNetworks, reorderPinnedBuffers, setNetworkDisabled } from "./network-api";
 import { openNetworkForm } from "./network-form";
-import { attachNetworkDragHandlers } from "./sidebar-dnd";
-import { prepareSidebarModel, type SidebarNetworkModel } from "./sidebar-model";
+import {
+  attachNetworkDragHandlers,
+  attachPinnedDragHandlers,
+  networkEndDropZone,
+  pinnedEndDropZone,
+} from "./sidebar-dnd";
+import { pinnedBuffers, prepareSidebarModel, type SidebarNetworkModel } from "./sidebar-model";
 
 export type SidebarDeps = {
   sbScrollEl: HTMLDivElement;
@@ -24,6 +29,7 @@ export function renderSidebar(deps: SidebarDeps) {
   const model = prepareSidebarModel();
   appendPinnedSection(sbScrollEl, model.pinned, deps);
   for (const network of model.activeNetworks) sbScrollEl.appendChild(networkSection(network, deps));
+  if (model.activeNetworks.length > 0) sbScrollEl.appendChild(networkEndDropZone(networkDragDeps(deps)));
   appendDisabledSection(sbScrollEl, model.disabledNetworks, deps);
   sbScrollEl.appendChild(addNetworkButton(deps));
 }
@@ -46,7 +52,18 @@ function appendPinnedSection(root: HTMLElement, pinned: Buffer[], deps: SidebarD
   title.textContent = "Pinned";
   hdr.append(icon, title);
   sec.appendChild(hdr);
-  for (const buffer of pinned) sec.appendChild(bufferRow(buffer, deps, { pinned: true }));
+  const dragDeps = {
+    render: () => rerender(deps),
+    reorder: (fromId: string, toId: string | null) => {
+      reorderPinned(fromId, toId, deps).catch((err: unknown) => console.error("pinned reorder failed", err));
+    },
+  };
+  for (const buffer of pinned) {
+    const row = bufferRow(buffer, deps, { pinned: true });
+    attachPinnedDragHandlers(row, buffer.id, dragDeps);
+    sec.appendChild(row);
+  }
+  sec.appendChild(pinnedEndDropZone(dragDeps));
   root.appendChild(sec);
 }
 
@@ -75,16 +92,20 @@ function networkSection(model: SidebarNetworkModel, deps: SidebarDeps) {
   const { network, collapsed } = model;
   const sec = document.createElement("div");
   sec.className = networkSectionClass(network.id);
-  attachNetworkDragHandlers(sec, network, {
-    render: () => rerender(deps),
-    reorder: (fromId, toId) => {
-      reorderNetwork(fromId, toId, deps).catch((err: unknown) => console.error("reorder failed", err));
-    },
-  });
+  attachNetworkDragHandlers(sec, network.id, networkDragDeps(deps));
 
   sec.appendChild(networkHeader(model, deps));
   if (!collapsed) appendOpenNetworkRows(sec, model, deps);
   return sec;
+}
+
+function networkDragDeps(deps: SidebarDeps) {
+  return {
+    render: () => rerender(deps),
+    reorder: (fromId: string, toId: string | null) => {
+      reorderNetwork(fromId, toId, deps).catch((err: unknown) => console.error("reorder failed", err));
+    },
+  };
 }
 
 function networkSectionClass(networkId: string) {
@@ -254,6 +275,8 @@ function bufferRowClass(buffer: Buffer, pinned = false) {
     buffer.unread > 0 && "unread",
     buffer.mentions > 0 && "mention",
     (buffer.archived === true || (buffer.kind === "channel" && buffer.joined !== true)) && "parted",
+    pinned && state.pinDrag.id === buffer.id && "dragging",
+    pinned && state.pinDrag.over === buffer.id && state.pinDrag.id !== buffer.id && "dragover",
   ]
     .filter(Boolean)
     .join(" ");
@@ -454,14 +477,61 @@ function span(cls: string, text: string) {
   return el;
 }
 
-async function reorderNetwork(fromId: string, toId: string, deps: SidebarDeps) {
+// Move a pinned channel before `toId`, or to the end when `toId` is null.
+// Optimistic: pin_order is written locally and rolled back if the POST fails
+// (including a 404 from a backend predating the endpoint). The server's
+// pinned_reorder broadcast confirms or corrects the applied order.
+async function reorderPinned(fromId: string, toId: string | null, deps: SidebarDeps) {
+  const ids = pinnedBuffers().map((buffer) => buffer.id);
+  const fromIdx = ids.indexOf(fromId);
+  if (fromIdx < 0) return;
+  ids.splice(fromIdx, 1);
+  if (toId === null) {
+    ids.push(fromId);
+  } else {
+    const toIdx = ids.indexOf(toId);
+    if (toIdx < 0) return;
+    ids.splice(toIdx, 0, fromId);
+  }
+
+  // An absent pin_order sorts as 0, so the snapshot can normalise it.
+  const previous = pinnedBuffers().map((buffer) => ({ id: buffer.id, pin_order: buffer.pin_order ?? 0 }));
+  applyPinOrder(ids.map((id, idx) => ({ id, pin_order: idx })));
+  rerender(deps);
+
+  try {
+    const data = await reorderPinnedBuffers(ids);
+    applyPinOrder(data.buffers || []);
+    rerender(deps);
+  } catch (err) {
+    console.error("pinned reorder failed", err);
+    applyPinOrder(previous);
+    rerender(deps);
+  }
+}
+
+function applyPinOrder(entries: { id: string; pin_order: number }[]) {
+  for (const entry of entries) {
+    const buffer = state.buffers.get(entry.id);
+    if (buffer) buffer.pin_order = entry.pin_order;
+  }
+}
+
+// Move a network before `toId`, or to the end when `toId` is null — the same
+// insert-before semantics the pinned section uses, so the accent bar drawn above
+// the hovered section is always where the network lands.
+async function reorderNetwork(fromId: string, toId: string | null, deps: SidebarDeps) {
   const ids = orderedNetworks().map((network) => network.id);
   const fromIdx = ids.indexOf(fromId);
-  const toIdx = ids.indexOf(toId);
-  if (fromIdx < 0 || toIdx < 0) return;
-  const [moved] = ids.splice(fromIdx, 1);
-  // biome-ignore lint/style/noNonNullAssertion: fromIdx >= 0 guarantees splice returned an element
-  ids.splice(toIdx, 0, moved!);
+  if (fromIdx < 0) return;
+  ids.splice(fromIdx, 1);
+  if (toId === null) {
+    ids.push(fromId);
+  } else {
+    const toIdx = ids.indexOf(toId);
+    if (toIdx < 0) return;
+    ids.splice(toIdx, 0, fromId);
+  }
 
   const previous = orderedNetworks().map((network) => ({ id: network.id, sort_order: network.sort_order }));
   ids.forEach((id, idx) => {

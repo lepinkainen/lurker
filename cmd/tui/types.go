@@ -39,6 +39,9 @@ type bufferDTO struct {
 	CollapsePresenceEvents bool      `json:"collapse_presence_events"`
 	Pinned                 bool      `json:"pinned"`
 	Archived               bool      `json:"archived"`
+	// Manual pinned-section ordering; pinned channels sort (pin_order, name).
+	// Absent on pre-pin_order backends, treated as 0.
+	PinOrder int64 `json:"pin_order"`
 }
 
 type messageDTO struct {
@@ -110,10 +113,13 @@ type wsEvent struct {
 	Unread   int        `json:"unread"`
 	Mentions int        `json:"mentions"`
 	// buffer_settings
-	ShowEmbeds             bool `json:"show_embeds"`
-	ShowPresenceEvents     bool `json:"show_presence_events"`
-	CollapsePresenceEvents bool `json:"collapse_presence_events"`
-	Pinned                 bool `json:"pinned"`
+	ShowEmbeds             bool  `json:"show_embeds"`
+	ShowPresenceEvents     bool  `json:"show_presence_events"`
+	CollapsePresenceEvents bool  `json:"collapse_presence_events"`
+	Pinned                 bool  `json:"pinned"`
+	PinOrder               int64 `json:"pin_order"`
+	// pinned_reorder
+	Buffers []pinnedSortEntry `json:"buffers"`
 	// network_state
 	State string `json:"state"`
 	// buffer_created
@@ -128,6 +134,11 @@ type wsEvent struct {
 	// channel_list (streamed; final batch has Done=true)
 	Entries []channelListEntry `json:"entries"`
 	Done    bool               `json:"done"`
+}
+
+type pinnedSortEntry struct {
+	ID       uuid.UUID `json:"id"`
+	PinOrder int64     `json:"pin_order"`
 }
 
 type channelListEntry struct {

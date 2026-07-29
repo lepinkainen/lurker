@@ -925,10 +925,8 @@ func (m *model) selectStartupBuffer() {
 }
 
 func (m *model) pinnedSidebarItems() []sidebarItem {
-	netOrder := make(map[uuid.UUID]int, len(m.networks))
 	enabled := make(map[uuid.UUID]bool, len(m.networks))
-	for i, n := range m.networks {
-		netOrder[n.ID] = i
+	for _, n := range m.networks {
 		enabled[n.ID] = !n.Disabled
 	}
 	pinned := []bufferDTO{}
@@ -941,9 +939,8 @@ func (m *model) pinnedSidebarItems() []sidebarItem {
 		return nil
 	}
 	sort.Slice(pinned, func(i, j int) bool {
-		ni, nj := netOrder[pinned[i].NetworkID], netOrder[pinned[j].NetworkID]
-		if ni != nj {
-			return ni < nj
+		if pinned[i].PinOrder != pinned[j].PinOrder {
+			return pinned[i].PinOrder < pinned[j].PinOrder
 		}
 		return strings.ToLower(pinned[i].Name) < strings.ToLower(pinned[j].Name)
 	})
@@ -1087,6 +1084,13 @@ func (m *model) handleWSEvent(ev wsEvent) {
 		m.applyBufferUpdate(ev)
 	case "buffer_settings":
 		m.applyBufferSettings(ev)
+	case "pinned_reorder":
+		for _, entry := range ev.Buffers {
+			if b := m.findBuffer(entry.ID); b != nil {
+				b.PinOrder = entry.PinOrder
+			}
+		}
+		m.rebuildSidebar()
 	case "buffer_deleted":
 		m.removeBuffer(ev.ID)
 	case "network_state":
@@ -1212,8 +1216,17 @@ func (m *model) applyBufferSettings(ev wsEvent) {
 	if b := m.findBuffer(ev.ID); b != nil {
 		b.ShowPresenceEvents = ev.ShowPresenceEvents
 		b.CollapsePresenceEvents = ev.CollapsePresenceEvents
+		needsRebuild := false
+		if b.Pinned != ev.Pinned || b.PinOrder != ev.PinOrder {
+			b.Pinned = ev.Pinned
+			b.PinOrder = ev.PinOrder
+			needsRebuild = true
+		}
 		if ev.Archived != nil && b.Archived != *ev.Archived {
 			b.Archived = *ev.Archived
+			needsRebuild = true
+		}
+		if needsRebuild {
 			m.rebuildSidebar()
 		}
 		if m.activeBuffer != nil && m.activeBuffer.ID == ev.ID {
