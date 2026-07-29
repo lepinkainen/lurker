@@ -88,6 +88,53 @@ final class LurkerUITests: XCTestCase {
     archivesRow.click()
   }
 
+  // Loading an older history page must keep the viewport anchored on the
+  // previously-oldest message; without that the scroll position stays at the
+  // top of the grown content and pagination runs away page after page.
+  func testHistoryLoadAnchorsScrollPosition() {
+    // The sidebar row is a Button whose label folds in the unread badge
+    // ("#lurker-full, 10 unread messages").
+    let fullRow = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "#lurker-full")
+    ).firstMatch
+    XCTAssertTrue(fullRow.waitForExistence(timeout: 5))
+    fullRow.click()
+
+    // Initial page is the newest 50 of 400 fixture messages (#350–#399).
+    XCTAssertTrue(messageRow(containing: "backlog line #399:").waitForExistence(timeout: 5))
+
+    // `scrollViews.firstMatch` is the sidebar; the timeline is the widest one.
+    let scrollView = app.scrollViews.allElementsBoundByIndex
+      .max(by: { $0.frame.width < $1.frame.width })!
+    let oldestLoaded = messageRow(containing: "backlog line #350:")
+    var attempts = 0
+    while !oldestLoaded.exists && attempts < 60 {
+      scrollView.scroll(byDeltaX: 0, deltaY: attempts < 40 ? 30 : -30)
+      attempts += 1
+    }
+    XCTAssertTrue(oldestLoaded.waitForExistence(timeout: 2), "never reached the oldest loaded row")
+
+    // Reaching #350 triggers the older-page fetch (instant in fixtures); the
+    // anchor restore should pin #350 back to the top edge of the viewport.
+    sleep(2)
+    screenshot(named: "apple-history-anchor")
+    XCTAssertTrue(oldestLoaded.exists, "anchored row left the hierarchy")
+    let offset = oldestLoaded.frame.minY - scrollView.frame.minY
+    XCTAssertLessThan(offset, 150, "previously-oldest row not anchored near the top")
+    XCTAssertGreaterThan(offset, -50, "previously-oldest row scrolled above the viewport")
+
+    // Runaway pagination would have loaded all pages and left the viewport at
+    // the very start of the backlog.
+    let veryFirst = messageRow(containing: "backlog line #0:")
+    XCTAssertFalse(veryFirst.exists && veryFirst.isHittable, "pagination ran away to the start")
+
+    // The older page really merged in: one nudge up reveals #349.
+    scrollView.scroll(byDeltaX: 0, deltaY: 30)
+    XCTAssertTrue(
+      messageRow(containing: "backlog line #349:").waitForExistence(timeout: 2),
+      "older page missing below the anchor")
+  }
+
   private func screenshot(named name: String) {
     let shot = XCUIScreen.main.screenshot()
     try? shot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/\(name).png"))

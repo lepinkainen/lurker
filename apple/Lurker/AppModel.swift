@@ -60,6 +60,10 @@ final class AppModel {
   var selectedBufferID: UUID?
   var historyExhausted: Set<UUID> = []
   var historyLoading: Set<UUID> = []
+  // Set after older history is prepended; the timeline scrolls this message
+  // back to the top edge so the viewport doesn't jump to the new content and
+  // re-trigger the load (runaway pagination). Consumed (nil'd) by the view.
+  var historyAnchor: HistoryAnchor?
   var connectionState: ConnectionState = .notConfigured
   var serviceIdentity: ServiceIdentity?
   var inspectorVisible = AppModel.defaultInspectorVisible
@@ -329,22 +333,25 @@ final class AppModel {
     send(command)
   }
 
-  func loadOlderHistory() {
+  @discardableResult
+  func loadOlderHistory() -> Task<Void, Never>? {
     guard let id = selectedBufferID,
       !historyLoading.contains(id),
       !historyExhausted.contains(id),
       let transport
     else {
-      return
+      return nil
     }
     historyLoading.insert(id)
     let before = messages[id]?.first?.id
-    Task {
+    return Task {
       do {
         let older = try await transport.fetchHistory(bufferID: id, before: before)
         mergeMessages(older, into: id)
         if older.isEmpty {
           historyExhausted.insert(id)
+        } else if let before {
+          historyAnchor = HistoryAnchor(bufferID: id, messageID: before)
         }
       } catch {
         composerError = error.localizedDescription
@@ -520,6 +527,7 @@ final class AppModel {
   func applySnapshot(_ snapshot: StateSnapshot) {
     historyExhausted.removeAll(keepingCapacity: true)
     historyLoading.removeAll(keepingCapacity: true)
+    historyAnchor = nil
     networks = Dictionary(uniqueKeysWithValues: snapshot.networks.map { ($0.id, $0) })
     buffers = Dictionary(uniqueKeysWithValues: snapshot.buffers.map { ($0.id, $0) })
     messages = Dictionary(
@@ -644,6 +652,7 @@ final class AppModel {
     members.removeValue(forKey: id)
     historyExhausted.remove(id)
     historyLoading.remove(id)
+    if historyAnchor?.bufferID == id { historyAnchor = nil }
     if selectedBufferID == id {
       selectedBufferID = nil
       restoreSelection()
@@ -787,10 +796,19 @@ final class AppModel {
     messages.removeAll()
     members.removeAll()
     historyExhausted.removeAll()
+    historyAnchor = nil
     channelList = nil
     selectedBufferID = nil
     hydrated = false
   }
+}
+
+/// Identifies the message that was at the top of a buffer before an older
+/// history page was prepended, so the timeline can pin it back to the top
+/// edge of the viewport.
+struct HistoryAnchor: Equatable {
+  let bufferID: UUID
+  let messageID: UUID
 }
 
 private func memberRank(_ prefix: String?) -> Int {

@@ -114,7 +114,14 @@ private struct TimelineView: View {
                   }
                 }
             case .presence(let id, let messages):
+              // A collapsed presence group can be the oldest item in the
+              // buffer; without this the load-older trigger never fires.
               PresenceSummary(messages: messages).id(id)
+                .onAppear {
+                  if messages.first?.id == model.selectedMessages.first?.id {
+                    model.loadOlderHistory()
+                  }
+                }
             }
           }
         }
@@ -134,6 +141,15 @@ private struct TimelineView: View {
         withAnimation(.snappy(duration: 0.18)) {
           proxy.scrollTo(new, anchor: .bottom)
         }
+      }
+      // After an older page is prepended the viewport would otherwise stay at
+      // the top of the grown content, re-triggering the load in a runaway
+      // loop. Pin the previously-first message back to the top edge (web does
+      // the same with a scrollHeight delta).
+      .onChange(of: model.historyAnchor) { _, anchor in
+        guard let anchor, anchor.bufferID == buffer.id else { return }
+        proxy.scrollTo(anchor.messageID, anchor: .top)
+        model.historyAnchor = nil
       }
     }
     // Rebuild the scroll container per buffer so switching channels always

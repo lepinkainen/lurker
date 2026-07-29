@@ -642,12 +642,42 @@ struct AppModelTests {
     let bufferID = UUID()
     model.historyExhausted.insert(bufferID)
     model.historyLoading.insert(bufferID)
+    model.historyAnchor = HistoryAnchor(bufferID: bufferID, messageID: UUID())
 
     model.applySnapshot(
       StateSnapshot(networks: [], buffers: [], initialMessages: [:], members: [:]))
 
     #expect(model.historyExhausted.isEmpty)
     #expect(model.historyLoading.isEmpty)
+    #expect(model.historyAnchor == nil)
+  }
+
+  @Test func loadOlderHistoryAnchorsPreviousTopMessage() async {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    model.applySnapshot(FixtureTransport.snapshot())
+    model.selectedBufferID = FixtureTransport.fullChannelID
+    let previousTop = model.messages[FixtureTransport.fullChannelID]?.first?.id
+    #expect(previousTop != nil)
+
+    await model.loadOlderHistory()?.value
+
+    #expect(
+      model.historyAnchor
+        == HistoryAnchor(bufferID: FixtureTransport.fullChannelID, messageID: previousTop!))
+    #expect(
+      model.messages[FixtureTransport.fullChannelID]?.first?.id != previousTop)
+  }
+
+  @Test func exhaustedHistoryLoadSetsNoAnchor() async {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    model.applySnapshot(FixtureTransport.snapshot())
+    // channelID's fixture history is already complete: fetch returns nothing.
+    model.selectedBufferID = FixtureTransport.channelID
+
+    await model.loadOlderHistory()?.value
+
+    #expect(model.historyAnchor == nil)
+    #expect(model.historyExhausted.contains(FixtureTransport.channelID))
   }
 
   private func isolatedDefaults() -> UserDefaults {
