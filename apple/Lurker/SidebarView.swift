@@ -77,12 +77,13 @@ struct SidebarView: View {
 
     ForEach(model.orderedNetworks.filter { !$0.disabled }) { network in
       let groups = model.sidebarBuffers(for: network.id)
-      let statusBufferID = groups.status.first?.id
+      let statusBuffer = groups.status.first
+      let statusBufferID = statusBuffer?.id
       NetworkHeaderRow(
         network: network,
         isSelected: statusBufferID != nil && model.selectedBufferID == statusBufferID,
-        unread: networkUnread(network.id),
-        mentions: networkMentions(network.id)
+        unread: statusBuffer?.unread ?? 0,
+        mentions: statusBuffer?.mentions ?? 0
       ) {
         guard let statusBufferID else { return }
         model.selectBuffer(statusBufferID)
@@ -133,14 +134,6 @@ struct SidebarView: View {
           .padding(.vertical, 4)
       }
     }
-  }
-
-  private func networkUnread(_ id: UUID) -> Int {
-    model.buffers.values.filter { $0.networkID == id }.reduce(0) { $0 + $1.unread }
-  }
-
-  private func networkMentions(_ id: UUID) -> Int {
-    model.buffers.values.filter { $0.networkID == id }.reduce(0) { $0 + $1.mentions }
   }
 }
 
