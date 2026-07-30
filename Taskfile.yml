@@ -99,6 +99,38 @@ tasks:
         ONLY_ACTIVE_ARCH=YES
         build
 
+  build-apple-release:
+    desc: Build the native macOS app, Release config (Apple silicon, ad-hoc signed)
+    platforms: [darwin]
+    sources:
+      - apple/Lurker.xcodeproj/**/*
+      - apple/Lurker/**/*
+    generates:
+      - "{{.BUILD_DIR}}/DerivedData/Build/Products/Release/Lurker.app/Contents/MacOS/Lurker"
+    cmds:
+      - >-
+        xcodebuild -quiet
+        -project apple/Lurker.xcodeproj
+        -scheme Lurker
+        -configuration Release
+        -destination 'platform=macOS,arch=arm64'
+        -derivedDataPath {{.BUILD_DIR}}/DerivedData
+        CODE_SIGNING_ALLOWED=NO
+        ONLY_ACTIVE_ARCH=YES
+        build
+
+  install-apple:
+    desc: Build the Release app and install it to /Applications (overwrites existing)
+    platforms: [darwin]
+    deps: [build-apple-release]
+    sources:
+      - "{{.BUILD_DIR}}/DerivedData/Build/Products/Release/Lurker.app/**/*"
+    generates:
+      - /Applications/Lurker.app/Contents/MacOS/Lurker
+    cmds:
+      - rm -rf /Applications/Lurker.app
+      - ditto {{.BUILD_DIR}}/DerivedData/Build/Products/Release/Lurker.app /Applications/Lurker.app
+
   apple-icon:
     desc: Generate the native app icon from the project icon
     platforms: [darwin]

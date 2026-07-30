@@ -818,16 +818,18 @@ extension View {
   }
 }
 
-#Preview("Multiple networks") {
-  SidebarView()
-    .environment(AppModel.previewSidebar())
-    .tint(.mint)
-    .frame(width: 260, height: 640)
-}
+#if DEBUG
+  #Preview("Multiple networks") {
+    SidebarView()
+      .environment(AppModel.previewSidebar())
+      .tint(.mint)
+      .frame(width: 260, height: 640)
+  }
 
-#Preview("Fixture") {
-  SidebarView()
-    .environment(AppModel.preview())
-    .tint(.mint)
-    .frame(width: 260, height: 600)
-}
+  #Preview("Fixture") {
+    SidebarView()
+      .environment(AppModel.preview())
+      .tint(.mint)
+      .frame(width: 260, height: 600)
+  }
+#endif

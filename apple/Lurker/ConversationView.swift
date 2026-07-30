@@ -366,9 +366,11 @@ private struct MessageRow: View {
       .accessibilityLabel("\(message.sender), \(displayTime(message.ts)), \(message.content)")
   }
 
-  // macOS: aligned gutter columns (time, sender, body). iOS: those columns eat
-  // ~160pt of a 402pt screen, so the nick moves to its own line above the body
-  // with the timestamp trailing it, and the body wraps at full width.
+  // macOS: fixed timestamp gutter, then a content-sized left-aligned nick with
+  // the body immediately following (nicks vary in width; bodies don't align into
+  // a column — matches the web client). iOS: those columns eat ~160pt of a 402pt
+  // screen, so the nick moves to its own line above the body with the timestamp
+  // trailing it, and the body wraps at full width.
   @ViewBuilder private var layout: some View {
     #if os(macOS)
       HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -387,7 +389,6 @@ private struct MessageRow: View {
               .foregroundStyle(nickPaletteColor(message.senderColor))
               .lineLimit(1)
           }
-          .frame(width: 104, alignment: .trailing)
           .help(message.userhost ?? message.sender)
           VStack(alignment: .leading, spacing: 6) {
             messageBody
@@ -844,11 +845,13 @@ private enum TimelineFormatters {
   static let iso8601 = ISO8601DateFormatter()
 }
 
-#Preview {
-  ConversationView()
-    .environment(AppModel.preview())
-    .tint(.mint)
-    #if os(macOS)
-      .frame(width: 700, height: 600)
-    #endif
-}
+#if DEBUG
+  #Preview {
+    ConversationView()
+      .environment(AppModel.preview())
+      .tint(.mint)
+      #if os(macOS)
+        .frame(width: 700, height: 600)
+      #endif
+  }
+#endif

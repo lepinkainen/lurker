@@ -173,11 +173,13 @@ struct ConnectionEditor: View {
   }
 }
 
-#Preview {
-  SettingsView()
-    .environment(AppModel.preview())
-    .tint(.mint)
-    #if os(macOS)
-      .frame(width: 500, height: 330)
-    #endif
-}
+#if DEBUG
+  #Preview {
+    SettingsView()
+      .environment(AppModel.preview())
+      .tint(.mint)
+      #if os(macOS)
+        .frame(width: 500, height: 330)
+      #endif
+  }
+#endif

@@ -212,13 +212,15 @@ private struct ConnectionStatusButton: View {
   }
 }
 
-#Preview {
-  RootView()
-    .environment(AppModel.preview())
-    .tint(.mint)
-    // Desktop window sizing only: a fixed frame wider than the device breaks
-    // the iOS preview canvas (content lays out past the screen edges).
-    #if os(macOS)
-      .frame(minWidth: 1180, minHeight: 760)
-    #endif
-}
+#if DEBUG
+  #Preview {
+    RootView()
+      .environment(AppModel.preview())
+      .tint(.mint)
+      // Desktop window sizing only: a fixed frame wider than the device breaks
+      // the iOS preview canvas (content lays out past the screen edges).
+      #if os(macOS)
+        .frame(minWidth: 1180, minHeight: 760)
+      #endif
+  }
+#endif

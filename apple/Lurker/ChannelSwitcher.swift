@@ -136,8 +136,10 @@ private struct SwitcherResult: Identifiable {
   let network: Network
 }
 
-#Preview {
-  ChannelSwitcher()
-    .environment(AppModel.preview())
-    .tint(.mint)
-}
+#if DEBUG
+  #Preview {
+    ChannelSwitcher()
+      .environment(AppModel.preview())
+      .tint(.mint)
+  }
+#endif
