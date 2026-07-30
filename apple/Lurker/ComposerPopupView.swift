@@ -57,7 +57,7 @@ struct ComposerPopupView: View {
       RoundedRectangle(cornerRadius: 8)
         .stroke(Color.lurkerSeparator, lineWidth: 0.5)
     }
-    .frame(maxWidth: 420, alignment: .leading)
+    .frame(maxWidth: 320, alignment: .leading)
   }
 
   @ViewBuilder private func row(

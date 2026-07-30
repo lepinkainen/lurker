@@ -608,6 +608,13 @@ private struct InlineImageView: View {
   }
 }
 
+private struct ComposerPopupHeightKey: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
+  }
+}
+
 private struct ComposerView: View {
   @Environment(AppModel.self) private var model
   let buffer: Buffer
@@ -616,6 +623,8 @@ private struct ComposerView: View {
   // The popup derives from the text, so Esc-dismissal needs an explicit flag;
   // any text change re-arms it.
   @State private var popupDismissed = false
+  // Measured height of the autocomplete panel, used to float it above the bar.
+  @State private var popupHeight: CGFloat = 0
 
   var body: some View {
     @Bindable var model = model
@@ -673,7 +682,11 @@ private struct ComposerView: View {
             focused ? Color.accentColor : Color.lurkerSeparator,
             lineWidth: focused ? 1.5 : 0.5)
       }
-      // Anchored above the bar without affecting its layout.
+      // Floated above the bar without affecting its layout. Anchored to the
+      // bar's top-leading, then offset up by its own measured height so it
+      // sits fully *above* the input. (An `.alignmentGuide(.top)` flip proved
+      // unreliable — it rendered the panel directly over the bar, growing
+      // downward off the window.)
       .overlay(alignment: .topLeading) {
         if popup != .none {
           // Clamp: the match list can shrink out from under the selection
@@ -684,9 +697,17 @@ private struct ComposerView: View {
           ) { index in
             accept(index: index, in: popup)
           }
-          .alignmentGuide(.top) { $0[.bottom] + 4 }
+          .background(
+            GeometryReader { proxy in
+              Color.clear.preference(key: ComposerPopupHeightKey.self, value: proxy.size.height)
+            }
+          )
+          .offset(y: -(popupHeight + 4))
+          // Hide the pre-measurement frame so it never flashes over the bar.
+          .opacity(popupHeight > 0 ? 1 : 0)
         }
       }
+      .onPreferenceChange(ComposerPopupHeightKey.self) { popupHeight = $0 }
     }
     .padding(10)
     .background(.bar)
@@ -694,6 +715,11 @@ private struct ComposerView: View {
     .onChange(of: model.composerText) { _, _ in
       popupSelection = 0
       popupDismissed = false
+    }
+    // Clicking away from the composer dismisses the popup (web parity: the web
+    // client hides it on input blur).
+    .onChange(of: focused) { _, isFocused in
+      if !isFocused { popupDismissed = true }
     }
     #if os(macOS)
       // Autofocus on buffer switch is desktop-only: on iOS programmatic focus
