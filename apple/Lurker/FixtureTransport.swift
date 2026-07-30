@@ -311,6 +311,9 @@ actor FixtureTransport: LurkerTransport {
             nick: "shrike", prefix: "@", realname: "Shrike", away: false, self: true, color: 19),
           Member(nick: "tove", prefix: "+", realname: "Tove", away: false, self: false, color: 4),
           Member(nick: "ava", prefix: nil, realname: "Tove", away: false, self: false, color: 7),
+          Member(nick: "anna", prefix: nil, realname: nil, away: false, self: false, color: 11),
+          Member(nick: "arto", prefix: nil, realname: nil, away: false, self: false, color: 22),
+          Member(nick: "alex", prefix: nil, realname: nil, away: true, self: false, color: 9),
           Member(nick: "ircfriend", prefix: nil, realname: nil, away: true, self: false, color: 31),
         ],
         fullChannelID.uuidString: [
@@ -318,6 +321,9 @@ actor FixtureTransport: LurkerTransport {
             nick: "shrike", prefix: "@", realname: "Shrike", away: false, self: true, color: 19),
           Member(nick: "tove", prefix: "+", realname: "Tove", away: false, self: false, color: 4),
           Member(nick: "ava", prefix: nil, realname: "Tove", away: false, self: false, color: 7),
+          Member(nick: "anna", prefix: nil, realname: nil, away: false, self: false, color: 11),
+          Member(nick: "arto", prefix: nil, realname: nil, away: false, self: false, color: 22),
+          Member(nick: "alex", prefix: nil, realname: nil, away: true, self: false, color: 9),
           Member(nick: "ircfriend", prefix: nil, realname: nil, away: true, self: false, color: 31),
         ],
       ]
