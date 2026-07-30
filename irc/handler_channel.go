@@ -120,6 +120,21 @@ func (h *handler) onTopicReply(_ *girc.Client, e girc.Event) {
 	h.updateChannelTopicState(channel, &topic, nil, nil)
 }
 
+// onNoTopicReply handles RPL_NOTOPIC (331): the channel has no topic. Params:
+// [me, #chan, :No topic is set]. Clears any stored topic text so a channel that
+// lost its topic stops rendering the stale one; setter metadata is left
+// untouched. Metadata only — no message row.
+func (h *handler) onNoTopicReply(_ *girc.Client, e girc.Event) {
+	if len(e.Params) < 2 {
+		return
+	}
+	channel := e.Params[1]
+	if !girc.IsValidChannel(channel) {
+		return
+	}
+	h.updateChannelTopicState(channel, ptrTo(""), nil, nil)
+}
+
 // onTopicWhoTime handles RPL_TOPICWHOTIME (333): who set the topic and when.
 // Params: [me, #chan, setter, unixtime]. Metadata only — no message row.
 func (h *handler) onTopicWhoTime(_ *girc.Client, e girc.Event) {

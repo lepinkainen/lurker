@@ -13,6 +13,7 @@ func (h *handler) register(c *girc.Client) {
 	c.Handlers.Add(girc.TOPIC, h.onTopic)
 	c.Handlers.Add(girc.RPL_TOPIC, h.onTopicReply)
 	c.Handlers.Add(girc.RPL_TOPICWHOTIME, h.onTopicWhoTime)
+	c.Handlers.Add(girc.RPL_NOTOPIC, h.onNoTopicReply)
 	c.Handlers.Add(girc.MODE, h.onMode)
 	c.Handlers.Add(girc.RPL_CHANNELMODEIS, h.onChannelModeIs)
 	c.Handlers.Add(girc.INVITE, h.onInvite)
@@ -91,6 +92,7 @@ func isExplicitlyHandledEvent(command string) bool {
 		girc.TOPIC,
 		girc.RPL_TOPIC,
 		girc.RPL_TOPICWHOTIME,
+		girc.RPL_NOTOPIC,
 		girc.RPL_CREATIONTIME,
 		girc.MODE,
 		girc.RPL_CHANNELMODEIS,
@@ -102,6 +104,7 @@ func isExplicitlyHandledEvent(command string) bool {
 		girc.CAP_CHGHOST,
 		girc.RPL_ENDOFNAMES,
 		girc.RPL_LIST,
+		girc.RPL_LISTSTART,
 		girc.RPL_LISTEND,
 		girc.RPL_NAMREPLY,
 		girc.RPL_WHOREPLY,
