@@ -13,8 +13,12 @@ final class LurkerUITests: XCTestCase {
   }
 
   func testDailyDriverLayout() {
-    // Sidebar shows the pinned channel.
-    XCTAssertTrue(app.staticTexts["#lurker"].waitForExistence(timeout: 5))
+    // Pinned channels render once in Pinned and once under their network. The
+    // occurrences need distinct SwiftUI identities or the lazy stack leaves a
+    // blank row where the network copy should be.
+    let lurkerRows = app.staticTexts.matching(identifier: "#lurker")
+    XCTAssertTrue(lurkerRows.firstMatch.waitForExistence(timeout: 5))
+    XCTAssertEqual(lurkerRows.count, 2)
 
     // Conversation renders the fixture message. `MessageRow` combines its
     // sender/time/content into one accessibility element (an `Other` with a
