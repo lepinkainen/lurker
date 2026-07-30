@@ -76,6 +76,7 @@ private struct MemberRow: View {
         .font(.footnote.monospaced().weight(.bold))
         .foregroundStyle(prefixColor)
         .frame(width: 10)
+      NickAvatar(nick: member.nick, colorIndex: member.color)
       VStack(alignment: .leading, spacing: 1) {
         Text(member.nick)
           .font(.body.monospaced().weight(member.`self` ? .bold : .regular))

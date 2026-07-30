@@ -72,6 +72,10 @@ The only DOM patch path is `patchPreview`. New strategies must either add a name
 UI themes are YAML files loaded by the backend and applied client-side via CSS
 custom properties. See [theming.md](theming.md) for the model and how to add one.
 
+Nick avatars (the small identicon square next to a nick) are a deterministic,
+client-agnostic algorithm — see [nick-identicon.md](nick-identicon.md) for the
+spec every conforming client must reproduce exactly.
+
 ## Interaction specs
 
 - [keyboard-shortcuts.md](keyboard-shortcuts.md) defines the v1 keyboard shortcut set and channel switcher behavior.

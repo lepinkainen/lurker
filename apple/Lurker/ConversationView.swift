@@ -379,12 +379,16 @@ private struct MessageRow: View {
             .frame(width: 14)
           systemBody
         } else {
-          Text(message.sender)
-            .font(.body.monospaced().weight(message.isSelf == true ? .bold : .medium))
-            .foregroundStyle(nickColor(message.senderColor))
-            .frame(width: 104, alignment: .trailing)
-            .lineLimit(1)
-            .help(message.userhost ?? message.sender)
+          HStack(alignment: .firstTextBaseline, spacing: 4) {
+            NickAvatar(nick: message.sender, colorIndex: message.senderColor)
+              .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+            Text(message.sender)
+              .font(.body.monospaced().weight(message.isSelf == true ? .bold : .medium))
+              .foregroundStyle(nickPaletteColor(message.senderColor))
+              .lineLimit(1)
+          }
+          .frame(width: 104, alignment: .trailing)
+          .help(message.userhost ?? message.sender)
           VStack(alignment: .leading, spacing: 6) {
             messageBody
             embeds
@@ -403,10 +407,14 @@ private struct MessageRow: View {
       } else {
         VStack(alignment: .leading, spacing: 2) {
           HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(message.sender)
-              .font(.body.monospaced().weight(message.isSelf == true ? .bold : .semibold))
-              .foregroundStyle(nickColor(message.senderColor))
-              .lineLimit(1)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+              NickAvatar(nick: message.sender, colorIndex: message.senderColor)
+                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+              Text(message.sender)
+                .font(.body.monospaced().weight(message.isSelf == true ? .bold : .semibold))
+                .foregroundStyle(nickPaletteColor(message.senderColor))
+                .lineLimit(1)
+            }
             Spacer(minLength: 4)
             timestamp
           }
@@ -760,11 +768,6 @@ private struct ComposerView: View {
 
 private func isPresence(_ message: Message) -> Bool {
   presenceKinds.contains(message.kind)
-}
-
-private func nickColor(_ index: Int?) -> Color {
-  guard let index else { return .primary }
-  return Color(hue: Double((index * 137) % 360) / 360, saturation: 0.58, brightness: 0.78)
 }
 
 @MainActor
