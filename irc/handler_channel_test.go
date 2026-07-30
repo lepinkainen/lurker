@@ -175,6 +175,44 @@ func TestTopicReplyDoesNotClobberMeta(t *testing.T) {
 	}
 }
 
+func TestNoTopicReplyClearsStaleTopic(t *testing.T) {
+	f := newTestHandlerFixture(t)
+
+	f.Handler.onTopicReply(nil, mustEvent(t, ":irc.example 332 tester #test :stale topic"))
+	f.Handler.onTopicWhoTime(nil, mustEvent(t, ":irc.example 333 tester #test alice 1700000000"))
+	f.Handler.onNoTopicReply(nil, mustEvent(t, ":irc.example 331 tester #test :No topic is set"))
+
+	var topic, setBy string
+	if err := f.LogStore.DB.QueryRow(`
+		SELECT COALESCE(topic,''), COALESCE(topic_set_by,'')
+		FROM buffers WHERE name='#test'`).Scan(&topic, &setBy); err != nil {
+		t.Fatal(err)
+	}
+	if topic != "" {
+		t.Fatalf("topic = %q, want empty (331 must clear the stale topic)", topic)
+	}
+	if setBy != "alice" {
+		t.Fatalf("topic_set_by = %q, want alice (331 must not clear meta)", setBy)
+	}
+	if got := handlerMessageCount(t, f); got != 0 {
+		t.Fatalf("message count = %d, want 0 (331 is metadata only)", got)
+	}
+}
+
+func TestNoTopicReplyIgnoresNonChannelTarget(t *testing.T) {
+	f := newTestHandlerFixture(t)
+
+	f.Handler.onNoTopicReply(nil, mustEvent(t, ":irc.example 331 tester tester :No topic is set"))
+
+	var count int
+	if err := f.LogStore.DB.QueryRow(`SELECT COUNT(*) FROM buffers WHERE name='tester'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("331 with a non-channel target must not create a buffer")
+	}
+}
+
 // bufferUpdateJSONFields marshals a buffer_update and returns its JSON keys,
 // so tests can assert on the actual wire shape (present vs omitted fields).
 func bufferUpdateJSONFields(t *testing.T, bu *BufferUpdateEvent) map[string]any {

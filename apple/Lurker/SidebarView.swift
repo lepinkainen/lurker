@@ -33,6 +33,29 @@ struct SidebarDrag: Equatable {
   var over: Target?
 }
 
+/// A buffer can intentionally appear more than once in the sidebar (for
+/// example, pinned channels also remain under their network). Lazy stacks
+/// require each rendered occurrence to have a distinct identity, so namespace
+/// the stable buffer id by where the row is rendered.
+struct SidebarBufferOccurrence: Identifiable {
+  enum Placement: Hashable {
+    case pinned
+    case network(UUID)
+  }
+
+  struct ID: Hashable {
+    let placement: Placement
+    let bufferID: UUID
+  }
+
+  let buffer: Buffer
+  let placement: Placement
+
+  var id: ID {
+    ID(placement: placement, bufferID: buffer.id)
+  }
+}
+
 struct SidebarView: View {
   @Environment(AppModel.self) private var model
   @State private var pendingDelete: Buffer?
@@ -128,7 +151,12 @@ struct SidebarView: View {
   @ViewBuilder private var sidebarContent: some View {
     if !model.pinnedBuffers.isEmpty {
       SidebarSectionHeader("Pinned")
-      ForEach(model.pinnedBuffers) { buffer in
+      ForEach(
+        model.pinnedBuffers.map {
+          SidebarBufferOccurrence(buffer: $0, placement: .pinned)
+        }
+      ) { occurrence in
+        let buffer = occurrence.buffer
         SidebarRow(isSelected: model.selectedBufferID == buffer.id) {
           model.selectBuffer(buffer.id)
         } content: {
@@ -197,7 +225,12 @@ struct SidebarView: View {
         // Status buffer is represented by the network header row above, so the
         // per-network rows list only channels and queries (no duplicate "Status").
         // Channels are draggable for manual reordering; queries stay alphabetical.
-        ForEach(groups.channels) { buffer in
+        ForEach(
+          groups.channels.map {
+            SidebarBufferOccurrence(buffer: $0, placement: .network(network.id))
+          }
+        ) { occurrence in
+          let buffer = occurrence.buffer
           SidebarRow(isSelected: model.selectedBufferID == buffer.id) {
             model.selectBuffer(buffer.id)
           } content: {
@@ -232,7 +265,12 @@ struct SidebarView: View {
               }
             ))
         }
-        ForEach(groups.queries) { buffer in
+        ForEach(
+          groups.queries.map {
+            SidebarBufferOccurrence(buffer: $0, placement: .network(network.id))
+          }
+        ) { occurrence in
+          let buffer = occurrence.buffer
           SidebarRow(isSelected: model.selectedBufferID == buffer.id) {
             model.selectBuffer(buffer.id)
           } content: {
@@ -249,7 +287,12 @@ struct SidebarView: View {
             model.toggleArchives(network.id)
           }
           if model.archivesOpen.contains(network.id) {
-            ForEach(groups.archived) { buffer in
+            ForEach(
+              groups.archived.map {
+                SidebarBufferOccurrence(buffer: $0, placement: .network(network.id))
+              }
+            ) { occurrence in
+              let buffer = occurrence.buffer
               SidebarRow(isSelected: model.selectedBufferID == buffer.id) {
                 model.selectBuffer(buffer.id)
               } content: {

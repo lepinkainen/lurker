@@ -76,6 +76,19 @@ struct AppModelTests {
     #expect(model.pinnedBuffers.map(\.id) == [mid.id, zeta.id, alpha.id])
   }
 
+  @Test func sidebarBufferOccurrencesNamespaceDuplicateRowsByPlacement() {
+    let networkID = UUID()
+    let target = buffer("#pinned", networkID: networkID, pinned: true)
+
+    let pinned = SidebarBufferOccurrence(buffer: target, placement: .pinned)
+    let network = SidebarBufferOccurrence(buffer: target, placement: .network(networkID))
+    let repeatedNetwork = SidebarBufferOccurrence(buffer: target, placement: .network(networkID))
+
+    #expect(pinned.id != network.id)
+    #expect(network.id == repeatedNetwork.id)
+    #expect(pinned.buffer.id == network.buffer.id)
+  }
+
   @Test func reorderPinnedBuffersAppliesServerOrder() async {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()

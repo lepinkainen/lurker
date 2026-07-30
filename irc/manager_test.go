@@ -198,6 +198,26 @@ func TestTopicWhoTimeAndCreationTimeSuppressed(t *testing.T) {
 	}
 }
 
+// TestListStartAndNoTopicSuppressed pins that the /LIST header (321) and the
+// on-join "no topic" reply (331) never reach the status buffer: 321 is dropped
+// outright, 331 only clears topic state (see TestNoTopicReplyClearsStaleTopic).
+func TestListStartAndNoTopicSuppressed(t *testing.T) {
+	f := newTestHandlerFixture(t)
+
+	for _, cmd := range []string{girc.RPL_LISTSTART, girc.RPL_NOTOPIC} {
+		if !isExplicitlyHandledEvent(cmd) {
+			t.Fatalf("isExplicitlyHandledEvent(%s) = false, want true", cmd)
+		}
+	}
+
+	f.Handler.onAllEvent(nil, mustEvent(t, ":irc.example 321 tester Channel :Users  Name"))
+	f.Handler.onAllEvent(nil, mustEvent(t, ":irc.example 331 tester #test :No topic is set"))
+
+	if got := handlerMessageCount(t, f); got != 0 {
+		t.Fatalf("message count = %d, want 0 (321/331 must not leak to status buffer)", got)
+	}
+}
+
 func TestUnhandledServerReplyPersistsToStatusBuffer(t *testing.T) {
 	stores, err := ircdb.OpenMultiStore(t.TempDir())
 	if err != nil {
