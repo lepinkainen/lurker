@@ -8,6 +8,8 @@ Lurker: single-user IRCCloud-style bouncer + web client backend. Go service + Vi
 
 See `PROJECT.md`, `AGENTS.md`, `ai-docs/ARCHITECTURE.md` (and subdocs: `storage.md`, `rest-api.md`, `websocket-protocol.md`, `irc-runtime.md`, `frontend.md`, `testing-and-build.md`, `operations.md`). Runtime behavior specs hard to unit-test live in `ai-docs/behaviors/`.
 
+It's fine to push features directly to main. Only use branches for major refactoring.
+
 ## Commands
 
 Always use `task` (Taskfile.yml), not direct `go`/`pnpm`.
@@ -24,7 +26,7 @@ Always use `task` (Taskfile.yml), not direct `go`/`pnpm`.
 - `task build-linux` — `build/lurker-linux-amd64`
 - `task seed-test` / `task dev-test` — seed `./data-test`, run backend against it
 - `task up` / `task down` — docker compose
-- `task push` — push branch + watch CI via `scripts/push-and-watch.sh`
+- `task push` — push branch + watch CI via `scripts/push-and-watch.sh`. do not use tail to follow this, the output is already optimised
 - `task tidy` — `go mod tidy`
 - `task generate` — `sqlc generate` (regenerate `db/internal/{controldb,logdb,previewdb}/*` after editing `db/{control,log,preview}_queries/*.sql` or any migration)
 - `task clean` — remove `build/`, `web/dist/`, `data/`
