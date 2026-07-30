@@ -213,6 +213,11 @@ tasks:
     cmds:
       - go test {{.GO_PACKAGES}}
 
+  test-one:
+    desc: 'Run a subset of Go tests, e.g. task test-one -- ./db/ -run TestPinOrder'
+    cmds:
+      - go test {{.CLI_ARGS}}
+
   test-ci:
     desc: Run CI tests with coverage (excluding llm-shared)
     cmds:

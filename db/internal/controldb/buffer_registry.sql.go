@@ -85,7 +85,7 @@ func (q *Queries) ListBufferRegistryForNetwork(ctx context.Context, networkID []
 }
 
 const listChannelBuffersForNetwork = `-- name: ListChannelBuffersForNetwork :many
-SELECT id, sort_order FROM buffer_registry WHERE network_id = ? AND kind = 'channel' ORDER BY id
+SELECT id, sort_order FROM buffer_registry WHERE network_id = ? AND kind = 'channel' ORDER BY sort_order, lower(name)
 `
 
 type ListChannelBuffersForNetworkRow struct {
@@ -93,6 +93,7 @@ type ListChannelBuffersForNetworkRow struct {
 	SortOrder int64
 }
 
+// Ordered the way clients render channels: (sort_order, case-insensitive name).
 func (q *Queries) ListChannelBuffersForNetwork(ctx context.Context, networkID []byte) ([]ListChannelBuffersForNetworkRow, error) {
 	rows, err := q.db.QueryContext(ctx, listChannelBuffersForNetwork, networkID)
 	if err != nil {

@@ -32,9 +32,12 @@ func LookupBufferRegistry(ctx context.Context, d *sql.DB, bufferID uuid.UUID) (n
 	return nid, row.Name, row.Kind, nil
 }
 
-// ReorderNetworkBuffers assigns sort_order 0..n-1 to the given channel buffer
-// IDs of a network. Partial sets are allowed: unlisted channels keep their
-// current sort_order. Returns the resulting (id, sort_order) for every channel
+// ReorderNetworkBuffers assigns sort_order to every channel buffer of a
+// network: the given IDs form the ordered prefix, and channels omitted from
+// the request follow in their previous (sort_order, name) relative order. The
+// result is always dense and collision-free, so partial sets — a client
+// reordering only the channels it renders — cannot leave duplicate sort_order
+// values behind. Returns the resulting (id, sort_order) for every channel
 // buffer of the network.
 func ReorderNetworkBuffers(ctx context.Context, d *sql.DB, networkID uuid.UUID, ids []uuid.UUID) ([]BufferSortEntry, error) {
 	if len(ids) == 0 {
@@ -51,13 +54,13 @@ func ReorderNetworkBuffers(ctx context.Context, d *sql.DB, networkID uuid.UUID, 
 	if err != nil {
 		return nil, err
 	}
-	channels := make(map[uuid.UUID]struct{}, len(rows))
+	channels := make([]uuid.UUID, 0, len(rows))
 	for _, r := range rows {
 		id, perr := parseUUID(r.ID)
 		if perr != nil {
 			return nil, perr
 		}
-		channels[id] = struct{}{}
+		channels = append(channels, id)
 	}
 
 	if aerr := assignDenseOrder(ids, channels, ErrInvalidBufferReorder, func(order int, id uuid.UUID) error {
@@ -87,24 +90,46 @@ func ReorderNetworkBuffers(ctx context.Context, d *sql.DB, networkID uuid.UUID, 
 	return out, nil
 }
 
-// assignDenseOrder validates that ids are all members of valid (with no
-// duplicates) and, if so, assigns them dense positions 0..len(ids)-1 via
-// setOrder in the given order. Returns sentinel on the first invalid or
+// assignDenseOrder validates that ids are all members of all (with no
+// duplicates) and, if so, renumbers the whole set to a dense, collision-free
+// 0..len(all)-1: ids form the ordered prefix, then every member of all that
+// was omitted follows in its existing relative order. Normalizing the omitted
+// tail is what keeps partial sets from leaving duplicate order values behind —
+// e.g. a client that reorders only the channels it renders while an archived
+// one holds a stale position. Returns sentinel on the first invalid or
 // duplicate id, or the first error from setOrder. Shared by
 // ReorderNetworkBuffers and ReorderPinnedBuffers.
-func assignDenseOrder(ids []uuid.UUID, valid map[uuid.UUID]struct{}, sentinel error, setOrder func(order int, id uuid.UUID) error) error {
-	seen := make(map[uuid.UUID]struct{}, len(ids))
-	for order, id := range ids {
+func assignDenseOrder(ids, all []uuid.UUID, sentinel error, setOrder func(order int, id uuid.UUID) error) error {
+	valid := make(map[uuid.UUID]struct{}, len(all))
+	for _, id := range all {
+		valid[id] = struct{}{}
+	}
+	submitted := make(map[uuid.UUID]struct{}, len(ids))
+	for _, id := range ids {
 		if _, ok := valid[id]; !ok {
 			return sentinel
 		}
-		if _, dup := seen[id]; dup {
+		if _, dup := submitted[id]; dup {
 			return sentinel
 		}
-		seen[id] = struct{}{}
+		submitted[id] = struct{}{}
+	}
+
+	order := 0
+	for _, id := range ids {
 		if err := setOrder(order, id); err != nil {
 			return err
 		}
+		order++
+	}
+	for _, id := range all {
+		if _, ok := submitted[id]; ok {
+			continue
+		}
+		if err := setOrder(order, id); err != nil {
+			return err
+		}
+		order++
 	}
 	return nil
 }

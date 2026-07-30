@@ -90,7 +90,9 @@ func (q *Queries) ListBufferSettings(ctx context.Context) ([]BufferSetting, erro
 }
 
 const listPinnedBuffers = `-- name: ListPinnedBuffers :many
-SELECT buffer_id, pin_order FROM buffer_settings WHERE pinned = 1
+SELECT s.buffer_id, s.pin_order FROM buffer_settings s
+JOIN buffer_registry r ON r.id = s.buffer_id
+WHERE s.pinned = 1 ORDER BY s.pin_order, lower(r.name)
 `
 
 type ListPinnedBuffersRow struct {
@@ -98,6 +100,7 @@ type ListPinnedBuffersRow struct {
 	PinOrder int64
 }
 
+// Ordered the way clients render the pinned section: (pin_order, name).
 func (q *Queries) ListPinnedBuffers(ctx context.Context) ([]ListPinnedBuffersRow, error) {
 	rows, err := q.db.QueryContext(ctx, listPinnedBuffers)
 	if err != nil {

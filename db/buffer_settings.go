@@ -179,9 +179,12 @@ func applyBufferSettingsPatch(ctx context.Context, q *controldb.Queries, current
 	return nil
 }
 
-// ReorderPinnedBuffers assigns pin_order 0..n-1 to the given pinned buffer
-// IDs. Partial sets are allowed: unlisted pinned buffers keep their current
-// pin_order. Returns the resulting (id, pin_order) for every pinned buffer.
+// ReorderPinnedBuffers assigns pin_order to every pinned buffer: the given IDs
+// form the ordered prefix, and pinned buffers omitted from the request follow
+// in their previous (pin_order, name) relative order. Like
+// ReorderNetworkBuffers, the result is always dense and collision-free so
+// partial sets cannot leave duplicate pin_order values behind. Returns the
+// resulting (id, pin_order) for every pinned buffer.
 func ReorderPinnedBuffers(ctx context.Context, d *sql.DB, ids []uuid.UUID) ([]BufferSortEntry, error) {
 	if len(ids) == 0 {
 		return nil, ErrInvalidPinnedReorder
@@ -197,13 +200,13 @@ func ReorderPinnedBuffers(ctx context.Context, d *sql.DB, ids []uuid.UUID) ([]Bu
 	if err != nil {
 		return nil, err
 	}
-	pinned := make(map[uuid.UUID]struct{}, len(rows))
+	pinned := make([]uuid.UUID, 0, len(rows))
 	for _, r := range rows {
 		id, perr := parseUUID(r.BufferID)
 		if perr != nil {
 			return nil, perr
 		}
-		pinned[id] = struct{}{}
+		pinned = append(pinned, id)
 	}
 
 	if aerr := assignDenseOrder(ids, pinned, ErrInvalidPinnedReorder, func(order int, id uuid.UUID) error {

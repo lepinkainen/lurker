@@ -256,8 +256,10 @@ Request body:
 
 Behavior:
 
-- IDs must be **channel** buffers belonging to the network — a **partial** set is allowed (unlike network reorder); unlisted channels keep their current `sort_order`
-- listed IDs get `sort_order = 0..n-1` transactionally
+- IDs must be **channel** buffers belonging to the network — a **partial** set is allowed (unlike network reorder)
+- listed IDs form the ordered prefix (`sort_order = 0..n-1`); channels omitted from the request are renumbered onto the **tail**, keeping their previous `(sort_order, name)` relative order
+- the whole channel set is rewritten transactionally, so `sort_order` stays dense and collision-free — a partial set can never leave two channels sharing a position
+- this is what makes a client safe to submit only the channels it renders: an archived channel omitted from the request lands at the end rather than reappearing mid-list on a stale position when unarchived
 - 404 unknown network; 400 on empty list, duplicates, foreign IDs, or non-channel kinds
 - response is the `buffer_reorder` event shape (also broadcast to all WebSocket clients), carrying **all** channel buffers of the network:
 
@@ -285,8 +287,8 @@ Request body:
 
 Behavior:
 
-- IDs must be currently **pinned** buffers (any network) — a **partial** set is allowed; unlisted pinned buffers keep their current `pin_order`
-- listed IDs get `pin_order = 0..n-1` transactionally
+- IDs must be currently **pinned** buffers (any network) — a **partial** set is allowed
+- listed IDs form the ordered prefix (`pin_order = 0..n-1`); pinned buffers omitted from the request are renumbered onto the **tail**, keeping their previous `(pin_order, name)` relative order — same dense, collision-free guarantee as channel reorder
 - 400 on empty list, duplicates, or unpinned/unknown IDs
 - response is the `pinned_reorder` event shape (also broadcast to all WebSocket clients), carrying **all** pinned buffers:
 

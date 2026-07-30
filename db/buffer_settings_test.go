@@ -124,6 +124,51 @@ func TestPinOrderAppendsAndReorders(t *testing.T) {
 	}
 }
 
+func TestReorderPinnedBuffersPartialSetAppendsOmitted(t *testing.T) {
+	d, err := OpenControl(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = d.Close() }()
+
+	ctx := t.Context()
+	netID := uuid.Must(uuid.NewV7())
+	_, err = d.ExecContext(ctx, `INSERT INTO networks(id, name, name_ci, host, port, tls, nick, sort_order, created_at)
+		VALUES (?, 'Libera', 'libera', 'irc.example', 6697, 1, 'tester', 0, ?)`, netID[:], Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]uuid.UUID, 3)
+	pinned := true
+	for i, name := range []string{"#a", "#b", "#c"} {
+		ids[i] = uuid.Must(uuid.NewV7())
+		_, err = d.ExecContext(ctx, `INSERT INTO buffer_registry(id, network_id, name, kind, created_at) VALUES (?, ?, ?, ?, ?)`, ids[i][:], netID[:], name, BufferChannel, Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = UpdateBufferSettings(ctx, d, ids[i], BufferSettingsPatch{Pinned: &pinned}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// #a currently holds pin_order 0. Omitting it from the submitted set must
+	// renumber it to the tail instead of leaving it tied with the new head.
+	entries, err := ReorderPinnedBuffers(ctx, d, []uuid.UUID{ids[2], ids[1]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[uuid.UUID]int64{}
+	for _, e := range entries {
+		got[e.ID] = e.SortOrder
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected every pinned buffer in the response, got %v", got)
+	}
+	if got[ids[2]] != 0 || got[ids[1]] != 1 || got[ids[0]] != 2 {
+		t.Fatalf("partial pinned reorder = %v", got)
+	}
+}
+
 func TestBufferSettingsRejectsStatusBuffers(t *testing.T) {
 	d, err := OpenControl(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

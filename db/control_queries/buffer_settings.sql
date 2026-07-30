@@ -31,4 +31,7 @@ SELECT CAST(COALESCE(MAX(pin_order), -1) AS INTEGER) FROM buffer_settings WHERE 
 UPDATE buffer_settings SET pin_order = ? WHERE buffer_id = ?;
 
 -- name: ListPinnedBuffers :many
-SELECT buffer_id, pin_order FROM buffer_settings WHERE pinned = 1;
+-- Ordered the way clients render the pinned section: (pin_order, name).
+SELECT s.buffer_id, s.pin_order FROM buffer_settings s
+JOIN buffer_registry r ON r.id = s.buffer_id
+WHERE s.pinned = 1 ORDER BY s.pin_order, lower(r.name);

@@ -26,4 +26,5 @@ DELETE FROM buffer_registry WHERE id = ?;
 UPDATE buffer_registry SET sort_order = ? WHERE id = ?;
 
 -- name: ListChannelBuffersForNetwork :many
-SELECT id, sort_order FROM buffer_registry WHERE network_id = ? AND kind = 'channel' ORDER BY id;
+-- Ordered the way clients render channels: (sort_order, case-insensitive name).
+SELECT id, sort_order FROM buffer_registry WHERE network_id = ? AND kind = 'channel' ORDER BY sort_order, lower(name);

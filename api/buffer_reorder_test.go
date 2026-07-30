@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -93,22 +94,100 @@ func TestReorderNetworkBuffersPersistsOrder(t *testing.T) {
 	}
 }
 
-func TestReorderNetworkBuffersPartialSetKeepsOthers(t *testing.T) {
+func TestReorderNetworkBuffersPartialSetAppendsOmitted(t *testing.T) {
 	stores, _, handler, n := newBufferReorderTestServer(t)
 	a := ensureChannel(t, stores, n.ID, "#alpha")
 	b := ensureChannel(t, stores, n.ID, "#beta")
 	c := ensureChannel(t, stores, n.ID, "#gamma")
 
-	if rec := postBufferReorder(handler, n.ID.String(), fmt.Sprintf(`{"ids":[%q,%q,%q]}`, c, a, b)); rec.Code != http.StatusOK {
+	// Seed #beta at the head so a later partial set that omits it would leave
+	// it colliding with the new head if omitted channels were left untouched.
+	if rec := postBufferReorder(handler, n.ID.String(), fmt.Sprintf(`{"ids":[%q,%q,%q]}`, b, a, c)); rec.Code != http.StatusOK {
 		t.Fatalf("seed reorder status = %d", rec.Code)
 	}
-	// Partial reorder of two channels; #beta keeps sort_order 2.
+	// Partial reorder of two channels; the submitted ids form the prefix and
+	// #beta is renumbered to the tail rather than keeping its stale 0.
 	if rec := postBufferReorder(handler, n.ID.String(), fmt.Sprintf(`{"ids":[%q,%q]}`, a, c)); rec.Code != http.StatusOK {
 		t.Fatalf("partial reorder status = %d", rec.Code)
 	}
 	orders := channelOrder(t, stores, n.ID)
 	if orders[a] != 0 || orders[c] != 1 || orders[b] != 2 {
 		t.Fatalf("unexpected sort orders after partial reorder: %v", orders)
+	}
+}
+
+func TestReorderNetworkBuffersKeepsOrdersDenseAndUnique(t *testing.T) {
+	stores, _, handler, n := newBufferReorderTestServer(t)
+	a := ensureChannel(t, stores, n.ID, "#alpha")
+	b := ensureChannel(t, stores, n.ID, "#beta")
+	c := ensureChannel(t, stores, n.ID, "#gamma")
+	d := ensureChannel(t, stores, n.ID, "#delta")
+
+	if rec := postBufferReorder(handler, n.ID.String(), fmt.Sprintf(`{"ids":[%q,%q,%q,%q]}`, d, c, b, a)); rec.Code != http.StatusOK {
+		t.Fatalf("seed reorder status = %d", rec.Code)
+	}
+	// Every partial set must still leave a dense, collision-free 0..n-1 over
+	// all of the network's channels.
+	for _, ids := range [][]uuid.UUID{{a}, {c, a}, {b, d, a}, {a, b, c, d}} {
+		parts := make([]string, len(ids))
+		for i, id := range ids {
+			parts[i] = fmt.Sprintf("%q", id)
+		}
+		body := fmt.Sprintf(`{"ids":[%s]}`, strings.Join(parts, ","))
+		if rec := postBufferReorder(handler, n.ID.String(), body); rec.Code != http.StatusOK {
+			t.Fatalf("reorder %s status = %d", body, rec.Code)
+		}
+		orders := channelOrder(t, stores, n.ID)
+		if len(orders) != 4 {
+			t.Fatalf("expected 4 channels, got %v", orders)
+		}
+		seen := map[int64]bool{}
+		for id, order := range orders {
+			if order < 0 || order > 3 {
+				t.Fatalf("after %s: channel %s order %d out of range: %v", body, id, order, orders)
+			}
+			if seen[order] {
+				t.Fatalf("after %s: duplicate sort_order %d: %v", body, order, orders)
+			}
+			seen[order] = true
+		}
+		// The submitted ids are the ordered prefix.
+		for want, id := range ids {
+			if orders[id] != int64(want) {
+				t.Fatalf("after %s: channel %s order = %d, want %d", body, id, orders[id], want)
+			}
+		}
+	}
+}
+
+// Regression: archiving a channel, reordering the remaining visible channels,
+// then unarchiving must not drop the channel back into the middle of the list.
+func TestReorderNetworkBuffersArchivedChannelReappearsAtTail(t *testing.T) {
+	stores, _, handler, n := newBufferReorderTestServer(t)
+	a := ensureChannel(t, stores, n.ID, "#alpha")
+	b := ensureChannel(t, stores, n.ID, "#beta")
+	c := ensureChannel(t, stores, n.ID, "#gamma")
+
+	if rec := postBufferReorder(handler, n.ID.String(), fmt.Sprintf(`{"ids":[%q,%q,%q]}`, a, b, c)); rec.Code != http.StatusOK {
+		t.Fatalf("seed reorder status = %d", rec.Code)
+	}
+
+	archived := true
+	if _, err := ircdb.UpdateBufferSettings(t.Context(), stores.Control, b, ircdb.BufferSettingsPatch{Archived: &archived}); err != nil {
+		t.Fatal(err)
+	}
+	// A client reorders only the channels it renders, omitting the archived one.
+	if rec := postBufferReorder(handler, n.ID.String(), fmt.Sprintf(`{"ids":[%q,%q]}`, c, a)); rec.Code != http.StatusOK {
+		t.Fatalf("visible reorder status = %d", rec.Code)
+	}
+
+	archived = false
+	if _, err := ircdb.UpdateBufferSettings(t.Context(), stores.Control, b, ircdb.BufferSettingsPatch{Archived: &archived}); err != nil {
+		t.Fatal(err)
+	}
+	orders := channelOrder(t, stores, n.ID)
+	if orders[c] != 0 || orders[a] != 1 || orders[b] != 2 {
+		t.Fatalf("unarchived channel did not land at the tail: %v", orders)
 	}
 }
 
