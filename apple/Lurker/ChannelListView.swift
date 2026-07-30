@@ -67,7 +67,7 @@ struct ChannelListView: View {
             .font(.body.monospaced().weight(.semibold))
           if let topic = entry.topic, !topic.isEmpty {
             Text(topic)
-              .font(.callout)
+              .font(.body)
               .foregroundStyle(.secondary)
               .lineLimit(2)
           }

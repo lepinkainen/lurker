@@ -29,7 +29,7 @@ struct SettingsView: View {
         }
         if let error {
           Text(error)
-            .font(.footnote)
+            .font(.body)
             .foregroundStyle(.red)
         }
       }
@@ -129,7 +129,7 @@ struct ConnectionEditor: View {
 
       if let error {
         Label(error, systemImage: "exclamationmark.triangle.fill")
-          .font(.footnote)
+          .font(.body)
           .foregroundStyle(.red)
       }
 

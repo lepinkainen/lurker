@@ -67,7 +67,7 @@ private struct ConversationHeader: View {
           }
         }
         Text(subtitle)
-          .font(.footnote)
+          .font(.body)
           .foregroundStyle(.secondary)
           .lineLimit(1)
           .textSelection(.enabled)
@@ -560,7 +560,7 @@ private struct PreviewCard: View {
           .font(.caption.weight(.semibold))
           .foregroundStyle(.secondary)
         Text(preview.title ?? preview.description ?? preview.url)
-          .font(.footnote)
+          .font(.body)
           .foregroundStyle(.primary)
           .lineLimit(2)
       }
@@ -624,7 +624,7 @@ private struct ComposerView: View {
     VStack(alignment: .leading, spacing: 4) {
       if let error = model.composerError {
         Text(error)
-          .font(.footnote)
+          .font(.body)
           .foregroundStyle(.red)
           .transition(.move(edge: .bottom).combined(with: .opacity))
       }
