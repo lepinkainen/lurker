@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -360,6 +361,91 @@ func TestBanlistRepliesPersistToStatusBuffer(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %v, want %v", got, want)
 		}
+	}
+}
+
+func TestMOTDLinesRenderAsBox(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
+		}
+	}()
+
+	netrow, err := stores.UpsertNetwork(t.Context(), ircdb.Network{Name: "fake", Host: "127.0.0.1", Port: 6667, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logStore, err := stores.LogStore(netrow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+
+	h.onUnhandledEvent(mustEvent(t, ":irc.example 375 tester :- irc.example Message of the Day -"))
+	h.onUnhandledEvent(mustEvent(t, ":irc.example 372 tester :- Open to all users on 6667"))
+	h.onUnhandledEvent(mustEvent(t, ":irc.example 372 tester :-"))
+	h.onUnhandledEvent(mustEvent(t, ":irc.example 376 tester :End of MOTD command."))
+
+	rows, err := logStore.DB.Query(`SELECT kind, sender, content FROM messages ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			t.Fatalf("close rows: %v", cerr)
+		}
+	}()
+	type row struct{ kind, sender, content string }
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.kind, &r.sender, &r.content); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("got %d rows, want 4: %+v", len(got), got)
+	}
+
+	start, body, empty, end := got[0], got[1], got[2], got[3]
+
+	if !strings.HasPrefix(start.content, "╭─ Message of the Day") {
+		t.Fatalf("start content = %q, want prefix %q", start.content, "╭─ Message of the Day")
+	}
+	if strings.Contains(start.content, "375") {
+		t.Fatalf("start content = %q, must not contain raw numeric 375", start.content)
+	}
+	if start.kind != "notice" {
+		t.Fatalf("start kind = %q, want notice", start.kind)
+	}
+	if start.sender != "irc.example" {
+		t.Fatalf("start sender = %q, want irc.example", start.sender)
+	}
+
+	if body.content != "│ Open to all users on 6667" {
+		t.Fatalf("body content = %q, want %q", body.content, "│ Open to all users on 6667")
+	}
+	if strings.Contains(body.content, "372") {
+		t.Fatalf("body content = %q, must not contain raw numeric 372", body.content)
+	}
+
+	if empty.content != "│" {
+		t.Fatalf("empty body content = %q, want %q", empty.content, "│")
+	}
+
+	if !strings.HasPrefix(end.content, "╰─ End of MOTD") {
+		t.Fatalf("end content = %q, want prefix %q", end.content, "╰─ End of MOTD")
+	}
+	if strings.Contains(end.content, "376") {
+		t.Fatalf("end content = %q, must not contain raw numeric 376", end.content)
 	}
 }
 

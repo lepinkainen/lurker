@@ -2,6 +2,7 @@ package irc
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lrstanley/girc"
@@ -12,6 +13,10 @@ func (h *handler) onUnhandledEvent(e girc.Event) {
 		return
 	}
 	if isProtocolPlumbingEvent(e.Command) {
+		return
+	}
+	if motdNumeric(e.Command) {
+		h.storeEvent(e, "", ircdb.BufferStatus, "notice", "", formatMOTDLine(e))
 		return
 	}
 	kind := unhandledEventKind(e.Command)
@@ -74,4 +79,47 @@ func formatUnhandledEventContent(e girc.Event, dropChannel bool) string {
 		return e.Command
 	}
 	return e.Command + " " + text
+}
+
+// motdNumeric reports whether command is one of the three MOTD numerics
+// (start, body line, end) that formatMOTDLine renders as a box.
+func motdNumeric(command string) bool {
+	switch command {
+	case girc.RPL_MOTDSTART, girc.RPL_MOTD, girc.RPL_ENDOFMOTD:
+		return true
+	default:
+		return false
+	}
+}
+
+// formatMOTDLine renders a single MOTD numeric as one line of a C-shaped
+// box, hiding the raw numeric code. Stateless and per-line: each call only
+// sees the one event, so the box shape comes purely from which numeric it
+// is, not from tracking start/end state across calls.
+func formatMOTDLine(e girc.Event) string {
+	text := strings.TrimSpace(e.Last())
+	if text == "-" {
+		text = ""
+	} else if rest, ok := strings.CutPrefix(text, "- "); ok {
+		text = strings.TrimSpace(rest)
+	}
+	switch e.Command {
+	case girc.RPL_MOTDSTART:
+		return motdRule("╭─ Message of the Day ")
+	case girc.RPL_ENDOFMOTD:
+		return motdRule("╰─ End of MOTD ")
+	default: // girc.RPL_MOTD
+		if text == "" {
+			return "│"
+		}
+		return "│ " + text
+	}
+}
+
+// motdRule pads label with box-drawing dashes to a fixed visible width,
+// counting runes (not bytes) since the box characters are multi-byte UTF-8.
+func motdRule(label string) string {
+	const width = 44
+	n := max(width-utf8.RuneCountInString(label), 3)
+	return label + strings.Repeat("─", n)
 }
