@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import Lurker
@@ -87,6 +88,123 @@ struct AppModelTests {
     #expect(pinned.id != network.id)
     #expect(network.id == repeatedNetwork.id)
     #expect(pinned.buffer.id == network.buffer.id)
+  }
+
+  @Test func sidebarOrderingMovesUpBeforeTarget() {
+    let alpha = UUID()
+    let beta = UUID()
+    let gamma = UUID()
+
+    let reordered = SidebarOrdering.moving(
+      [alpha, beta, gamma], from: gamma, before: beta)
+
+    #expect(reordered == [alpha, gamma, beta])
+  }
+
+  @Test func sidebarOrderingMovesDownBeforeTarget() {
+    let alpha = UUID()
+    let beta = UUID()
+    let gamma = UUID()
+
+    let reordered = SidebarOrdering.moving(
+      [alpha, beta, gamma], from: alpha, before: gamma)
+
+    #expect(reordered == [beta, alpha, gamma])
+  }
+
+  @Test func sidebarOrderingMovesToEnd() {
+    let alpha = UUID()
+    let beta = UUID()
+    let gamma = UUID()
+
+    let reordered = SidebarOrdering.moving(
+      [alpha, beta, gamma], from: alpha, before: nil)
+
+    #expect(reordered == [beta, gamma, alpha])
+  }
+
+  @Test func sidebarOrderingRejectsUnknownAndSelfTargets() {
+    let alpha = UUID()
+    let beta = UUID()
+    let unknown = UUID()
+    let ids = [alpha, beta]
+
+    #expect(SidebarOrdering.moving(ids, from: unknown, before: alpha) == nil)
+    #expect(SidebarOrdering.moving(ids, from: alpha, before: unknown) == nil)
+    #expect(SidebarOrdering.moving(ids, from: alpha, before: alpha) == nil)
+  }
+
+  @Test func sidebarDropDelegateCommitsAcceptedRowAndClearsDrag() {
+    let sourceID = UUID()
+    let targetID = UUID()
+    var drag: SidebarDrag? = SidebarDrag(kind: .network(sourceID))
+    var committedIDs: [UUID] = []
+    let delegate = SidebarDropDelegate(
+      target: .row(targetID),
+      accepts: { kind in
+        if case .network = kind { return true }
+        return false
+      },
+      drag: Binding(get: { drag }, set: { drag = $0 }),
+      commit: { committedIDs.append($0) })
+
+    #expect(delegate.performDrop())
+    #expect(committedIDs == [sourceID])
+    #expect(drag == nil)
+  }
+
+  @Test func sidebarDropDelegateCommitsEndTarget() {
+    let sourceID = UUID()
+    var drag: SidebarDrag? = SidebarDrag(kind: .network(sourceID))
+    var committedIDs: [UUID] = []
+    let delegate = SidebarDropDelegate(
+      target: .endOfNetworks,
+      accepts: { kind in
+        if case .network = kind { return true }
+        return false
+      },
+      drag: Binding(get: { drag }, set: { drag = $0 }),
+      commit: { committedIDs.append($0) })
+
+    #expect(delegate.performDrop())
+    #expect(committedIDs == [sourceID])
+    #expect(drag == nil)
+  }
+
+  @Test func sidebarDropDelegateRejectsSelfTargetAndClearsDrag() {
+    let sourceID = UUID()
+    var drag: SidebarDrag? = SidebarDrag(kind: .network(sourceID))
+    var committedIDs: [UUID] = []
+    let delegate = SidebarDropDelegate(
+      target: .row(sourceID),
+      accepts: { _ in true },
+      drag: Binding(get: { drag }, set: { drag = $0 }),
+      commit: { committedIDs.append($0) })
+
+    #expect(!delegate.performDrop())
+    #expect(committedIDs.isEmpty)
+    #expect(drag == nil)
+  }
+
+  @Test func sidebarDropDelegateRejectsWrongSpeciesAndClearsDrag() {
+    let networkID = UUID()
+    let sourceID = UUID()
+    let targetID = UUID()
+    var drag: SidebarDrag? = SidebarDrag(
+      kind: .channel(networkID: networkID, bufferID: sourceID))
+    var committedIDs: [UUID] = []
+    let delegate = SidebarDropDelegate(
+      target: .row(targetID),
+      accepts: { kind in
+        if case .network = kind { return true }
+        return false
+      },
+      drag: Binding(get: { drag }, set: { drag = $0 }),
+      commit: { committedIDs.append($0) })
+
+    #expect(!delegate.performDrop())
+    #expect(committedIDs.isEmpty)
+    #expect(drag == nil)
   }
 
   @Test func reorderPinnedBuffersAppliesServerOrder() async {
@@ -320,42 +438,59 @@ struct AppModelTests {
     #expect(model.composerError != nil)
   }
 
-  @Test func reorderChannelsAppliesServerOrder() async {
-    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+  @Test func reorderChannelsAppliesServerOrder() async throws {
+    let transport = FixtureTransport()
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
     let networkID = UUID()
     let alpha = buffer("#alpha", networkID: networkID)
     let beta = buffer("#beta", networkID: networkID)
+    let gamma = buffer("#gamma", networkID: networkID)
     model.networks[networkID] = network(id: networkID)
-    model.buffers = Dictionary(uniqueKeysWithValues: [alpha, beta].map { ($0.id, $0) })
+    model.buffers = Dictionary(uniqueKeysWithValues: [alpha, beta, gamma].map { ($0.id, $0) })
 
-    await model.reorderChannels(networkID: networkID, orderedIDs: [beta.id, alpha.id])?.value
+    let reordered = try #require(
+      SidebarOrdering.moving(
+        [alpha.id, beta.id, gamma.id], from: alpha.id, before: gamma.id))
+    #expect(reordered == [beta.id, alpha.id, gamma.id])
+    await model.reorderChannels(networkID: networkID, orderedIDs: reordered)?.value
 
     #expect(model.buffers[beta.id]?.sortOrder == 0)
     #expect(model.buffers[alpha.id]?.sortOrder == 1)
+    #expect(model.buffers[gamma.id]?.sortOrder == 2)
+    #expect(await transport.reorderedBufferIDs == reordered)
     #expect(model.composerError == nil)
   }
 
-  @Test func reorderNetworksSendsCompleteSetIncludingDisabled() async {
+  @Test func reorderNetworksSendsCompleteSetIncludingDisabled() async throws {
     let transport = FixtureTransport()
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
     let firstID = UUID()
     let secondID = UUID()
+    let thirdID = UUID()
     let disabledID = UUID()
     var first = network(id: firstID)
     var second = network(id: secondID)
+    var third = network(id: thirdID)
     var off = network(id: disabledID)
     first.sortOrder = 0
     second.sortOrder = 1
-    off.sortOrder = 2
+    third.sortOrder = 2
+    off.sortOrder = 3
     off.disabled = true
-    model.networks = [firstID: first, secondID: second, disabledID: off]
+    model.networks = [firstID: first, secondID: second, thirdID: third, disabledID: off]
 
-    await model.reorderNetworks([secondID, firstID])?.value
+    let reordered = try #require(
+      SidebarOrdering.moving(
+        [firstID, secondID, thirdID], from: firstID, before: thirdID))
+    #expect(reordered == [secondID, firstID, thirdID])
+    await model.reorderNetworks(reordered)?.value
 
     let sent = await transport.reorderedNetworkIDs
-    #expect(sent == [secondID, firstID, disabledID])
+    #expect(sent == [secondID, firstID, thirdID, disabledID])
     #expect(model.networks[secondID]?.sortOrder == 0)
     #expect(model.networks[firstID]?.sortOrder == 1)
+    #expect(model.networks[thirdID]?.sortOrder == 2)
+    #expect(model.networks[disabledID]?.sortOrder == 3)
   }
 
   @Test func reorderRollbackPreservesInFlightUpdates() async {

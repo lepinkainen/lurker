@@ -4,6 +4,10 @@ function byName(a: Buffer, b: Buffer) {
   return a.name.localeCompare(b.name);
 }
 
+function byChannelOrder(a: Buffer, b: Buffer) {
+  return (a.sort_order ?? 0) - (b.sort_order ?? 0) || byName(a, b);
+}
+
 export function orderedNetworks(): Network[] {
   return [...state.networks.values()].sort((a, b) => {
     const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER;
@@ -15,7 +19,9 @@ export function orderedNetworks(): Network[] {
 export function groupedBuffers(networkId: string) {
   const netBufs = [...state.buffers.values()].filter((buffer) => buffer.network_id === networkId);
   const status = netBufs.find((buffer) => buffer.kind === "status") ?? null;
-  const channels = netBufs.filter((buffer) => buffer.kind === "channel" && buffer.archived !== true).sort(byName);
+  const channels = netBufs
+    .filter((buffer) => buffer.kind === "channel" && buffer.archived !== true)
+    .sort(byChannelOrder);
   const queries = netBufs.filter((buffer) => buffer.kind === "query" && buffer.archived !== true).sort(byName);
   // The Archive section is driven by the persisted archived flag (any kind),
   // not by joined state — a reconnect must not shuffle channels around.

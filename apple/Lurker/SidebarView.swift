@@ -56,6 +56,29 @@ struct SidebarBufferOccurrence: Identifiable {
   }
 }
 
+/// Pure ordering transformation shared by all sidebar drag species.
+///
+/// Row targets use insert-before semantics. A nil target represents the end
+/// drop zone. Keeping this independent of SwiftUI makes the directional
+/// index adjustment explicit and unit-testable.
+enum SidebarOrdering {
+  static func moving(_ ids: [UUID], from fromID: UUID, before targetID: UUID?) -> [UUID]? {
+    guard let fromIndex = ids.firstIndex(of: fromID) else { return nil }
+    if let targetID {
+      guard targetID != fromID, ids.contains(targetID) else { return nil }
+    }
+
+    var reordered = ids
+    reordered.remove(at: fromIndex)
+    if let targetID, let targetIndex = reordered.firstIndex(of: targetID) {
+      reordered.insert(fromID, at: targetIndex)
+    } else {
+      reordered.append(fromID)
+    }
+    return reordered
+  }
+}
+
 struct SidebarView: View {
   @Environment(AppModel.self) private var model
   @State private var pendingDelete: Buffer?
@@ -365,37 +388,31 @@ struct SidebarView: View {
   /// zone). Enabled networks only; the model appends disabled networks for
   /// the API's complete set.
   private func commitNetworkDrop(from fromID: UUID, toRow targetID: UUID?) {
-    var ids = model.orderedNetworks.filter { !$0.disabled }.map(\.id)
-    guard let reordered = movedBefore(ids: &ids, from: fromID, toRow: targetID) else { return }
+    let ids = model.orderedNetworks.filter { !$0.disabled }.map(\.id)
+    guard let reordered = SidebarOrdering.moving(ids, from: fromID, before: targetID) else {
+      return
+    }
     model.reorderNetworks(reordered)
   }
 
   /// Insert the dragged channel before `toRow`, or append when nil, within
   /// its network's visible channels group.
   private func commitChannelDrop(networkID: UUID, from fromID: UUID, toRow targetID: UUID?) {
-    var ids = model.sidebarBuffers(for: networkID).channels.map(\.id)
-    guard let reordered = movedBefore(ids: &ids, from: fromID, toRow: targetID) else { return }
+    let ids = model.sidebarBuffers(for: networkID).channels.map(\.id)
+    guard let reordered = SidebarOrdering.moving(ids, from: fromID, before: targetID) else {
+      return
+    }
     model.reorderChannels(networkID: networkID, orderedIDs: reordered)
   }
 
   /// Insert the dragged pinned buffer before `toRow`, or append when nil,
   /// within the pinned section.
   private func commitPinnedDrop(from fromID: UUID, toRow targetID: UUID?) {
-    var ids = model.pinnedBuffers.map(\.id)
-    guard let reordered = movedBefore(ids: &ids, from: fromID, toRow: targetID) else { return }
-    model.reorderPinnedBuffers(reordered)
-  }
-
-  private func movedBefore(ids: inout [UUID], from fromID: UUID, toRow targetID: UUID?) -> [UUID]? {
-    guard let fromIndex = ids.firstIndex(of: fromID) else { return nil }
-    ids.remove(at: fromIndex)
-    if let targetID {
-      guard let targetIndex = ids.firstIndex(of: targetID) else { return nil }
-      ids.insert(fromID, at: targetIndex)
-    } else {
-      ids.append(fromID)
+    let ids = model.pinnedBuffers.map(\.id)
+    guard let reordered = SidebarOrdering.moving(ids, from: fromID, before: targetID) else {
+      return
     }
-    return ids
+    model.reorderPinnedBuffers(reordered)
   }
 }
 
@@ -457,7 +474,7 @@ private struct DropIndicator: View {
 /// Shared drop delegate for sidebar reordering. `accepts` filters by drag
 /// species (network vs channel-of-this-network); `commit` receives the
 /// dragged id once the drop lands on `target`.
-private struct SidebarDropDelegate: DropDelegate {
+struct SidebarDropDelegate: DropDelegate {
   let target: SidebarDrag.Target
   let accepts: (SidebarDrag.Kind) -> Bool
   @Binding var drag: SidebarDrag?
@@ -495,6 +512,12 @@ private struct SidebarDropDelegate: DropDelegate {
   }
 
   func performDrop(info _: DropInfo) -> Bool {
+    performDrop()
+  }
+
+  /// Testable core of `performDrop(info:)`. `DropInfo` is intentionally
+  /// unused because sidebar drops rely on the app-owned `drag` state.
+  func performDrop() -> Bool {
     defer { drag = nil }
     guard let kind = drag?.kind, accepts(kind), let fromID = draggedID, !isSelfTarget
     else {

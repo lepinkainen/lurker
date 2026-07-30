@@ -78,6 +78,17 @@ describe("renderSidebar", () => {
     expect(rows).toContain("#zzz");
   });
 
+  it("sorts active channels by sort_order then name", () => {
+    state.networks.set("1", net({ id: "1" }));
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#alpha", sort_order: 2 }));
+    state.buffers.set("11", buf({ id: "11", network_id: "1", name: "#beta", sort_order: 1 }));
+    state.buffers.set("12", buf({ id: "12", network_id: "1", name: "#gamma", sort_order: 0 }));
+    const d = deps();
+    renderSidebar(d);
+    const rows = [...d.sbScrollEl.querySelectorAll(".sbrow.channel .name")].map((n) => n.textContent);
+    expect(rows).toEqual(["#gamma", "#beta", "#alpha"]);
+  });
+
   it("renders pinned section at top when pinned buffers are present", () => {
     state.networks.set("1", net({ id: "1" }));
     state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#aaa", joined: true, pinned: true }));
@@ -394,22 +405,22 @@ describe("network section drag reorder", () => {
   });
 
   it("drops before the hovered section, matching the insertion bar", async () => {
-    const fetchMock = okFetch(["1", "3", "2"]);
+    const fetchMock = okFetch(["2", "1", "3"]);
     vi.stubGlobal("fetch", fetchMock);
     const d = setupNetworks();
 
-    // Dragging gamma down onto beta must land it *before* beta, where the bar is
-    // drawn — the old index math inserted after it on downward drags.
-    fire(sections(d)[2], "dragstart");
-    fire(sections(d)[1], "dragover");
-    expect(sections(d)[1].classList.contains("dragover")).toBe(true);
-    fire(sections(d)[1], "drop");
+    // Dragging alpha down onto gamma must land it *before* gamma, where the bar
+    // is drawn. The old index math inserted it after gamma as the last row.
+    fire(sections(d)[0], "dragstart");
+    fire(sections(d)[2], "dragover");
+    expect(sections(d)[2].classList.contains("dragover")).toBe(true);
+    fire(sections(d)[2], "drop");
 
-    expect(names(d)).toEqual(["alpha", "gamma", "beta"]);
-    await vi.waitFor(() => expect(state.networks.get("3")?.sort_order).toBe(1));
-    expect(names(d)).toEqual(["alpha", "gamma", "beta"]);
+    expect(names(d)).toEqual(["beta", "alpha", "gamma"]);
+    await vi.waitFor(() => expect(state.networks.get("1")?.sort_order).toBe(1));
+    expect(names(d)).toEqual(["beta", "alpha", "gamma"]);
     const init = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(JSON.parse(String(init.body))).toEqual({ ids: ["1", "3", "2"] });
+    expect(JSON.parse(String(init.body))).toEqual({ ids: ["2", "1", "3"] });
     expect(state.drag.id).toBeNull();
   });
 

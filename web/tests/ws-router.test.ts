@@ -53,6 +53,55 @@ describe("ws-router state transformations", () => {
     });
   });
 
+  it("buffer_created preserves the server-assigned channel sort order", () => {
+    createWSRouter(fakeView())({
+      type: "buffer_created",
+      id: "b1",
+      network_id: "n1",
+      name: "#a",
+      kind: "channel",
+      sort_order: 4,
+    });
+    expect(state.buffers.get("b1")?.sort_order).toBe(4);
+  });
+
+  it("buffer_reorder updates channel sort orders and rerenders the sidebar", () => {
+    const alpha = {
+      id: "b1",
+      network_id: "n1",
+      name: "#alpha",
+      kind: "channel",
+      unread: 0,
+      mentions: 0,
+      show_embeds: true,
+      show_presence_events: true,
+      collapse_presence_events: false,
+      pinned: false,
+      sort_order: 0,
+    };
+    state.buffers.set("b1", alpha);
+    state.buffers.set("b2", {
+      ...alpha,
+      id: "b2",
+      name: "#beta",
+      sort_order: 1,
+    });
+    const view = fakeView();
+
+    createWSRouter(view)({
+      type: "buffer_reorder",
+      network_id: "n1",
+      buffers: [
+        { id: "b2", sort_order: 0 },
+        { id: "b1", sort_order: 1 },
+      ],
+    });
+
+    expect(state.buffers.get("b2")?.sort_order).toBe(0);
+    expect(state.buffers.get("b1")?.sort_order).toBe(1);
+    expect(view.renderSidebar).toHaveBeenCalledTimes(1);
+  });
+
   it("buffer_deleted delegates to view.removeBuffer", () => {
     const view = fakeView();
     createWSRouter(view)({ type: "buffer_deleted", id: "b1", network_id: "n1" });

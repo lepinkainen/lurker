@@ -34,8 +34,8 @@ func sidebarLabels(m *model) []string {
 	return labels
 }
 
-// The sidebar groups per network: status, active channels (name-sorted,
-// case-insensitive), queries, then a folded Archives toggle.
+// The sidebar groups per network: status, active channels (sort_order then
+// case-insensitive name), queries, then a folded Archives toggle.
 func TestRebuildSidebarGroupsAndSorts(t *testing.T) {
 	m, _, _ := archiveTestFixture()
 	m.rebuildSidebar()
@@ -44,6 +44,61 @@ func TestRebuildSidebarGroupsAndSorts(t *testing.T) {
 	got := sidebarLabels(m)
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("sidebar = %v, want %v", got, want)
+	}
+}
+
+func TestRebuildSidebarOrdersOnlyActiveChannelsBySortOrder(t *testing.T) {
+	m := testModel()
+	netID := uuid.New()
+	m.networks = []networkDTO{{ID: netID, Name: "net"}}
+	m.buffers = []bufferDTO{
+		{ID: uuid.New(), NetworkID: netID, Name: "#alpha", Kind: "channel", SortOrder: 2},
+		{ID: uuid.New(), NetworkID: netID, Name: "#Zulu", Kind: "channel", SortOrder: 1},
+		{ID: uuid.New(), NetworkID: netID, Name: "#beta", Kind: "channel", SortOrder: 1},
+		{ID: uuid.New(), NetworkID: netID, Name: "z-query", Kind: "query", SortOrder: 0},
+		{ID: uuid.New(), NetworkID: netID, Name: "a-query", Kind: "query", SortOrder: 9},
+		{ID: uuid.New(), NetworkID: netID, Name: "#z-old", Kind: "channel", SortOrder: 0, Archived: true},
+		{ID: uuid.New(), NetworkID: netID, Name: "#a-old", Kind: "channel", SortOrder: 9, Archived: true},
+	}
+	m.archivesOpen[netID] = true
+
+	m.rebuildSidebar()
+
+	got := sidebarLabels(m)
+	want := []string{
+		"net", "#beta", "#Zulu", "#alpha", "a-query", "z-query",
+		"▾ Archives (2)", "#a-old", "#z-old",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("sidebar = %v, want %v", got, want)
+	}
+}
+
+func TestBufferReorderEventUpdatesSidebarOrder(t *testing.T) {
+	m := testModel()
+	netID := uuid.New()
+	alpha, beta, gamma := uuid.New(), uuid.New(), uuid.New()
+	m.networks = []networkDTO{{ID: netID, Name: "net"}}
+	m.buffers = []bufferDTO{
+		{ID: alpha, NetworkID: netID, Name: "#alpha", Kind: "channel", SortOrder: 0},
+		{ID: beta, NetworkID: netID, Name: "#beta", Kind: "channel", SortOrder: 1},
+		{ID: gamma, NetworkID: netID, Name: "#gamma", Kind: "channel", SortOrder: 2},
+	}
+	m.rebuildSidebar()
+
+	m.handleWSEvent(wsEvent{
+		Type: "buffer_reorder", NetworkID: netID,
+		Buffers: []bufferSortEntry{
+			{ID: alpha, SortOrder: 2},
+			{ID: beta, SortOrder: 0},
+			{ID: gamma, SortOrder: 1},
+		},
+	})
+
+	got := sidebarLabels(m)
+	want := []string{"net", "#beta", "#gamma", "#alpha"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("sidebar after buffer_reorder = %v, want %v", got, want)
 	}
 }
 

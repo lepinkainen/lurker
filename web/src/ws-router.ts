@@ -5,7 +5,7 @@ import { registerMemberNickColors, registerMessageNickColors } from "./nick-colo
 
 type WSMessage =
   | ({ type: "message" } & Message)
-  | { type: "buffer_created"; id: string; network_id: string; name: string; kind: string }
+  | { type: "buffer_created"; id: string; network_id: string; name: string; kind: string; sort_order?: number }
   | {
       type: "buffer_update";
       id: string;
@@ -34,6 +34,7 @@ type WSMessage =
       pin_order?: number;
     }
   | { type: "pinned_reorder"; buffers?: { id: string; pin_order: number }[] }
+  | { type: "buffer_reorder"; network_id: string; buffers?: { id: string; sort_order: number }[] }
   | { type: "buffer_deleted"; id: string; network_id: string }
   | { type: "network_state"; network_id: string; state: string }
   | { type: "history_result"; buffer_id: string; messages?: Message[] }
@@ -69,6 +70,7 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
           show_presence_events: true,
           collapse_presence_events: false,
           pinned: false,
+          ...(m.sort_order === undefined ? {} : { sort_order: m.sort_order }),
         });
         view.renderSidebar();
         break;
@@ -87,6 +89,13 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
         for (const entry of m.buffers || []) {
           const buffer = state.buffers.get(entry.id);
           if (buffer) buffer.pin_order = entry.pin_order;
+        }
+        view.renderSidebar();
+        break;
+      case "buffer_reorder":
+        for (const entry of m.buffers || []) {
+          const buffer = state.buffers.get(entry.id);
+          if (buffer) buffer.sort_order = entry.sort_order;
         }
         view.renderSidebar();
         break;

@@ -50,6 +50,9 @@ export type Buffer = {
   show_presence_events: boolean;
   collapse_presence_events: boolean;
   pinned: boolean;
+  // Manual ordering within the network's active-channel group. Channels sort
+  // by (sort_order, name); queries and archived buffers remain alphabetical.
+  sort_order?: number;
   // Manual pinned-section ordering; pinned channels sort (pin_order, name).
   // Absent on pre-pin_order backends, treated as 0.
   pin_order?: number;

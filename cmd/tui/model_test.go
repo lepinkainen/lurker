@@ -63,6 +63,7 @@ func TestBufferCreatedDefaultsShowPresence(t *testing.T) {
 	m.handleWSEvent(wsEvent{
 		Type: "buffer_created", ID: bufID,
 		NetworkID: uuid.New(), Name: "#test", Kind: "channel",
+		SortOrder: 7,
 	})
 	if len(m.buffers) != 1 {
 		t.Fatalf("expected 1 buffer, got %d", len(m.buffers))
@@ -73,6 +74,9 @@ func TestBufferCreatedDefaultsShowPresence(t *testing.T) {
 	}
 	if b.CollapsePresenceEvents {
 		t.Errorf("CollapsePresenceEvents=true on newly created buffer; want false")
+	}
+	if b.SortOrder != 7 {
+		t.Errorf("SortOrder=%d on newly created buffer; want 7", b.SortOrder)
 	}
 }
 

@@ -1091,6 +1091,13 @@ func (m *model) handleWSEvent(ev wsEvent) {
 			}
 		}
 		m.rebuildSidebar()
+	case "buffer_reorder":
+		for _, entry := range ev.Buffers {
+			if b := m.findBuffer(entry.ID); b != nil {
+				b.SortOrder = entry.SortOrder
+			}
+		}
+		m.rebuildSidebar()
 	case "buffer_deleted":
 		m.removeBuffer(ev.ID)
 	case "network_state":
@@ -1102,7 +1109,7 @@ func (m *model) handleWSEvent(ev wsEvent) {
 		// buffer as "hide presence" until the next /api/state reload.
 		m.buffers = append(m.buffers, bufferDTO{
 			ID: ev.ID, NetworkID: ev.NetworkID, Name: ev.Name, Kind: ev.Kind,
-			ShowPresenceEvents: true,
+			SortOrder: ev.SortOrder, ShowPresenceEvents: true,
 		})
 		// append may have reslized m.buffers; refresh m.activeBuffer
 		// before any subsequent code dereferences the (now stale) pointer.

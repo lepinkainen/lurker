@@ -69,8 +69,9 @@ func savePersistedBufferID(id uuid.UUID) error {
 //  1. Persisted "last viewed" buffer if it still exists and its network is not disabled.
 //  2. First pinned channel, ordered by (pin_order, channel name) — matching the
 //     sidebar's Pinned section.
-//  3. Per network in sort_order: active channels by name → queries by name →
-//     archived buffers by name → status. Status is the absolute last resort.
+//  3. Per network in sort_order: active channels by (sort_order, name) →
+//     queries by name → archived buffers by name → status. Status is the
+//     absolute last resort.
 //
 // Returns uuid.Nil if no buffer is available.
 func pickStartupBuffer(networks []networkDTO, buffers []bufferDTO, persisted uuid.UUID) uuid.UUID {
@@ -143,15 +144,22 @@ func firstByNetwork(networks []networkDTO, buffers []bufferDTO) uuid.UUID {
 	return uuid.Nil
 }
 
-// groupBuffers splits one network's buffers into the sidebar groups, each
-// sorted case-insensitively by name: active channels, queries, archived
-// buffers (any kind — the persisted archived flag, not joined state), status.
+// groupBuffers splits one network's buffers into the sidebar groups. Active
+// channels sort by their manual order and then case-insensitive name; queries,
+// archived buffers (any kind — the persisted archived flag, not joined state),
+// and status buffers stay alphabetically sorted.
 func groupBuffers(bufs []bufferDTO) (channels, queries, archived, status []bufferDTO) {
 	channels = filterBufs(bufs, func(b bufferDTO) bool { return b.Kind == "channel" && !b.Archived })
 	queries = filterBufs(bufs, func(b bufferDTO) bool { return b.Kind == "query" && !b.Archived })
 	archived = filterBufs(bufs, func(b bufferDTO) bool { return b.Kind != "status" && b.Archived })
 	status = filterBufs(bufs, func(b bufferDTO) bool { return b.Kind == "status" })
-	for _, g := range [][]bufferDTO{channels, queries, archived, status} {
+	sort.Slice(channels, func(i, j int) bool {
+		if channels[i].SortOrder != channels[j].SortOrder {
+			return channels[i].SortOrder < channels[j].SortOrder
+		}
+		return strings.ToLower(channels[i].Name) < strings.ToLower(channels[j].Name)
+	})
+	for _, g := range [][]bufferDTO{queries, archived, status} {
 		sort.Slice(g, func(i, j int) bool { return strings.ToLower(g[i].Name) < strings.ToLower(g[j].Name) })
 	}
 	return channels, queries, archived, status

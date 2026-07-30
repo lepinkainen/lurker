@@ -76,6 +76,7 @@ A template is available at `tui-config.yaml.example`.
 The Bubble Tea model in `cmd/tui/model.go` renders an alternate-screen terminal UI:
 
 - left sidebar: enabled networks and their buffers
+- active channel rows honor the backend's manual `(sort_order, name)` order; queries and archived buffers remain alphabetical
 - header: active buffer name and topic
 - message viewport: formatted recent messages
 - input area: one-line message entry
@@ -116,8 +117,9 @@ Consumed WebSocket events:
 
 - `message`: append to the buffer's message list and refresh the active viewport
 - `buffer_update`: update joined state and topic
+- `buffer_reorder`: apply live per-network channel ordering updates
 - `network_state`: update displayed network state
-- `buffer_created`: append new buffer and rebuild the sidebar
+- `buffer_created`: append a new buffer with its server-assigned channel order and rebuild the sidebar
 
 Sent WebSocket commands:
 

@@ -24,6 +24,7 @@ type bufferDTO struct {
 	NetworkID  uuid.UUID `json:"network_id"`
 	Name       string    `json:"name"`
 	Kind       string    `json:"kind"`
+	SortOrder  int64     `json:"sort_order"`
 	Topic      string    `json:"topic"`
 	TopicSetBy string    `json:"topic_set_by"`
 	Joined     bool      `json:"joined"`
@@ -118,13 +119,14 @@ type wsEvent struct {
 	CollapsePresenceEvents bool  `json:"collapse_presence_events"`
 	Pinned                 bool  `json:"pinned"`
 	PinOrder               int64 `json:"pin_order"`
-	// pinned_reorder
-	Buffers []pinnedSortEntry `json:"buffers"`
+	// buffer_reorder / pinned_reorder
+	Buffers []bufferSortEntry `json:"buffers"`
 	// network_state
 	State string `json:"state"`
 	// buffer_created
 	Name      string `json:"name"`
 	CreatedAt string `json:"created_at"`
+	SortOrder int64  `json:"sort_order"`
 	// member_list
 	Channel string          `json:"channel"`
 	Members []channelMember `json:"members"`
@@ -136,9 +138,10 @@ type wsEvent struct {
 	Done    bool               `json:"done"`
 }
 
-type pinnedSortEntry struct {
-	ID       uuid.UUID `json:"id"`
-	PinOrder int64     `json:"pin_order"`
+type bufferSortEntry struct {
+	ID        uuid.UUID `json:"id"`
+	SortOrder int64     `json:"sort_order"`
+	PinOrder  int64     `json:"pin_order"`
 }
 
 type channelListEntry struct {
