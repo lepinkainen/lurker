@@ -31,7 +31,7 @@ func TestParseXRPCErrorCode(t *testing.T) {
 }
 
 func xrpcBody(code string) []byte {
-	return []byte(fmt.Sprintf(`{"error":%q}`, code))
+	return fmt.Appendf(nil, `{"error":%q}`, code)
 }
 
 func TestIsExpiredAuthErr(t *testing.T) {

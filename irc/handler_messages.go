@@ -104,7 +104,7 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 	// (IRCCloud behavior); persistent spam is handled by buffer deletion.
 	if bufKind == ircdb.BufferQuery {
 		if h.syncBufferArchived(ctx, bufID, false) {
-			h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: bufID, NetworkID: h.networkID, Archived: ptrTo(false)})
+			h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: bufID, NetworkID: h.networkID, Archived: new(false)})
 		}
 	}
 	id, storedTS, inserted, err := ircdb.InsertLogMessage(ctx, h.db, ircdb.LogMessageInput{

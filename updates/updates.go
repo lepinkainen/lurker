@@ -55,7 +55,7 @@ type Status struct {
 	RemoteCommit     string    `json:"remote_commit,omitempty"`
 	RemoteBuildTime  string    `json:"remote_build_time,omitempty"`
 	RemoteDigest     string    `json:"remote_digest,omitempty"`
-	CheckedAt        time.Time `json:"checked_at,omitempty"`
+	CheckedAt        time.Time `json:"checked_at"`
 	UpdateAvailable  bool      `json:"update_available"`
 	Error            string    `json:"error,omitempty"`
 }
@@ -394,7 +394,7 @@ func parseChallenge(header string) (authChallenge, error) {
 		return authChallenge{}, fmt.Errorf("bad registry auth challenge %q", header)
 	}
 	var out authChallenge
-	for _, part := range strings.Split(parts[1], ",") {
+	for part := range strings.SplitSeq(parts[1], ",") {
 		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
 		if len(kv) != 2 {
 			continue

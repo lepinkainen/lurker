@@ -20,11 +20,11 @@ func TestMircFormatFlushesBeforeToggle(t *testing.T) {
 	// The leading "plain" must not be wrapped in a bold escape. ANSI bold
 	// SGR sequence is "\x1b[1m". The substring up to "bold" should not
 	// contain it; the substring containing "bold" must.
-	boldStart := strings.Index(got, "bold")
-	if boldStart < 0 {
+	before, _, ok := strings.Cut(got, "bold")
+	if !ok {
 		t.Fatalf("missing 'bold' segment: %q", got)
 	}
-	leading := got[:boldStart]
+	leading := before
 	if strings.Contains(leading, "\x1b[1m") {
 		t.Fatalf("leading text incorrectly carries bold style; got %q", got)
 	}

@@ -2,6 +2,7 @@ package irc
 
 import (
 	"context"
+	"maps"
 	"sort"
 	"strings"
 
@@ -49,9 +50,7 @@ func (m *Manager) LoadFixtureRuntimeState(ctx context.Context) error {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for id, state := range states {
-		m.state[id] = state
-	}
+	maps.Copy(m.state, states)
 	m.joined = joined
 	m.fixtureMembers = members
 	return nil

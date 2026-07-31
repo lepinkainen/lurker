@@ -178,7 +178,3 @@ type ChannelListEvent struct {
 type PreviewEnqueuer interface {
 	Enqueue(networkID, bufferID, messageID uuid.UUID, content string)
 }
-
-// ptrTo returns a pointer to v, for optional event fields where nil means
-// "unchanged" and a pointer to the zero value means "set to zero".
-func ptrTo[T any](v T) *T { return &v }

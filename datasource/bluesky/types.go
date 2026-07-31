@@ -125,7 +125,7 @@ type EmbedImageRef struct {
 type EmbedRecord struct {
 	Type   string       `json:"$type,omitempty"`
 	URI    string       `json:"uri,omitempty"`
-	Author Actor        `json:"author,omitempty"`
+	Author Actor        `json:"author"`
 	Value  *Record      `json:"value,omitempty"`
 	Record *EmbedRecord `json:"record,omitempty"`
 }

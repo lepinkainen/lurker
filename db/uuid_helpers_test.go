@@ -204,7 +204,7 @@ func TestInsertMessagePreviewLinksBatchInsertsAll(t *testing.T) {
 
 	// 3 distinct messages × 2 preview URLs = 6 rows.
 	var msgIDs []uuid.UUID
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		mid := uuid.Must(uuid.NewV7())
 		msgIDs = append(msgIDs, mid)
 		if _, err := d.ExecContext(ctx,

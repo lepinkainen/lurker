@@ -93,7 +93,7 @@ func (s *switcherModel) render(width int) string {
 		sb.WriteString(styleStatusBad.Render("(no matches)"))
 	}
 	maxShow := min(10, len(s.entries))
-	for i := 0; i < maxShow; i++ {
+	for i := range maxShow {
 		e := s.entries[i]
 		line := e.networkName + " / " + e.bufferName
 		if i == s.sel {
@@ -103,10 +103,7 @@ func (s *switcherModel) render(width int) string {
 		}
 		sb.WriteByte('\n')
 	}
-	w := width - 4
-	if w < 30 {
-		w = 30
-	}
+	w := max(width-4, 30)
 	return styleSwitcherBox.Width(w).Render(sb.String())
 }
 

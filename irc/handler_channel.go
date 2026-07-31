@@ -78,9 +78,9 @@ func (h *handler) onKick(c *girc.Client, e girc.Event) {
 			if h.setJoinedHook != nil {
 				h.setJoinedHook(channel, false)
 			}
-			ev := BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: ptrTo(false)}
+			ev := BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: new(false)}
 			if h.syncBufferArchived(ctx, globalBufID, true) {
-				ev.Archived = ptrTo(true)
+				ev.Archived = new(true)
 			}
 			h.publishBufferUpdate(ev)
 			h.publishMemberList(c, channel)
@@ -108,7 +108,7 @@ func (h *handler) onTopic(_ *girc.Client, e girc.Event) {
 	if setAt.IsZero() {
 		setAt = time.Now()
 	}
-	h.updateChannelTopicState(channel, &topic, &setBy, ptrTo(ircdb.FormatTime(setAt)))
+	h.updateChannelTopicState(channel, &topic, &setBy, new(ircdb.FormatTime(setAt)))
 	h.storeEvent(e, channel, ircdb.BufferChannel, "topic", "", topic)
 }
 
@@ -132,7 +132,7 @@ func (h *handler) onNoTopicReply(_ *girc.Client, e girc.Event) {
 	if !girc.IsValidChannel(channel) {
 		return
 	}
-	h.updateChannelTopicState(channel, ptrTo(""), nil, nil)
+	h.updateChannelTopicState(channel, new(""), nil, nil)
 }
 
 // onTopicWhoTime handles RPL_TOPICWHOTIME (333): who set the topic and when.
@@ -152,7 +152,7 @@ func (h *handler) onTopicWhoTime(_ *girc.Client, e girc.Event) {
 	if err != nil || unix <= 0 {
 		return
 	}
-	h.updateChannelTopicState(channel, nil, &setBy, ptrTo(ircdb.FormatTime(time.Unix(unix, 0))))
+	h.updateChannelTopicState(channel, nil, &setBy, new(ircdb.FormatTime(time.Unix(unix, 0))))
 }
 
 func (h *handler) onMode(_ *girc.Client, e girc.Event) {
@@ -256,7 +256,7 @@ func (h *handler) markAllChannelsParted() {
 			slog.Error("ensure channel buffer", "err", err, "network", h.networkName, "buffer", channel)
 			continue
 		}
-		h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: ptrTo(false)})
+		h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: new(false)})
 	}
 }
 
@@ -277,12 +277,12 @@ func (h *handler) updateChannelJoined(channel string, joined bool, presenceState
 	if h.setJoinedHook != nil {
 		h.setJoinedHook(channel, joined)
 	}
-	ev := BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: ptrTo(joined)}
+	ev := BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: new(joined)}
 	// Join/part reflects user intent, so it drives the archived flag: a
 	// parted channel moves to Archives, a (re)joined one comes back.
 	// Disconnects (markAllChannelsParted) deliberately do NOT archive.
 	if h.syncBufferArchived(ctx, globalBufID, !joined) {
-		ev.Archived = ptrTo(!joined)
+		ev.Archived = new(!joined)
 	}
 	h.publishBufferUpdate(ev)
 	if h.hub != nil && source != nil {
@@ -314,7 +314,7 @@ func (h *handler) updateChannelTopicState(channel string, topic, setBy, setAt *s
 	if topic != nil {
 		// DB keeps the raw topic; the wire carries plain text (clients render
 		// topics unstyled, and raw mIRC codes would leak as control chars).
-		ev.Topic = ptrTo(mirc.Strip(*topic))
+		ev.Topic = new(mirc.Strip(*topic))
 	}
 	h.publishBufferUpdate(ev)
 }
