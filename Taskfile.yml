@@ -259,6 +259,7 @@ tasks:
     desc: Run formatting and lint checks (excluding llm-shared)
     deps: [lint-web]
     cmds:
+      - go fix {{.GO_PACKAGES}}
       - goimports -w $(find . -path ./llm-shared -prune -o -name '*.go' -print)
       - golangci-lint run ./...
       - |
