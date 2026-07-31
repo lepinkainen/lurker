@@ -149,7 +149,7 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 	}).WithSemantics(nick)
 	ev.Netsplit = nsMeta
 	h.hub.Publish(ev)
-	h.enqueuePreviews(id, bufID, kind, content)
+	h.enqueuePreviews(id, bufID, bufKind, kind, content)
 }
 
 // trackNetsplit feeds stored channel quit/join messages through the live
@@ -182,9 +182,10 @@ func (h *handler) trackNetsplit(bufID, msgID uuid.UUID, bufKind, kind, sender, c
 
 // enqueuePreviews schedules URL-preview fetches for user-authored content.
 // We skip synthetic kinds (joins, modes, etc.) so the preview worker never
-// wastes cycles on system noise.
-func (h *handler) enqueuePreviews(messageID, bufferID uuid.UUID, kind, content string) {
-	if h.previews == nil || content == "" {
+// wastes cycles on system noise. Status windows (server notices, MOTD) never
+// get previews: link previews are off by default there.
+func (h *handler) enqueuePreviews(messageID, bufferID uuid.UUID, bufKind, kind, content string) {
+	if h.previews == nil || content == "" || bufKind == ircdb.BufferStatus {
 		return
 	}
 	switch kind {

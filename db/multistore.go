@@ -443,14 +443,19 @@ func applyBufferSettings(ctx context.Context, control *sql.DB, buf *Buffer) {
 	if err != nil {
 		buf.ShowEmbeds = true
 		buf.ShowPresenceEvents = true
-		return
+	} else {
+		buf.ShowEmbeds = settings.ShowEmbeds
+		buf.ShowPresenceEvents = settings.ShowPresenceEvents
+		buf.CollapsePresenceEvents = settings.CollapsePresenceEvents
+		buf.Pinned = settings.Pinned
+		buf.Archived = settings.Archived
+		buf.PinOrder = settings.PinOrder
 	}
-	buf.ShowEmbeds = settings.ShowEmbeds
-	buf.ShowPresenceEvents = settings.ShowPresenceEvents
-	buf.CollapsePresenceEvents = settings.CollapsePresenceEvents
-	buf.Pinned = settings.Pinned
-	buf.Archived = settings.Archived
-	buf.PinOrder = settings.PinOrder
+	// Status windows default link previews off and can't be toggled
+	// (UpdateBufferSettings rejects them), so they never carry a settings row.
+	if buf.Kind == BufferStatus {
+		buf.ShowEmbeds = false
+	}
 }
 
 // LookupBuffer resolves a global buffer ID to network/name/kind.
@@ -520,6 +525,9 @@ func (ms *MultiStore) networkBuffers(ctx context.Context, n Network, logStore *L
 		} else {
 			b.ShowEmbeds = true
 			b.ShowPresenceEvents = true
+		}
+		if b.Kind == BufferStatus {
+			b.ShowEmbeds = false
 		}
 		if lb, ok := logByName[b.Name]; ok {
 			b.Topic = lb.Topic

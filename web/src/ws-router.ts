@@ -66,7 +66,7 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
           unread: 0,
           mentions: 0,
           last_seen_id: "",
-          show_embeds: true,
+          show_embeds: m.kind !== "status",
           show_presence_events: true,
           collapse_presence_events: false,
           pinned: false,
