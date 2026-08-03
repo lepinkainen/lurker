@@ -192,7 +192,7 @@ tasks:
       - ./scripts/package-apple.sh
 
   dev-web:
-    desc: Build the frontend then run backend via air (restarts 5s after Go edits settle)
+    desc: Build the frontend then run backend via air (restarts 15s after Go edits settle)
     deps: [web-build]
     cmds:
       - air
