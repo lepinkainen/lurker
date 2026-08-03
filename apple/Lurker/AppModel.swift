@@ -588,7 +588,8 @@ final class AppModel {
           joined: event.kind == "channel",
           lastSeenID: nil,
           createdAt: event.createdAt,
-          showEmbeds: true,
+          // Status windows carry server-generated content; no link previews.
+          showEmbeds: event.kind != "status",
           showPresenceEvents: true,
           collapsePresenceEvents: false,
           pinned: false,
