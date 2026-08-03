@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	ircdb "github.com/lepinkainen/lurker/db"
@@ -137,12 +138,51 @@ func (s *Server) updateStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.UpdateChecker.Status())
 }
 
-func (s *Server) uploadURL(name string) string {
+// uploadURL builds the URL returned to the client for a stored upload. When
+// UPLOAD_BASE_URL is configured it wins (e.g. a public bucket / tailnet host).
+// Otherwise the URL is made absolute from the incoming request so the pasted
+// link resolves for other IRC clients — a relative "/uploads/..." is useless
+// once it leaves this origin.
+func (s *Server) uploadURL(r *http.Request, name string) string {
 	name = filepath.Base(name)
 	if s.Uploads.BaseURL != "" {
 		return strings.TrimRight(s.Uploads.BaseURL, "/") + "/" + name
 	}
-	return "/uploads/" + name
+	if !validUploadHost(r.Host) {
+		// Host header is untrustworthy (spaces, CRLF, quotes, ...); fall back
+		// to a relative URL rather than embed it in an absolute one. Still
+		// resolves fine for clients on the same origin.
+		return "/uploads/" + name
+	}
+	return uploadScheme(r) + "://" + r.Host + "/uploads/" + name
+}
+
+// uploadHostRe matches a plausible host[:port] (including bracketed IPv6),
+// rejecting spaces, quotes, CRLF, or other characters that could break out of
+// a URL when embedded verbatim.
+var uploadHostRe = regexp.MustCompile(`^[A-Za-z0-9.\-:\[\]]+$`)
+
+// validUploadHost reports whether h is safe to embed in a returned URL.
+func validUploadHost(h string) bool { return h != "" && uploadHostRe.MatchString(h) }
+
+// uploadScheme picks http/https for request-derived upload URLs, honoring a
+// reverse proxy's X-Forwarded-Proto (Tailscale serve / TLS terminators) before
+// falling back to the connection's own TLS state. Only "http" or "https" are
+// accepted from the header — anything else (e.g. a spoofed "javascript") is
+// ignored so it can't smuggle a dangerous scheme into a pasted link.
+func uploadScheme(r *http.Request) string {
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		if i := strings.IndexByte(proto, ','); i >= 0 {
+			proto = proto[:i]
+		}
+		if proto = strings.ToLower(strings.TrimSpace(proto)); proto == "http" || proto == "https" {
+			return proto
+		}
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
 }
 
 func (s *Server) web() http.Handler {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -14,7 +15,7 @@ import (
 	"strings"
 )
 
-const uploadMultipartSlop = 1 << 20
+const uploadMultipartSlop = 1 << 20 // 1 MiB
 
 var uploadExtRe = regexp.MustCompile(`^[a-z0-9]{1,12}$`)
 
@@ -23,9 +24,8 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "uploads disabled", http.StatusNotFound)
 		return
 	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, s.Uploads.MaxBytes+uploadMultipartSlop)
-	file, header, err := readUploadFormFile(r)
+	file, _, err := readUploadFormFile(r)
 	if err != nil {
 		var maxErr *http.MaxBytesError
 		switch {
@@ -38,13 +38,45 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = file.Close() }()
 
+	data, err := io.ReadAll(io.LimitReader(file, s.Uploads.MaxBytes+1))
+	if err != nil {
+		http.Error(w, "read upload: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if int64(len(data)) > s.Uploads.MaxBytes {
+		http.Error(w, "upload too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	sniff := data
+	if len(sniff) > 512 {
+		sniff = sniff[:512]
+	}
+	if classifyMedia(http.DetectContentType(sniff)) == mediaKindVideo {
+		slog.Info("upload rejected", "reason", "video not yet supported", "bytes", len(data))
+		http.Error(w, "video not yet supported", http.StatusUnsupportedMediaType)
+		return
+	}
+	// mediaKindImage and mediaKindUnknown both fall through to optimizeImage,
+	// which is the real validation gate: http.DetectContentType does not
+	// reliably recognize WebP, so we don't want to hard-reject on the sniff
+	// alone. optimizeImage's decode attempt covers HEIC, unrecognized, and
+	// non-image payloads.
+
+	optimized, err := optimizeImage(data)
+	if err != nil {
+		slog.Info("upload rejected", "reason", err.Error(), "bytes", len(data),
+			"sniffed", http.DetectContentType(sniff))
+		http.Error(w, "unsupported media type: "+err.Error(), http.StatusUnsupportedMediaType)
+		return
+	}
+
 	mkdirErr := os.MkdirAll(s.Uploads.Dir, 0o755)
 	if mkdirErr != nil {
 		http.Error(w, "create upload dir: "+mkdirErr.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	name, err := newUploadName(header.Filename)
+	name, err := newUploadName(optimized.Ext)
 	if err != nil {
 		http.Error(w, "create upload name: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -55,12 +87,11 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "create upload file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	n, copyErr := io.Copy(dst, io.LimitReader(file, s.Uploads.MaxBytes+1))
+	_, writeErr := dst.Write(optimized.Data)
 	closeErr := dst.Close()
-	if copyErr != nil {
+	if writeErr != nil {
 		_ = os.Remove(path)
-		http.Error(w, "save upload: "+copyErr.Error(), http.StatusInternalServerError)
+		http.Error(w, "save upload: "+writeErr.Error(), http.StatusInternalServerError)
 		return
 	}
 	if closeErr != nil {
@@ -68,13 +99,17 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "close upload file: "+closeErr.Error(), http.StatusInternalServerError)
 		return
 	}
-	if n > s.Uploads.MaxBytes {
-		_ = os.Remove(path)
-		http.Error(w, "upload too large", http.StatusRequestEntityTooLarge)
-		return
-	}
-
-	writeJSON(w, http.StatusCreated, map[string]any{"url": s.uploadURL(name)})
+	url := s.uploadURL(r, name)
+	slog.Info("upload stored", "name", name, "mime", optimized.Mime,
+		"width", optimized.Width, "height", optimized.Height,
+		"in_bytes", len(data), "out_bytes", len(optimized.Data), "url", url)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"url":    url,
+		"mime":   optimized.Mime,
+		"width":  optimized.Width,
+		"height": optimized.Height,
+		"bytes":  len(optimized.Data),
+	})
 }
 
 func (s *Server) serveUpload(w http.ResponseWriter, r *http.Request) {
@@ -104,13 +139,17 @@ func readUploadFormFile(r *http.Request) (multipart.File, *multipart.FileHeader,
 	return file, header, nil
 }
 
-func newUploadName(original string) (string, error) {
+// newUploadName generates a random on-disk file name using the given
+// extension (without leading dot, e.g. "jpg"). The extension comes from the
+// optimizer's output format, not the client-supplied filename, so it always
+// reflects what was actually written to disk.
+func newUploadName(ext string) (string, error) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
 	name := hex.EncodeToString(buf)
-	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(original), "."))
+	ext = strings.ToLower(strings.TrimPrefix(ext, "."))
 	if uploadExtRe.MatchString(ext) {
 		name += "." + ext
 	}

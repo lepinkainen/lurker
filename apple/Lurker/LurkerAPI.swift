@@ -45,6 +45,7 @@ protocol LurkerTransport: Sendable {
   func openEvents() async -> AsyncThrowingStream<ServerEvent, Error>
   func send(_ command: ClientCommand) async throws
   func disconnect() async
+  func upload(_ data: Data, filename: String, contentType: String) async throws -> URL
 }
 
 /// Request body shared by both reorder endpoints.
@@ -201,6 +202,41 @@ actor LurkerAPI: LurkerTransport {
   func disconnect() {
     socket?.cancel(with: .goingAway, reason: nil)
     socket = nil
+  }
+
+  func upload(_ data: Data, filename: String, contentType: String) async throws -> URL {
+    let boundary = UUID().uuidString
+    var body = Data()
+    body.append("--\(boundary)\r\n".data(using: .utf8)!)
+    body.append(
+      "Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n"
+        .data(using: .utf8)!)
+    body.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
+    body.append(data)
+    body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+    var request = URLRequest(url: url("api/upload"))
+    request.httpMethod = "POST"
+    request.setValue(
+      "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+    request.httpBody = body
+
+    let (responseData, response) = try await session.data(for: request)
+    guard let response = response as? HTTPURLResponse else {
+      throw LurkerAPIError.invalidResponse
+    }
+    guard (200..<300).contains(response.statusCode) else {
+      throw LurkerAPIError.httpStatus(
+        response.statusCode, String(data: responseData, encoding: .utf8) ?? "")
+    }
+    struct UploadResponse: Decodable {
+      let url: String
+    }
+    let decoded = try decoder.decode(UploadResponse.self, from: responseData)
+    guard let resolved = URL(string: decoded.url, relativeTo: baseURL)?.absoluteURL else {
+      throw LurkerAPIError.invalidResponse
+    }
+    return resolved
   }
 
   private func get<T: Decodable>(_ path: String) async throws -> T {

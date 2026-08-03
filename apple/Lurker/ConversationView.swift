@@ -1,5 +1,10 @@
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
+
+#if !os(macOS)
+  import PhotosUI
+#endif
 
 struct ConversationView: View {
   @Environment(AppModel.self) private var model
@@ -625,6 +630,11 @@ private struct ComposerView: View {
   @State private var popupDismissed = false
   // Measured height of the autocomplete panel, used to float it above the bar.
   @State private var popupHeight: CGFloat = 0
+  #if os(macOS)
+    @State private var importingImage = false
+  #else
+    @State private var photoItem: PhotosPickerItem?
+  #endif
 
   var body: some View {
     @Bindable var model = model
@@ -663,6 +673,7 @@ private struct ComposerView: View {
             popupDismissed = true
             return .handled
           }
+        attachButton
         Button(action: model.sendComposer) {
           Image(systemName: "arrow.up.circle.fill")
             .font(.title2)
@@ -676,6 +687,7 @@ private struct ComposerView: View {
       .padding(.horizontal, 10)
       .padding(.vertical, 7)
       .background(Color.lurkerControlBackground, in: .rect(cornerRadius: 8))
+      .onDrop(of: [.image], isTargeted: nil, perform: handleDrop)
       .overlay {
         RoundedRectangle(cornerRadius: 8)
           .stroke(
@@ -779,6 +791,84 @@ private struct ComposerView: View {
 
   private var canSend: Bool {
     model.connectionState == .connected && (buffer.kind != "channel" || buffer.joined)
+  }
+
+  /// Attach affordance: a `fileImporter`-backed button on macOS, a
+  /// `PhotosPicker` on iOS. Both hand raw image data to
+  /// `AppModel.attachImage`, which normalizes/uploads it and appends the
+  /// resulting URL to the composer text.
+  @ViewBuilder
+  private var attachButton: some View {
+    #if os(macOS)
+      Button {
+        importingImage = true
+      } label: {
+        attachIcon
+      }
+      .buttonStyle(.plain)
+      .disabled(!canSend || model.isUploading)
+      .help("Attach image")
+      .fileImporter(isPresented: $importingImage, allowedContentTypes: [.image]) { result in
+        guard case .success(let url) = result else { return }
+        loadFile(at: url)
+      }
+    #else
+      PhotosPicker(selection: $photoItem, matching: .images) {
+        attachIcon
+      }
+      .disabled(!canSend || model.isUploading)
+      .onChange(of: photoItem) { _, newValue in
+        guard let newValue else { return }
+        Task {
+          if let data = try? await newValue.loadTransferable(type: Data.self) {
+            await model.attachImage(data, sourceType: nil)
+          }
+          photoItem = nil
+        }
+      }
+    #endif
+  }
+
+  @ViewBuilder
+  private var attachIcon: some View {
+    if model.isUploading {
+      ProgressView()
+        #if os(macOS)
+          .controlSize(.small)
+        #endif
+    } else {
+      Image(systemName: "paperclip")
+        .font(.title2)
+    }
+  }
+
+  #if os(macOS)
+    private func loadFile(at url: URL) {
+      let accessing = url.startAccessingSecurityScopedResource()
+      defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+      guard let data = try? Data(contentsOf: url) else { return }
+      let type = UTType(filenameExtension: url.pathExtension)
+      Task {
+        await model.attachImage(data, sourceType: type)
+      }
+    }
+  #endif
+
+  /// Drop handler for image files dragged onto the composer bar.
+  private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+    guard canSend else { return false }
+    guard
+      let provider = providers.first(where: {
+        $0.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+      })
+    else {
+      return false
+    }
+    provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+      guard let data else { return }
+      Task { await model.attachImage(data, sourceType: nil) }
+    }
+    return true
   }
 
   private var placeholder: String {

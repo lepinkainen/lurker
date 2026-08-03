@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum ConnectionState: Equatable {
   case notConfigured
@@ -76,6 +77,9 @@ final class AppModel {
   var showingSettings = false
   var composerText = ""
   var composerError: String?
+  // True while an attached image upload is in flight (disables the attach
+  // affordance and shows a small progress indicator in the composer).
+  var isUploading = false
   // Per-buffer sent-line history and drafts (in-memory, web parity).
   var inputHistory = InputHistory()
   // Per-network Archives fold state; folded by default, persisted across
@@ -324,6 +328,40 @@ final class AppModel {
       composerText = ""
       send(command)
     }
+  }
+
+  /// Normalizes and uploads a picked/dropped image (HEIC etc. are transcoded
+  /// to JPEG client-side; the backend does not decode HEIC), then appends the
+  /// returned URL to the composer text, ready to send.
+  func attachImage(_ rawData: Data, sourceType: UTType?) async {
+    guard let transport else { return }
+    guard let normalized = ImageEncoding.normalize(rawData, sourceUTType: sourceType) else {
+      composerError = "Unsupported image"
+      return
+    }
+    isUploading = true
+    defer { isUploading = false }
+    do {
+      let url = try await transport.upload(
+        normalized.data, filename: normalized.filename, contentType: normalized.contentType)
+      appendToComposer(url.absoluteString)
+      composerError = nil
+    } catch {
+      composerError = error.localizedDescription
+    }
+  }
+
+  /// Appends text to the composer, space-padding it from any existing
+  /// content (web parity: `insertTextAtCursor`'s prefix/suffix spacing),
+  /// but always at the end since the SwiftUI TextField here has no caret
+  /// tracking.
+  private func appendToComposer(_ text: String) {
+    if composerText.isEmpty {
+      composerText = text + " "
+      return
+    }
+    let needsLeadingSpace = composerText.last.map { !$0.isWhitespace } ?? false
+    composerText += (needsLeadingSpace ? " " : "") + text + " "
   }
 
   /// Arrow-up/down history browsing from the composer. Returns true when the

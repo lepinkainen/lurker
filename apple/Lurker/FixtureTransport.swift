@@ -407,4 +407,11 @@ actor FixtureTransport: LurkerTransport {
 
   func send(_: ClientCommand) async throws {}
   func disconnect() async {}
+
+  private(set) var uploadedFilename: String?
+
+  func upload(_ data: Data, filename: String, contentType: String) async throws -> URL {
+    uploadedFilename = filename
+    return URL(string: "https://fixture.local/uploads/test.jpg")!
+  }
 }
