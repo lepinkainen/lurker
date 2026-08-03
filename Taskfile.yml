@@ -218,6 +218,14 @@ tasks:
     cmds:
       - go run . --web-dir ./web/dist
 
+  dev-test-api:
+    desc: Run backend against seeded ./data-test, API only (no web build) — for TUI/API verification
+    env:
+      DATA_DIR: ./data-test
+      CONFIG_PATH: ./data-test/config.yaml
+    cmds:
+      - go run .
+
   web-install:
     desc: Install frontend dependencies with pnpm
     cmds:

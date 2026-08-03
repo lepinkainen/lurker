@@ -14,7 +14,15 @@ type persistedState struct {
 	LastBufferID string `json:"last_buffer_id"`
 }
 
+// stateDir overrides the directory holding tui-state.json when non-empty (set
+// by the -state-dir flag). Verification runs point it at a scratch directory so
+// they never clobber the user's real last-viewed buffer.
+var stateDir string
+
 func stateFilePath() (string, error) {
+	if stateDir != "" {
+		return filepath.Join(stateDir, "tui-state.json"), nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
