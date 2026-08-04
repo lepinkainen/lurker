@@ -1,6 +1,7 @@
 import { openDialog } from "./dialog";
 import { getHighlights, putHighlights } from "./highlights-api";
 import { jsonFetch, sendJSON } from "./http";
+import { openMediaBrowser } from "./media-browser";
 
 interface ServerIdentity {
   name: string;
@@ -147,6 +148,24 @@ function buildHighlightsSection(dialog: HTMLDialogElement): HTMLElement[] {
   return [sectionTitle, desc, listEl, form, errEl];
 }
 
+function buildMediaLibrarySection(): HTMLElement[] {
+  const sectionTitle = document.createElement("h3");
+  sectionTitle.className = "sd-section-title";
+  sectionTitle.textContent = "Media library";
+
+  const desc = document.createElement("p");
+  desc.className = "sd-desc";
+  desc.textContent = "Browse and delete images uploaded through this bouncer.";
+
+  const browseBtn = document.createElement("button");
+  browseBtn.type = "button";
+  browseBtn.className = "sd-btn sd-btn-secondary";
+  browseBtn.textContent = "Browse uploaded media";
+  browseBtn.addEventListener("click", () => openMediaBrowser());
+
+  return [sectionTitle, desc, browseBtn];
+}
+
 export function openSettingsDialog(): void {
   const { dialog, close } = openDialog({ className: "sd-dialog" });
 
@@ -288,6 +307,7 @@ export function openSettingsDialog(): void {
     title,
     ...buildServerInfoSection(),
     ...buildHighlightsSection(dialog),
+    ...buildMediaLibrarySection(),
     sectionTitle,
     desc,
     previewBtn,
