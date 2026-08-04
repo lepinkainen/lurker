@@ -39,3 +39,16 @@ sql:
         emit_interface: false
         emit_exact_table_names: false
         emit_empty_slices: true
+  - engine: sqlite
+    queries: db/media_queries
+    schema: db/media_migrations
+    gen:
+      go:
+        package: mediadb
+        out: db/internal/mediadb
+        sql_package: database/sql
+        emit_json_tags: false
+        emit_prepared_queries: false
+        emit_interface: false
+        emit_exact_table_names: false
+        emit_empty_slices: true

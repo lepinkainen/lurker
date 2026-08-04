@@ -30,6 +30,7 @@ type resolvedGlobalBuffer struct {
 type MultiStore struct {
 	Control  *sql.DB
 	Previews *PreviewStore
+	Media    *MediaStore
 	DataDir  string
 
 	mu   sync.RWMutex
@@ -49,8 +50,15 @@ func OpenMultiStore(dataDir string) (*MultiStore, error) {
 		_ = control.Close()
 		return nil, err
 	}
-	ms := &MultiStore{Control: control, Previews: previews, DataDir: dataDir, logs: map[uuid.UUID]*LogStore{}}
+	mediaStore, err := OpenMediaStore(filepath.Join(dataDir, "media.db"))
+	if err != nil {
+		_ = previews.Close()
+		_ = control.Close()
+		return nil, err
+	}
+	ms := &MultiStore{Control: control, Previews: previews, Media: mediaStore, DataDir: dataDir, logs: map[uuid.UUID]*LogStore{}}
 	if err := ms.OpenConfiguredNetworks(context.Background()); err != nil {
+		_ = mediaStore.Close()
 		_ = previews.Close()
 		_ = control.Close()
 		return nil, err
@@ -70,6 +78,11 @@ func (ms *MultiStore) Close() error {
 	}
 	if ms.Previews != nil {
 		if err := ms.Previews.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if ms.Media != nil {
+		if err := ms.Media.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
