@@ -551,7 +551,7 @@ private struct PreviewCard: View {
   private var card: some View {
     HStack(spacing: 10) {
       if let imageURL = model.previewImageURL(preview) {
-        AsyncImage(url: imageURL) { image in
+        CachedAsyncImage(url: imageURL) { image in
           image.resizable().scaledToFill()
         } placeholder: {
           Color.secondary.opacity(0.08)
@@ -587,9 +587,9 @@ private struct InlineImageView: View {
   let url: URL
 
   var body: some View {
-    AsyncImage(url: url) { phase in
-      switch phase {
-      case .success(let image):
+    CachedAsyncImage(
+      url: url,
+      content: { image in
         image
           .resizable()
           .scaledToFit()
@@ -599,17 +599,19 @@ private struct InlineImageView: View {
             RoundedRectangle(cornerRadius: 8)
               .stroke(.separator, lineWidth: 0.5)
           }
-      case .failure:
-        // Broken image: nothing — the raw link stays in the message text.
-        EmptyView()
-      default:
+      },
+      placeholder: {
         // Fixed-size placeholder: server width/height are usually 0 for
         // image previews, so they can't drive layout.
         Color.secondary.opacity(0.08)
           .frame(width: 240, height: 135)
           .clipShape(.rect(cornerRadius: 8))
+      },
+      failure: {
+        // Broken image: nothing — the raw link stays in the message text.
+        EmptyView()
       }
-    }
+    )
   }
 }
 

@@ -51,6 +51,27 @@ extension Color {
   }
 }
 
+/// Cross-platform bitmap image type: `NSImage` on macOS, `UIImage` on iOS.
+/// Lets shared code (e.g. the image cache) decode/store platform images
+/// without `#if os(...)` branching at every call site.
+#if os(macOS)
+  typealias PlatformImage = NSImage
+#else
+  typealias PlatformImage = UIImage
+#endif
+
+extension Image {
+  /// Wraps a decoded `PlatformImage` for display, mirroring `Image(nsImage:)`
+  /// / `Image(uiImage:)` behind the single cross-platform name.
+  init(platformImage: PlatformImage) {
+    #if os(macOS)
+      self.init(nsImage: platformImage)
+    #else
+      self.init(uiImage: platformImage)
+    #endif
+  }
+}
+
 /// Cross-platform clipboard write.
 enum Clipboard {
   static func copy(_ string: String) {
