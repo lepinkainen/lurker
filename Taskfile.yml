@@ -249,7 +249,17 @@ tasks:
       - cd web && pnpm build
 
   test:
-    desc: Run the test suite (excluding llm-shared)
+    desc: Run the full test suite — backend (incl. tui), web, and apple (macOS only)
+    cmds:
+      - task test-backend
+      - task test-web
+      - |
+        if [ "$(uname -s)" = "Darwin" ]; then
+          task test-apple
+        fi
+
+  test-backend:
+    desc: Run the Go backend test suite, incl. TUI (excludes llm-shared)
     cmds:
       - go test {{.GO_PACKAGES}}
 
