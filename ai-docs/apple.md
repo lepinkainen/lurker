@@ -15,8 +15,9 @@ The app is intended to be useful as the everyday desktop client (with the same s
 - link previews and presence-event display settings
 - mention notifications and an app-icon badge count (Dock tile on macOS, notification badge on iOS)
 - native menus and keyboard shortcuts on macOS, including the Command-K channel switcher
+- image attachment: composer paperclip (macOS `.fileImporter` / iOS `PhotosPicker`) plus cross-platform drag&drop, gated on `canSend`. The image uploads to `POST /api/upload` and the returned URL is inserted into the composer. HEIC and other non-web formats are converted to JPEG client-side (ImageIO, EXIF orientation baked into pixels); JPEG/PNG/GIF pass through untouched. Requires the `files.user-selected.read-only` sandbox entitlement for the macOS picker (drag&drop does not).
 
-Network administration, global history search, uploads, and theme selection remain web-only for now.
+Network administration, global history search, and theme selection remain web-only for now.
 
 ## Project and identity
 

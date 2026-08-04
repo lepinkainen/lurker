@@ -187,24 +187,47 @@ Search runs against stored messages, not live IRC state.
 
 Purpose:
 
-- store a locally uploaded file and return its public URL
+- store a locally uploaded image, optimize it server-side, and return its public URL plus metadata
 
 Request:
 
 - `multipart/form-data`
-- file field name: `file`
+- file field name: `file` (filename required)
 
-Response:
+Response (`201 Created`):
 
 ```json
-{ "url": "/uploads/0123456789abcdef.png" }
+{
+  "url": "https://host.tailnet.ts.net/uploads/0123456789abcdef.jpg",
+  "mime": "image/jpeg",
+  "width": 2048,
+  "height": 1365,
+  "bytes": 412873
+}
 ```
 
-Notes:
+`width`/`height`/`bytes` describe the stored (optimized) file, not the upload.
 
-- max size is controlled by server upload config
-- when `UPLOAD_BASE_URL` is set, the returned URL uses that base instead of `/uploads/...`
-- files are still stored locally under the configured upload directory
+Server-side optimization (`api/transcode.go`, pure Go, CGO off):
+
+- JPEG/WebP: decoded, downscaled so the long edge is ≤ `2048px` (never upscaled), re-encoded as JPEG q82. Stored as `.jpg`.
+- PNG/GIF: passed through unchanged (re-encoding a GIF would flatten animation). Stored as `.png` / `.gif`.
+- On-disk filename is random hex + the extension of the *stored* format (from the optimizer), not the client-supplied name.
+
+Validation / errors:
+
+- Content-type is sniffed via `http.DetectContentType`. `video/mp4` and `video/quicktime` are classified but return `415` (video path is a reserved scaffold, not implemented). Non-image, HEIC, and unrecognized payloads fail the decode and return `415`. WebP is not reliably sniffed, so the real gate is the decode attempt in `optimizeImage`, not the sniff.
+- Decompression-bomb guard: decoded area > `50 MP` returns `415`.
+- Over the size limit returns `413`.
+- Uploads disabled (`UPLOAD_DIR` empty or `UPLOAD_MAX_BYTES` ≤ 0) returns `404`.
+
+Returned URL:
+
+- When `UPLOAD_BASE_URL` is set it wins (e.g. a public bucket / tailnet host): `{base}/{name}`.
+- Otherwise the URL is made **absolute** from the incoming request (`scheme://host/uploads/{name}`) so the pasted link resolves for other IRC clients — a relative path is useless once it leaves this origin. Scheme honors `X-Forwarded-Proto` (only `http`/`https` accepted; a spoofed scheme like `javascript` is ignored) then the connection's TLS state. If the `Host` header is untrustworthy (spaces, CRLF, quotes) it falls back to a relative `/uploads/{name}`.
+- Files are always stored locally under the configured upload directory regardless of the returned URL.
+
+Clients (web drag&drop, macOS/iOS paperclip + drag&drop) upload here and auto-insert the returned URL into the composer, ready to send.
 
 ## `POST /api/networks`
 

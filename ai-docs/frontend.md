@@ -35,6 +35,11 @@ Important invariants:
 - sidebar drag-and-drop (`src/sidebar-dnd.ts`) covers two independent drags, tracked in separate `state.drag` (networks) / `state.pinDrag` (pinned rows) slots so neither highlights the other's targets. Both share one implementation (`attachReorderDragHandlers` / `endDropZone`), draw a 2px accent insertion bar on the hovered target, and use strict insert-before semantics plus an always-present end-of-list strip (`.sb-net-end` / `.sb-pin-end`) so the last slot is reachable — the bar is therefore always where the dragged item lands. Networks POST the ordered id list to `/api/networks/reorder` and apply `sort_order` optimistically; pinned drops POST the full ordered id list to `/api/buffers/pinned/reorder`, applies `pin_order` optimistically, and rolls back if the request fails (e.g. 404 against a backend predating the endpoint). The server's `pinned_reorder` broadcast then confirms or corrects the order
 - other buffer settings (`show_embeds`, `show_presence_events`, `collapse_presence_events`) are also server-persisted
 
+## Image attachment
+
+- `src/input-upload.ts` handles composer image attach: a paperclip button (`uploadButtonEl` → hidden `<input type=file>`) and drag&drop onto the input form. `uploadFile` POSTs `multipart/form-data` (field `file`) to `/api/upload`; the returned `url` is inserted at the caret via `insertTextAtCursor`, ready to send as a normal message.
+- The button is disabled and the form gets a `.uploading` class during the request; drag hover toggles `.upload-dragover`. Failures log to console (no send). Server-side optimization/validation and the URL shape are documented in [rest-api.md](rest-api.md#post-apiupload).
+
 ## Hydration model
 
 On load:
