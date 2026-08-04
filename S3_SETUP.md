@@ -16,6 +16,15 @@ web/apple client ──POST /api/upload──▶ lurker (tailnet only)
 IRC member's browser ──GET──▶ CloudFront (cdn.example.com, ACM cert) ─┘
 ```
 
+**Why CloudFront for a handful of viewers?** Not for caching or scale — it's the only way to serve
+your own domain over HTTPS from S3. S3's certificate covers `*.s3.<region>.amazonaws.com` only; you
+cannot attach an ACM cert to a bucket, and a bare `CNAME cdn.example.com → bucket` gives you HTTP
+only, which web clients block as mixed content. The alternative is to skip the custom domain entirely
+and put the bucket's own URL (`https://<bucket>.s3.<region>.amazonaws.com/<key>`) in
+`public_base_url` — that works today with no extra infrastructure. The reason not to: uploaded URLs
+live forever in other people's channel logs, and `cdn.example.com` can be repointed at another
+provider later while a bucket URL locks you to that account and region permanently.
+
 Two ways to get there: [OpenTofu](#option-a-opentofu-recommended) (everything except the AWS
 credentials for tofu itself), or [by hand](#option-b-by-hand). Either way, finish with
 [Configure lurker](#4-configure-lurker) and [Verify](#5-verify-before-lurker-supports-it).
