@@ -20,7 +20,6 @@ import (
 	"github.com/lepinkainen/lurker/hub"
 	"github.com/lepinkainen/lurker/internal/closeutil"
 	"github.com/lepinkainen/lurker/irc"
-	"github.com/lepinkainen/lurker/media"
 	"github.com/lepinkainen/lurker/preview"
 	"github.com/lepinkainen/lurker/theme"
 	"github.com/lepinkainen/lurker/updates"
@@ -101,18 +100,7 @@ func main() {
 	})
 	updateChecker.Start(ctx)
 
-	if err := os.MkdirAll(cfg.Uploads.Dir, 0o755); err != nil {
-		slog.Error("create upload dir", "dir", cfg.Uploads.Dir, "err", err)
-		os.Exit(1)
-	}
-	mediaSvc := &media.Service{
-		Store: stores.Media,
-		Cfg: media.Config{
-			Dir:      cfg.Uploads.Dir,
-			MaxBytes: cfg.Uploads.MaxBytes,
-			BaseURL:  cfg.Uploads.BaseURL,
-		},
-	}
+	mediaSvc := newMediaService(ctx, cfg.Media, stores.Media)
 	apiSrv := &api.Server{
 		Stores:             stores,
 		Hub:                evHub,

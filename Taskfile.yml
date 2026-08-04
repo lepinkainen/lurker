@@ -43,6 +43,12 @@ tasks:
         step binary    go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
         echo "Build OK — lint, tests, web build, and local applications"
 
+  build-backend:
+    desc: Build just the Go backend binary into build/ (no lint, tests, or frontend)
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
+
   build-linux:
     desc: Build the Linux binary into build/
     deps: [build-tui-linux]

@@ -208,24 +208,32 @@ Response (`201 Created`):
 
 `width`/`height`/`bytes` describe the stored (optimized) file, not the upload.
 
-Server-side optimization (`api/transcode.go`, pure Go, CGO off):
+Server-side optimization (`media/transcode.go`, pure Go, CGO off):
 
 - JPEG/WebP: decoded, downscaled so the long edge is ≤ `2048px` (never upscaled), re-encoded as JPEG q82. Stored as `.jpg`.
 - PNG/GIF: passed through unchanged (re-encoding a GIF would flatten animation). Stored as `.png` / `.gif`.
-- On-disk filename is random hex + the extension of the *stored* format (from the optimizer), not the client-supplied name.
+- The stored key is a random 10-char base62 id + the extension of the *stored* format (from the optimizer), not the client-supplied name.
 
 Validation / errors:
 
 - Content-type is sniffed via `http.DetectContentType`. `video/mp4` and `video/quicktime` are classified but return `415` (video path is a reserved scaffold, not implemented). Non-image, HEIC, and unrecognized payloads fail the decode and return `415`. WebP is not reliably sniffed, so the real gate is the decode attempt in `optimizeImage`, not the sniff.
 - Decompression-bomb guard: decoded area > `50 MP` returns `415`.
 - Over the size limit returns `413`.
-- Uploads disabled (`UPLOAD_DIR` empty or `UPLOAD_MAX_BYTES` ≤ 0) returns `404`.
+- No storage backend configured (no `media:` block in `config.yaml`) returns `404`.
+- Storage backend configured but failing (bad credentials, bucket gone, network down) returns `502`, and nothing is recorded — no metadata row and no stored object. A half-published upload is never left behind, and the bytes are never diverted to another backend.
+
+Storage backend:
+
+The backend is named explicitly in the `media:` block and there is **no fallback between backends** (see [operations.md](operations.md#media-storage) and `S3_SETUP.md`):
+
+- `backend: s3` — variants are PUT to an S3-compatible bucket with `Cache-Control: public, max-age=31536000, immutable`; nothing is written to local disk, so `GET /uploads/{name}` serves nothing.
+- `backend: disk` — variants are written under `media.disk.dir` and served by `GET /uploads/{name}`.
+- block absent — uploads disabled (`404` above).
 
 Returned URL:
 
-- When `UPLOAD_BASE_URL` is set it wins (e.g. a public bucket / tailnet host): `{base}/{name}`.
-- Otherwise the URL is made **absolute** from the incoming request (`scheme://host/uploads/{name}`) so the pasted link resolves for other IRC clients — a relative path is useless once it leaves this origin. Scheme honors `X-Forwarded-Proto` (only `http`/`https` accepted; a spoofed scheme like `javascript` is ignored) then the connection's TLS state. If the `Host` header is untrustworthy (spaces, CRLF, quotes) it falls back to a relative `/uploads/{name}`.
-- Files are always stored locally under the configured upload directory regardless of the returned URL.
+- With `backend: s3` the URL is always `{media.s3.public_base_url}[/{prefix}]/{name}` — the CDN domain, since the bytes are only reachable there.
+- With `backend: disk`, `media.disk.base_url` wins when set: `{base}/{name}`. Otherwise the URL is made **absolute** from the incoming request (`scheme://host/uploads/{name}`) so the pasted link resolves for other IRC clients — a relative path is useless once it leaves this origin. Scheme honors `X-Forwarded-Proto` (only `http`/`https` accepted; a spoofed scheme like `javascript` is ignored) then the connection's TLS state. If the `Host` header is untrustworthy (spaces, CRLF, quotes) it falls back to a relative `/uploads/{name}`.
 
 Clients (web drag&drop, macOS/iOS paperclip + drag&drop) upload here and auto-insert the returned URL into the composer, ready to send.
 
@@ -449,9 +457,9 @@ Response:
 
 ## `GET /uploads/{name}`
 
-Serves previously uploaded files by their generated filename. Valid names are alphanumeric hex strings with an optional lowercase extension.
+Serves previously uploaded files from local disk by their generated filename (base62 id + extension).
 
-Note: `POST /api/upload` returns the full URL path (e.g. `/uploads/0123456789abcdef.png`) which is served by this route.
+Only active under `media.backend: disk`. With `backend: s3` there is no local copy, so every request here is a `404` and clients fetch from the CDN URL returned by `POST /api/upload` instead.
 
 ## Preview attachment on reads
 

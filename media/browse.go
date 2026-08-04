@@ -98,10 +98,14 @@ func (s *Service) listMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteMedia handles DELETE /api/media/{id}: removes every stored variant
-// from disk, then the metadata row. Missing variant files are tolerated
-// (deleteVariant already treats os.IsNotExist as success); a real removal
-// error is a 500 rather than silently orphaning the row.
+// from the blob backend, then the metadata row. Missing blobs are tolerated
+// (Blobs.Delete treats them as success); a real removal error is a 502 rather
+// than silently orphaning the row.
 func (s *Service) deleteMedia(w http.ResponseWriter, r *http.Request) {
+	if s.Blobs == nil {
+		http.Error(w, "uploads not configured", http.StatusNotFound)
+		return
+	}
 	id := r.PathValue("id")
 	ctx := r.Context()
 
@@ -116,8 +120,9 @@ func (s *Service) deleteMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, v := range m.Variants {
-		if delErr := s.deleteVariant(v.Key); delErr != nil {
-			http.Error(w, "delete variant: "+delErr.Error(), http.StatusInternalServerError)
+		if delErr := s.Blobs.Delete(ctx, v.Key); delErr != nil {
+			slog.Error("delete media variant", "id", id, "key", v.Key, "err", delErr)
+			http.Error(w, "delete variant: "+delErr.Error(), http.StatusBadGateway)
 			return
 		}
 	}

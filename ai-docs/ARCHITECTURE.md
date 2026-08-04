@@ -73,9 +73,7 @@ Primary config inputs:
 - `CONFIG_PATH` default `./config.yaml`
 - CLI flag `--web-dir` to serve built frontend from disk
 - `UPDATE_CHECK_*` env vars for optional GHCR image update polling, default daily and clamped to no more than once per hour
-- `UPLOAD_DIR` default `./data/uploads`
-- `UPLOAD_MAX_BYTES` default `20971520`
-- `UPLOAD_BASE_URL` optional override for returned upload URLs
+- `media:` block in `config.yaml` selects the upload storage backend (`s3` or `disk`); no block means uploads are disabled. See [operations.md](operations.md#media-storage) and `S3_SETUP.md`. There are no `UPLOAD_*` env vars — an implicit disk default is exactly the failure mode the explicit backend replaced.
 
 ### Important invariant: `config.yaml` is the source of truth at boot
 

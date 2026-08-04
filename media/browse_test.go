@@ -57,7 +57,7 @@ func getMediaList(t *testing.T, h http.Handler, query string) listResponse {
 
 func TestListMediaEndpointReturnsUploadedItems(t *testing.T) {
 	uploadDir := t.TempDir()
-	srv := &Service{Store: newFakeStore(), Cfg: Config{Dir: uploadDir, MaxBytes: 1 << 20}}
+	srv := newDiskService(uploadDir, 1<<20, "")
 	h := srv.Handler()
 
 	id1, url1 := uploadImage(t, h, "a.png", 4, 3)
@@ -106,7 +106,7 @@ func TestListMediaEndpointReturnsUploadedItems(t *testing.T) {
 
 func TestListMediaEndpointFiltersByKindAndQ(t *testing.T) {
 	uploadDir := t.TempDir()
-	srv := &Service{Store: newFakeStore(), Cfg: Config{Dir: uploadDir, MaxBytes: 1 << 20}}
+	srv := newDiskService(uploadDir, 1<<20, "")
 	h := srv.Handler()
 
 	id, _ := uploadImage(t, h, "only.png", 2, 2)
@@ -137,7 +137,7 @@ func TestListMediaEndpointFiltersByKindAndQ(t *testing.T) {
 
 func TestListMediaEndpointCapsLimit(t *testing.T) {
 	uploadDir := t.TempDir()
-	srv := &Service{Store: newFakeStore(), Cfg: Config{Dir: uploadDir, MaxBytes: 1 << 20}}
+	srv := newDiskService(uploadDir, 1<<20, "")
 	h := srv.Handler()
 
 	uploadImage(t, h, "a.png", 2, 2)
@@ -155,7 +155,7 @@ func TestListMediaEndpointCapsLimit(t *testing.T) {
 
 func TestDeleteMediaEndpointRemovesRowAndFile(t *testing.T) {
 	uploadDir := t.TempDir()
-	srv := &Service{Store: newFakeStore(), Cfg: Config{Dir: uploadDir, MaxBytes: 1 << 20}}
+	srv := newDiskService(uploadDir, 1<<20, "")
 	h := srv.Handler()
 
 	id, url := uploadImage(t, h, "gone.png", 3, 3)
@@ -184,7 +184,7 @@ func TestDeleteMediaEndpointRemovesRowAndFile(t *testing.T) {
 
 func TestExistsMediaEndpoint(t *testing.T) {
 	uploadDir := t.TempDir()
-	srv := &Service{Store: newFakeStore(), Cfg: Config{Dir: uploadDir, MaxBytes: 1 << 20}}
+	srv := newDiskService(uploadDir, 1<<20, "")
 	h := srv.Handler()
 
 	// Upload known bytes, then look them up by their SHA-256 (as a client would
@@ -260,7 +260,7 @@ func TestExistsMediaEndpoint(t *testing.T) {
 }
 
 func TestDeleteMediaEndpointUnknownIDReturns404(t *testing.T) {
-	srv := &Service{Store: newFakeStore(), Cfg: Config{Dir: t.TempDir(), MaxBytes: 1 << 20}}
+	srv := newDiskService(t.TempDir(), 1<<20, "")
 	h := srv.Handler()
 
 	rec := httptest.NewRecorder()

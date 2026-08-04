@@ -9,6 +9,28 @@ previews:
   cache_ttl_hours: 168     # 1 week
   workers: 4
 
+# Image upload storage. Omit this block entirely to disable uploads; if it is
+# present the backend must be named and complete, or the process refuses to
+# start. There is no fallback between backends.
+# Provisioning walkthrough for the s3 backend: see S3_SETUP.md.
+media:
+  backend: s3              # "s3" | "disk"
+  max_bytes: 20971520      # 20 MiB per upload (optional)
+  s3:
+    endpoint: s3.eu-north-1.amazonaws.com      # no scheme
+    region: eu-north-1
+    bucket: lurker-media
+    access_key_id: ${AWS_ACCESS_KEY_ID_LURKER}
+    secret_access_key: ${AWS_SECRET_ACCESS_KEY_LURKER}
+    public_base_url: https://cdn.example.com   # CloudFront domain, not the S3 host
+    prefix: ""                                 # optional key prefix inside the bucket
+    path_style: false                          # true for MinIO / B2-style endpoints
+  # The disk backend is a peer of s3, not a fallback — it serves uploads from
+  # this host, so the URLs only resolve for clients that can reach it.
+  # disk:
+  #   dir: ./data/uploads
+  #   base_url: ""         # optional; empty derives the URL from the request
+
 networks:
   - network: Ircnet
     nick: mynick

@@ -8,7 +8,7 @@ import (
 
 func TestUploadURL(t *testing.T) {
 	newService := func(baseURL string) *Service {
-		return &Service{Cfg: Config{Dir: t.TempDir(), MaxBytes: 1 << 20, BaseURL: baseURL}}
+		return newDiskService(t.TempDir(), 1<<20, baseURL)
 	}
 
 	t.Run("no base URL, plain request", func(t *testing.T) {

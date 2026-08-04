@@ -28,14 +28,15 @@ throughout.
 ## Option A: OpenTofu (recommended)
 
 The config lives in `deploy/tofu/s3/`. It creates the bucket, the private-access settings, the IAM user
+
 + access key for lurker, the ACM certificate, the CloudFront distribution with OAC, and the Route 53
 records.
 
 Prerequisites:
 
-- `tofu` installed (`brew install opentofu`)
-- AWS credentials with admin-ish rights in your shell (`AWS_PROFILE=...`, or `aws sso login`)
-- The domain's hosted zone already in Route 53 (this config looks the zone up by name; it does not
++ `tofu` installed (`brew install opentofu`)
++ AWS credentials with admin-ish rights in your shell (`AWS_PROFILE=...`, or `aws sso login`)
++ The domain's hosted zone already in Route 53 (this config looks the zone up by name; it does not
   create it)
 
 ```sh
@@ -159,17 +160,17 @@ the fastest path). Validation flips to `ISSUED` a few minutes later.
 
 **Distribution.** Console: CloudFront → Create distribution.
 
-- Origin: the `lurker-media` S3 bucket (pick the bucket, not a custom origin).
-- Origin access: **Origin access control (OAC)** → create a new OAC, signing behavior "Sign requests".
++ Origin: the `lurker-media` S3 bucket (pick the bucket, not a custom origin).
++ Origin access: **Origin access control (OAC)** → create a new OAC, signing behavior "Sign requests".
   Legacy OAI is deprecated; don't use it.
-- Viewer protocol policy: **Redirect HTTP to HTTPS**.
-- Allowed methods: **GET, HEAD**.
-- Cache policy: managed **CachingOptimized**. Our objects are immutable (random 10-char base62 ids,
++ Viewer protocol policy: **Redirect HTTP to HTTPS**.
++ Allowed methods: **GET, HEAD**.
++ Cache policy: managed **CachingOptimized**. Our objects are immutable (random 10-char base62 ids,
   never rewritten) and already carry `Cache-Control: public, max-age=31536000, immutable`, so long edge
   caching is a pure win.
-- Compress objects automatically: on.
-- Alternate domain name (CNAME): `cdn.example.com`. Custom SSL certificate: the ACM cert from above.
-- Security policy: **TLSv1.2_2021**. IPv6: on. Default root object: leave empty.
++ Compress objects automatically: on.
++ Alternate domain name (CNAME): `cdn.example.com`. Custom SSL certificate: the ACM cert from above.
++ Security policy: **TLSv1.2_2021**. IPv6: on. Default root object: leave empty.
 
 CloudFront then offers to copy the bucket policy for you — take it. It looks like this:
 
@@ -285,13 +286,13 @@ If it returns an SSL error, the ACM cert isn't attached or the distribution is s
 
 ## Tradeoffs worth knowing
 
-- **Anything uploaded is publicly fetchable** by anyone with the URL. That's the point — other IRC
++ **Anything uploaded is publicly fetchable** by anyone with the URL. That's the point — other IRC
   members need to load it. Nothing private should be uploaded. The 10-char base62 ids
   (~8.4 × 10^17 keyspace) make URLs unguessable, but they are not a secret.
-- **Deletes don't purge the edge.** `DELETE /api/media/{id}` removes the row and the S3 object, but a
++ **Deletes don't purge the edge.** `DELETE /api/media/{id}` removes the row and the S3 object, but a
   copy can stay cached in CloudFront until its TTL expires. There is no automatic invalidation; run
   one by hand if a delete needs to take effect immediately.
-- **Orphan cleanup is manual.** A failed upload leaves no row and no object (lurker refuses to record a
++ **Orphan cleanup is manual.** A failed upload leaves no row and no object (lurker refuses to record a
   half-published upload), but nothing reconciles the bucket against `media.db` on a schedule.
-- **Cost:** storage plus CloudFront egress. The immutable `Cache-Control` means repeat views mostly
++ **Cost:** storage plus CloudFront egress. The immutable `Cache-Control` means repeat views mostly
   hit the edge rather than S3.

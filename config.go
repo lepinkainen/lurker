@@ -27,7 +27,7 @@ type Config struct {
 	DataSources   DataSourcesConfig
 	Previews      PreviewConfig
 	Updates       UpdateConfig
-	Uploads       UploadConfig
+	Media         MediaConfig
 }
 
 // DataSourcesConfig holds parsed datasource configurations. Each adapter
@@ -54,10 +54,41 @@ type UpdateConfig struct {
 	Token    string
 }
 
-type UploadConfig struct {
-	Dir      string
+// Media storage backend names. There is no default: config must name one, so
+// a misconfigured deployment can never quietly fall back to writing uploads
+// onto whatever disk it happens to be running on.
+const (
+	MediaBackendS3   = "s3"
+	MediaBackendDisk = "disk"
+)
+
+// MediaConfig is the resolved `media:` block. An empty Backend means the block
+// was absent and uploads are disabled.
+type MediaConfig struct {
+	Backend  string
 	MaxBytes int64
-	BaseURL  string
+	S3       MediaS3Config
+	Disk     MediaDiskConfig
+}
+
+// MediaS3Config describes the S3-compatible bucket uploads are published to.
+// See S3_SETUP.md for provisioning.
+type MediaS3Config struct {
+	Endpoint        string
+	Region          string
+	Bucket          string
+	AccessKeyID     string
+	SecretAccessKey string
+	PublicBaseURL   string
+	Prefix          string
+	PathStyle       bool
+}
+
+// MediaDiskConfig describes local-disk media storage — a peer of the S3
+// backend, not a fallback for it.
+type MediaDiskConfig struct {
+	Dir     string
+	BaseURL string
 }
 
 type FileConfig struct {
@@ -65,8 +96,37 @@ type FileConfig struct {
 	User        string                 `yaml:"user,omitempty"`
 	Realname    string                 `yaml:"realname,omitempty"`
 	Previews    *PreviewConfig         `yaml:"previews,omitempty"`
+	Media       *MediaFileConfig       `yaml:"media,omitempty"`
 	Networks    []NetworkFileConfig    `yaml:"networks"`
 	DataSources *DataSourcesFileConfig `yaml:"data_sources,omitempty"`
+}
+
+// MediaFileConfig mirrors the YAML `media:` block. Omitting the block disables
+// uploads; including it means the backend must be named and complete.
+type MediaFileConfig struct {
+	Backend  string               `yaml:"backend"`
+	MaxBytes int64                `yaml:"max_bytes,omitempty"`
+	S3       *MediaS3FileConfig   `yaml:"s3,omitempty"`
+	Disk     *MediaDiskFileConfig `yaml:"disk,omitempty"`
+}
+
+// MediaS3FileConfig is the `media.s3` block. Credentials support ${VAR}
+// expansion so no secret has to live in the file.
+type MediaS3FileConfig struct {
+	Endpoint        string `yaml:"endpoint"`
+	Region          string `yaml:"region,omitempty"`
+	Bucket          string `yaml:"bucket"`
+	AccessKeyID     string `yaml:"access_key_id"`
+	SecretAccessKey string `yaml:"secret_access_key"`
+	PublicBaseURL   string `yaml:"public_base_url"`
+	Prefix          string `yaml:"prefix,omitempty"`
+	PathStyle       bool   `yaml:"path_style,omitempty"`
+}
+
+// MediaDiskFileConfig is the `media.disk` block.
+type MediaDiskFileConfig struct {
+	Dir     string `yaml:"dir"`
+	BaseURL string `yaml:"base_url,omitempty"`
 }
 
 // DataSourcesFileConfig mirrors the YAML `data_sources:` block.
@@ -139,13 +199,8 @@ func loadConfig() Config {
 			Username: os.Getenv("GHCR_USERNAME"),
 			Token:    os.Getenv("GHCR_TOKEN"),
 		},
-		Uploads: UploadConfig{
-			Dir:      envOr("UPLOAD_DIR", dataDir+"/uploads"),
-			MaxBytes: envInt64Or("UPLOAD_MAX_BYTES", 20*1024*1024),
-			BaseURL:  strings.TrimSpace(os.Getenv("UPLOAD_BASE_URL")),
-		},
 	}
-	nets, pv, ds, err := parseYAMLConfig(cfg.ConfigPath)
+	parsed, err := parseYAMLConfig(cfg.ConfigPath)
 	if err != nil {
 		// A long-running bouncer must never boot on a partially-valid
 		// config. Any failure — missing file included — is fatal: never
@@ -153,9 +208,10 @@ func loadConfig() Config {
 		slog.Error("invalid config", "path", cfg.ConfigPath, "err", err)
 		os.Exit(1)
 	}
-	cfg.Networks = nets
-	cfg.DataSources = ds
-	if pv != nil {
+	cfg.Networks = parsed.Networks
+	cfg.DataSources = parsed.DataSources
+	cfg.Media = parsed.Media
+	if pv := parsed.Previews; pv != nil {
 		if pv.MaxBytes > 0 {
 			cfg.Previews.MaxBytes = pv.MaxBytes
 		}
@@ -173,27 +229,116 @@ func loadConfig() Config {
 	return cfg
 }
 
-func parseYAMLConfig(path string) ([]irc.NetworkConfig, *PreviewConfig, DataSourcesConfig, error) {
+// parsedConfig is everything loadConfig takes from config.yaml.
+type parsedConfig struct {
+	Networks    []irc.NetworkConfig
+	Previews    *PreviewConfig
+	DataSources DataSourcesConfig
+	Media       MediaConfig
+}
+
+func parseYAMLConfig(path string) (parsedConfig, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		// A missing config file is as fatal as a broken one: booting with an
 		// implicit empty config would mark every network disabled and run a
 		// half-configured backend. Fail fast so a misplaced file is noticed.
-		return nil, nil, DataSourcesConfig{}, err
+		return parsedConfig{}, err
 	}
 	var fc FileConfig
 	if yerr := yaml.Unmarshal(b, &fc); yerr != nil {
-		return nil, nil, DataSourcesConfig{}, fmt.Errorf("parse yaml %s: %w", path, yerr)
+		return parsedConfig{}, fmt.Errorf("parse yaml %s: %w", path, yerr)
 	}
 	nets, err := buildNetworks(fc)
 	if err != nil {
-		return nil, nil, DataSourcesConfig{}, err
+		return parsedConfig{}, err
 	}
 	ds, err := buildDataSources(fc)
 	if err != nil {
-		return nil, nil, DataSourcesConfig{}, err
+		return parsedConfig{}, err
 	}
-	return nets, fc.Previews, ds, nil
+	mc, err := buildMediaConfig(fc.Media)
+	if err != nil {
+		return parsedConfig{}, err
+	}
+	return parsedConfig{Networks: nets, Previews: fc.Previews, DataSources: ds, Media: mc}, nil
+}
+
+// defaultMediaMaxBytes caps a single upload when `media.max_bytes` is unset.
+const defaultMediaMaxBytes int64 = 20 * 1024 * 1024
+
+// buildMediaConfig validates the `media:` block. An absent block is fine and
+// means uploads are disabled; a present one must name a backend and fill in
+// everything that backend needs, because the alternative — booting with a
+// half-configured storage backend — is how uploads end up on the wrong disk.
+func buildMediaConfig(mf *MediaFileConfig) (MediaConfig, error) {
+	if mf == nil {
+		return MediaConfig{}, nil
+	}
+	out := MediaConfig{
+		Backend:  strings.ToLower(strings.TrimSpace(mf.Backend)),
+		MaxBytes: mf.MaxBytes,
+	}
+	if out.MaxBytes <= 0 {
+		out.MaxBytes = defaultMediaMaxBytes
+	}
+
+	switch out.Backend {
+	case MediaBackendS3:
+		if mf.S3 == nil {
+			return MediaConfig{}, fmt.Errorf("media: backend %q requires a media.s3 block", out.Backend)
+		}
+		out.S3 = MediaS3Config{
+			Endpoint:        strings.TrimSpace(mf.S3.Endpoint),
+			Region:          strings.TrimSpace(mf.S3.Region),
+			Bucket:          strings.TrimSpace(mf.S3.Bucket),
+			AccessKeyID:     strings.TrimSpace(expandEnvSecret(strings.TrimSpace(mf.S3.AccessKeyID))),
+			SecretAccessKey: strings.TrimSpace(expandEnvSecret(strings.TrimSpace(mf.S3.SecretAccessKey))),
+			PublicBaseURL:   strings.TrimRight(strings.TrimSpace(mf.S3.PublicBaseURL), "/"),
+			Prefix:          strings.Trim(strings.TrimSpace(mf.S3.Prefix), "/"),
+			PathStyle:       mf.S3.PathStyle,
+		}
+		required := []struct{ key, value string }{
+			{"endpoint", out.S3.Endpoint},
+			{"bucket", out.S3.Bucket},
+			{"access_key_id", out.S3.AccessKeyID},
+			{"secret_access_key", out.S3.SecretAccessKey},
+			// Mandatory: with the s3 backend nothing is stored locally, so a
+			// request-derived URL would be a dead link the moment it is pasted
+			// into a channel.
+			{"public_base_url", out.S3.PublicBaseURL},
+		}
+		missing := make([]string, 0, len(required))
+		for _, f := range required {
+			if f.value == "" {
+				missing = append(missing, "media.s3."+f.key)
+			}
+		}
+		if len(missing) > 0 {
+			return MediaConfig{}, fmt.Errorf("media: missing required keys: %s", strings.Join(missing, ", "))
+		}
+		if strings.Contains(out.S3.Endpoint, "://") {
+			return MediaConfig{}, fmt.Errorf("media: media.s3.endpoint %q must not include a scheme", out.S3.Endpoint)
+		}
+	case MediaBackendDisk:
+		if mf.Disk == nil {
+			return MediaConfig{}, fmt.Errorf("media: backend %q requires a media.disk block", out.Backend)
+		}
+		out.Disk = MediaDiskConfig{
+			Dir:     strings.TrimSpace(mf.Disk.Dir),
+			BaseURL: strings.TrimRight(strings.TrimSpace(mf.Disk.BaseURL), "/"),
+		}
+		if out.Disk.Dir == "" {
+			return MediaConfig{}, fmt.Errorf("media: missing required key: media.disk.dir")
+		}
+	case "":
+		return MediaConfig{}, fmt.Errorf("media: backend is required (%q or %q); remove the media block to disable uploads",
+			MediaBackendS3, MediaBackendDisk)
+	default:
+		return MediaConfig{}, fmt.Errorf("media: unknown backend %q (want %q or %q)",
+			out.Backend, MediaBackendS3, MediaBackendDisk)
+	}
+	return out, nil
 }
 
 // envVarRE matches `${VAR}` exactly — no shell features, no defaults.
@@ -473,18 +618,6 @@ func envDurationOr(key string, def time.Duration) time.Duration {
 	}
 	parsed, err := time.ParseDuration(v)
 	if err != nil {
-		return def
-	}
-	return parsed
-}
-
-func envInt64Or(key string, def int64) int64 {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	parsed, err := strconv.ParseInt(v, 10, 64)
-	if err != nil || parsed <= 0 {
 		return def
 	}
 	return parsed

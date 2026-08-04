@@ -21,8 +21,8 @@ import (
 const uploadMultipartSlop = 1 << 20 // 1 MiB
 
 func (s *Service) upload(w http.ResponseWriter, r *http.Request) {
-	if s.Cfg.Dir == "" || s.Cfg.MaxBytes <= 0 {
-		http.Error(w, "uploads disabled", http.StatusNotFound)
+	if s.Blobs == nil || s.Cfg.MaxBytes <= 0 {
+		http.Error(w, "uploads not configured", http.StatusNotFound)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, s.Cfg.MaxBytes+uploadMultipartSlop)
@@ -87,12 +87,19 @@ func (s *Service) upload(w http.ResponseWriter, r *http.Request) {
 
 	m, key, err := s.allocateAndStore(ctx, sourceHash, optimized)
 	if err != nil {
-		if errors.Is(err, errUploadIDExhausted) {
+		switch {
+		case errors.Is(err, errUploadIDExhausted):
 			slog.Error("upload id allocation failed", "attempts", maxUploadIDAttempts)
 			http.Error(w, "could not allocate a unique upload id", http.StatusInternalServerError)
-			return
+		case errors.Is(err, errBlobBackend):
+			// Storage backend is broken (bad credentials, bucket gone, network
+			// down). Nothing was recorded, and we never silently divert the
+			// bytes somewhere else.
+			slog.Error("upload storage backend failed", "err", err, "bytes", len(optimized.Data))
+			http.Error(w, "storage backend unavailable: "+err.Error(), http.StatusBadGateway)
+		default:
+			http.Error(w, "save upload: "+err.Error(), http.StatusInternalServerError)
 		}
-		http.Error(w, "save upload: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	id := m.ID
@@ -130,8 +137,11 @@ func (s *Service) writeUploadResponse(w http.ResponseWriter, r *http.Request, m 
 	})
 }
 
+// serveUpload serves a variant from local disk. Only the disk backend sets
+// Cfg.ServeDir; with object storage the bytes live in the bucket and are
+// fetched from the CDN instead, so this route 404s.
 func (s *Service) serveUpload(w http.ResponseWriter, r *http.Request) {
-	if s.Cfg.Dir == "" {
+	if s.Cfg.ServeDir == "" {
 		http.NotFound(w, r)
 		return
 	}
@@ -140,50 +150,16 @@ func (s *Service) serveUpload(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	http.ServeFile(w, r, filepath.Join(s.Cfg.Dir, name))
-}
-
-// storeVariant writes a stored image variant's bytes to local disk under
-// cfg.Dir. This is the seam a later object-storage phase swaps out; callers
-// only depend on the (key string, data []byte) error signature.
-func (s *Service) storeVariant(key string, data []byte) error {
-	dst := filepath.Join(s.Cfg.Dir, filepath.FromSlash(key))
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return fmt.Errorf("create upload dir: %w", err)
-	}
-	f, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("create upload file: %w", err)
-	}
-	_, writeErr := f.Write(data)
-	closeErr := f.Close()
-	if writeErr != nil {
-		_ = os.Remove(dst)
-		return fmt.Errorf("write upload file: %w", writeErr)
-	}
-	if closeErr != nil {
-		_ = os.Remove(dst)
-		return fmt.Errorf("close upload file: %w", closeErr)
-	}
-	return nil
-}
-
-// deleteVariant removes a stored image variant from local disk. Missing
-// files are not an error: cleanup callers may race a store failure that
-// never got as far as writing the file.
-func (s *Service) deleteVariant(key string) error {
-	err := os.Remove(filepath.Join(s.Cfg.Dir, filepath.FromSlash(key)))
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
+	http.ServeFile(w, r, filepath.Join(s.Cfg.ServeDir, name))
 }
 
 // uploadURL builds the URL returned to the client for a stored upload. When
-// UPLOAD_BASE_URL is configured it wins (e.g. a public bucket / tailnet host).
-// Otherwise the URL is made absolute from the incoming request so the pasted
-// link resolves for other IRC clients — a relative "/uploads/..." is useless
-// once it leaves this origin. key is the stored "<id>.ext" name.
+// Cfg.BaseURL is set it wins — that is the CDN's public base for the object
+// storage backend, where the bytes are only reachable by that URL. Otherwise
+// (disk backend, no base URL) the URL is made absolute from the incoming
+// request so the pasted link resolves for other IRC clients: a relative
+// "/uploads/..." is useless once it leaves this origin. key is the stored
+// "<id>.ext" name.
 func (s *Service) uploadURL(r *http.Request, key string) string {
 	if s.Cfg.BaseURL != "" {
 		return strings.TrimRight(s.Cfg.BaseURL, "/") + "/" + key
@@ -247,11 +223,16 @@ const maxUploadIDAttempts = 5
 
 var errUploadIDExhausted = errors.New("exhausted upload id attempts")
 
-// allocateAndStore picks an unused media id, writes the optimized bytes under
+// errBlobBackend marks a failure that came from the blob backend rather than
+// from the request or the metadata store. The handler maps it to 502: the
+// upload was fine, the storage backend was not.
+var errBlobBackend = errors.New("media storage backend")
+
+// allocateAndStore picks an unused media id, stores the optimized bytes under
 // "<id><ext>", and inserts the metadata row — retrying on the (vanishingly
 // rare) id collision. It returns the stored record and its primary variant
-// key. Cleanup on a failed insert removes the just-written file so a failure
-// never leaves an orphaned blob.
+// key. Cleanup on a failed insert removes the just-stored blob so a failure
+// never leaves an orphan.
 func (s *Service) allocateAndStore(ctx context.Context, sourceHash string, opt optimizedImage) (Media, string, error) {
 	for range maxUploadIDAttempts {
 		id, err := newMediaID()
@@ -264,11 +245,18 @@ func (s *Service) allocateAndStore(ctx context.Context, sourceHash string, opt o
 			continue // id already taken; draw another
 		}
 		key := id + opt.Ext
-		if storeErr := s.storeVariant(key, opt.Data); storeErr != nil {
+		// The Store.Get check above covers ids this instance recorded; Exists
+		// also catches a blob left behind by an interrupted upload.
+		if taken, existsErr := s.Blobs.Exists(ctx, key); existsErr != nil {
+			return Media{}, "", fmt.Errorf("%w: %w", errBlobBackend, existsErr)
+		} else if taken {
+			continue
+		}
+		if storeErr := s.Blobs.Put(ctx, key, opt.Data, opt.Mime); storeErr != nil {
 			if errors.Is(storeErr, os.ErrExist) {
-				continue // a file with this id already exists; draw another
+				continue // lost a race for this key; draw another id
 			}
-			return Media{}, "", storeErr
+			return Media{}, "", fmt.Errorf("%w: %w", errBlobBackend, storeErr)
 		}
 		m := Media{
 			ID:         id,
@@ -288,7 +276,7 @@ func (s *Service) allocateAndStore(ctx context.Context, sourceHash string, opt o
 			Height: opt.Height,
 		}
 		if insErr := s.Store.Insert(ctx, m); insErr != nil {
-			_ = s.deleteVariant(key)
+			_ = s.Blobs.Delete(ctx, key)
 			return Media{}, "", insErr
 		}
 		return m, key, nil
