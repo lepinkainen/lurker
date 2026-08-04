@@ -24,7 +24,38 @@ export function insertTextAtCursor(inputEl: HTMLInputElement, text: string) {
   inputEl.setSelectionRange(caret, caret);
 }
 
+// Below this size, hashing the file and making a precheck round-trip costs
+// more than just uploading it, so we skip straight to the upload.
+const PRECHECK_MIN_BYTES = 1 << 20; // 1 MiB
+
+async function sha256Hex(buf: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", buf);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// checkExisting asks the server whether these exact bytes are already stored,
+// so a duplicate upload can be skipped entirely. Best-effort: it returns null
+// (→ upload normally) on any obstacle. crypto.subtle only exists in secure
+// contexts (https / localhost); over a plain-http tailnet origin it's
+// undefined, so the precheck is simply skipped there and the server's own
+// upload-time dedup still applies.
+async function checkExisting(file: File): Promise<string | null> {
+  if (file.size < PRECHECK_MIN_BYTES || !globalThis.crypto?.subtle) return null;
+  try {
+    const hash = await sha256Hex(await file.arrayBuffer());
+    const res = await fetch(`/api/media/exists?hash=${hash}`);
+    if (!res.ok) return null; // 404 miss, or any error → upload normally
+    const data = (await res.json()) as { url?: string };
+    return data.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function uploadFile(file: File): Promise<string> {
+  const existing = await checkExisting(file);
+  if (existing) return existing;
+
   const form = new FormData();
   form.set("file", file);
   const res = await fetch("/api/upload", { method: "POST", body: form });

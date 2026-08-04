@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 enum LurkerAPIError: LocalizedError, Sendable {
@@ -205,6 +206,16 @@ actor LurkerAPI: LurkerTransport {
   }
 
   func upload(_ data: Data, filename: String, contentType: String) async throws -> URL {
+    // Client-side dedup: hash the exact bytes we would POST (already
+    // HEIC→JPEG transcoded upstream, so this matches the server's source_hash)
+    // and skip the upload entirely if the server already has them. Best-effort
+    // — any failure falls through to a normal upload, which dedups server-side
+    // anyway.
+    let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    if let existing = try? await existingUpload(hash: hash) {
+      return existing
+    }
+
     let boundary = UUID().uuidString
     var body = Data()
     body.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -237,6 +248,29 @@ actor LurkerAPI: LurkerTransport {
       throw LurkerAPIError.invalidResponse
     }
     return resolved
+  }
+
+  /// Asks the server whether bytes with this SHA-256 are already stored,
+  /// returning the existing URL on a hit or nil on a miss (404). Used by
+  /// upload() to skip re-uploading a duplicate.
+  private func existingUpload(hash: String) async throws -> URL? {
+    guard var comps = URLComponents(url: url("api/media/exists"), resolvingAgainstBaseURL: false)
+    else {
+      return nil
+    }
+    comps.queryItems = [URLQueryItem(name: "hash", value: hash)]
+    guard let target = comps.url else { return nil }
+    var request = URLRequest(url: target)
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    let (data, response) = try await session.data(for: request)
+    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+      return nil
+    }
+    struct ExistsResponse: Decodable {
+      let url: String
+    }
+    let decoded = try decoder.decode(ExistsResponse.self, from: data)
+    return URL(string: decoded.url, relativeTo: baseURL)?.absoluteURL
   }
 
   private func get<T: Decodable>(_ path: String) async throws -> T {
