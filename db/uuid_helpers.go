@@ -1,8 +1,10 @@
 package db
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -10,6 +12,19 @@ import (
 // newID generates a new UUIDv7 (time-ordered).
 func newID() uuid.UUID {
 	return uuid.Must(uuid.NewV7())
+}
+
+// newIDAt generates a UUIDv7 whose 48-bit timestamp encodes t instead of now.
+// Used for backfilled messages so id order keeps matching chronological order
+// even though the rows are inserted long after the messages happened
+// (RecentLogMessages, LogMessagesBefore and last_seen_id all compare by id).
+func newIDAt(t time.Time) uuid.UUID {
+	id := uuid.Must(uuid.NewV7())
+	ms := max(t.UnixMilli(), 0)
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], uint64(ms))
+	copy(id[0:6], buf[2:8])
+	return id
 }
 
 // ErrCorruptUUID indicates a stored BLOB value was not a valid 16-byte UUID.

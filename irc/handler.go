@@ -44,4 +44,14 @@ type handler struct {
 	// netsplits clusters live quit/join events so published messages carry
 	// their netsplit annotation (clients group by it instead of re-deriving).
 	netsplits *netsplitTracker
+	// hasCap/sendRaw/historyLimit are seams over the girc client used by the
+	// chathistory backfill (capability check, raw CHATHISTORY sends, and the
+	// server's CHATHISTORY ISUPPORT limit). Nil disables backfill.
+	hasCap       func(name string) bool
+	sendRaw      func(line string) error
+	historyLimit func() int
+	// chathistory tracks in-flight history batches and pagination for this
+	// connection. Lazily initialized; guarded by chathistoryMu.
+	chathistoryMu sync.Mutex
+	chathistory   *chathistoryState
 }

@@ -40,6 +40,16 @@ The handler is responsible for:
 
 Outbound messages are also persisted through `Manager.LogOutbound()` because the connected IRC servers may not provide echo-message in a way the app can rely on.
 
+### Chathistory gap backfill
+
+`irc/chathistory.go` fills missed-message gaps using the IRCv3 `draft/chathistory` extension when the server supports it (Ergo, UnrealIRCd; not Libera/Solanum). Requested via `SupportedCaps` in `buildClient` — girc only REQs caps the server advertises, so it's a silent no-op elsewhere.
+
+- Channels are requested on **self-JOIN** (`CHATHISTORY AFTER <target> timestamp=<newest stored ts> <limit>`), which covers both reconnects and rejoins after a kick. Query buffers are requested once per connection right after CONNECTED. Buffers with no stored messages are skipped (no anchor).
+- Replayed messages arrive in a `chathistory` batch. The batch **target** decides the buffer — never the message source (our own replayed PMs would otherwise misfile under our own nick).
+- Replayed rows are persisted with `LogMessageInput.Backfill = true`: the row's UUIDv7 id encodes the *message* timestamp instead of insert time, so id-ordered reads (`RecentLogMessages`, `last_seen_id` comparisons) stay chronological despite the late insert. Duplicates drop on the `(buffer_id, msgid)` unique index.
+- No per-message hub events are published for replays; one `history_backfill` event per batch announces the insert count.
+- Pagination: a full page triggers another AFTER request anchored on the newest replayed ts, bounded by `chathistoryMaxPages` per target per connection. The per-page limit comes from the server's `CHATHISTORY` ISUPPORT token (clamped to 500, default 100 when absent).
+
 ## Normal IRC message flow
 
 ```mermaid

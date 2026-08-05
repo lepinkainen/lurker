@@ -22,6 +22,9 @@ func (h *handler) onConnected(c *girc.Client, e girc.Event) {
 	for _, ch := range h.autojoin {
 		c.Cmd.Join(ch)
 	}
+	// Channel gaps are requested per self-JOIN; query gaps have no join
+	// event, so request them as soon as the connection registers.
+	h.requestQueryBackfills()
 }
 
 func (h *handler) onDisconnected(_ *girc.Client, e girc.Event) {

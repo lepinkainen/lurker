@@ -12,12 +12,17 @@ import (
 )
 
 func (h *handler) onPrivmsg(_ *girc.Client, e girc.Event) {
-	var bufName, bufferKind, kind string
+	// Replayed history goes through the backfill path: buffer from the
+	// batch target, no live publish, chronology-preserving row IDs.
+	if ref, target, ok := h.chathistoryDivert(e); ok {
+		h.storeBackfillMessage(e, ref, target)
+		return
+	}
+	var bufName, bufferKind string
 	switch {
 	case e.IsFromChannel():
 		bufName = e.Params[0]
 		bufferKind = ircdb.BufferChannel
-		kind = "privmsg"
 	default:
 		if e.Command == girc.NOTICE && (e.Source == nil || e.Source.Ident == "") {
 			// Server notice (no userhost) — route to network status buffer.
@@ -28,23 +33,8 @@ func (h *handler) onPrivmsg(_ *girc.Client, e girc.Event) {
 			}
 			bufferKind = ircdb.BufferQuery
 		}
-		kind = "privmsg"
 	}
-	if e.Command == girc.NOTICE {
-		kind = "notice"
-	}
-	content := e.Last()
-	if e.IsAction() {
-		kind = "action"
-		content = e.StripAction()
-	} else if ok, ctcp := e.IsCTCP(); ok && ctcp.Command != girc.CTCP_ACTION {
-		kind = "ctcp"
-		if ctcp.Text != "" {
-			content = ctcp.Command + " " + ctcp.Text
-		} else {
-			content = ctcp.Command
-		}
-	}
+	kind, content := privmsgKindContent(e)
 	h.storeEvent(e, bufName, bufferKind, kind, "", content)
 }
 
