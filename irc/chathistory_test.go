@@ -131,7 +131,53 @@ func TestChathistoryFullPagePaginates(t *testing.T) {
 	f.Handler.onPrivmsg(nil, parseEvent(t, "@batch=ref1;msgid=m2;time=2026-08-05T10:01:00.000Z :bob!b@host PRIVMSG #go :second"))
 	f.Handler.onBatch(nil, parseEvent(t, ":irc.test BATCH -ref1"))
 
+	// msgid pagination: AFTER timestamp=X excludes everything at X, so a
+	// page boundary inside a same-ms cluster would lose messages.
+	want := "CHATHISTORY AFTER #go msgid=m2 2"
+	if len(sent) != 1 || sent[0] != want {
+		t.Fatalf("sent = %v, want [%s]", sent, want)
+	}
+}
+
+func TestChathistoryPaginationFallsBackToTimestamp(t *testing.T) {
+	f := newTestHandlerFixture(t)
+	var sent []string
+	stubChathistory(f.Handler, 2, &sent)
+
+	// Newest message carries no msgid — the next page anchors on its ts.
+	f.Handler.onBatch(nil, parseEvent(t, ":irc.test BATCH +ref1 chathistory #go"))
+	f.Handler.onPrivmsg(nil, parseEvent(t, "@batch=ref1;msgid=m1;time=2026-08-05T10:00:00.000Z :alice!a@host PRIVMSG #go :first"))
+	f.Handler.onPrivmsg(nil, parseEvent(t, "@batch=ref1;time=2026-08-05T10:01:00.000Z :bob!b@host PRIVMSG #go :second"))
+	f.Handler.onBatch(nil, parseEvent(t, ":irc.test BATCH -ref1"))
+
 	want := "CHATHISTORY AFTER #go timestamp=2026-08-05T10:01:00.000Z 2"
+	if len(sent) != 1 || sent[0] != want {
+		t.Fatalf("sent = %v, want [%s]", sent, want)
+	}
+}
+
+func TestChathistoryIgnoredSenderStillCountsTowardPagination(t *testing.T) {
+	f := newTestHandlerFixture(t)
+	var sent []string
+	stubChathistory(f.Handler, 2, &sent)
+
+	ctx := t.Context()
+	if err := ircdb.CreateIgnore(ctx, f.Stores.Control, f.Network.ID, "spammer"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A full page where one message is from an ignored sender: it must not
+	// be persisted, but it must still count as received or pagination stops
+	// and the rest of the gap is never fetched.
+	f.Handler.onBatch(nil, parseEvent(t, ":irc.test BATCH +ref1 chathistory #go"))
+	f.Handler.onPrivmsg(nil, parseEvent(t, "@batch=ref1;msgid=m1;time=2026-08-05T10:00:00.000Z :alice!a@host PRIVMSG #go :kept"))
+	f.Handler.onPrivmsg(nil, parseEvent(t, "@batch=ref1;msgid=m2;time=2026-08-05T10:01:00.000Z :spammer!s@host PRIVMSG #go :dropped"))
+	f.Handler.onBatch(nil, parseEvent(t, ":irc.test BATCH -ref1"))
+
+	if got := handlerMessageCount(t, f); got != 1 {
+		t.Fatalf("stored %d messages, want 1 (ignored sender dropped)", got)
+	}
+	want := "CHATHISTORY AFTER #go msgid=m2 2"
 	if len(sent) != 1 || sent[0] != want {
 		t.Fatalf("sent = %v, want [%s]", sent, want)
 	}

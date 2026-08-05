@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { state } from "../src/app-state";
 import { nickAvatar, nickEl, sysBodyDOM } from "../src/nick";
 import { registerBotNick, registerMemberNickColors, resetNickColors } from "../src/nick-colors";
 
@@ -148,12 +149,35 @@ describe("nickAvatar", () => {
 });
 
 describe("bot avatars", () => {
+  // isBotNick scopes by the active buffer's network, so tests need one.
+  function seedActiveBuffer(networkId = "n1") {
+    state.buffers.set("b1", {
+      id: "b1",
+      network_id: networkId,
+      name: "#a",
+      kind: "channel",
+      unread: 0,
+      mentions: 0,
+      show_embeds: true,
+      show_presence_events: true,
+      collapse_presence_events: false,
+      pinned: false,
+    });
+    state.activeId = "b1";
+  }
+
+  beforeEach(() => {
+    seedActiveBuffer();
+  });
+
   afterEach(() => {
     resetNickColors();
+    state.buffers.clear();
+    state.activeId = null;
   });
 
   it("renders the robot glyph instead of an identicon", () => {
-    registerBotNick("helperbot", true);
+    registerBotNick("n1", "helperbot", true);
     const el = nickAvatar("helperbot");
     expect(el).not.toBeInstanceOf(HTMLCanvasElement);
     expect(el.textContent).toBe("🤖");
@@ -161,26 +185,44 @@ describe("bot avatars", () => {
   });
 
   it("matches case-insensitively", () => {
-    registerBotNick("helperbot", true);
+    registerBotNick("n1", "helperbot", true);
     expect(nickAvatar("HelperBot").textContent).toBe("🤖");
   });
 
   it("leaves non-bots on the identicon", () => {
-    registerBotNick("helperbot", true);
+    registerBotNick("n1", "helperbot", true);
     expect(nickAvatar("alice")).toBeInstanceOf(HTMLCanvasElement);
   });
 
+  it("scopes bot status to the network", () => {
+    registerBotNick("n2", "helperbot", true);
+    // Active buffer is on n1; the n2 bot must not leak across networks.
+    expect(nickAvatar("helperbot")).toBeInstanceOf(HTMLCanvasElement);
+  });
+
+  it("clears bot status on an explicit bot=false", () => {
+    registerBotNick("n1", "helperbot", true);
+    expect(nickAvatar("helperbot").textContent).toBe("🤖");
+    // A member-list snapshot without the flag (e.g. a human took the nick)
+    // restores the identicon.
+    registerMemberNickColors([{ nick: "helperbot", prefix: "", away: false, self: false }], "n1");
+    expect(nickAvatar("helperbot")).toBeInstanceOf(HTMLCanvasElement);
+  });
+
   it("picks up the bot flag from member lists", () => {
-    registerMemberNickColors([
-      { nick: "helperbot", prefix: "", away: false, self: false, bot: true },
-      { nick: "alice", prefix: "", away: false, self: false },
-    ]);
+    registerMemberNickColors(
+      [
+        { nick: "helperbot", prefix: "", away: false, self: false, bot: true },
+        { nick: "alice", prefix: "", away: false, self: false },
+      ],
+      "n1",
+    );
     expect(nickAvatar("helperbot").textContent).toBe("🤖");
     expect(nickAvatar("alice")).toBeInstanceOf(HTMLCanvasElement);
   });
 
   it("nickEl still labels the bot with its nick", () => {
-    registerBotNick("helperbot", true);
+    registerBotNick("n1", "helperbot", true);
     const el = nickEl("helperbot");
     expect(el.textContent).toContain("helperbot");
     expect(el.textContent).toContain("🤖");

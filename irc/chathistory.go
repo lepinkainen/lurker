@@ -44,7 +44,12 @@ type chathistoryBatch struct {
 	bufferID uuid.UUID // uuid.Nil until the first message is stored
 	received int       // messages seen in the batch (including dedupe drops)
 	inserted int       // messages actually written
-	newestTS string    // newest replayed ts, next page's AFTER anchor
+	// newestTS/newestMsgID anchor the next page. The msgid is preferred:
+	// AFTER timestamp=X excludes *every* message at X, so a page boundary
+	// inside a same-millisecond cluster would silently drop the rest of the
+	// cluster. newestMsgID is empty when the newest message carried no msgid.
+	newestTS    string
+	newestMsgID string
 }
 
 // chathistoryState is per-connection bookkeeping (the handler is rebuilt for
@@ -104,7 +109,10 @@ func (h *handler) maybeRequestChathistory(target string) {
 	if err != nil || lastTS == "" {
 		return
 	}
-	h.requestChathistoryAfter(target, lastTS)
+	// Timestamp anchor for the initial request: the newest stored row may be
+	// weeks old, and an expired msgid makes servers return nothing, while a
+	// timestamp still selects whatever window the server retains.
+	h.requestChathistoryAfter(target, "timestamp="+lastTS)
 }
 
 // requestQueryBackfills requests the gap for every query buffer. Channels
@@ -127,7 +135,9 @@ func (h *handler) requestQueryBackfills() {
 	}
 }
 
-func (h *handler) requestChathistoryAfter(target, afterTS string) {
+// requestChathistoryAfter sends one CHATHISTORY AFTER page. selector is a
+// spec selector: "timestamp=<ts>" or "msgid=<id>".
+func (h *handler) requestChathistoryAfter(target, selector string) {
 	st := h.chathistoryEnsureState()
 	st.mu.Lock()
 	pages := st.pages[target]
@@ -138,7 +148,7 @@ func (h *handler) requestChathistoryAfter(target, afterTS string) {
 	st.pages[target] = pages + 1
 	st.mu.Unlock()
 
-	line := fmt.Sprintf("CHATHISTORY AFTER %s timestamp=%s %d", target, afterTS, h.chathistoryLimit())
+	line := fmt.Sprintf("CHATHISTORY AFTER %s %s %d", target, selector, h.chathistoryLimit())
 	if err := h.sendRaw(line); err != nil {
 		slog.Warn("send chathistory request", "err", err, "network", h.networkName, "target", target)
 	}
@@ -208,14 +218,30 @@ func (h *handler) storeBackfillMessage(e girc.Event, batchRef, target string) {
 			userhost = e.Source.Ident + "@" + e.Source.Host
 		}
 	}
-	if sender != "" && sender != "*" && h.isIgnored(sender) {
-		return
-	}
 	msgID, _ := e.Tags.Get("msgid")
 	account, _ := e.Tags.Get("account")
 	ts := e.Timestamp
 	if ts.IsZero() {
 		ts = time.Now()
+	}
+
+	// Batch bookkeeping counts every replayed message — including ones we
+	// don't persist (ignored senders, dedupes). Pagination compares received
+	// against the server's page size, so skipping the count here would make
+	// a full page look partial and strand the rest of the gap.
+	st := h.chathistoryEnsureState()
+	st.mu.Lock()
+	if b, ok := st.batches[batchRef]; ok {
+		b.received++
+		if tsStr := ircdb.FormatTime(ts); tsStr >= b.newestTS {
+			b.newestTS = tsStr
+			b.newestMsgID = msgID
+		}
+	}
+	st.mu.Unlock()
+
+	if sender != "" && sender != "*" && h.isIgnored(sender) {
+		return
 	}
 
 	ctx, cancel := h.eventContext()
@@ -242,18 +268,11 @@ func (h *handler) storeBackfillMessage(e girc.Event, batchRef, target string) {
 		return
 	}
 
-	st := h.chathistoryEnsureState()
 	st.mu.Lock()
-	if b, ok := st.batches[batchRef]; ok {
-		b.received++
-		if tsStr := ircdb.FormatTime(ts); tsStr > b.newestTS {
-			b.newestTS = tsStr
-		}
-		if inserted {
-			b.inserted++
-			if b.bufferID == uuid.Nil {
-				b.bufferID = bufID
-			}
+	if b, ok := st.batches[batchRef]; ok && inserted {
+		b.inserted++
+		if b.bufferID == uuid.Nil {
+			b.bufferID = bufID
 		}
 	}
 	st.mu.Unlock()
@@ -288,8 +307,16 @@ func (h *handler) finishChathistoryBatch(ref string) {
 			Count:     b.inserted,
 		})
 	}
-	if b.received >= h.chathistoryLimit() && b.newestTS != "" {
-		h.requestChathistoryAfter(b.target, b.newestTS)
+	if b.received >= h.chathistoryLimit() {
+		switch {
+		case b.newestMsgID != "":
+			// msgid selector is exact: resumes inside a same-timestamp
+			// cluster without re-fetching or skipping anything. The id is
+			// fresh (the server just sent it), so expiry isn't a concern.
+			h.requestChathistoryAfter(b.target, "msgid="+b.newestMsgID)
+		case b.newestTS != "":
+			h.requestChathistoryAfter(b.target, "timestamp="+b.newestTS)
+		}
 	}
 }
 

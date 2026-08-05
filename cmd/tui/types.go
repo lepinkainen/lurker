@@ -57,6 +57,7 @@ type messageDTO struct {
 	MentionsMe     bool      `json:"mentions_me"`
 	Highlight      bool      `json:"highlight"`
 	CountsAsUnread bool      `json:"counts_as_unread"`
+	IsSelf         bool      `json:"is_self"`
 	// parsed-once cache: TS is RFC3339Nano. Parsing it on every viewport
 	// refresh is wasted work — refreshViewport fires on every WS message.
 	TSParsed time.Time `json:"-"`
@@ -133,6 +134,8 @@ type wsEvent struct {
 	// history_result
 	ReqID    string       `json:"req_id"`
 	Messages []messageDTO `json:"messages"`
+	// history_backfill
+	Count int `json:"count"`
 	// channel_list (streamed; final batch has Done=true)
 	Entries []channelListEntry `json:"entries"`
 	Done    bool               `json:"done"`

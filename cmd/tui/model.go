@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1121,9 +1122,27 @@ func (m *model) handleWSEvent(ev wsEvent) {
 		}
 	case "history_result":
 		m.applyHistoryResult(ev)
+	case "history_backfill":
+		m.requestBackfillRefetch(ev)
 	case "channel_list":
 		m.applyChannelList(ev)
 	}
+}
+
+// requestBackfillRefetch reloads the recent window after a history_backfill
+// event: the server inserted replayed messages (CHATHISTORY) without live
+// message events, so the client refetches and applyHistoryResult merges them
+// into place. Buffers never loaded just see the rows on their first load.
+func (m *model) requestBackfillRefetch(ev wsEvent) {
+	bufID := ev.BufferID
+	if bufID == uuid.Nil || len(m.messages[bufID]) == 0 {
+		return
+	}
+	m.sendCmdAsync(wsCmd{
+		"type":      "history",
+		"buffer_id": bufID,
+		"limit":     min(500, ev.Count+100),
+	})
 }
 
 func (m *model) applyChannelList(ev wsEvent) {
@@ -1278,21 +1297,68 @@ func (m *model) removeBuffer(id uuid.UUID) {
 
 func (m *model) applyHistoryResult(ev wsEvent) {
 	bufID := ev.BufferID
+	wasLoading := m.historyLoading[bufID]
 	m.historyLoading[bufID] = false
 	if len(ev.Messages) == 0 {
-		m.historyExhaust[bufID] = true
+		// "No older history" is only provable for a scroll-up request (which
+		// set historyLoading); a backfill refetch says nothing about the top.
+		if wasLoading {
+			m.historyExhaust[bufID] = true
+		}
 		return
 	}
-	for i := range ev.Messages {
-		ev.Messages[i].TSParsed, _ = time.Parse(time.RFC3339Nano, ev.Messages[i].TS)
-	}
 	existing := m.messages[bufID]
-	combined := make([]messageDTO, 0, len(ev.Messages)+len(existing))
-	combined = append(combined, ev.Messages...)
-	combined = append(combined, existing...)
+	known := make(map[uuid.UUID]struct{}, len(existing))
+	for i := range existing {
+		known[existing[i].ID] = struct{}{}
+	}
+	fresh := make([]messageDTO, 0, len(ev.Messages))
+	for i := range ev.Messages {
+		if _, ok := known[ev.Messages[i].ID]; ok {
+			continue
+		}
+		ev.Messages[i].TSParsed, _ = time.Parse(time.RFC3339Nano, ev.Messages[i].TS)
+		fresh = append(fresh, ev.Messages[i])
+	}
+	if len(fresh) == 0 {
+		return
+	}
+	// Merge-sort by id rather than prepend: scroll-up pages are strictly
+	// older than everything known (sort is a no-op), but a history_backfill
+	// refetch delivers rows that belong *between* existing messages (the
+	// disconnect gap) and must slot into place.
+	combined := slices.Concat(fresh, existing)
+	slices.SortFunc(combined, func(a, b messageDTO) int {
+		return bytes.Compare(a.ID[:], b.ID[:])
+	})
 	m.messages[bufID] = combined
+	m.countHistoryUnread(bufID, fresh)
 	if m.activeBuffer != nil && m.activeBuffer.ID == bufID {
 		m.refreshViewport()
+	}
+}
+
+// countHistoryUnread applies unread/marker bookkeeping to freshly merged
+// history rows. Backfilled gap messages are unread (their ids sort after
+// last_seen), mirroring applyMessageEvent; scroll-up pages are older than
+// last_seen and never match.
+func (m *model) countHistoryUnread(bufID uuid.UUID, fresh []messageDTO) {
+	b := m.findBuffer(bufID)
+	if b == nil {
+		return
+	}
+	for _, msg := range fresh {
+		if !msg.CountsAsUnread || msg.IsSelf || uuidLTE(msg.ID, b.LastSeenID) {
+			continue
+		}
+		m.unread[bufID]++
+		if msg.MentionsMe || msg.Highlight {
+			m.mentions[bufID]++
+		}
+		if b.MarkerID == uuid.Nil || bytes.Compare(msg.ID[:], b.MarkerID[:]) < 0 {
+			b.MarkerID = msg.ID
+			b.MarkerTS = msg.TS
+		}
 	}
 }
 

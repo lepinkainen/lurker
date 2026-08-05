@@ -116,7 +116,7 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
   }
   for (const [id, members] of Object.entries(s.members || {})) {
     state.members.set(id, members as Member[]);
-    registerMemberNickColors(members as Member[]);
+    registerMemberNickColors(members as Member[], state.buffers.get(id)?.network_id);
   }
   if (updateRes?.ok) {
     state.updateStatus = (await updateRes.json()) as UpdateStatus;

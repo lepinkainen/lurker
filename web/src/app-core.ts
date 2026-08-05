@@ -39,7 +39,7 @@ export function start() {
   const stick = createScrollStick(d.messagesEl);
   const view = createAppView(d, { sendCmd, setActive, ackBufferRead, stick });
   appView = view;
-  routeWSMessage = createWSRouter(view);
+  routeWSMessage = createWSRouter(view, sendCmd);
   view.renderStatus();
   applyThemeDefaults();
   initThemeSelector().catch((err: unknown) => console.error("theme selector", err));

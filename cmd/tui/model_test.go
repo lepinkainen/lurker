@@ -770,3 +770,62 @@ func TestMouseClickUnreadBarAcks(t *testing.T) {
 		t.Errorf("unread = %d after bar click, want 0", mm.unread[bufID])
 	}
 }
+
+func TestApplyHistoryResultMergesBackfillIntoGap(t *testing.T) {
+	m, a, _, _ := markerModel(t)
+	hist := func(id uuid.UUID, content string) messageDTO {
+		return messageDTO{ID: id, BufferID: a, Sender: "alice", Kind: "privmsg", Content: content, TS: "2026-08-05T10:00:00.000Z"}
+	}
+	// Gap between 2 and 8; a history_backfill refetch returns the recent
+	// window including the recovered rows 4 and 5.
+	m.messages[a] = []messageDTO{hist(seqUUID(2), "before gap"), hist(seqUUID(8), "after gap")}
+	m.handleWSEvent(wsEvent{Type: "history_result", BufferID: a, Messages: []messageDTO{
+		hist(seqUUID(2), "before gap"),
+		hist(seqUUID(4), "gap a"),
+		hist(seqUUID(5), "gap b"),
+		hist(seqUUID(8), "after gap"),
+	}})
+	got := m.messages[a]
+	if len(got) != 4 {
+		t.Fatalf("merged %d messages, want 4 (deduped): %+v", len(got), got)
+	}
+	for i, want := range []string{"before gap", "gap a", "gap b", "after gap"} {
+		if got[i].Content != want {
+			t.Fatalf("row %d = %q, want %q (chronological merge)", i, got[i].Content, want)
+		}
+	}
+	if m.historyExhaust[a] {
+		t.Fatal("all-known refetch must not mark history exhausted")
+	}
+}
+
+func TestApplyHistoryResultCountsBackfilledUnread(t *testing.T) {
+	m, a, _, _ := markerModel(t)
+	b := m.findBuffer(a)
+	b.LastSeenID = seqUUID(3)
+	m.messages[a] = []messageDTO{{ID: seqUUID(2), BufferID: a, Sender: "alice", Kind: "privmsg", Content: "seen", TS: "2026-08-05T09:00:00.000Z"}}
+	m.handleWSEvent(wsEvent{Type: "history_result", BufferID: a, Messages: []messageDTO{
+		{ID: seqUUID(4), BufferID: a, Sender: "alice", Kind: "privmsg", Content: "gap a", TS: "2026-08-05T10:00:00.000Z", CountsAsUnread: true},
+		{ID: seqUUID(5), BufferID: a, Sender: "alice", Kind: "privmsg", Content: "gap b", TS: "2026-08-05T10:01:00.000Z", CountsAsUnread: true, MentionsMe: true},
+	}})
+	if m.unread[a] != 2 || m.mentions[a] != 1 {
+		t.Fatalf("unread=%d mentions=%d, want 2/1", m.unread[a], m.mentions[a])
+	}
+	if b.MarkerID != seqUUID(4) {
+		t.Fatalf("marker = %s, want first recovered message %s", b.MarkerID, seqUUID(4))
+	}
+}
+
+func TestHistoryBackfillEventRequestsRefetch(t *testing.T) {
+	m, a, _, sent := markerModel(t)
+	m.messages[a] = []messageDTO{{ID: seqUUID(2), BufferID: a, Sender: "alice", Kind: "privmsg", Content: "x", TS: "2026-08-05T09:00:00.000Z"}}
+	m.handleWSEvent(wsEvent{Type: "history_backfill", BufferID: a, Count: 7})
+	if len(*sent) != 1 || (*sent)[0]["type"] != "history" || (*sent)[0]["buffer_id"] != a {
+		t.Fatalf("expected one history refetch for %s, sent: %+v", a, *sent)
+	}
+	// Buffers never loaded see the rows on their first load — no refetch.
+	m.handleWSEvent(wsEvent{Type: "history_backfill", BufferID: seqUUID(99), Count: 7})
+	if len(*sent) != 1 {
+		t.Fatalf("history_backfill for an unloaded buffer must not refetch, sent: %+v", *sent)
+	}
+}

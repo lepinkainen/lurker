@@ -611,7 +611,11 @@ final class AppModel {
       uniqueKeysWithValues: (snapshot.members ?? [:]).compactMap { key, value in
         UUID(uuidString: key).map { ($0, value) }
       })
-    for list in members.values { noteBots(list) }
+    for (bufferID, list) in members {
+      if let networkID = buffers[bufferID]?.networkID {
+        noteBots(list, networkID: networkID)
+      }
+    }
     restoreSelection()
     updateBadge()
   }
@@ -677,6 +681,8 @@ final class AppModel {
     case .history(let event):
       mergeMessages(event.messages, into: event.bufferID)
       if event.messages.isEmpty { historyExhausted.insert(event.bufferID) }
+    case .historyBackfill(let event):
+      refetchBackfilledHistory(event.bufferID)
     case .preview(let event):
       guard var list = messages[event.bufferID],
         let index = list.firstIndex(where: { $0.id == event.messageID })
@@ -687,7 +693,7 @@ final class AppModel {
       messages[event.bufferID] = list
     case .members(let event):
       members[event.bufferID] = event.members
-      noteBots(event.members)
+      noteBots(event.members, networkID: event.networkID)
     case .netsplit(let event):
       guard var list = messages[event.bufferID] else { return }
       let ids = Set(event.messageIDs)
@@ -771,6 +777,41 @@ final class AppModel {
     }
     buffers[buffer.id] = buffer
     updateBadge()
+  }
+
+  /// A CHATHISTORY replay inserted older messages server-side without live
+  /// message events (history_backfill). Refetch the recent window and merge;
+  /// the recovered rows count as unread, mirroring apply(_ message:). Buffers
+  /// never loaded just see the rows on their normal first load.
+  private func refetchBackfilledHistory(_ bufferID: UUID) {
+    guard messages[bufferID] != nil, let transport else { return }
+    Task {
+      guard let recent = try? await transport.fetchHistory(bufferID: bufferID, before: nil) else {
+        return
+      }
+      let known = Set((messages[bufferID] ?? []).map(\.id))
+      mergeMessages(recent, into: bufferID)
+      guard var buffer = buffers[bufferID] else { return }
+      var changed = false
+      for message in recent where !known.contains(message.id) {
+        guard message.countsAsUnread == true, message.isSelf != true else { continue }
+        let isUnseen = buffer.lastSeenID.map { message.id.uuidString > $0.uuidString } ?? true
+        guard isUnseen else { continue }
+        buffer.unread += 1
+        if message.mentionsMe == true || message.highlight == true { buffer.mentions += 1 }
+        // Recovered messages predate any live arrivals, so the marker moves
+        // back to the earliest of them.
+        if buffer.markerID.map({ message.id.uuidString < $0.uuidString }) ?? true {
+          buffer.markerID = message.id
+          buffer.markerTS = message.ts
+        }
+        changed = true
+      }
+      if changed {
+        buffers[bufferID] = buffer
+        updateBadge()
+      }
+    }
   }
 
   private func mergeMessages(_ incoming: [Message], into bufferID: UUID) {
@@ -891,16 +932,34 @@ final class AppModel {
     return values.filter { !presenceKinds.contains($0.kind) }
   }
 
-  private func noteBots(_ list: [Member]) {
-    for member in list where member.bot == true {
-      botNicks.insert(member.nick.lowercased())
+  /// Bot nicks are keyed per network — the same nick can be a bot on one
+  /// network and a human on another. Member lists are authoritative
+  /// snapshots of the server-side tracker, so an explicit bot=false clears
+  /// the entry (a human taking over a bot's nick stops rendering as a bot).
+  private func noteBots(_ list: [Member], networkID: UUID) {
+    for member in list {
+      let key = botKey(networkID, member.nick)
+      if member.bot == true {
+        botNicks.insert(key)
+      } else {
+        botNicks.remove(key)
+      }
     }
   }
 
-  /// Whether the nick is known to be an IRCv3 bot. Case-insensitive, matching
-  /// the server's own nick folding.
+  private func botKey(_ networkID: UUID, _ nick: String) -> String {
+    "\(networkID.uuidString):\(nick.lowercased())"
+  }
+
+  /// Whether the nick is known to be an IRCv3 bot on the selected buffer's
+  /// network (every call site renders the selected buffer's content).
+  /// Case-insensitive, matching the server's own nick folding.
   func isBot(_ nick: String) -> Bool {
-    !nick.isEmpty && botNicks.contains(nick.lowercased())
+    guard !nick.isEmpty,
+      let bufferID = selectedBufferID,
+      let networkID = buffers[bufferID]?.networkID
+    else { return false }
+    return botNicks.contains(botKey(networkID, nick))
   }
 
   private func updateBadge() {

@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type Buffer, type Message, type Network, state } from "../src/app-state";
-import { type MessagesDom, onBufferUpdate, onMessage, renderActiveView, renderHeader } from "../src/messages";
+import {
+  type MessagesDom,
+  onBufferUpdate,
+  onHistoryResult,
+  onMessage,
+  renderActiveView,
+  renderHeader,
+} from "../src/messages";
 import { resetAppState } from "../src/reset";
 
 function buf(overrides: Partial<Buffer> & { id: string }): Buffer {
@@ -646,5 +653,76 @@ describe("onBufferUpdate", () => {
     const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
     onBufferUpdate({ id: "999", topic: "x" }, handlers);
     expect(handlers.renderHeader).not.toHaveBeenCalled();
+  });
+});
+
+describe("onHistoryResult", () => {
+  beforeEach(() => {
+    resetAppState();
+  });
+
+  function historyDeps() {
+    return { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
+  }
+
+  function msg(id: string, content: string, extra: Partial<Message> = {}): Message {
+    return { id, buffer_id: "1", sender: "a", content, ts: "2024-05-01T10:00:00Z", ...extra };
+  }
+
+  it("merges backfilled rows into the middle of the timeline", () => {
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "9" }));
+    // Gap between 2 and 8 — a chathistory backfill refetch returns the
+    // full recent window including the recovered rows 4 and 5.
+    state.messages.set("1", [msg("2", "before gap"), msg("8", "after gap")]);
+    onHistoryResult(
+      {
+        buffer_id: "1",
+        messages: [msg("2", "before gap"), msg("4", "gap a"), msg("5", "gap b"), msg("8", "after gap")],
+      },
+      historyDeps(),
+      document.createElement("section"),
+    );
+    expect((state.messages.get("1") || []).map((m) => m.id)).toEqual(["2", "4", "5", "8"]);
+  });
+
+  it("counts recovered unread messages and anchors the marker", () => {
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "3" }));
+    state.messages.set("1", [msg("2", "seen"), msg("8", "live")]);
+    const deps = historyDeps();
+    onHistoryResult(
+      {
+        buffer_id: "1",
+        messages: [
+          msg("4", "gap a", { counts_as_unread: true }),
+          msg("5", "gap b", { counts_as_unread: true, mentions_me: true }),
+        ],
+      },
+      deps,
+      document.createElement("section"),
+    );
+    const b = state.buffers.get("1");
+    expect(b?.unread).toBe(2);
+    expect(b?.mentions).toBe(1);
+    expect(b?.marker_id).toBe("4");
+    expect(deps.renderSidebar).toHaveBeenCalled();
+  });
+
+  it("does not mark history exhausted on an all-known refetch", () => {
+    state.buffers.set("1", buf({ id: "1" }));
+    state.messages.set("1", [msg("2", "known")]);
+    onHistoryResult(
+      { buffer_id: "1", messages: [msg("2", "known")] },
+      historyDeps(),
+      document.createElement("section"),
+    );
+    expect(state.historyExhausted.has("1")).toBe(false);
+  });
+
+  it("marks history exhausted only for a scroll-up request", () => {
+    state.buffers.set("1", buf({ id: "1" }));
+    state.messages.set("1", [msg("2", "known")]);
+    state.loadingHistory.add("1");
+    onHistoryResult({ buffer_id: "1", messages: [] }, historyDeps(), document.createElement("section"));
+    expect(state.historyExhausted.has("1")).toBe(true);
   });
 });

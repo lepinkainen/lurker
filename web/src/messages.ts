@@ -216,15 +216,44 @@ export function onBufferUpdate(
 
 export function onHistoryResult(
   msg: { buffer_id: string; messages?: Message[] },
-  handlers: { renderActiveView: () => void },
+  handlers: { renderActiveView: () => void; renderSidebar?: () => void },
   messagesEl: HTMLElement,
 ) {
   const existing = state.messages.get(msg.buffer_id) || [];
   const known = new Set(existing.map((message) => message.id));
-  const prepend = (msg.messages || []).filter((message) => !known.has(message.id));
-  state.messages.set(msg.buffer_id, [...prepend, ...existing]);
-  if (prepend.length === 0) state.historyExhausted.add(msg.buffer_id);
+  const fresh = (msg.messages || []).filter((message) => !known.has(message.id));
+  // Merge-sort by id rather than prepend: scroll-up pages are strictly older
+  // than everything known (sort is a no-op), but a history_backfill refetch
+  // delivers rows that belong *between* existing messages (the disconnect
+  // gap) and must slot into place.
+  const merged = [...fresh, ...existing].sort((a, b) => a.id.localeCompare(b.id));
+  state.messages.set(msg.buffer_id, merged);
+  // "No older history" is only provable for a scroll-up request (which set
+  // loadingHistory); an empty backfill refetch says nothing about the top.
+  if (fresh.length === 0 && state.loadingHistory.has(msg.buffer_id)) {
+    state.historyExhausted.add(msg.buffer_id);
+  }
   state.loadingHistory.delete(msg.buffer_id);
+  const buffer = state.buffers.get(msg.buffer_id);
+  let unreadChanged = false;
+  if (buffer) {
+    // Backfilled gap messages are unread (their ids sort after last_seen);
+    // mirror onMessage's bookkeeping so the sidebar count and the marker
+    // reflect the recovered messages. Scroll-up pages are older than
+    // last_seen and never match.
+    for (const message of fresh) {
+      if (msgCountsAsUnread(message) && !msgIsSelf(message) && message.id > (buffer.last_seen_id || "")) {
+        buffer.unread = (buffer.unread || 0) + 1;
+        if (msgMentionsMe(message) || msgHighlight(message)) buffer.mentions = (buffer.mentions || 0) + 1;
+        if (buffer.marker_id === undefined || message.id < buffer.marker_id) {
+          buffer.marker_id = message.id;
+          buffer.marker_ts = message.ts;
+        }
+        unreadChanged = true;
+      }
+    }
+  }
+  if (unreadChanged) handlers.renderSidebar?.();
   if (msg.buffer_id === state.activeId) {
     const oldHeight = messagesEl.scrollHeight;
     handlers.renderActiveView();

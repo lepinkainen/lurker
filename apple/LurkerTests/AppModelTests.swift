@@ -302,6 +302,8 @@ struct AppModelTests {
     let target = buffer("#alpha", networkID: networkID)
     model.networks[networkID] = network(id: networkID)
     model.buffers = [target.id: target]
+    // isBot resolves against the selected buffer's network.
+    model.selectedBufferID = target.id
 
     let event = try? JSONDecoder.lurker().decode(
       ServerEvent.self,
@@ -321,6 +323,19 @@ struct AppModelTests {
     // rows can render the bot glyph too.
     #expect(model.isBot("helperbot"))
     #expect(!model.isBot("alice"))
+
+    // A later snapshot without the flag clears it: a human who takes over
+    // the nick must not keep rendering as a bot.
+    let cleared = try? JSONDecoder.lurker().decode(
+      ServerEvent.self,
+      from: Data(
+        """
+        {"type":"member_list","network_id":"\(networkID.uuidString)",
+         "buffer_id":"\(target.id.uuidString)","channel":"#alpha",
+         "members":[{"nick":"HelperBot","away":false,"self":false,"bot":false,"color":3}]}
+        """.utf8))
+    if let cleared { model.apply(cleared) }
+    #expect(!model.isBot("helperbot"))
   }
 
   @Test func memberListWithoutBotFieldDecodes() {
@@ -331,6 +346,7 @@ struct AppModelTests {
     let target = buffer("#alpha", networkID: networkID)
     model.networks[networkID] = network(id: networkID)
     model.buffers = [target.id: target]
+    model.selectedBufferID = target.id
 
     let event = try? JSONDecoder.lurker().decode(
       ServerEvent.self,

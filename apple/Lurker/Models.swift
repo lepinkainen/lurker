@@ -380,6 +380,12 @@ struct MemberListEvent: Codable, Sendable {
   let members: [Member]
 }
 
+struct HistoryBackfillEvent: Codable, Sendable {
+  let networkID: UUID
+  let bufferID: UUID
+  let count: Int
+}
+
 struct PreviewEvent: Codable, Sendable {
   let messageID: UUID
   let networkID: UUID
@@ -435,6 +441,7 @@ enum ServerEvent: Sendable {
   case pinnedReorder(PinnedReorderEvent)
   case networkState(NetworkStateEvent)
   case history(HistoryResult)
+  case historyBackfill(HistoryBackfillEvent)
   case preview(PreviewEvent)
   case members(MemberListEvent)
   case netsplit(NetsplitEvent)
@@ -461,6 +468,7 @@ extension ServerEvent: Decodable {
     case "pinned_reorder": self = .pinnedReorder(try PinnedReorderEvent(from: decoder))
     case "network_state": self = .networkState(try NetworkStateEvent(from: decoder))
     case "history_result": self = .history(try HistoryResult(from: decoder))
+    case "history_backfill": self = .historyBackfill(try HistoryBackfillEvent(from: decoder))
     case "preview": self = .preview(try PreviewEvent(from: decoder))
     case "member_list": self = .members(try MemberListEvent(from: decoder))
     case "netsplit": self = .netsplit(try NetsplitEvent(from: decoder))

@@ -76,7 +76,11 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
       });
     },
     prependHistory: (msg: { buffer_id: string; messages?: Message[] }) => {
-      onHistoryResult(msg, { renderActiveView: view.renderActiveView }, d.messagesEl);
+      onHistoryResult(
+        msg,
+        { renderActiveView: view.renderActiveView, renderSidebar: view.renderSidebar },
+        d.messagesEl,
+      );
     },
     patchPreview: (msg: { buffer_id: string; message_id: string; previews?: Message["previews"] }) => {
       onPreview(msg, d.messagesEl, deps.stick);

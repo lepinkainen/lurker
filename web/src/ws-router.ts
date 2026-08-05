@@ -38,14 +38,15 @@ type WSMessage =
   | { type: "buffer_deleted"; id: string; network_id: string }
   | { type: "network_state"; network_id: string; state: string }
   | { type: "history_result"; buffer_id: string; messages?: Message[] }
+  | { type: "history_backfill"; network_id: string; buffer_id: string; count: number }
   | { type: "preview"; buffer_id: string; message_id: string; previews?: Message["previews"] }
-  | { type: "member_list"; buffer_id: string; members?: Member[] }
+  | { type: "member_list"; network_id: string; buffer_id: string; members?: Member[] }
   | { type: "netsplit"; buffer_id: string; netsplit: NetsplitInfo; message_ids?: string[] }
   | ({ type: "channel_list" } & ChannelListUpdate)
   | { type: "ignorelist_result"; req_id: string; network_id: string; masks: string[] }
   | { type: "highlights"; patterns?: string[] };
 
-export function createWSRouter(view: AppView): (msg: unknown) => void {
+export function createWSRouter(view: AppView, sendCmd: (cmd: Record<string, unknown>) => void): (msg: unknown) => void {
   return (msg: unknown) => {
     const m = msg as WSMessage;
     switch (m.type) {
@@ -112,11 +113,20 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
         for (const msg of m.messages || []) registerMessageNickColors(msg);
         view.prependHistory(m);
         break;
+      case "history_backfill":
+        // A CHATHISTORY replay inserted older messages server-side without
+        // live message events. Refetch the recent window; onHistoryResult
+        // merges by id, so the gap rows slot into place. Buffers we haven't
+        // loaded yet just see the rows on their normal first load.
+        if (state.messages.has(m.buffer_id)) {
+          sendCmd({ type: "history", buffer_id: m.buffer_id, limit: Math.min(500, m.count + 100) });
+        }
+        break;
       case "preview":
         view.patchPreview(m);
         break;
       case "member_list":
-        registerMemberNickColors(m.members || []);
+        registerMemberNickColors(m.members || [], m.network_id);
         view.setMembers(m.buffer_id, m.members || []);
         break;
       case "netsplit": {
