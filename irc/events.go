@@ -140,13 +140,16 @@ type MemberListEvent struct {
 }
 
 // ChannelUser is one user in a channel member list. Color is the
-// server-computed nickcolor palette index.
+// server-computed nickcolor palette index. Bot reflects IRCv3 bot mode
+// (https://ircv3.net/specs/extensions/bot-mode); clients render bots with a
+// robot glyph instead of the nick identicon.
 type ChannelUser struct {
 	Nick     string `json:"nick"`
 	Prefix   string `json:"prefix,omitzero"`
 	Realname string `json:"realname,omitzero"`
 	Away     bool   `json:"away"`
 	Self     bool   `json:"self"`
+	Bot      bool   `json:"bot"`
 	Color    int    `json:"color"`
 }
 

@@ -111,6 +111,8 @@ export type Member = {
   realname?: string;
   away: boolean;
   self: boolean;
+  // IRCv3 bot mode (https://ircv3.net/specs/extensions/bot-mode).
+  bot?: boolean;
   color?: number;
 };
 

@@ -1,8 +1,24 @@
 import { nickColor, type SysMessage } from "./format";
-import { nickColorIndex } from "./nick-colors";
+import { isBotNick, nickColorIndex } from "./nick-colors";
 import { NICK_HUES } from "./nick-palette";
 
-export function nickAvatar(nick: string): HTMLCanvasElement {
+// Nicks flagged with IRCv3 bot mode get a robot glyph instead of the
+// generated identicon — the identicon distinguishes humans from each other,
+// which is not what matters about a bot.
+export function nickAvatar(nick: string): HTMLElement {
+  if (isBotNick(nick)) return botAvatar();
+  return identiconAvatar(nick);
+}
+
+function botAvatar(): HTMLElement {
+  const span = document.createElement("span");
+  span.className = "nick-avatar bot";
+  span.textContent = "🤖";
+  span.title = "bot";
+  return span;
+}
+
+function identiconAvatar(nick: string): HTMLCanvasElement {
   const p = 2;
   const size = 5;
   const c = document.createElement("canvas");

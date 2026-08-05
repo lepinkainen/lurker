@@ -301,9 +301,11 @@ func fixture() []seedNetwork {
 			Nick: "lurkertest", Realname: "Lurker Test",
 			Channels: []seedChannel{
 				{
-					Name:    "#lurker",
-					Topic:   "Lurker dev channel — test fixtures loaded",
-					Members: []string{"alice", "bob", "carol", "lurkertest"},
+					Name:  "#lurker",
+					Topic: "Lurker dev channel — test fixtures loaded",
+					// buildbot exercises IRCv3 bot rendering: fixture mode
+					// flags any nick ending in "bot" as a bot.
+					Members: []string{"alice", "bob", "carol", "buildbot", "lurkertest"},
 					Lines: []seedLine{
 						{Sender: "alice", Kind: "privmsg", Content: "morning folks", Offset: 1 * time.Hour},
 						{Sender: "bob", Kind: "privmsg", Content: "hey alice", Offset: 1*time.Hour + 30*time.Second},
@@ -312,6 +314,7 @@ func fixture() []seedNetwork {
 						{Sender: "bob", Kind: "privmsg", Content: "looking now", Offset: 1*time.Hour + 6*time.Minute},
 						{Sender: "lurkertest", Kind: "privmsg", Content: "LGTM from me", Offset: 1*time.Hour + 10*time.Minute},
 						{Sender: "carol", Kind: "privmsg", Content: "same, merging", Offset: 1*time.Hour + 12*time.Minute},
+						{Sender: "buildbot", Kind: "privmsg", Content: "build #412 passed in 2m14s", Offset: 1*time.Hour + 13*time.Minute},
 					},
 				},
 				{

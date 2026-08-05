@@ -490,7 +490,7 @@ func TestMemberListUsesDisplayNickCaseFromUser(t *testing.T) {
 	runClientEvent(client, mustEvent(t, ":Shrike!u@h JOIN #test"))
 	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :shrike"))
 
-	members := buildChannelMembers(client, "#test")
+	members := buildChannelMembers(client, "#test", nil)
 	if len(members) != 1 {
 		t.Fatalf("len(members) = %d, want 1", len(members))
 	}
@@ -505,7 +505,7 @@ func TestMemberListStripsMircCodesFromRealname(t *testing.T) {
 	runClientEvent(client, mustEvent(t, ":fake 353 tester = #test :shrike"))
 	runClientEvent(client, mustEvent(t, ":fake 352 tester #test u h fake Shrike H :0 \x02\x034,1Real\x03\x02 Name "))
 
-	members := buildChannelMembers(client, "#test")
+	members := buildChannelMembers(client, "#test", nil)
 	if len(members) != 1 {
 		t.Fatalf("len(members) = %d, want 1", len(members))
 	}

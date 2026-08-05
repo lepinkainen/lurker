@@ -9,7 +9,7 @@ import (
 	"github.com/lrstanley/girc"
 )
 
-func buildChannelMembers(c *girc.Client, channel string) []ChannelUser {
+func buildChannelMembers(c *girc.Client, channel string, bots *botTracker) []ChannelUser {
 	if c == nil || channel == "" {
 		return nil
 	}
@@ -37,6 +37,7 @@ func buildChannelMembers(c *girc.Client, channel string) []ChannelUser {
 			Realname: realname,
 			Away:     user != nil && user.Extras.Away != "",
 			Self:     strings.EqualFold(displayNick, selfNick),
+			Bot:      bots.isBot(displayNick),
 			Color:    nickcolor.Index(displayNick),
 		})
 	}

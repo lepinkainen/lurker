@@ -1,7 +1,7 @@
 import { activeBuffer, type Member, state } from "./app-state";
 import { nickColor } from "./format";
 import { nickAvatar } from "./nick";
-import { nickColorIndex } from "./nick-colors";
+import { isBotNick, nickColorIndex } from "./nick-colors";
 
 export type SendCmd = (cmd: Record<string, unknown>) => void;
 
@@ -187,6 +187,7 @@ function buildMeta(member: Member, myNick: string): HTMLElement {
   const realname = member.realname ?? "";
   if (realname && realname !== member.nick) rows.push(["name", realname]);
   rows.push(["mode", modeLabel(member.prefix)]);
+  if (member.bot || isBotNick(member.nick)) rows.push(["type", "bot"]);
   rows.push(["status", member.away ? "away" : "online"]);
 
   for (const [k, v] of rows) {

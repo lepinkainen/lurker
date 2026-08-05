@@ -58,6 +58,11 @@ final class AppModel {
   var buffers: [UUID: Buffer] = [:]
   var messages: [UUID: [Message]] = [:]
   var members: [UUID: [Member]] = [:]
+  /// Lowercased nicks flagged with IRCv3 bot mode. Only member lists carry
+  /// the flag, so it is remembered here for message rows too. Sticky within a
+  /// session: a member list rebuilt before the server's WHO reply lands would
+  /// otherwise flip the glyph back.
+  private(set) var botNicks: Set<String> = []
   var selectedBufferID: UUID?
   var historyExhausted: Set<UUID> = []
   var historyLoading: Set<UUID> = []
@@ -606,6 +611,7 @@ final class AppModel {
       uniqueKeysWithValues: (snapshot.members ?? [:]).compactMap { key, value in
         UUID(uuidString: key).map { ($0, value) }
       })
+    for list in members.values { noteBots(list) }
     restoreSelection()
     updateBadge()
   }
@@ -681,6 +687,7 @@ final class AppModel {
       messages[event.bufferID] = list
     case .members(let event):
       members[event.bufferID] = event.members
+      noteBots(event.members)
     case .netsplit(let event):
       guard var list = messages[event.bufferID] else { return }
       let ids = Set(event.messageIDs)
@@ -884,6 +891,18 @@ final class AppModel {
     return values.filter { !presenceKinds.contains($0.kind) }
   }
 
+  private func noteBots(_ list: [Member]) {
+    for member in list where member.bot == true {
+      botNicks.insert(member.nick.lowercased())
+    }
+  }
+
+  /// Whether the nick is known to be an IRCv3 bot. Case-insensitive, matching
+  /// the server's own nick folding.
+  func isBot(_ nick: String) -> Bool {
+    !nick.isEmpty && botNicks.contains(nick.lowercased())
+  }
+
   private func updateBadge() {
     NotificationManager.shared.setBadge(mentionTotal)
   }
@@ -893,6 +912,7 @@ final class AppModel {
     buffers.removeAll()
     messages.removeAll()
     members.removeAll()
+    botNicks.removeAll()
     historyExhausted.removeAll()
     historyAnchor = nil
     channelList = nil

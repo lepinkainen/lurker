@@ -84,6 +84,7 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 	if sender != "" && sender != "*" && h.isIgnored(sender) {
 		return
 	}
+	h.noteBotTag(e)
 	msgID, _ := e.Tags.Get("msgid")
 	account, _ := e.Tags.Get("account")
 	ts := e.Timestamp

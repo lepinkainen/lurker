@@ -74,6 +74,9 @@ func (m *Manager) fixtureMembersForChannel(ctx context.Context, bufferID uuid.UU
 	out := make([]ChannelUser, 0, len(seen))
 	for nick := range seen {
 		member := ChannelUser{Nick: nick, Self: strings.EqualFold(nick, selfNick)}
+		// Fixture convention: a nick ending in "bot" is an IRCv3 bot, so
+		// seeded data exercises the robot glyph without a live server.
+		member.Bot = !member.Self && strings.HasSuffix(strings.ToLower(nick), "bot")
 		if member.Self {
 			member.Nick = selfNick
 			member.Prefix = "+"

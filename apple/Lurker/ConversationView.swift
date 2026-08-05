@@ -349,6 +349,7 @@ private struct PresenceSummary: View {
 }
 
 private struct MessageRow: View {
+  @Environment(AppModel.self) private var model
   let message: Message
   let buffer: Buffer?
 
@@ -387,8 +388,11 @@ private struct MessageRow: View {
           systemBody
         } else {
           HStack(alignment: .firstTextBaseline, spacing: 4) {
-            NickAvatar(nick: message.sender, colorIndex: message.senderColor)
-              .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+            NickAvatar(
+              nick: message.sender, colorIndex: message.senderColor,
+              isBot: model.isBot(message.sender)
+            )
+            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
             Text(message.sender)
               .font(.body.monospaced().weight(message.isSelf == true ? .bold : .medium))
               .foregroundStyle(nickPaletteColor(message.senderColor))
@@ -414,8 +418,11 @@ private struct MessageRow: View {
         VStack(alignment: .leading, spacing: 2) {
           HStack(alignment: .firstTextBaseline, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-              NickAvatar(nick: message.sender, colorIndex: message.senderColor)
-                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+              NickAvatar(
+                nick: message.sender, colorIndex: message.senderColor,
+                isBot: model.isBot(message.sender)
+              )
+              .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
               Text(message.sender)
                 .font(.body.monospaced().weight(message.isSelf == true ? .bold : .semibold))
                 .foregroundStyle(nickPaletteColor(message.senderColor))

@@ -136,6 +136,15 @@
     flex-shrink: 0;
   }
 
+  /* Bot glyph replaces the identicon: an emoji, so drop the pixel-art
+     rendering and size it as text that still fits the 14px avatar box. */
+  .nick-avatar.bot {
+    font-size: 12px;
+    line-height: 14px;
+    text-align: center;
+    image-rendering: auto;
+  }
+
   .msg .body {
     flex: 1;
     min-width: 0;

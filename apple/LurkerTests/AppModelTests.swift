@@ -296,6 +296,58 @@ struct AppModelTests {
     #expect(model.selectedBufferID == survivor.id)
   }
 
+  @Test func memberListRecordsBotNicks() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let target = buffer("#alpha", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [target.id: target]
+
+    let event = try? JSONDecoder.lurker().decode(
+      ServerEvent.self,
+      from: Data(
+        """
+        {"type":"member_list","network_id":"\(networkID.uuidString)",
+         "buffer_id":"\(target.id.uuidString)","channel":"#alpha",
+         "members":[
+           {"nick":"HelperBot","away":false,"self":false,"bot":true,"color":3},
+           {"nick":"alice","away":false,"self":false,"bot":false,"color":4}]}
+        """.utf8))
+    #expect(event != nil)
+    if let event { model.apply(event) }
+
+    #expect(model.members[target.id]?.first?.bot == true)
+    // Case-insensitive, and remembered outside the member list so message
+    // rows can render the bot glyph too.
+    #expect(model.isBot("helperbot"))
+    #expect(!model.isBot("alice"))
+  }
+
+  @Test func memberListWithoutBotFieldDecodes() {
+    // Older backends omit `bot` entirely; the flag must stay absent, not fail
+    // the decode of the whole member list.
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    let target = buffer("#alpha", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [target.id: target]
+
+    let event = try? JSONDecoder.lurker().decode(
+      ServerEvent.self,
+      from: Data(
+        """
+        {"type":"member_list","network_id":"\(networkID.uuidString)",
+         "buffer_id":"\(target.id.uuidString)","channel":"#alpha",
+         "members":[{"nick":"alice","away":false,"self":false,"color":4}]}
+        """.utf8))
+    #expect(event != nil)
+    if let event { model.apply(event) }
+
+    #expect(model.members[target.id]?.count == 1)
+    #expect(model.members[target.id]?.first?.bot == nil)
+    #expect(!model.isBot("alice"))
+  }
+
   @Test func bufferUpdateArchivedMovesBufferBetweenGroups() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()

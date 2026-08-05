@@ -93,7 +93,10 @@ type Manager struct {
 	membersLoaded  map[uuid.UUID]map[string]bool
 	joined         map[uuid.UUID]map[string]bool
 	fixtureMembers map[uuid.UUID]map[string][]ChannelUser
-	connector      connectorFunc
+	// bots holds the IRCv3 bot-mode set per network, shared with that
+	// network's handler so REST snapshots and WS pushes agree.
+	bots      map[uuid.UUID]*botTracker
+	connector connectorFunc
 }
 
 // NewManager constructs a Manager. Every network runtime it starts is bound
@@ -112,6 +115,7 @@ func NewManager(baseCtx context.Context, stores *ircdb.MultiStore, h *hub.Hub) *
 		membersLoaded:  map[uuid.UUID]map[string]bool{},
 		joined:         map[uuid.UUID]map[string]bool{},
 		fixtureMembers: map[uuid.UUID]map[string][]ChannelUser{},
+		bots:           map[uuid.UUID]*botTracker{},
 		connector:      defaultConnector,
 	}
 }
@@ -521,6 +525,7 @@ func (m *Manager) ChannelMembers(networkID uuid.UUID, channel string) []ChannelU
 	c := m.conn[networkID]
 	loaded := m.membersLoaded[networkID][channel]
 	fixtureMembers := slices.Clone(m.fixtureMembers[networkID][channel])
+	bots := m.bots[networkID]
 	m.mu.Unlock()
 	if channel == "" {
 		return nil
@@ -528,7 +533,7 @@ func (m *Manager) ChannelMembers(networkID uuid.UUID, channel string) []ChannelU
 	if c == nil || !c.IsConnected() {
 		return fixtureMembers
 	}
-	members := buildChannelMembers(c, channel)
+	members := buildChannelMembers(c, channel, bots)
 	if members == nil {
 		if loaded {
 			return []ChannelUser{}
@@ -695,6 +700,7 @@ func (m *Manager) markDisconnected(networkID uuid.UUID, gen uint64) {
 	}
 	delete(m.conn, networkID)
 	delete(m.membersLoaded, networkID)
+	delete(m.bots, networkID)
 	if _, ok := m.runtime[networkID]; ok {
 		m.state[networkID] = StateDisconnected.String()
 	}
@@ -790,7 +796,14 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 		slog.Error("log store", "err", err, "network_id", networkID)
 		return client
 	}
-	h := &handler{stores: m.stores, db: logStore.DB, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectCommands: nc.ConnectCommands, userChannels: newUserChannels(), nickFn: func() string { return m.Nick(networkID) }, connectedHook: func(currentNick string) {
+	// A reconnect rebuilds the client, so bot state starts empty and is
+	// re-learned from the fresh WHO/WHOIS/tag traffic.
+	bots := newBotTracker()
+	m.mu.Lock()
+	m.bots[networkID] = bots
+	m.mu.Unlock()
+
+	h := &handler{stores: m.stores, db: logStore.DB, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectCommands: nc.ConnectCommands, userChannels: newUserChannels(), bots: bots, nickFn: func() string { return m.Nick(networkID) }, connectedHook: func(currentNick string) {
 		m.mu.Lock()
 		m.state[networkID] = StateConnected.String()
 		if _, ok := m.membersLoaded[networkID]; !ok {

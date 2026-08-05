@@ -73,7 +73,7 @@ Returns:
 - `networks`
 - `buffers`
 - `initial_messages` keyed by buffer ID
-- `members` keyed by buffer ID
+- `members` keyed by buffer ID (same entry shape as the `member_list` WS event, including the IRCv3 `bot` flag)
 
 Current behavior:
 

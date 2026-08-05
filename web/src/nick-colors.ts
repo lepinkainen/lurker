@@ -23,7 +23,26 @@ export function registerMessageNickColors(m: Message) {
 }
 
 export function registerMemberNickColors(members: Member[]) {
-  for (const m of members) registerNickColor(m.nick, m.color);
+  for (const m of members) {
+    registerNickColor(m.nick, m.color);
+    registerBotNick(m.nick, m.bot);
+  }
+}
+
+// IRCv3 bot-mode nicks (https://ircv3.net/specs/extensions/bot-mode). Only
+// member lists carry the flag, but we remember it here so message rows and
+// system lines render the robot glyph too. Sticky: a member list rebuilt
+// before the server's WHO reply lands would otherwise flip the glyph back.
+const bots = new Set<string>();
+
+export function registerBotNick(nick: string | undefined, bot: boolean | undefined) {
+  if (!(nick && bot)) return;
+  bots.add(nick.toLowerCase());
+}
+
+export function isBotNick(nick: string | undefined | null): boolean {
+  if (!nick) return false;
+  return bots.has(nick.toLowerCase());
 }
 
 export function registerNetworkNickColor(n: Network) {
@@ -32,4 +51,5 @@ export function registerNetworkNickColor(n: Network) {
 
 export function resetNickColors() {
   indexes.clear();
+  bots.clear();
 }

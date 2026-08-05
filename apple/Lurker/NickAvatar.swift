@@ -80,9 +80,23 @@ func oklchColor(l: Double, c: Double, h: Double) -> Color {
 struct NickAvatar: View {
   let nick: String
   let colorIndex: Int?
+  /// IRCv3 bot-mode nicks show a robot glyph instead: the identicon exists to
+  /// tell humans apart, which is not what matters about a bot.
+  var isBot: Bool = false
   var size: CGFloat = 14
 
   var body: some View {
+    if isBot {
+      Text("🤖")
+        .font(.system(size: size * 0.86))
+        .frame(width: size, height: size)
+        .accessibilityLabel("bot")
+    } else {
+      identicon
+    }
+  }
+
+  @ViewBuilder private var identicon: some View {
     let rows = nickIdenticonRows(nick)
     let color = nickPaletteColor(colorIndex)
     Canvas { context, canvasSize in

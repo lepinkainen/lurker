@@ -13,6 +13,18 @@ Conforming implementations:
 - Web: `web/src/nick.ts` (`nickAvatar`), `web/src/nick-palette.ts`, `web/src/format.ts` (`nickColor`)
 - Apple (macOS/iOS): `apple/Lurker/NickAvatar.swift`
 
+## Bots are exempt
+
+A nick flagged with IRCv3 bot mode renders 🤖 in the avatar's place — same
+box size, no identicon, no tint. The identicon exists to tell humans apart,
+which is not what matters about a bot. The nick's *text* color is unaffected.
+
+Bot status ships as `bot` on member-list entries only (see
+[irc-runtime.md](irc-runtime.md)). Clients remember it per lowercased nick,
+alongside the palette index, so message rows and system lines render the
+glyph too; the flag is sticky for the session, since a member list rebuilt
+before the server's WHO reply lands would otherwise flip the glyph back.
+
 ## Palette index origin
 
 The nick→color mapping is computed **server-side** by the Go `nickcolor`

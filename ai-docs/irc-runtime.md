@@ -127,6 +127,18 @@ The WebSocket endpoint subscribes to the hub and forwards events as JSON. See [w
 
 Frontend uses these events for per-buffer presence display when `show_presence_events` is enabled.
 
+## Bot mode (IRCv3)
+
+`irc/bots.go` + `irc/handler_bots.go` implement [IRCv3 bot mode](https://ircv3.net/specs/extensions/bot-mode). girc tracks neither WHO flags nor the 335 numeric, so a per-network `botTracker` (a set of case-folded nicks, shared between the handler and `irc.Manager` so REST snapshots and WS pushes agree) accumulates bot status from three sources:
+
+- **WHO flags** — the ISUPPORT `BOT` mode character appearing in `RPL_WHOREPLY` (352) / `RPL_WHOSPCRPL` (354) flags. girc's own auto-WHO requests `%tacuhnr` (no flags field), so on servers advertising `BOT` we send an extra `WHO <target> %tnf,9` after `RPL_ENDOFNAMES` and on remote joins; query type `9` distinguishes the reply from girc's (`1`) and `Cmd.Who()`'s (`2`). Without `WHOX` we send a plain `WHO` and read 352 flags. Servers that don't advertise `BOT` see no extra traffic.
+- **RPL_WHOISBOT (335)** in a WHOIS response.
+- **the `bot` message tag** (also `draft/bot`) on any event with a source, covering nicks we never WHO'd.
+
+Only replies to our own `%tnf` query can *clear* bot status — any other WHO reply may simply omit the flag, so those only ever set it. The leading `H`/`G` away indicator is stripped before matching so a network using `G` or `H` as its bot mode character doesn't match every away user.
+
+Bot status is exposed as `ChannelUser.bot` in member lists (and is part of the member-list dedupe hash, so a newly detected bot republishes). Detection during a WHO burst does not publish per nick — `RPL_ENDOFWHO` already republishes the affected member lists. The tracker follows NICK changes, drops nicks on QUIT, and starts empty on every reconnect. Clients render bots with 🤖 in place of the nick identicon (see [nick-identicon.md](nick-identicon.md)).
+
 ## Channel list events
 
 `irc/handler_list.go` handles server `/LIST` responses and publishes streaming `ChannelListEvent` (`type: "channel_list"`):

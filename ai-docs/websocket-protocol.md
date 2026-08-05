@@ -209,7 +209,7 @@ Two server-side variants share this type:
 - `network_id`
 - `buffer_id`
 - `channel`
-- `members` — array of `{nick, prefix?, realname?, away, self, color}`; `realname` is pre-stripped of mIRC codes server-side, `color` is the nick-color palette index
+- `members` — array of `{nick, prefix?, realname?, away, self, bot, color}`; `realname` is pre-stripped of mIRC codes server-side, `color` is the nick-color palette index, `bot` is IRCv3 bot mode (see [irc-runtime.md](irc-runtime.md))
 
 `preview`
 

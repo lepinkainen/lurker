@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/hub"
+	"github.com/lrstanley/girc"
 )
 
 // handler is the glue between a girc.Client and the SQLite store. One
@@ -44,4 +45,10 @@ type handler struct {
 	// netsplits clusters live quit/join events so published messages carry
 	// their netsplit annotation (clients group by it instead of re-deriving).
 	netsplits *netsplitTracker
+	// bots tracks IRCv3 bot-mode nicks for this network. Shared with the
+	// Manager so REST member snapshots see the same flags as WS pushes.
+	bots *botTracker
+	// client is the girc client this handler is registered on, for the paths
+	// that need it outside a handler callback (message-tag bot detection).
+	client *girc.Client
 }

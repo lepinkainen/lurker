@@ -259,6 +259,9 @@ struct Member: Codable, Identifiable, Sendable, Hashable {
   var realname: String? = nil
   var away: Bool
   var `self`: Bool
+  /// IRCv3 bot mode (https://ircv3.net/specs/extensions/bot-mode). Optional
+  /// so snapshots from a backend predating the flag still decode.
+  var bot: Bool? = nil
   var color: Int? = nil
 }
 

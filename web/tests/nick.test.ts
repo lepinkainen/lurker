@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { nickAvatar, nickEl, sysBodyDOM } from "../src/nick";
+import { registerBotNick, registerMemberNickColors, resetNickColors } from "../src/nick-colors";
 
 const text = (nodes: Node[]) => nodes.map((n) => (n instanceof Element ? n.textContent : n.nodeValue)).join("");
 
@@ -143,5 +144,45 @@ describe("nickAvatar", () => {
     const dataA = (ctxA as CanvasRenderingContext2D).getImageData(0, 0, a.width, a.height).data.join(",");
     const dataB = (ctxB as CanvasRenderingContext2D).getImageData(0, 0, b.width, b.height).data.join(",");
     expect(dataA).not.toBe(dataB);
+  });
+});
+
+describe("bot avatars", () => {
+  afterEach(() => {
+    resetNickColors();
+  });
+
+  it("renders the robot glyph instead of an identicon", () => {
+    registerBotNick("helperbot", true);
+    const el = nickAvatar("helperbot");
+    expect(el).not.toBeInstanceOf(HTMLCanvasElement);
+    expect(el.textContent).toBe("🤖");
+    expect(el.className).toBe("nick-avatar bot");
+  });
+
+  it("matches case-insensitively", () => {
+    registerBotNick("helperbot", true);
+    expect(nickAvatar("HelperBot").textContent).toBe("🤖");
+  });
+
+  it("leaves non-bots on the identicon", () => {
+    registerBotNick("helperbot", true);
+    expect(nickAvatar("alice")).toBeInstanceOf(HTMLCanvasElement);
+  });
+
+  it("picks up the bot flag from member lists", () => {
+    registerMemberNickColors([
+      { nick: "helperbot", prefix: "", away: false, self: false, bot: true },
+      { nick: "alice", prefix: "", away: false, self: false },
+    ]);
+    expect(nickAvatar("helperbot").textContent).toBe("🤖");
+    expect(nickAvatar("alice")).toBeInstanceOf(HTMLCanvasElement);
+  });
+
+  it("nickEl still labels the bot with its nick", () => {
+    registerBotNick("helperbot", true);
+    const el = nickEl("helperbot");
+    expect(el.textContent).toContain("helperbot");
+    expect(el.textContent).toContain("🤖");
   });
 });

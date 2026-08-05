@@ -26,6 +26,7 @@ func (h *handler) onJoin(c *girc.Client, e girc.Event) {
 	}
 	if e.Source != nil {
 		h.userChannels.addUser(e.Source.Name, channel)
+		h.requestBotWho(c, e.Source.Name)
 	}
 	h.storeEvent(e, channel, ircdb.BufferChannel, "join", "", "")
 }
@@ -191,6 +192,9 @@ func (h *handler) onEndOfNames(c *girc.Client, e girc.Event) {
 		}
 	}
 	h.publishMemberList(c, channel)
+	// Ask for bot flags once the roster is known; the reply's RPL_ENDOFWHO
+	// republishes the list with them applied.
+	h.requestBotWho(c, channel)
 }
 
 // onEndOfWho fires after girc's auto-WHO on join completes. At this point
