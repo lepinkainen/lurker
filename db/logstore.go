@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -54,12 +55,19 @@ type LogMessageInput struct {
 	Target    string
 	Content   string
 	Raw       string
+	// Backfill marks a message replayed from server history (CHATHISTORY).
+	// Its row ID timestamp derives from the message's own Timestamp so that
+	// id order stays chronological despite the late insert.
+	Backfill bool
 }
 
 // InsertLogMessage inserts an IRC event into the per-network log.
 func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id uuid.UUID, ts string, inserted bool, err error) {
 	ts = FormatTime(m.Timestamp)
 	newId := newID()
+	if m.Backfill && !m.Timestamp.IsZero() {
+		newId = newIDAt(m.Timestamp)
+	}
 	affected, err := logdb.New(d).InsertLogMessage(ctx, logdb.InsertLogMessageParams{
 		ID:       newId[:],
 		BufferID: m.BufferID[:],
@@ -80,6 +88,30 @@ func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id uui
 		return uuid.Nil, ts, false, nil
 	}
 	return newId, ts, true, nil
+}
+
+// LookupLogBufferIDByName returns the UUID of an existing per-network log
+// buffer row by name. found is false (with nil error) when no such row exists.
+func LookupLogBufferIDByName(ctx context.Context, d *sql.DB, name string) (id uuid.UUID, found bool, err error) {
+	row, err := logdb.New(d).LookupLogBufferByName(ctx, name)
+	switch {
+	case err == nil:
+		id, perr := parseUUID(row.ID)
+		if perr != nil {
+			return uuid.Nil, false, perr
+		}
+		return id, true, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return uuid.Nil, false, nil
+	default:
+		return uuid.Nil, false, err
+	}
+}
+
+// LatestLogMessageTS returns the newest stored message timestamp for a
+// buffer in FormatTime format, or "" when the buffer has no messages.
+func LatestLogMessageTS(ctx context.Context, d *sql.DB, bufferID uuid.UUID) (string, error) {
+	return logdb.New(d).LatestLogMessageTS(ctx, bufferID[:])
 }
 
 // ListLogBuffers returns every buffer stored in a per-network log DB.

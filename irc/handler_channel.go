@@ -22,6 +22,9 @@ func (h *handler) onJoin(c *girc.Client, e girc.Event) {
 	}
 	h.updateChannelJoined(channel, true, "join", e.Source)
 	if isSelf {
+		// Fill any missed-message gap from server-side history (covers both
+		// reconnects and rejoins after a kick).
+		h.maybeRequestChathistory(channel)
 		return
 	}
 	if e.Source != nil {

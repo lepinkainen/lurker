@@ -772,6 +772,9 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 			// (buffer_id,msgid) unique index can't dedupe, plus mis-filed
 			// self-PMs.
 			"labeled-response": nil,
+			// Gap backfill on reconnect: see irc/chathistory.go. girc only
+			// REQs caps the server advertises, so this is a no-op elsewhere.
+			"draft/chathistory": nil,
 		},
 	}
 	if server.TLS {
@@ -837,6 +840,12 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 	}, drainJoinedHook: func() []string {
 		return m.drainJoined(networkID)
 	}}
+	h.hasCap = client.HasCapability
+	h.sendRaw = func(line string) error { return client.Cmd.SendRaw(line) }
+	h.historyLimit = func() int {
+		limit, _ := client.GetServerOptionInt("CHATHISTORY")
+		return limit
+	}
 	h.register(client)
 
 	go func() {

@@ -93,6 +93,16 @@ type NetsplitEvent struct {
 	MessageIDs []uuid.UUID  `json:"message_ids"`
 }
 
+// HistoryBackfillEvent announces that a CHATHISTORY batch inserted older
+// messages into a buffer. Clients refetch the buffer's history (or ignore
+// the event — the rows are there on next load either way).
+type HistoryBackfillEvent struct {
+	Type      string    `json:"type"`
+	NetworkID uuid.UUID `json:"network_id"`
+	BufferID  uuid.UUID `json:"buffer_id"`
+	Count     int       `json:"count"`
+}
+
 // BufferCreatedEvent is published the first time we see activity in a
 // buffer that didn't exist yet (autojoin, inbound PM, network status).
 type BufferCreatedEvent struct {

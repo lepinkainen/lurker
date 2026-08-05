@@ -51,4 +51,14 @@ type handler struct {
 	// client is the girc client this handler is registered on, for the paths
 	// that need it outside a handler callback (message-tag bot detection).
 	client *girc.Client
+	// hasCap/sendRaw/historyLimit are seams over the girc client used by the
+	// chathistory backfill (capability check, raw CHATHISTORY sends, and the
+	// server's CHATHISTORY ISUPPORT limit). Nil disables backfill.
+	hasCap       func(name string) bool
+	sendRaw      func(line string) error
+	historyLimit func() int
+	// chathistory tracks in-flight history batches and pagination for this
+	// connection. Lazily initialized; guarded by chathistoryMu.
+	chathistoryMu sync.Mutex
+	chathistory   *chathistoryState
 }

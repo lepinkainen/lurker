@@ -317,19 +317,7 @@ func (ms *MultiStore) EnsureBuffer(ctx context.Context, networkID uuid.UUID, nam
 // peekLogBufferID returns the UUID of an existing per-network log buffer row by
 // name. found is false (with nil error) when no such row exists.
 func (ms *MultiStore) peekLogBufferID(ctx context.Context, logStore *LogStore, name string) (id uuid.UUID, found bool, err error) {
-	row, err := logdb.New(logStore.DB).LookupLogBufferByName(ctx, name)
-	switch {
-	case err == nil:
-		id, perr := parseUUID(row.ID)
-		if perr != nil {
-			return uuid.Nil, false, perr
-		}
-		return id, true, nil
-	case errors.Is(err, sql.ErrNoRows):
-		return uuid.Nil, false, nil
-	default:
-		return uuid.Nil, false, err
-	}
+	return LookupLogBufferIDByName(ctx, logStore.DB, name)
 }
 
 // ensureBufferRegistryRow looks up the registry row by (network_id, name). When

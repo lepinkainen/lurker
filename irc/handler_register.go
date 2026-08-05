@@ -32,6 +32,7 @@ func (h *handler) register(c *girc.Client) {
 	c.Handlers.Add(girc.UPDATE_STATE, h.onStateUpdate)
 	c.Handlers.Add(girc.RPL_LIST, h.onRPLList)
 	c.Handlers.Add(girc.RPL_LISTEND, h.onRPLListEnd)
+	c.Handlers.Add("BATCH", h.onBatch)
 	// echo-message: girc routes our own PRIVMSG/NOTICE echoes only through
 	// ALL_EVENTS. Catch them here and feed the normal persistence path so
 	// outbound messages land in history with the server-assigned msgid.
