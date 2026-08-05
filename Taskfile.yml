@@ -279,6 +279,22 @@ tasks:
     cmds:
       - go test -tags=ci -cover -v {{.GO_PACKAGES}} | tee coverage.out
 
+  test-ergo:
+    desc: Run IRCv3 protocol integration tests against a real Ergo server (requires docker)
+    cmds:
+      - docker rm -f lurker-ergo-test >/dev/null 2>&1 || true
+      - docker run -d --name lurker-ergo-test -p 16667:6667 -v {{.ROOT_DIR}}/testdata/ergo/ircd.yaml:/ircd/ircd.yaml:ro ghcr.io/ergochat/ergo:stable
+      - defer: docker rm -f lurker-ergo-test >/dev/null 2>&1 || true
+      - |
+        for i in $(seq 1 50); do
+          nc -z 127.0.0.1 16667 >/dev/null 2>&1 && exit 0
+          sleep 0.2
+        done
+        echo "Ergo did not start listening on :16667" >&2
+        docker logs lurker-ergo-test >&2
+        exit 1
+      - ERGO_ADDR=127.0.0.1:16667 go test -tags=ergo ./irc/ -run TestErgo -count=1 -v -timeout 120s
+
   lint:
     desc: Run formatting and lint checks (excluding llm-shared)
     deps: [lint-web]

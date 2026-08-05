@@ -27,6 +27,37 @@ This means tests should primarily cover:
 
 Only add true transport-level integration tests when validating behavior that is specifically about Lurker's own network integration rather than `girc` internals.
 
+## Real IRCv3 server integration tests (Ergo)
+
+`task test-ergo` runs `irc/ergo_integration_test.go` (build tag `ergo`) against a real [Ergo](https://ergo.chat) server started in docker from `testdata/ergo/ircd.yaml` (plaintext :16667, throttling off, in-memory history with CHATHISTORY enabled). Use this layer — not `cmd/fakeircd`, and not unit tests — for behavior that depends on real server-side protocol flows: CAP negotiation outcomes (`HasCapability`), CHATHISTORY request/replay, and future echo-message / SASL / multiline work. Division of labor:
+
+- **unit tests** (synthetic `girc.Event`s): lurker's translation layer, persistence, hub publication
+- **`cmd/fakeircd`**: manual verification and adversarial/edge-case line injection (a real server never sends malformed input)
+- **`task test-ergo`**: protocol conformance against a reference IRCv3 implementation; requires docker, not part of `task test`
+
+Assertion caveats: Ergo timestamps/msgids are nondeterministic (assert on content/order/counts), and without the `event-playback` cap Ergo replays join/quit history as PRIVMSGs from `HistServ` — filter by sender.
+
+### Workflow
+
+- One-shot: `task test-ergo` (starts container, waits for the port, runs tests, removes container even on failure).
+- Iterating on a test: start the server once and keep it running, then run tests directly against it:
+
+  ```sh
+  docker run -d --name lurker-ergo-test -p 16667:6667 \
+    -v $PWD/testdata/ergo/ircd.yaml:/ircd/ircd.yaml:ro ghcr.io/ergochat/ergo:stable
+  ERGO_ADDR=127.0.0.1:16667 go test -tags=ergo ./irc/ -run TestErgo -count=1 -v
+  docker rm -f lurker-ergo-test   # when done
+  ```
+
+  `ERGO_ADDR` (default `127.0.0.1:16667`) points tests at any reachable Ergo instance.
+
+### Writing new tests
+
+- Put them in `irc/` with the `//go:build ergo` tag; name them `TestErgo*` so the task target's `-run TestErgo` picks them up.
+- Reuse `dialRaw` (`ergo_integration_test.go`) for scripted counterpart clients — it registers, answers PINGs, and offers `send`/`waitFor`.
+- Use unique channel names per run (e.g. time-based suffix): the container keeps in-memory history for its whole lifetime, so a rerun against a kept-alive server sees earlier messages. Restarting the container resets all state (history is RAM-only, datastore is throwaway).
+- Server behavior knobs live in `testdata/ergo/ircd.yaml` (e.g. `history.chathistory-maxmessages`, `limits.multiline`); it's a trimmed Ergo default.yaml, so new sections can be copied from upstream when a test needs them.
+
 ## Build and developer workflow
 
 Preferred commands come from `Taskfile.yml`:
