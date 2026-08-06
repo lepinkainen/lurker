@@ -235,7 +235,7 @@ Returned URL:
 - With `backend: s3` the URL is always `{media.s3.public_base_url}[/{prefix}]/{name}` — the CDN domain, since the bytes are only reachable there.
 - With `backend: disk`, `media.disk.base_url` wins when set: `{base}/{name}`. Otherwise the URL is made **absolute** from the incoming request (`scheme://host/uploads/{name}`) so the pasted link resolves for other IRC clients — a relative path is useless once it leaves this origin. Scheme honors `X-Forwarded-Proto` (only `http`/`https` accepted; a spoofed scheme like `javascript` is ignored) then the connection's TLS state. If the `Host` header is untrustworthy (spaces, CRLF, quotes) it falls back to a relative `/uploads/{name}`.
 
-Clients (web drag&drop, macOS/iOS paperclip + drag&drop) upload here and auto-insert the returned URL into the composer, ready to send.
+Clients (web paperclip + drag&drop + paste, macOS/iOS paperclip + drag&drop) upload here and auto-insert the returned URL into the composer, ready to send.
 
 ## `POST /api/networks`
 

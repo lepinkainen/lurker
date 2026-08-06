@@ -37,8 +37,11 @@ Important invariants:
 
 ## Image attachment
 
-- `src/input-upload.ts` handles composer image attach: a paperclip button (`uploadButtonEl` → hidden `<input type=file>`) and drag&drop onto the input form. `uploadFile` POSTs `multipart/form-data` (field `file`) to `/api/upload`; the returned `url` is inserted at the caret via `insertTextAtCursor`, ready to send as a normal message.
-- The button is disabled and the form gets a `.uploading` class during the request; drag hover toggles `.upload-dragover`. Failures log to console (no send). Server-side optimization/validation and the URL shape are documented in [rest-api.md](rest-api.md#post-apiupload).
+- `src/input-upload.ts` handles composer image attach: a paperclip button (`uploadButtonEl` → hidden `<input type=file>`), drag&drop onto the input form, and paste. `uploadFile` POSTs `multipart/form-data` (field `file`) to `/api/upload`; the returned `url` is inserted at the caret via `insertTextAtCursor`, ready to send as a normal message.
+- Paste is bound on `document`, not on the composer input: iOS Safari does not reliably deliver an image paste to a plain `<input type=text>`, and the photo is often pasted while focus sits elsewhere. Composer pastes bubble to the same listener, so there is exactly one handler and no double upload. `clipboardImage` takes the first `image/*` from `clipboardData.files`, falling back to `clipboardData.items` (Safari can leave `files` empty). Pastes into any other text field, pastes while the composer is disabled, and pastes that also carry non-empty `text/plain` (rich text drags images along; copying an image off a web page attaches its source URL) are left alone as ordinary text pastes.
+- `uploadFilename` synthesizes `pasted-<ts>.<ext>` when the clipboard file has no name (Safari) — the server rejects an empty multipart filename.
+- The file input's `accept` lists the stored image types explicitly rather than `image/*`, which makes iOS Safari transcode HEIC photos to JPEG on pick; the backend has no HEIC decoder.
+- The button is disabled and the form gets a `.uploading` class during the request; drag hover toggles `.upload-dragover`. Progress and failures also show in a `.upload-note` above the composer (errors clear after 8s) — an upload has no other visible result until the URL lands, and on a phone the console is out of reach. Server-side optimization/validation and the URL shape are documented in [rest-api.md](rest-api.md#post-apiupload).
 
 ## Hydration model
 

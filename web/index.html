@@ -121,7 +121,16 @@
           <div id="cmd-pop" class="cmdpop" hidden></div>
           <div id="emoji-pop" class="emojipop" hidden></div>
           <div id="nick-pop" class="nickpop" hidden></div>
-          <input id="upload-input" class="upload-input" type="file" hidden />
+          <!-- Explicit image types (rather than image/*) make iOS Safari
+               transcode HEIC photos to JPEG on pick; the backend has no HEIC
+               decoder and would reject the original. -->
+          <input
+            id="upload-input"
+            class="upload-input"
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            hidden
+          />
           <div class="row">
             <span class="prompt"><span id="input-nick" class="you">—</span></span>
             <input
