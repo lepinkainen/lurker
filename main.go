@@ -87,16 +87,8 @@ func main() {
 
 	updateChecker := updates.New(updates.Config{
 		Enabled:  cfg.Updates.Enabled,
-		Image:    cfg.Updates.Image,
-		Tag:      cfg.Updates.Tag,
 		Interval: cfg.Updates.Interval,
-		Username: cfg.Updates.Username,
-		Token:    cfg.Updates.Token,
-		Current: updates.BuildInfo{
-			Version:   version,
-			Commit:    gitHash,
-			BuildTime: buildTime,
-		},
+		Current:  updates.BuildInfo{Commit: gitHash},
 	})
 	updateChecker.Start(ctx)
 

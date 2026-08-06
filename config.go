@@ -47,11 +47,7 @@ type PreviewConfig struct {
 
 type UpdateConfig struct {
 	Enabled  bool
-	Image    string
-	Tag      string
 	Interval time.Duration
-	Username string
-	Token    string
 }
 
 // Media storage backend names. There is no default: config must name one, so
@@ -193,11 +189,7 @@ func loadConfig() Config {
 		},
 		Updates: UpdateConfig{
 			Enabled:  envBoolOr("UPDATE_CHECK_ENABLED", true),
-			Image:    envOr("UPDATE_CHECK_IMAGE", "ghcr.io/lepinkainen/lurker"),
-			Tag:      envOr("UPDATE_CHECK_TAG", "latest"),
 			Interval: clampUpdateInterval(envDurationOr("UPDATE_CHECK_INTERVAL", 24*time.Hour)),
-			Username: os.Getenv("GHCR_USERNAME"),
-			Token:    os.Getenv("GHCR_TOKEN"),
 		},
 	}
 	parsed, err := parseYAMLConfig(cfg.ConfigPath)

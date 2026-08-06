@@ -2,22 +2,14 @@
 
 ## Update checker
 
-Lurker can poll GHCR for newer published image metadata and expose cached status over HTTP. It does not pull images, restart containers, or require Docker socket access.
-
-### Purpose
-
-Use this to detect that deployed server is behind published container image without giving application power to replace itself.
+Lurker polls the GitHub Actions API for the latest successful `release.yml` run and compares its head SHA with the commit baked into the running binary (`main.gitHash`, set from the same SHA by the Docker build). A mismatch means a newer image is published. One unauthenticated request per interval; it does not pull images, restart containers, or require Docker socket access.
 
 ### Configuration
 
 Environment variables:
 
 - `UPDATE_CHECK_ENABLED` default `true`
-- `UPDATE_CHECK_IMAGE` default `ghcr.io/lepinkainen/lurker`
-- `UPDATE_CHECK_TAG` default `latest`
-- `UPDATE_CHECK_INTERVAL` default `6h`
-- `GHCR_USERNAME` optional
-- `GHCR_TOKEN` optional
+- `UPDATE_CHECK_INTERVAL` default `24h`, clamped to minimum `1h`
 
 ### API
 
@@ -30,15 +22,7 @@ Example response:
 ```json
 {
   "enabled": true,
-  "image": "ghcr.io/lepinkainen/lurker",
-  "tag": "latest",
-  "current_version": "sha-abc123",
-  "current_commit": "abc123",
-  "current_build_time": "2026-04-27T12:00:00Z",
-  "remote_version": "sha-def456",
-  "remote_commit": "def456",
-  "remote_build_time": "2026-04-28T08:00:00Z",
-  "remote_digest": "sha256:...",
+  "remote_version": "def4567",
   "checked_at": "2026-04-28T08:05:00Z",
   "update_available": true
 }
@@ -46,11 +30,9 @@ Example response:
 
 ### Implementation notes
 
-- only `ghcr.io/...` images are supported currently
-- checker uses OCI registry APIs, not GitHub HTML scraping
-- checker resolves multi-arch manifest lists to current runtime OS/arch
-- comparison prefers OCI label `org.opencontainers.image.revision`
-- fallback comparison uses `org.opencontainers.image.version`
+- source of truth is `GET https://api.github.com/repos/lepinkainen/lurker/actions/workflows/release.yml/runs?status=success&per_page=1` — a successful release run means the image was pushed, so failed builds never produce false positives
+- `remote_version` is the short commit SHA of the latest published image
+- dev builds (`gitHash` empty or `unknown`) never report an update
 - failures are surfaced in status `error` field and logs, but do not fail app startup
 
 ## Media storage

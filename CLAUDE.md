@@ -48,7 +48,7 @@ Packages:
 - `db/` — control DB, per-network log DBs, migrations, queries
 - `hub/` — in-process pub/sub fanning IRC events to WebSocket clients
 - `preview/` — URL preview pipeline (fetch, SSRF guard, YouTube/Fediverse extractors)
-- `updates/` — background GHCR image metadata polling
+- `updates/` — background release-update polling via GitHub API
 - `web/` — Vite + TS frontend
 - `cmd/seedtest/` — fake-data seeder
 

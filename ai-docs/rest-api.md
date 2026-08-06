@@ -58,7 +58,7 @@ Returns an empty array if no themes are configured.
 
 Purpose:
 
-- expose the update checker's cached comparison of local vs remote container image
+- expose the update checker's cached comparison of the running build's commit vs the latest published release
 
 See [operations.md](operations.md) for the full response shape and configuration.
 
