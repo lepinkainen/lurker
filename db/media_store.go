@@ -18,17 +18,6 @@ import (
 // media itself never imports db (see media/store.go).
 type MediaStore struct {
 	DB *sql.DB
-	// Now is the clock used for CreatedAt/UpdatedAt stamping. Tests inject a
-	// fixed clock; production code leaves it nil and the store falls back
-	// to time.Now.
-	Now func() time.Time
-}
-
-func (s *MediaStore) now() time.Time {
-	if s.Now != nil {
-		return s.Now()
-	}
-	return time.Now()
 }
 
 // OpenMediaStore opens the media metadata database at path.
@@ -111,7 +100,7 @@ func (s *MediaStore) Get(ctx context.Context, id string) (media.Media, bool, err
 // Insert stores a new media record. CreatedAt/UpdatedAt are stamped with the
 // store's clock when zero.
 func (s *MediaStore) Insert(ctx context.Context, m media.Media) error {
-	now := s.now().UTC()
+	now := time.Now().UTC()
 	if m.CreatedAt.IsZero() {
 		m.CreatedAt = now
 	}

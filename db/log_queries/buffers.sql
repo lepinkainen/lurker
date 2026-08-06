@@ -4,9 +4,6 @@ SELECT id, name, kind, COALESCE(topic,'') AS topic,
   last_seen_id, created_at
 FROM buffers ORDER BY id;
 
--- name: LookupLogBuffer :one
-SELECT name, kind FROM buffers WHERE id = ?;
-
 -- name: UpdateLogBufferTopicState :exec
 UPDATE buffers SET
   topic = COALESCE(sqlc.narg('topic'), topic),

@@ -87,7 +87,7 @@ func assertNoEvent(t *testing.T, ch <-chan any) {
 }
 
 func TestNewServiceNormalizesConfig(t *testing.T) {
-	svc := NewService(Config{Enabled: true, Workers: -1, QueueCapacity: 0}, nil, nil)
+	svc := NewService(Config{Enabled: true, Workers: -1}, nil, nil)
 	if svc.cfg.Workers != 4 {
 		t.Fatalf("Workers = %d, want 4", svc.cfg.Workers)
 	}
@@ -100,13 +100,13 @@ func TestServiceEnqueueNoOps(t *testing.T) {
 	var nilSvc *Service
 	nilSvc.Enqueue(uuid.New(), uuid.New(), uuid.New(), "https://example.test")
 
-	disabled := NewService(Config{Enabled: false, QueueCapacity: 1, Workers: 1}, nil, nil)
+	disabled := NewService(Config{Enabled: false, Workers: 1}, nil, nil)
 	disabled.Enqueue(uuid.New(), uuid.New(), uuid.New(), "https://example.test")
 	if got := len(disabled.queue); got != 0 {
 		t.Fatalf("disabled service queue length = %d, want 0", got)
 	}
 
-	enabled := NewService(Config{Enabled: true, QueueCapacity: 1, Workers: 1}, nil, nil)
+	enabled := NewService(Config{Enabled: true, Workers: 1}, nil, nil)
 	enabled.Enqueue(uuid.New(), uuid.New(), uuid.New(), "")
 	if got := len(enabled.queue); got != 0 {
 		t.Fatalf("empty content queue length = %d, want 0", got)
@@ -114,7 +114,8 @@ func TestServiceEnqueueNoOps(t *testing.T) {
 }
 
 func TestServiceEnqueueDropsWhenQueueFull(t *testing.T) {
-	svc := NewService(Config{Enabled: true, QueueCapacity: 1, Workers: 1}, nil, nil)
+	svc := NewService(Config{Enabled: true, Workers: 1}, nil, nil)
+	svc.queue = make(chan job, 1)
 	svc.Enqueue(uuid.New(), uuid.New(), uuid.New(), "https://one.example.test")
 	if got := len(svc.queue); got != 1 {
 		t.Fatalf("queue length after first enqueue = %d, want 1", got)
@@ -148,7 +149,7 @@ func TestServiceWorkerProcessesCacheMissEndToEnd(t *testing.T) {
 	h := hub.New()
 	ch, _, unsub := h.Subscribe(1)
 	defer unsub()
-	svc := NewService(Config{Enabled: true, Workers: 1, QueueCapacity: 4, CacheTTL: time.Hour, Timeout: time.Second}, env.stores, h)
+	svc := NewService(Config{Enabled: true, Workers: 1, CacheTTL: time.Hour, Timeout: time.Second}, env.stores, h)
 	svc.fetcher = NewFetcher(FetcherConfig{Timeout: time.Second, SSRFCheck: func(context.Context, string) error { return nil }})
 	svc.Start(context.Background())
 	defer func() { _ = svc.Close() }()

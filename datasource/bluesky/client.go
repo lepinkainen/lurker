@@ -62,13 +62,6 @@ func (c *Client) Handle() string {
 	return c.handle
 }
 
-// DID returns the resolved account DID. Valid after Login.
-func (c *Client) DID() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.did
-}
-
 // PDS returns the configured PDS hostname (with scheme).
 func (c *Client) PDS() string { return c.pds }
 

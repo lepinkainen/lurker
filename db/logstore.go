@@ -165,15 +165,6 @@ func LogMessagesBefore(ctx context.Context, d *sql.DB, bufferID, before uuid.UUI
 	return beforeRowsToMessages(rows), nil
 }
 
-// LookupLogBuffer returns the name and kind for a local log buffer.
-func LookupLogBuffer(ctx context.Context, d *sql.DB, bufferID uuid.UUID) (name, kind string, err error) {
-	row, err := logdb.New(d).LookupLogBuffer(ctx, bufferID[:])
-	if err != nil {
-		return "", "", err
-	}
-	return row.Name, row.Kind, nil
-}
-
 func recentRowsToMessages(rows []logdb.RecentLogMessagesRow) []logMessageRow {
 	out := make([]logMessageRow, 0, len(rows))
 	for _, r := range rows {
@@ -350,10 +341,6 @@ func logMessagesQuery(ctx context.Context, d *sql.DB, q string, args ...any) ([]
 		return rows.Scan(&m.ID, &m.BufferID, &m.MsgID, &m.TS,
 			&m.Sender, &m.Userhost, &m.Account, &m.Kind, &m.Target, &m.Content)
 	})
-}
-
-func (s *LogStore) String() string {
-	return fmt.Sprintf("LogStore(network_id=%s)", s.NetworkID.String())
 }
 
 // MessagePreviewLink is one (message_id, url) association in a per-network log.

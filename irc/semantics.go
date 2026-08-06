@@ -15,17 +15,17 @@ import (
 // isn't a nick): TargetColor is only set for kick/nick events, the kinds
 // whose target clients render as a colored nick.
 type MessageSemantics struct {
-	DisplayKind    string `json:"display_kind"`
-	IsSelf         bool   `json:"is_self"`
-	MentionsMe     bool   `json:"mentions_me"`
-	CountsAsUnread bool   `json:"counts_as_unread"`
-	SenderColor    *int   `json:"sender_color,omitempty"`
-	TargetColor    *int   `json:"target_color,omitempty"`
+	DisplayKind    string
+	IsSelf         bool
+	MentionsMe     bool
+	CountsAsUnread bool
+	SenderColor    *int
+	TargetColor    *int
 	// Highlight is set when content matches a user-defined highlight
 	// pattern (see SetHighlightPatterns); HighlightPattern names the
 	// first pattern that matched. Self-authored messages never highlight.
-	Highlight        bool   `json:"highlight,omitzero"`
-	HighlightPattern string `json:"highlight_pattern,omitzero"`
+	Highlight        bool
+	HighlightPattern string
 }
 
 // nickTargetKinds are the event kinds whose target field holds a nick.

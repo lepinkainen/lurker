@@ -12,7 +12,7 @@ Tags: `delete` dead code / speculative feature · `stdlib` hand-rolled stdlib ·
 
 ## Structural
 
-- [ ] `delete` `scripts/migrate_int_ids_to_uuidv7.py` — one-off migration; schema moved to UUIDv7 in `8eb90b0`, zero refs. 576 lines.
+- [x] `delete` `scripts/migrate_int_ids_to_uuidv7.py` — done 2026-08-06. 576 lines.
 - [ ] `delete` Netsplit clustering exists twice: batch `GroupPresence`/`nsCluster`/`PresenceGroup`/`NetsplitGroup` vs live incremental `netsplitTracker`, hand-kept-in-sync and pinned by a contract test. Keep the live tracker (already stamps `MessageCore.Netsplit`), persist/serve that annotation, drop the batch path. `irc/netsplit.go:63-250`, `api/state.go:314-348`, `cmd/tui/model.go:1585`. ~450 lines incl tests.
 - [ ] `native` Apple sidebar drag-and-drop stack — `SidebarDropDelegate`, drag-cancel detection polling `NSEvent.pressedMouseButtons` every 250ms, hand-rolled `SidebarOrdering.moving`, six near-identical drag predicates, three near-identical `commitXDrop`. Replace with `List` + `.onMove`, or `.draggable`/`.dropDestination` + `Transferable`; `Array.move(fromOffsets:toOffset:)` is stdlib. `apple/Lurker/SidebarView.swift:6-548`. ~400 lines incl 16 test cases.
 - [ ] `yagni` api: 7 interfaces, 1 implementation (`*irc.Manager`) — `manager` = `wsManager`(=`messageSender`+`channelOps`+`presenceOps`+`modeOps`) + `stateManager` + `networkManager`; sub-interfaces exist only for per-slice test mocks. Collapse to one interface, one mock struct. `api/server.go:23-27`, `api/ws.go:82-126`, `api/state.go:80-85`, `api/networks.go:36-40`. ~245 lines incl tests.
@@ -38,8 +38,8 @@ Tags: `delete` dead code / speculative feature · `stdlib` hand-rolled stdlib ·
 - [ ] `shrink` web `THEME_VARS` 31-entry reset array → `root.style.cssText = ""` (`theme.ts` is sole writer of `documentElement.style`). `web/src/theme.ts:18-53`. ~35
 - [ ] `delete` Apple `SidebarBufferOccurrence` wrapper — carries no data, only a composite ForEach id; `ForEach(buffers, id: \.id)`. `apple/Lurker/SidebarView.swift:40-57`. ~45
 - [ ] `stdlib` FNV member-list change hashing → store previous `[]ChannelUser`, `slices.Equal`. `irc/handler_presence.go:168-208`. ~32
-- [ ] `delete` Go dead symbols (verified vs web/apple/cmd/tests): `db/store.go` (package-only file), `PreviewStore.PurgeExpired`, `LogStore.String`, `LookupLogBuffer`, `MediaStore.Now`+`now()`, `peekLogBufferID`, `LogBufferRow`/`LogMessageRow` aliases, `preview.DefaultConfig`, `preview.Config.UserAgent`/`.QueueCapacity` (unsettable), bluesky `Client.DID()`, `media.Service.Handler()` (test-only), `updates.Platform.Variant` (moot if updates/ dies), `var _ = json.Marshal` at `api/ws.go:857`, `MessageSemantics` json tags. ~90
-- [ ] `delete` Apple dead wire fields — 14 decoded-never-read: `Network.nickColor`, `Message.msgid/.account/.targetColor`, `MircSegment.mono/.bg`, `Preview.width/.height/.mime`, `NetsplitInfo.id`, `HistoryBackfillEvent.count`, `MemberListEvent.channel`, `TailscaleStatus.remoteIP`, `Buffer.createdAt`. ~30
+- [x] `delete` Go dead symbols — done 2026-08-06: `db/store.go`, `PreviewStore.PurgeExpired`, `LogStore.String`, `LookupLogBuffer` (+sqlc query), `MediaStore.Now`+`now()`, `preview.DefaultConfig`, `preview.Config.UserAgent`/`.QueueCapacity`, bluesky `Client.DID()`, `var _ = json.Marshal` at `api/ws.go`, `MessageSemantics` json tags. **Corrections found on verify:** `peekLogBufferID` USED (`db/multistore.go:299`); `LogBufferRow`/`LogMessageRow` USED cross-package (exported return types, `irc/ergo_integration_test.go`) — unexporting is a rename job, not a delete; `updates.Platform.Variant` already gone with updates/ rewrite; `media.Service.Handler()` not free (~19 test call sites in `media/*_test.go` need rewiring to a local mux) — moved to judgment calls below.
+- [x] `delete` Apple dead wire fields — done 2026-08-06, all 14 removed (incl. `BufferCreatedEvent.createdAt` which only fed `Buffer.createdAt`, and the orphaned `remote_ip` entry in `WireKeyTransform.decodedAcronyms`).
 - [ ] `shrink` Apple `LurkerAPI` 4× repeated POST-JSON-decode → one generic `post<B,T>`; collapse `get`→`request`→`requestJSON` chain. `apple/Lurker/LurkerAPI.swift:120-151,276-296`. ~30
 - [ ] `shrink` db duplicate helpers: `nullStr`==`nullableString`, `parseFetchedAt`==`parseMediaTime`, `boolInt` re-inlined at `control.go:63,120`. ~23
 - [ ] `shrink` `recentRowsToMessages`/`beforeRowsToMessages` byte-identical over two sqlc row types → one generic or unified query columns. `db/logstore.go:177-214`. ~22
@@ -61,6 +61,7 @@ Tags: `delete` dead code / speculative feature · `stdlib` hand-rolled stdlib ·
 
 - `preview.Resolver` interface + `FetcherConfig.SSRFCheck` are two overlapping test seams for the same need (`customCheck` flag exists to reconcile them) — one would do. `preview/fetcher.go:23-27`.
 - `media.Store` interface justified only by a "separate process later" comment — one impl + test fake.
+- `media.Service.Handler()` — production-dead but ~19 test call sites in `media/upload_test.go`/`browse_test.go` depend on it; deleting means rewiring those to a local mux.
 - Apple `LurkerTransport` is 11 methods wide — every test double pays for all of it (see HistoryStubTransport above).
 - Apple `FixtureTransport` 400 generated messages where ~150 prove the same paging.
 

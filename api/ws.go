@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -854,8 +853,6 @@ func writeWSAck(ctx context.Context, c *websocket.Conn, reqID string) {
 func writeWSErr(ctx context.Context, c *websocket.Conn, reqID, msg string) {
 	_ = wsjson.Write(ctx, c, errorEnvelope{Type: "error", ReqID: reqID, Message: msg})
 }
-
-var _ = json.Marshal
 
 type closeFunc func() error
 

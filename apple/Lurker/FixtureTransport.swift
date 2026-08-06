@@ -109,7 +109,6 @@ actor FixtureTransport: LurkerTransport {
       // unread bar render in the default preview/UI-test channel.
       markerID: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000001")!,
       markerTS: "2026-07-23T08:12:00Z",
-      createdAt: "2026-01-01T00:00:00Z",
       showEmbeds: true,
       showPresenceEvents: true,
       collapsePresenceEvents: true,
@@ -125,7 +124,6 @@ actor FixtureTransport: LurkerTransport {
       topic: nil,
       joined: true,
       lastSeenID: nil,
-      createdAt: "2026-01-01T00:00:00Z",
       showEmbeds: true,
       showPresenceEvents: true,
       collapsePresenceEvents: false,
@@ -143,7 +141,6 @@ actor FixtureTransport: LurkerTransport {
       lastSeenID: fullMessages[fullTotal - fullUnread - 1].id,
       markerID: fullMessages[fullTotal - fullUnread].id,
       markerTS: fullMessages[fullTotal - fullUnread].ts,
-      createdAt: "2026-01-01T00:00:00Z",
       showEmbeds: true,
       showPresenceEvents: true,
       collapsePresenceEvents: true,
@@ -160,7 +157,6 @@ actor FixtureTransport: LurkerTransport {
       kind: "channel",
       topic: "Archived: no longer active",
       joined: false,
-      createdAt: "2026-01-01T00:00:00Z",
       showEmbeds: true,
       showPresenceEvents: true,
       collapsePresenceEvents: false,
@@ -175,7 +171,6 @@ actor FixtureTransport: LurkerTransport {
       name: "driveby",
       kind: "query",
       joined: true,
-      createdAt: "2026-01-01T00:00:00Z",
       showEmbeds: true,
       showPresenceEvents: true,
       collapsePresenceEvents: false,
@@ -279,8 +274,7 @@ actor FixtureTransport: LurkerTransport {
         previews: [
           Preview(
             url: "https://example.com/screenshot.png",
-            kind: "image",
-            mime: "image/png"
+            kind: "image"
           )
         ]
       ),

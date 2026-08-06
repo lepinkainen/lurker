@@ -13,25 +13,11 @@ import (
 
 // Config is the runtime configuration for the preview service.
 type Config struct {
-	Enabled       bool
-	MaxBytes      int64
-	Timeout       time.Duration
-	CacheTTL      time.Duration
-	Workers       int
-	UserAgent     string
-	QueueCapacity int
-}
-
-// DefaultConfig returns the sensible defaults baked into config.go.
-func DefaultConfig() Config {
-	return Config{
-		Enabled:       true,
-		MaxBytes:      512 * 1024,
-		Timeout:       5 * time.Second,
-		CacheTTL:      7 * 24 * time.Hour,
-		Workers:       4,
-		QueueCapacity: 256,
-	}
+	Enabled  bool
+	MaxBytes int64
+	Timeout  time.Duration
+	CacheTTL time.Duration
+	Workers  int
 }
 
 // job is a single enqueue request: a message's URLs need previews.
@@ -97,9 +83,6 @@ type Service struct {
 // enqueueing and Close on shutdown. If cfg.Enabled is false, Enqueue is a
 // no-op and no workers run.
 func NewService(cfg Config, stores *ircdb.MultiStore, h *hub.Hub) *Service {
-	if cfg.QueueCapacity <= 0 {
-		cfg.QueueCapacity = 256
-	}
 	if cfg.Workers <= 0 {
 		cfg.Workers = 4
 	}
@@ -107,12 +90,11 @@ func NewService(cfg Config, stores *ircdb.MultiStore, h *hub.Hub) *Service {
 		cfg:    cfg,
 		stores: stores,
 		hub:    h,
-		queue:  make(chan job, cfg.QueueCapacity),
+		queue:  make(chan job, 256),
 	}
 	svc.fetcher = NewFetcher(FetcherConfig{
-		UserAgent: cfg.UserAgent,
-		Timeout:   cfg.Timeout,
-		MaxBytes:  cfg.MaxBytes,
+		Timeout:  cfg.Timeout,
+		MaxBytes: cfg.MaxBytes,
 	})
 	return svc
 }

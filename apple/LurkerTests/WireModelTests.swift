@@ -143,7 +143,7 @@ struct WireModelTests {
       return
     }
     #expect(decoded.sender == "tove")
-    #expect(decoded.netsplit?.id == "irc.example.net|irc2.example.net|1784794320000")
+    #expect(decoded.netsplit?.serverA == "irc.example.net")
 
     let future = Data(#"{"type":"future_event","value":1}"#.utf8)
     guard case .ignored(let type) = try JSONDecoder.lurker().decode(ServerEvent.self, from: future)

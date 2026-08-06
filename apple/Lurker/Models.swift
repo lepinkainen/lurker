@@ -19,7 +19,6 @@ struct ServiceIdentity: Codable, Sendable, Equatable {
 
 struct TailscaleStatus: Codable, Sendable, Equatable {
   let status: String
-  let remoteIP: String
 }
 
 struct Network: Codable, Identifiable, Sendable, Hashable {
@@ -30,14 +29,13 @@ struct Network: Codable, Identifiable, Sendable, Hashable {
   var port: Int
   var tls: Bool
   var nick: String
-  var nickColor: Int? = nil
   var realname: String? = nil
   var status: String? = nil
   var sortOrder: Int
   var disabled: Bool = false
 
   private enum CodingKeys: String, CodingKey {
-    case id, name, kind, host, port, tls, nick, nickColor, realname, status, sortOrder, disabled
+    case id, name, kind, host, port, tls, nick, realname, status, sortOrder, disabled
   }
 
   init(
@@ -48,7 +46,6 @@ struct Network: Codable, Identifiable, Sendable, Hashable {
     port: Int,
     tls: Bool,
     nick: String,
-    nickColor: Int? = nil,
     realname: String? = nil,
     status: String? = nil,
     sortOrder: Int,
@@ -61,7 +58,6 @@ struct Network: Codable, Identifiable, Sendable, Hashable {
     self.port = port
     self.tls = tls
     self.nick = nick
-    self.nickColor = nickColor
     self.realname = realname
     self.status = status
     self.sortOrder = sortOrder
@@ -77,7 +73,6 @@ struct Network: Codable, Identifiable, Sendable, Hashable {
     port = try values.decode(Int.self, forKey: .port)
     tls = try values.decode(Bool.self, forKey: .tls)
     nick = try values.decode(String.self, forKey: .nick)
-    nickColor = try values.decodeIfPresent(Int.self, forKey: .nickColor)
     realname = try values.decodeIfPresent(String.self, forKey: .realname)
     status = try values.decodeIfPresent(String.self, forKey: .status)
     sortOrder = try values.decode(Int.self, forKey: .sortOrder)
@@ -98,7 +93,6 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
   // ai-docs/behaviors/new-messages-marker.md.
   var markerID: UUID? = nil
   var markerTS: String? = nil
-  var createdAt: String? = nil
   var showEmbeds: Bool
   var showPresenceEvents: Bool
   var collapsePresenceEvents: Bool
@@ -117,7 +111,7 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
   var mentions: Int
 
   private enum CodingKeys: String, CodingKey {
-    case id, networkID, name, kind, topic, joined, lastSeenID, markerID, markerTS, createdAt,
+    case id, networkID, name, kind, topic, joined, lastSeenID, markerID, markerTS,
       showEmbeds, showPresenceEvents, collapsePresenceEvents, pinned, archived, sortOrder, pinOrder,
       unread, mentions
   }
@@ -132,7 +126,6 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
     lastSeenID: UUID? = nil,
     markerID: UUID? = nil,
     markerTS: String? = nil,
-    createdAt: String? = nil,
     showEmbeds: Bool,
     showPresenceEvents: Bool,
     collapsePresenceEvents: Bool,
@@ -152,7 +145,6 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
     self.lastSeenID = lastSeenID
     self.markerID = markerID
     self.markerTS = markerTS
-    self.createdAt = createdAt
     self.showEmbeds = showEmbeds
     self.showPresenceEvents = showPresenceEvents
     self.collapsePresenceEvents = collapsePresenceEvents
@@ -175,7 +167,6 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
     lastSeenID = try values.decodeIfPresent(UUID.self, forKey: .lastSeenID)
     markerID = try values.decodeIfPresent(UUID.self, forKey: .markerID)
     markerTS = try values.decodeIfPresent(String.self, forKey: .markerTS)
-    createdAt = try values.decodeIfPresent(String.self, forKey: .createdAt)
     showEmbeds = try values.decode(Bool.self, forKey: .showEmbeds)
     showPresenceEvents = try values.decode(Bool.self, forKey: .showPresenceEvents)
     collapsePresenceEvents = try values.decode(Bool.self, forKey: .collapsePresenceEvents)
@@ -194,13 +185,10 @@ struct MircSegment: Codable, Sendable, Hashable {
   var italic: Bool? = nil
   var underline: Bool? = nil
   var strike: Bool? = nil
-  var mono: Bool? = nil
   var fg: Int? = nil
-  var bg: Int? = nil
 }
 
 struct NetsplitInfo: Codable, Sendable, Hashable {
-  let id: String
   let serverA: String
   let serverB: String
 }
@@ -213,20 +201,15 @@ struct Preview: Codable, Sendable, Hashable, Identifiable {
   var description: String? = nil
   var imageURL: String? = nil
   var siteName: String? = nil
-  var width: Int? = nil
-  var height: Int? = nil
-  var mime: String? = nil
 }
 
 struct Message: Codable, Identifiable, Sendable, Hashable {
   let id: UUID
   let networkID: UUID
   let bufferID: UUID
-  var msgid: String? = nil
   let ts: String
   var sender: String
   var userhost: String? = nil
-  var account: String? = nil
   var kind: String
   var target: String? = nil
   var content: String
@@ -235,7 +218,6 @@ struct Message: Codable, Identifiable, Sendable, Hashable {
   var mentionsMe: Bool? = nil
   var countsAsUnread: Bool? = nil
   var senderColor: Int? = nil
-  var targetColor: Int? = nil
   var highlight: Bool? = nil
   var highlightPattern: String? = nil
   var netsplit: NetsplitInfo? = nil
@@ -334,7 +316,6 @@ struct BufferCreatedEvent: Codable, Sendable {
   let networkID: UUID
   let name: String
   let kind: String
-  var createdAt: String?
   // Absent on pre-sort_order backends.
   var sortOrder: Int?
 }
@@ -376,14 +357,12 @@ struct NetworkReorderResponse: Codable, Sendable {
 struct MemberListEvent: Codable, Sendable {
   let networkID: UUID
   let bufferID: UUID
-  var channel: String?
   let members: [Member]
 }
 
 struct HistoryBackfillEvent: Codable, Sendable {
   let networkID: UUID
   let bufferID: UUID
-  let count: Int
 }
 
 struct PreviewEvent: Codable, Sendable {
@@ -527,7 +506,6 @@ private enum WireKeyTransform {
     "message_id": "messageID",
     "message_ids": "messageIDs",
     "network_id": "networkID",
-    "remote_ip": "remoteIP",
     "req_id": "reqID",
   ]
 
