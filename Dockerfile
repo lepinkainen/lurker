@@ -18,7 +18,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=${VERSION} -X main.gitHash=${GIT_HASH} -X main.buildTime=${BUILD_TIME}" -o lurker .
 
-FROM alpine:3.20
+FROM alpine:3.24
 
 ARG VERSION=dev
 ARG GIT_HASH=unknown
