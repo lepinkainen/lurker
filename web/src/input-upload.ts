@@ -52,12 +52,31 @@ async function checkExisting(file: File): Promise<string | null> {
   }
 }
 
+// Extensions for the image types the backend stores, used to name clipboard
+// files that arrive without one.
+const MIME_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+
+// uploadFilename picks the filename sent on the multipart part. The server
+// rejects an empty one, and pasted files routinely have no name — Safari (iOS
+// especially) hands back a File with an empty `name` for a pasted photo — so
+// synthesize one from the MIME type in that case.
+export function uploadFilename(file: File): string {
+  if (file.name) return file.name;
+  const ext = MIME_EXT[file.type.toLowerCase()] ?? "bin";
+  return `pasted-${Date.now()}.${ext}`;
+}
+
 export async function uploadFile(file: File): Promise<string> {
   const existing = await checkExisting(file);
   if (existing) return existing;
 
   const form = new FormData();
-  form.set("file", file);
+  form.set("file", file, uploadFilename(file));
   const res = await fetch("/api/upload", { method: "POST", body: form });
   if (!res.ok) {
     const detail = (await res.text()).trim();
@@ -68,23 +87,105 @@ export async function uploadFile(file: File): Promise<string> {
   return data.url;
 }
 
+// An upload is the one composer action with no immediate visible result: the
+// URL only appears once the round-trip finishes. Without a note the whole
+// thing looks like nothing happened — worst on a phone, where the console is
+// out of reach and the upload is slow enough to doubt.
+const NOTE_CLASS = "upload-note";
+const NOTE_ERROR_MS = 8000;
+
+let noteTimer: ReturnType<typeof setTimeout> | undefined;
+
+function showNote(form: HTMLFormElement, text: string, kind: "info" | "error") {
+  clearTimeout(noteTimer);
+  let el = form.querySelector<HTMLElement>(`.${NOTE_CLASS}`);
+  if (!el) {
+    el = document.createElement("div");
+    el.className = NOTE_CLASS;
+    el.setAttribute("role", "status");
+    form.prepend(el);
+  }
+  el.classList.toggle("err", kind === "error");
+  el.textContent = text;
+  el.hidden = false;
+  if (kind === "error") noteTimer = setTimeout(() => clearNote(form), NOTE_ERROR_MS);
+}
+
+function clearNote(form: HTMLFormElement) {
+  clearTimeout(noteTimer);
+  const el = form.querySelector<HTMLElement>(`.${NOTE_CLASS}`);
+  if (el) el.hidden = true;
+}
+
+const MAX_NOTE_DETAIL = 120;
+
+function errorText(err: unknown): string {
+  const detail = err instanceof Error ? err.message : String(err);
+  const trimmed = detail.trim();
+  if (!trimmed) return "Upload failed";
+  const short = trimmed.length > MAX_NOTE_DETAIL ? `${trimmed.slice(0, MAX_NOTE_DETAIL)}…` : trimmed;
+  return `Upload failed: ${short}`;
+}
+
 async function uploadAndInsert(file: File, deps: InputUploadDeps) {
   deps.uploadButtonEl.disabled = true;
   deps.inputForm.classList.add("uploading");
+  showNote(deps.inputForm, `Uploading ${file.name || "image"}…`, "info");
   try {
     const url = await uploadFile(file);
     insertTextAtCursor(deps.inputEl, url);
     deps.inputEl.focus();
     updateCmdPop(deps.inputEl, deps.cmdPopEl);
+    clearNote(deps.inputForm);
   } catch (err) {
     console.error("upload failed", err);
+    showNote(deps.inputForm, errorText(err), "error");
   } finally {
     deps.uploadButtonEl.disabled = false;
     deps.inputForm.classList.remove("uploading");
   }
 }
 
+// clipboardImage picks the first image out of a paste payload. `files` is the
+// straightforward path; Safari can leave it empty while still exposing the
+// image through `items`, so fall back to that.
+export function clipboardImage(data: DataTransfer | null): File | null {
+  if (!data) return null;
+  for (const file of Array.from(data.files ?? [])) {
+    if (file.type.startsWith("image/")) return file;
+  }
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind !== "file") continue;
+    const file = item.getAsFile();
+    if (file?.type.startsWith("image/")) return file;
+  }
+  return null;
+}
+
+// A paste aimed at some other text field (network form, search box, dialogs)
+// belongs to that field, not to the composer.
+function isForeignEditable(target: EventTarget | null, inputEl: HTMLInputElement): boolean {
+  if (target === inputEl || !(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+}
+
 export function bindUploadHandlers(deps: InputUploadDeps) {
+  // Paste is bound on the document, not on the composer input: iOS Safari does
+  // not reliably deliver an image paste to a plain <input type=text>, and the
+  // photo is often pasted with the keyboard callout while focus sits elsewhere.
+  // A document listener catches it wherever it lands and still sees composer
+  // pastes, which bubble — so exactly one listener, no double upload.
+  document.addEventListener("paste", (ev) => {
+    if (deps.inputEl.disabled || isForeignEditable(ev.target, deps.inputEl)) return;
+    // A payload that also carries text is a text paste: rich text drags images
+    // along, and copying an image off a web page attaches its source URL. Let
+    // the browser paste that; only a text-free payload is an image paste.
+    if (ev.clipboardData?.getData("text/plain").trim()) return;
+    const file = clipboardImage(ev.clipboardData);
+    if (!file) return;
+    ev.preventDefault();
+    uploadAndInsert(file, deps).catch((err: unknown) => console.error("upload failed", err));
+  });
   deps.uploadButtonEl.addEventListener("click", () => deps.uploadInputEl.click());
   deps.uploadInputEl.addEventListener("change", () => {
     const file = deps.uploadInputEl.files?.[0];
