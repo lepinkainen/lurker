@@ -15,10 +15,15 @@ final class LurkerUITests: XCTestCase {
   func testDailyDriverLayout() {
     // Pinned channels render once in Pinned and once under their network. The
     // occurrences need distinct SwiftUI identities or the lazy stack leaves a
-    // blank row where the network copy should be.
-    let lurkerRows = app.staticTexts.matching(identifier: "#lurker")
+    // blank row where the network copy should be. Rows are Buttons whose
+    // label folds in the badge ("#lurker, 1 mentions").
+    let lurkerRows = app.buttons.matching(
+      NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "#lurker", "#lurker,"))
     XCTAssertTrue(lurkerRows.firstMatch.waitForExistence(timeout: 5))
     XCTAssertEqual(lurkerRows.count, 2)
+
+    // The rest of the assertions need #lurker's conversation on screen.
+    selectBuffer("#lurker")
 
     // Conversation renders the fixture message. `MessageRow` combines its
     // sender/time/content into one accessibility element (an `Other` with a
@@ -50,25 +55,31 @@ final class LurkerUITests: XCTestCase {
   // Archived fixtures (#old-project channel, driveby query) render behind a
   // folded per-network Archives row instead of inline in the channel list.
   func testArchivesFoldHidesAndRevealsArchivedBuffers() throws {
-    XCTAssertTrue(app.staticTexts["#lurker"].waitForExistence(timeout: 5))
+    XCTAssertTrue(sidebarRow("#lurker").waitForExistence(timeout: 5))
 
     let archivesRow = app.buttons.matching(
       NSPredicate(format: "label BEGINSWITH %@", "Archives")
     ).firstMatch
     XCTAssertTrue(archivesRow.waitForExistence(timeout: 3), "missing Archives fold row")
 
+    // archivesOpen persists across launches; a previously aborted run can
+    // leave the fold open. Normalize to folded before asserting the default.
+    if sidebarRow("#old-project").exists {
+      archivesRow.click()
+    }
+
     // Folded by default: archived buffers are not in the sidebar.
-    XCTAssertFalse(app.staticTexts["#old-project"].exists)
-    XCTAssertFalse(app.staticTexts["driveby"].exists)
+    XCTAssertFalse(sidebarRow("#old-project").exists)
+    XCTAssertFalse(sidebarRow("driveby").exists)
     screenshot(named: "apple-archives-folded")
 
     archivesRow.click()
-    XCTAssertTrue(app.staticTexts["#old-project"].waitForExistence(timeout: 3))
-    XCTAssertTrue(app.staticTexts["driveby"].exists)
+    XCTAssertTrue(sidebarRow("#old-project").waitForExistence(timeout: 3))
+    XCTAssertTrue(sidebarRow("driveby").exists)
     screenshot(named: "apple-archives-open")
 
     // Context menu on the archived channel: Unarchive + Delete….
-    app.staticTexts["#old-project"].rightClick()
+    sidebarRow("#old-project").rightClick()
     XCTAssertTrue(app.menuItems["Delete…"].waitForExistence(timeout: 3))
     XCTAssertTrue(app.menuItems["Unarchive"].exists)
     screenshot(named: "apple-archived-context-menu")
@@ -79,10 +90,12 @@ final class LurkerUITests: XCTestCase {
     let deleteForever = app.buttons["Delete Forever"]
     XCTAssertTrue(deleteForever.waitForExistence(timeout: 3), "missing confirmation alert")
     screenshot(named: "apple-delete-alert")
-    app.buttons["Cancel"].click()
+    // `app.buttons["Cancel"]` is ambiguous — the Touch Bar exposes one too —
+    // so dismiss the alert with ⎋ (equivalent to Cancel).
+    app.typeKey(.escape, modifierFlags: [])
 
     // Joined channels offer Archive instead.
-    app.staticTexts["#lurker"].firstMatch.rightClick()
+    sidebarRow("#lurker").rightClick()
     XCTAssertTrue(app.menuItems["Archive"].waitForExistence(timeout: 3))
     XCTAssertFalse(app.menuItems["Delete…"].exists)
     // Dismiss the menu.
@@ -144,6 +157,31 @@ final class LurkerUITests: XCTestCase {
     try? shot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/\(name).png"))
   }
 
+  // Bare ↑ in the composer recalls the last sent message (per-buffer input
+  // history). Guards the key-event seam: the macOS field editor must not
+  // swallow the arrow before the history handler sees it.
+  func testComposerArrowUpRecallsSentMessage() {
+    selectBuffer("#lurker")
+
+    let composer = app.textFields.matching(
+      NSPredicate(format: "placeholderValue == %@", "#lurker")
+    ).firstMatch
+    XCTAssertTrue(composer.waitForExistence(timeout: 5))
+    composer.click()
+    composer.typeText("hello history")
+    app.typeKey(.return, modifierFlags: [])
+
+    // The send clears the composer (FixtureTransport accepts it).
+    let cleared = NSPredicate(format: "value == %@ OR value == %@", "", "#lurker")
+    expectation(for: cleared, evaluatedWith: composer)
+    waitForExpectations(timeout: 3)
+
+    app.typeKey(.upArrow, modifierFlags: [])
+    XCTAssertEqual(
+      composer.value as? String, "hello history",
+      "arrow-up did not recall the sent message from input history")
+  }
+
   func testChannelSwitcherOpens() {
     app.typeKey("k", modifierFlags: .command)
     XCTAssertTrue(app.textFields["Jump to a channel or conversation"].waitForExistence(timeout: 2))
@@ -154,6 +192,7 @@ final class LurkerUITests: XCTestCase {
   // arbitrary points inside it, so the test sweeps the pointer across the row and
   // samples the system cursor at each stop.
   func testPointerBecomesHandOverPreviewCard() {
+    selectBuffer("#lurker")
     let cardRow = messageRow(containing: "with a preview card:")
     XCTAssertTrue(cardRow.waitForExistence(timeout: 5))
     XCTAssertTrue(
@@ -167,6 +206,22 @@ final class LurkerUITests: XCTestCase {
   private func messageRow(containing text: String) -> XCUIElement {
     app.descendants(matching: .any)
       .matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+  }
+
+  /// Sidebar rows are Buttons whose label folds in the badge
+  /// ("#lurker, 1 mentions"), so match the bare name or a "name," prefix.
+  private func sidebarRow(_ name: String) -> XCUIElement {
+    app.buttons.matching(
+      NSPredicate(format: "label == %@ OR label BEGINSWITH %@", name, name + ",")
+    ).firstMatch
+  }
+
+  /// Clicks a sidebar row. The previous selection persists across launches,
+  /// so tests asserting on conversation content must select explicitly.
+  private func selectBuffer(_ name: String) {
+    let row = sidebarRow(name)
+    XCTAssertTrue(row.waitForExistence(timeout: 5), "missing sidebar row \(name)")
+    row.click()
   }
 
   private func sweepFindsPointingHand(in element: XCUIElement) -> Bool {
