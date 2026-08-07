@@ -1,5 +1,19 @@
 {
   "enabledPlugins": {
     "ponytail@ponytail": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(task push*)",
+            "command": "jq -r '.tool_input.command // \"\"' | grep -qE 'task push[^|]*\\|' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Run task push bare (no pipes). Its output is already agent-optimised; tail/head/grep hide push errors and the inline failure-log dump.\"}}' || true"
+          }
+        ]
+      }
+    ]
   }
 }
