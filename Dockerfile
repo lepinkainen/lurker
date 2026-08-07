@@ -1,4 +1,4 @@
-FROM node:22-alpine AS web-builder
+FROM node:25-alpine AS web-builder
 
 WORKDIR /web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
