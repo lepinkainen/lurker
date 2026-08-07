@@ -74,6 +74,9 @@ final class AppModel {
   var serviceIdentity: ServiceIdentity?
   var inspectorVisible = AppModel.defaultInspectorVisible
   var applicationActive = true
+  /// Set on app focus while offline: the reconnect countdown polls this each
+  /// second and retries immediately instead of waiting out the backoff.
+  private var skipReconnectDelay = false
   var showingConnectionEditor = false
   var showingChannelSwitcher = false
   // Latest /list result; non-nil presents the channel-list sheet.
@@ -258,6 +261,33 @@ final class AppModel {
 
   func setApplicationActive(_ active: Bool) {
     applicationActive = active
+    if active {
+      verifyConnection()
+    }
+  }
+
+  /// On app focus: probe a nominally-connected socket with a WS ping so a
+  /// dead TCP connection is noticed now rather than after the OS timeout,
+  /// and cut any reconnect backoff short — the client should be usable by
+  /// the time the user starts typing.
+  private func verifyConnection() {
+    switch connectionState {
+    case .connected:
+      guard let transport else { return }
+      Task {
+        do {
+          try await transport.ping()
+        } catch {
+          // Cancelling the socket makes the receive loop throw, which sends
+          // connectionLoop into its normal reconnect path.
+          await transport.disconnect()
+        }
+      }
+    case .reconnecting, .offline:
+      skipReconnectDelay = true
+    case .connecting, .notConfigured:
+      break
+    }
   }
 
   func setInspectorVisible(_ visible: Bool) {
@@ -581,10 +611,12 @@ final class AppModel {
         let delay = min(30, 1 << min(attempt - 1, 5))
         connectionState = .offline(error.localizedDescription)
         for remaining in stride(from: delay, through: 1, by: -1) {
+          if skipReconnectDelay { break }
           connectionState = .reconnecting(remaining)
           try? await Task.sleep(for: .seconds(1))
           if Task.isCancelled { return }
         }
+        skipReconnectDelay = false
       }
     }
   }

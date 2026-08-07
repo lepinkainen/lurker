@@ -400,6 +400,7 @@ actor FixtureTransport: LurkerTransport {
   }
 
   func send(_: ClientCommand) async throws {}
+  func ping() async throws {}
   func disconnect() async {}
 
   private(set) var uploadedFilename: String?

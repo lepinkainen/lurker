@@ -45,6 +45,7 @@ protocol LurkerTransport: Sendable {
   func reorderPinnedBuffers(ids: [UUID]) async throws -> PinnedReorderEvent
   func openEvents() async -> AsyncThrowingStream<ServerEvent, Error>
   func send(_ command: ClientCommand) async throws
+  func ping() async throws
   func disconnect() async
   func upload(_ data: Data, filename: String, contentType: String) async throws -> URL
 }
@@ -198,6 +199,34 @@ actor LurkerAPI: LurkerTransport {
       throw LurkerAPIError.textExpected
     }
     try await socket.send(.string(text))
+  }
+
+  /// Probe the live socket with a WebSocket ping. A ping into a dead TCP
+  /// connection can hang until the OS gives up (minutes), so a watchdog
+  /// cancels the socket after 3s — that both fails this call fast and makes
+  /// the receive loop throw, which is what kicks the reconnect loop.
+  /// ponytail: the watchdog can race a pong arriving at exactly 3s and kill a
+  /// healthy socket — worst case is one spurious reconnect.
+  func ping() async throws {
+    guard let socket else {
+      throw LurkerAPIError.disconnected
+    }
+    let watchdog = Task {
+      try? await Task.sleep(for: .seconds(3))
+      if !Task.isCancelled {
+        socket.cancel(with: .abnormalClosure, reason: nil)
+      }
+    }
+    defer { watchdog.cancel() }
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      socket.sendPing { error in
+        if let error {
+          continuation.resume(throwing: error)
+        } else {
+          continuation.resume()
+        }
+      }
+    }
   }
 
   func disconnect() {

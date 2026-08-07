@@ -1171,6 +1171,7 @@ private actor HistoryStubTransport: LurkerTransport {
     AsyncThrowingStream { _ in }
   }
   func send(_: ClientCommand) async throws {}
+  func ping() async throws {}
   func disconnect() async {}
   func upload(_: Data, filename _: String, contentType _: String) async throws -> URL {
     throw Unsupported()
