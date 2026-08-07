@@ -643,6 +643,41 @@ struct AppModelTests {
     #expect(!model.navigateHistory(up: true) || model.composerText == "hello there")
   }
 
+  @Test func failedSendRestoresComposerText() async {
+    let transport = FixtureTransport()
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    let networkID = UUID()
+    let chan = buffer("#alpha", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [chan.id: chan]
+    model.selectedBufferID = chan.id
+    await transport.setFailSends(true)
+
+    model.composerText = "hello there"
+    await model.sendComposer()?.value
+
+    #expect(model.composerText == "hello there")
+    #expect(model.composerError != nil)
+  }
+
+  @Test func failedSendKeepsNewerComposerText() async {
+    let transport = FixtureTransport()
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    let networkID = UUID()
+    let chan = buffer("#alpha", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [chan.id: chan]
+    model.selectedBufferID = chan.id
+    await transport.setFailSends(true)
+
+    model.composerText = "hello there"
+    let send = model.sendComposer()
+    model.composerText = "already typing again"
+    await send?.value
+
+    #expect(model.composerText == "already typing again")
+  }
+
   @Test func bufferSwitchPreservesDraftsPerBuffer() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()

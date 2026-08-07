@@ -346,13 +346,16 @@ final class AppModel {
     send(ClientCommand(type: "delete_buffer", bufferID: bufferID))
   }
 
-  func sendComposer() {
-    guard let buffer = selectedBuffer else { return }
+  /// Returns the in-flight send so tests can await the failure path.
+  @discardableResult
+  func sendComposer() -> Task<Void, Never>? {
+    guard let buffer = selectedBuffer else { return nil }
     let value = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !value.isEmpty else { return }
+    guard !value.isEmpty else { return nil }
     switch SlashCommands.parse(value, buffer: buffer) {
     case .invalid(let error):
       composerError = error
+      return nil
     case .command(let command):
       // Only plain messages enter arrow-up history; slash commands do not
       // (web parity: recordSentInput).
@@ -361,7 +364,7 @@ final class AppModel {
       }
       composerError = nil
       composerText = ""
-      send(command)
+      return send(command)
     }
   }
 
@@ -868,13 +871,20 @@ final class AppModel {
     send(ClientCommand(type: "mark_read", bufferID: bufferID, messageID: last.id))
   }
 
-  private func send(_ command: ClientCommand) {
-    guard let transport else { return }
-    Task {
+  @discardableResult
+  private func send(_ command: ClientCommand) -> Task<Void, Never>? {
+    guard let transport else { return nil }
+    return Task {
       do {
         try await transport.send(command)
       } catch {
         composerError = error.localizedDescription
+        // A failed plain message goes back into the composer instead of
+        // vanishing — the composer was cleared optimistically before the
+        // send. Only if the user hasn't started typing something new.
+        if command.type == "send", let content = command.content, composerText.isEmpty {
+          composerText = content
+        }
       }
     }
   }

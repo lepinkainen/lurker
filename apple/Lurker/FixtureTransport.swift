@@ -362,12 +362,18 @@ actor FixtureTransport: LurkerTransport {
 
   // Tests flip this to exercise the optimistic-reorder rollback paths.
   private var failReorders = false
+  // Tests flip this to exercise the failed-send composer-restore path.
+  private var failSends = false
   private(set) var reorderedNetworkIDs: [UUID]?
   private(set) var reorderedBufferIDs: [UUID]?
   private(set) var reorderedPinnedIDs: [UUID]?
 
   func setFailReorders(_ fail: Bool) {
     failReorders = fail
+  }
+
+  func setFailSends(_ fail: Bool) {
+    failSends = fail
   }
 
   struct FixtureError: Error {}
@@ -399,7 +405,9 @@ actor FixtureTransport: LurkerTransport {
     AsyncThrowingStream { _ in }
   }
 
-  func send(_: ClientCommand) async throws {}
+  func send(_: ClientCommand) async throws {
+    if failSends { throw FixtureError() }
+  }
   func ping() async throws {}
   func disconnect() async {}
 
