@@ -666,7 +666,7 @@ private struct ComposerView: View {
           .font(.body.monospaced())
           .lineLimit(1...5)
           .focused($focused)
-          .onSubmit(model.sendComposer)
+          .onSubmit { model.sendComposer() }
           .disabled(!canSend)
           .onKeyPress(keys: [.tab, .return]) { press in
             guard press.modifiers.isEmpty else { return .ignored }
@@ -674,7 +674,14 @@ private struct ComposerView: View {
           }
           .onKeyPress(keys: [.upArrow, .downArrow]) { press in
             // Modified arrows (⌥↑ etc.) belong to the menu-bar shortcuts.
-            guard press.modifiers.isEmpty else { return .ignored }
+            // Arrow keys always arrive with implicit flags set (.function,
+            // .numericPad), so "bare" means no real chord modifiers — a plain
+            // isEmpty check rejects every arrow press and kills history
+            // browsing entirely.
+            let chordModifiers: EventModifiers = [.command, .option, .control, .shift]
+            guard press.modifiers.intersection(chordModifiers).isEmpty else {
+              return .ignored
+            }
             return handleArrow(up: press.key == .upArrow)
           }
           .onKeyPress(.escape) {
@@ -683,7 +690,7 @@ private struct ComposerView: View {
             return .handled
           }
         attachButton
-        Button(action: model.sendComposer) {
+        Button(action: { model.sendComposer() }) {
           Image(systemName: "arrow.up.circle.fill")
             .font(.title2)
         }
