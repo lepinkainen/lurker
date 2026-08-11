@@ -408,8 +408,22 @@ actor FixtureTransport: LurkerTransport {
   func send(_: ClientCommand) async throws {
     if failSends { throw FixtureError() }
   }
-  func ping() async throws {}
-  func disconnect() async {}
+  private var failPings = false
+  private(set) var pingCount = 0
+  private(set) var disconnectCount = 0
+
+  func setFailPings(_ fail: Bool) {
+    failPings = fail
+  }
+
+  func ping() async throws {
+    pingCount += 1
+    if failPings { throw FixtureError() }
+  }
+
+  func disconnect() async {
+    disconnectCount += 1
+  }
 
   private(set) var uploadedFilename: String?
 

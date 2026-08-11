@@ -14,6 +14,7 @@ struct ConversationView: View {
       VStack(spacing: 0) {
         ConversationHeader(buffer: buffer, network: model.selectedNetwork)
         Divider()
+        SyncBanner()
         TimelineView(buffer: buffer)
         Divider()
         ComposerView(buffer: buffer)
@@ -48,6 +49,50 @@ struct ConversationView: View {
           }
         }
       }
+    }
+  }
+}
+
+/// Thin strip under the header while the displayed state may lag the backend
+/// (focus ping in flight, reconnecting, offline). Appearance is debounced so
+/// a fast focus ping doesn't flash the banner; hiding is immediate.
+private struct SyncBanner: View {
+  @Environment(AppModel.self) private var model
+  @State private var visible = false
+
+  var body: some View {
+    Group {
+      if visible {
+        HStack(spacing: 6) {
+          ProgressView()
+            .controlSize(.small)
+          Text(text)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 5)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+        .transition(.move(edge: .top).combined(with: .opacity))
+      }
+    }
+    .task(id: model.outOfSync) {
+      if model.outOfSync {
+        try? await Task.sleep(for: .milliseconds(300))
+        guard !Task.isCancelled else { return }
+        withAnimation(.easeOut(duration: 0.15)) { visible = true }
+      } else {
+        withAnimation(.easeOut(duration: 0.15)) { visible = false }
+      }
+    }
+  }
+
+  private var text: String {
+    switch model.connectionState {
+    // reconnecting(0) is the in-flight retry attempt, not a countdown.
+    case .connected, .connecting, .notConfigured, .reconnecting(0): "Syncing…"
+    case .reconnecting, .offline: model.connectionState.label
     }
   }
 }

@@ -47,6 +47,26 @@ struct RootView: View {
       .onChange(of: scenePhase) { _, phase in
         model.setApplicationActive(phase == .active)
       }
+      // scenePhase tracks window visibility on macOS, not app activation, so
+      // alt-tabbing back rarely fires it. Observe activation and sleep/wake
+      // directly so a dead socket is probed the moment the user returns.
+      #if os(macOS)
+        .onReceive(
+          NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+        ) { _ in
+          model.setApplicationActive(true)
+        }
+        .onReceive(
+          NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)
+        ) { _ in
+          model.setApplicationActive(false)
+        }
+        .onReceive(
+          NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
+        ) { _ in
+          model.setApplicationActive(true)
+        }
+      #endif
   }
 
   // iPhone (compact width) gets a NavigationStack that pushes the conversation:
@@ -197,9 +217,10 @@ private struct ConnectionStatusButton: View {
   }
 
   private var isAnimating: Bool {
+    if model.syncing { return true }
     switch model.connectionState {
-    case .connecting, .reconnecting: true
-    default: false
+    case .connecting, .reconnecting: return true
+    default: return false
     }
   }
 

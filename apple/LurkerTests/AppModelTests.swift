@@ -750,6 +750,73 @@ struct AppModelTests {
     #expect(!second.inspectorVisible)
   }
 
+  // Foregrounding while nominally connected probes the socket; the syncing
+  // flag covers the whole probe window so the UI can flag possibly-stale
+  // state, and clears once the ping resolves.
+  @Test func focusPingTogglesSyncing() async {
+    let transport = FixtureTransport()
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    model.connectionState = .connected
+
+    model.setApplicationActive(true)
+    #expect(model.syncing)
+    #expect(model.outOfSync)
+
+    await model.verifyTask?.value
+    #expect(!model.syncing)
+    #expect(!model.outOfSync)
+    #expect(await transport.pingCount == 1)
+    #expect(await transport.disconnectCount == 0)
+  }
+
+  // A failed focus ping cuts the socket so connectionLoop reconnects; the
+  // syncing flag must still clear (the banner then persists via
+  // connectionState leaving .connected, not via the flag).
+  @Test func focusPingFailureDisconnectsSocket() async {
+    let transport = FixtureTransport()
+    await transport.setFailPings(true)
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    model.connectionState = .connected
+
+    model.setApplicationActive(true)
+    await model.verifyTask?.value
+
+    #expect(!model.syncing)
+    #expect(await transport.disconnectCount == 1)
+  }
+
+  // Rapid activation events (didBecomeActive + scenePhase + wake can all
+  // fire together) must not stack pings.
+  @Test func concurrentActivationsPingOnce() async {
+    let transport = FixtureTransport()
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    model.connectionState = .connected
+
+    model.setApplicationActive(true)
+    model.setApplicationActive(true)
+    await model.verifyTask?.value
+
+    #expect(await transport.pingCount == 1)
+  }
+
+  @Test func outOfSyncTracksConnectionStateAndPing() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+
+    model.connectionState = .notConfigured
+    #expect(!model.outOfSync)
+    model.connectionState = .connected
+    #expect(!model.outOfSync)
+
+    for state: ConnectionState in [.connecting, .reconnecting(3), .offline("boom")] {
+      model.connectionState = state
+      #expect(model.outOfSync)
+    }
+
+    model.connectionState = .connected
+    model.syncing = true
+    #expect(model.outOfSync)
+  }
+
   // Opening a buffer, switching away from it, or foregrounding the app must
   // never ack: badge, divider, and unread bar clear only on explicit ack.
   @Test func selectingAndForegroundingNeverMarkRead() {

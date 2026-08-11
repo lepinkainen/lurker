@@ -71,6 +71,9 @@ final class AppModel {
   // re-trigger the load (runaway pagination). Consumed (nil'd) by the view.
   var historyAnchor: HistoryAnchor?
   var connectionState: ConnectionState = .notConfigured
+  // True while an app-focus ping is probing a nominally-connected socket; the
+  // displayed state can't be trusted until the probe resolves.
+  var syncing = false
   var serviceIdentity: ServiceIdentity?
   var inspectorVisible = AppModel.defaultInspectorVisible
   var applicationActive = true
@@ -113,6 +116,8 @@ final class AppModel {
   @ObservationIgnored private var connectionTask: Task<Void, Never>?
   @ObservationIgnored private var queuedEvents: [ServerEvent] = []
   @ObservationIgnored private var hydrated = false
+  // Retained so tests can await the focus ping deterministically.
+  @ObservationIgnored private(set) var verifyTask: Task<Void, Never>?
   // Bumped on every selection change so an in-flight older-history fetch can
   // tell that its anchor is stale by the time it resolves.
   @ObservationIgnored private var selectionGeneration = 0
@@ -273,8 +278,9 @@ final class AppModel {
   private func verifyConnection() {
     switch connectionState {
     case .connected:
-      guard let transport else { return }
-      Task {
+      guard let transport, !syncing else { return }
+      syncing = true
+      verifyTask = Task {
         do {
           try await transport.ping()
         } catch {
@@ -282,11 +288,23 @@ final class AppModel {
           // connectionLoop into its normal reconnect path.
           await transport.disconnect()
         }
+        syncing = false
       }
     case .reconnecting, .offline:
       skipReconnectDelay = true
     case .connecting, .notConfigured:
       break
+    }
+  }
+
+  /// True whenever the displayed state may lag the backend: a focus ping is
+  /// in flight, or the connection is anywhere but steady-state connected.
+  /// `.notConfigured` is excluded — that's an empty state, not a stale one.
+  var outOfSync: Bool {
+    if syncing { return true }
+    switch connectionState {
+    case .connected, .notConfigured: return false
+    case .connecting, .reconnecting, .offline: return true
     }
   }
 
