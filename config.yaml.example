@@ -41,6 +41,11 @@ networks:
       - "#golang"
     sasl_user: mynick
     sasl_pass: secret
+    # Raw IRC lines sent after registration (girc CONNECTED), before autojoin.
+    # QuakeNet auth: use snircd's server-side AUTH command (proxies to Q).
+    #   - "AUTH myuser mypass"   # NOTE: plaintext on the wire; prefer a TLS port
+    # There is no WAIT/delay pseudo-command (unlike IRCCloud) — all lines fire
+    # immediately in order. Secure challenge-response auth is tracked in issue #128.
     connect_commands:
       - "PRIVMSG NickServ :IDENTIFY secret"
       - "MODE mynick +x"

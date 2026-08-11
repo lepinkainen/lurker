@@ -250,7 +250,7 @@ Expected fields include:
 - `nick`
 - optional `realname`
 - optional SASL fields
-- optional `connect_commands` array of raw IRC lines
+- optional `connect_commands` array of raw IRC lines — sent verbatim after registration, before autojoin, with no inter-command delay (no `WAIT` pseudo-command). QuakeNet login works via snircd's server-side `AUTH <user> <pass>` (plaintext on the wire; use a TLS port). Secure challenge-response auth is tracked in issue #128.
 
 New networks are appended to the end of sidebar order by assigning the next `sort_order`.
 
