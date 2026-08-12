@@ -19,12 +19,36 @@ func (h *handler) onConnected(c *girc.Client, e girc.Event) {
 			slog.Warn("send connect command", "err", err, "network", h.networkName)
 		}
 	}
-	for _, ch := range h.autojoin {
-		c.Cmd.Join(ch)
-	}
+	joinBatched(c, h.autojoin)
 	// Channel gaps are requested per self-JOIN; query gaps have no join
 	// event, so request them as soon as the connection registers.
 	h.requestQueryBackfills()
+}
+
+// joinBatchLen caps the channel-list length of one JOIN command, well under
+// the 512-byte IRC line limit.
+const joinBatchLen = 400
+
+// joinBatched joins channels with comma-separated JOIN commands. One command
+// instead of one per channel matters on IRCnet-style servers (ISUPPORT
+// PENALTY), where every command charges a read-delay penalty and a connect
+// burst can stall the connection for minutes. Batches are built here rather
+// than passing everything to girc's Join, whose overflow split silently drops
+// a channel at each line boundary.
+func joinBatched(c *girc.Client, channels []string) {
+	var batch []string
+	length := 0
+	for _, ch := range channels {
+		if length > 0 && length+1+len(ch) > joinBatchLen {
+			c.Cmd.Join(batch...)
+			batch, length = nil, 0
+		}
+		batch = append(batch, ch)
+		length += len(ch) + 1
+	}
+	if len(batch) > 0 {
+		c.Cmd.Join(batch...)
+	}
 }
 
 func (h *handler) onDisconnected(_ *girc.Client, e girc.Event) {

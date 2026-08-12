@@ -662,7 +662,7 @@ func (m *Manager) attemptConnect(ctx context.Context, log *slog.Logger, networkI
 
 	log.Info("connecting", "host", server.Host, "port", server.Port, "tls", server.TLS, "tls_max_version", tlsMaxVersionLabel(server))
 	err := m.connector(ctx, client, server)
-	if err != nil && ctx.Err() == nil && shouldFallbackToTLS12(server) {
+	if err != nil && ctx.Err() == nil && shouldFallbackToTLS12(server, err) {
 		err = m.connectWithTLS12Fallback(ctx, log, networkID, nc, server, err)
 	}
 	m.markDisconnected(networkID, gen)
@@ -712,7 +712,12 @@ func defaultConnector(_ context.Context, client *girc.Client, _ ServerConfig) er
 	return client.Connect()
 }
 
-func shouldFallbackToTLS12(server ServerConfig) bool {
+func shouldFallbackToTLS12(server ServerConfig, err error) bool {
+	if _, ok := errors.AsType[girc.TimedOutError](err); ok {
+		// A ping timeout means TCP+TLS already worked; retrying with TLS 1.2
+		// cannot help and doubles every reconnect cycle.
+		return false
+	}
 	return server.TLS && server.TLSMaxVersion != tls.VersionTLS12
 }
 
@@ -753,15 +758,20 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 		user = nc.Nick
 	}
 	cfg := girc.Config{
-		Server:      server.Host,
-		Port:        server.Port,
-		SSL:         server.TLS,
-		Nick:        nc.Nick,
-		User:        user,
-		Name:        nc.Realname,
-		Version:     "lurker",
-		PingDelay:   60 * time.Second,
-		PingTimeout: 30 * time.Second,
+		Server:    server.Host,
+		Port:      server.Port,
+		SSL:       server.TLS,
+		Nick:      nc.Nick,
+		User:      user,
+		Name:      nc.Realname,
+		Version:   "lurker",
+		PingDelay: 60 * time.Second,
+		// Generous on purpose: IRCnet-style servers (ISUPPORT PENALTY) defer
+		// reading client input after a connect burst (JOINs + girc's auto-WHO
+		// per channel), so a PONG can lag minutes behind. girc kills the
+		// connection after PingDelay+PingTimeout without a PONG; 30s here put
+		// every IRCnet connect into a kill/reconnect loop.
+		PingTimeout: 300 * time.Second,
 		RecoverFunc: girc.DefaultRecoverHandler,
 		Debug:       debugWriter(),
 		SupportedCaps: map[string][]string{
