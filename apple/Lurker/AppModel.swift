@@ -388,36 +388,43 @@ final class AppModel {
 
   /// Normalizes and uploads a picked/dropped image (HEIC etc. are transcoded
   /// to JPEG client-side; the backend does not decode HEIC), then appends the
-  /// returned URL to the composer text, ready to send.
+  /// returned URL to the initiating buffer's composer text, ready to send.
+  /// One upload at a time: picks/drops while one is in flight are ignored.
   func attachImage(_ rawData: Data, sourceType: UTType?) async {
-    guard let transport else { return }
-    guard let normalized = ImageEncoding.normalize(rawData, sourceUTType: sourceType) else {
+    guard let transport, let bufferID = selectedBufferID, !isUploading else { return }
+    isUploading = true
+    defer { isUploading = false }
+    // Full-resolution decode + JPEG re-encode is too heavy for the main
+    // actor (a large phone photo freezes scrolling and input); hop off.
+    let normalized = await Task.detached(priority: .userInitiated) {
+      ImageEncoding.normalize(rawData, sourceUTType: sourceType)
+    }.value
+    guard let normalized else {
       composerError = "Unsupported image"
       return
     }
-    isUploading = true
-    defer { isUploading = false }
     do {
       let url = try await transport.upload(
         normalized.data, filename: normalized.filename, contentType: normalized.contentType)
-      appendToComposer(url.absoluteString)
-      composerError = nil
+      // The user may have switched buffers during the upload: the URL
+      // belongs to the buffer the image was dropped on, not whichever is
+      // visible now.
+      if selectedBufferID == bufferID {
+        appendToComposer(url.absoluteString)
+        composerError = nil
+      } else {
+        inputHistory.appendToDraft(url.absoluteString, buffer: bufferID)
+      }
     } catch {
       composerError = error.localizedDescription
     }
   }
 
-  /// Appends text to the composer, space-padding it from any existing
-  /// content (web parity: `insertTextAtCursor`'s prefix/suffix spacing),
-  /// but always at the end since the SwiftUI TextField here has no caret
-  /// tracking.
+  /// Appends text to the visible composer, space-padded from any existing
+  /// content, but always at the end since the SwiftUI TextField here has no
+  /// caret tracking.
   private func appendToComposer(_ text: String) {
-    if composerText.isEmpty {
-      composerText = text + " "
-      return
-    }
-    let needsLeadingSpace = composerText.last.map { !$0.isWhitespace } ?? false
-    composerText += (needsLeadingSpace ? " " : "") + text + " "
+    composerText = InputHistory.appending(text, to: composerText)
   }
 
   /// Arrow-up/down history browsing from the composer. Returns true when the

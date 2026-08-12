@@ -989,8 +989,14 @@ private func mircColor(_ value: Int) -> Color {
   return palette.indices.contains(value) ? palette[value] : .primary
 }
 
-private func dayKey(_ raw: String) -> String {
-  String(raw.prefix(10))
+/// Grouping key for day separators, in the user's local calendar day —
+/// `displayDay` labels the separator in local time, so the key must bucket
+/// the same way or days straddling UTC midnight get mislabeled separators.
+@MainActor
+func dayKey(_ raw: String, calendar: Calendar = .current) -> String {
+  guard let date = parseTimestamp(raw) else { return String(raw.prefix(10)) }
+  let parts = calendar.dateComponents([.year, .month, .day], from: date)
+  return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
 }
 
 @MainActor

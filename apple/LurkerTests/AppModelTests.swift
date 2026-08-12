@@ -697,6 +697,64 @@ struct AppModelTests {
     #expect(model.composerText == "draft in beta")
   }
 
+  @Test func attachImageDeliversToOriginBufferAfterSwitch() async {
+    let transport = FixtureTransport()
+    await transport.setHoldUploads(true)
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    let networkID = UUID()
+    let first = buffer("#alpha", networkID: networkID)
+    let second = buffer("#beta", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [first.id: first, second.id: second]
+    model.selectBuffer(first.id)
+
+    let upload = Task { await model.attachImage(Data([0xFF]), sourceType: .jpeg) }
+    while await transport.uploadCount == 0 { await Task.yield() }
+    model.selectBuffer(second.id)
+    await transport.releaseUploads()
+    await upload.value
+
+    // The URL belongs to #alpha's draft, not the now-visible #beta composer.
+    #expect(model.composerText.isEmpty)
+    model.selectBuffer(first.id)
+    #expect(model.composerText.contains("https://fixture.local/uploads/test.jpg"))
+  }
+
+  @Test func attachImageIgnoresOverlappingUpload() async {
+    let transport = FixtureTransport()
+    await transport.setHoldUploads(true)
+    let model = AppModel(transport: transport, defaults: isolatedDefaults())
+    let networkID = UUID()
+    let chan = buffer("#alpha", networkID: networkID)
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = [chan.id: chan]
+    model.selectBuffer(chan.id)
+
+    let firstUpload = Task { await model.attachImage(Data([0x01]), sourceType: .jpeg) }
+    while await transport.uploadCount == 0 { await Task.yield() }
+    let secondUpload = Task { await model.attachImage(Data([0x02]), sourceType: .jpeg) }
+    await transport.releaseUploads()
+    await firstUpload.value
+    await secondUpload.value
+
+    #expect(await transport.uploadCount == 1)
+    #expect(!model.isUploading)
+  }
+
+  @Test func dayKeyGroupsByLocalCalendarDay() {
+    var helsinki = Calendar(identifier: .gregorian)
+    helsinki.timeZone = TimeZone(identifier: "Europe/Helsinki")!
+    // 23:30Z Aug 10 and 00:30Z Aug 11 are both Aug 11 in Helsinki (UTC+3):
+    // one separator, not two.
+    #expect(
+      dayKey("2026-08-10T23:30:00Z", calendar: helsinki)
+        == dayKey("2026-08-11T00:30:00Z", calendar: helsinki))
+    // 20:30Z Aug 10 is still Aug 10 in Helsinki: separate days.
+    #expect(
+      dayKey("2026-08-10T20:30:00Z", calendar: helsinki)
+        != dayKey("2026-08-10T23:30:00Z", calendar: helsinki))
+  }
+
   @Test func inlineImageURLAcceptsHTTPSOnly() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let secure = Preview(url: "https://example.com/cat.png", kind: "image")

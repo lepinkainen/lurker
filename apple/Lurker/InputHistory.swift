@@ -70,6 +70,23 @@ struct InputHistory {
     perBuffer[buffer] = state
   }
 
+  /// Space-pads `text` onto `base`, with a trailing space ready for typing
+  /// (web parity: `insertTextAtCursor`'s prefix/suffix spacing).
+  static func appending(_ text: String, to base: String) -> String {
+    if base.isEmpty { return text + " " }
+    let needsLeadingSpace = base.last.map { !$0.isWhitespace } ?? false
+    return base + (needsLeadingSpace ? " " : "") + text + " "
+  }
+
+  /// Appends text to a buffer's stored draft without selecting it — used when
+  /// an upload finishes after the user has switched away from the buffer the
+  /// image was dropped on.
+  mutating func appendToDraft(_ text: String, buffer: UUID) {
+    var state = perBuffer[buffer] ?? BufferState()
+    state.draft = Self.appending(text, to: state.draft)
+    perBuffer[buffer] = state
+  }
+
   /// The draft to restore when entering a buffer; also ends any browse.
   mutating func restoreDraft(buffer: UUID) -> String {
     var state = perBuffer[buffer] ?? BufferState()

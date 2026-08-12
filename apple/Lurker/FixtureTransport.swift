@@ -426,9 +426,29 @@ actor FixtureTransport: LurkerTransport {
   }
 
   private(set) var uploadedFilename: String?
+  private(set) var uploadCount = 0
+  // Tests flip this to hold uploads in flight until released, so they can
+  // interleave model actions (buffer switches, second drops) mid-upload.
+  private var holdUploads = false
+  private var uploadGates: [CheckedContinuation<Void, Never>] = []
+
+  func setHoldUploads(_ hold: Bool) {
+    holdUploads = hold
+  }
+
+  /// Resumes every held upload and stops holding new ones.
+  func releaseUploads() {
+    holdUploads = false
+    for gate in uploadGates { gate.resume() }
+    uploadGates.removeAll()
+  }
 
   func upload(_ data: Data, filename: String, contentType: String) async throws -> URL {
+    uploadCount += 1
     uploadedFilename = filename
+    if holdUploads {
+      await withCheckedContinuation { uploadGates.append($0) }
+    }
     return URL(string: "https://fixture.local/uploads/test.jpg")!
   }
 }

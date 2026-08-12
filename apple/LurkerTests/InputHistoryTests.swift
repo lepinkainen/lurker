@@ -7,6 +7,22 @@ struct InputHistoryTests {
   let buffer = UUID()
   let other = UUID()
 
+  @Test func appendingSpacePadsFromExistingContent() {
+    #expect(InputHistory.appending("url", to: "") == "url ")
+    #expect(InputHistory.appending("url", to: "text") == "text url ")
+    #expect(InputHistory.appending("url", to: "text ") == "text url ")
+  }
+
+  @Test func appendToDraftTargetsBufferWithoutSelectingIt() {
+    var history = InputHistory()
+    history.stashDraft("draft", buffer: buffer)
+    history.appendToDraft("https://example.com/a.jpg", buffer: buffer)
+    history.appendToDraft("solo", buffer: other)
+
+    #expect(history.restoreDraft(buffer: buffer) == "draft https://example.com/a.jpg ")
+    #expect(history.restoreDraft(buffer: other) == "solo ")
+  }
+
   @Test func upRecallsNewestAndStashesDraft() {
     var history = InputHistory()
     history.record("first", buffer: buffer)
