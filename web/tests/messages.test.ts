@@ -33,8 +33,9 @@ function dom(): MessagesDom {
   statusViewEl.hidden = true;
   const bufferNameEl = document.createElement("div");
   const bufferTopicEl = document.createElement("div");
+  const bufferOptionsBtnEl = document.createElement("button");
   const inputEl = document.createElement("input");
-  return { messagesEl, statusViewEl, bufferNameEl, bufferTopicEl, inputEl };
+  return { messagesEl, statusViewEl, bufferNameEl, bufferTopicEl, bufferOptionsBtnEl, inputEl };
 }
 
 const deps = {
@@ -74,6 +75,24 @@ describe("renderHeader", () => {
     renderHeader(d, deps);
     expect(d.bufferNameEl.textContent).toBe("libera (status)");
     expect(d.bufferTopicEl.querySelector(".topictext")?.textContent).toContain("libera.example");
+  });
+
+  it("shows the buffer options gear for channels and queries, hides it for status", () => {
+    state.activeId = "1";
+    state.buffers.set("1", buf({ id: "1", kind: "channel", name: "#x" }));
+    const d = dom();
+    renderHeader(d, deps);
+    expect(d.bufferOptionsBtnEl.hidden).toBe(false);
+
+    state.activeId = "2";
+    state.buffers.set("2", buf({ id: "2", kind: "query", name: "alice" }));
+    renderHeader(d, deps);
+    expect(d.bufferOptionsBtnEl.hidden).toBe(false);
+
+    state.activeId = "3";
+    state.buffers.set("3", buf({ id: "3", kind: "status", name: "(status)" }));
+    renderHeader(d, deps);
+    expect(d.bufferOptionsBtnEl.hidden).toBe(true);
   });
 
   it("falls back to 'No topic set' when topic missing", () => {

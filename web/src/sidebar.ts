@@ -255,12 +255,6 @@ function bufferRow(buffer: Buffer, deps: SidebarDeps, opts: { pinned?: boolean }
   btn.appendChild(span("name", buffer.kind === "status" ? "(status)" : buffer.name));
   if (buffer.mentions > 0) btn.appendChild(badge("mentionbadge", buffer.mentions));
   else if (buffer.unread > 0) btn.appendChild(badge("unreadbadge", buffer.unread));
-  if (buffer.kind === "channel" || buffer.kind === "query") {
-    btn.appendChild(channelOptionsToggle(buffer, deps));
-  }
-  if (buffer.kind === "channel") {
-    btn.appendChild(pinToggle(buffer, deps));
-  }
   btn.addEventListener("click", () => deps.setActive(buffer.id));
   return btn;
 }
@@ -282,51 +276,10 @@ function bufferRowClass(buffer: Buffer, pinned = false) {
     .join(" ");
 }
 
-function pinToggle(buffer: Buffer, deps: SidebarDeps) {
-  const pin = document.createElement("span");
-  pin.className = ["pin-toggle", buffer.pinned && "active"].filter(Boolean).join(" ");
-  pin.role = "button";
-  pin.tabIndex = 0;
-  pin.title = buffer.pinned ? "Unpin channel" : "Pin channel";
-  pin.setAttribute("aria-label", pin.title);
-  pin.textContent = buffer.pinned ? "⚑" : "⚐";
-  const toggle = (e: Event) => {
-    e.stopPropagation();
-    updateBufferSettings(buffer, { pinned: !buffer.pinned }, deps).catch((err: unknown) =>
-      console.error("buffer settings", err),
-    );
-  };
-  pin.addEventListener("click", toggle);
-  pin.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
-    e.preventDefault();
-    toggle(e);
-  });
-  return pin;
-}
-
-function channelOptionsToggle(buffer: Buffer, deps: SidebarDeps) {
-  const opt = document.createElement("span");
-  opt.className = "chan-options";
-  opt.role = "button";
-  opt.tabIndex = 0;
-  opt.title = "Channel display options";
-  opt.setAttribute("aria-label", opt.title);
-  opt.textContent = "⋯";
-  const open = (e: Event) => {
-    e.stopPropagation();
-    openChannelOptions(buffer, deps);
-  };
-  opt.addEventListener("click", open);
-  opt.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
-    e.preventDefault();
-    open(e);
-  });
-  return opt;
-}
-
-function openChannelOptions(buffer: Buffer, deps: SidebarDeps) {
+// openBufferOptions renders the per-buffer display-options dialog (Pin / Show
+// embeds / presence toggles / archive / delete). Triggered from the topicbar
+// gear button for the active buffer — see app-view.ts's openActiveBufferOptions.
+export function openBufferOptions(buffer: Buffer, deps: SidebarDeps) {
   const dialog = document.createElement("dialog");
   dialog.className = "nf-dialog";
 

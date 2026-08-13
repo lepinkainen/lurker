@@ -38,6 +38,7 @@ export type MessagesDom = {
   statusViewEl: HTMLElement;
   bufferNameEl: HTMLElement;
   bufferTopicEl: HTMLElement;
+  bufferOptionsBtnEl: HTMLElement;
   inputEl: HTMLInputElement;
 };
 
@@ -53,8 +54,14 @@ const LEADING_HASH_RE = /^#/u;
 
 export function renderHeader(dom: MessagesDom, deps: MessageDeps) {
   const buffer = activeBuffer();
-  if (!buffer) return;
+  if (!buffer) {
+    dom.bufferOptionsBtnEl.hidden = true;
+    return;
+  }
   deps.renderPromptNick();
+  // Channel options (pin / embeds / presence / archive / delete) only make
+  // sense for channels and queries — status buffers have nothing to configure.
+  dom.bufferOptionsBtnEl.hidden = buffer.kind === "status";
   const isChannel = buffer.kind === "channel";
   const network = state.networks.get(buffer.network_id);
   dom.bufferNameEl.innerHTML = "";

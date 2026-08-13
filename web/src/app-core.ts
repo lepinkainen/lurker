@@ -12,9 +12,9 @@ import { createReadTracker } from "./read-tracker";
 import { resetAppState } from "./reset";
 import { bufferFromHash } from "./router";
 import { createScrollStick } from "./scroll-stick";
-import { openSettingsDialog } from "./settings-dialog";
+import { openSettingsView } from "./settings-dialog";
 import { openHelpOverlay } from "./shortcuts-help";
-import { applyThemeDefaults, initThemeSelector } from "./theme-ui";
+import { applyThemeDefaults, initTheme } from "./theme-ui";
 import { initTouchGestures } from "./touch-gestures";
 import { isMobileViewport, onBackdropClick, setMembersDrawer, setSidebarDrawer } from "./ui-shell";
 import { createWSRouter } from "./ws-router";
@@ -42,7 +42,7 @@ export function start() {
   routeWSMessage = createWSRouter(view, sendCmd);
   view.renderStatus();
   applyThemeDefaults();
-  initThemeSelector().catch((err: unknown) => console.error("theme selector", err));
+  initTheme().catch((err: unknown) => console.error("theme init", err));
   bindInputHandlers({
     inputEl: d.inputEl,
     inputForm: d.inputForm,
@@ -70,7 +70,8 @@ export function start() {
     setSidebarDrawer(document.body.dataset.sidebarOpen !== "true");
   });
   d.shortcutsHelpBtnEl.addEventListener("click", () => openHelpOverlay());
-  document.getElementById("settings-btn")?.addEventListener("click", () => openSettingsDialog());
+  d.bufferOptionsBtnEl.addEventListener("click", () => view.openActiveBufferOptions());
+  document.getElementById("settings-btn")?.addEventListener("click", () => openSettingsView());
   document.addEventListener("click", onBackdropClick);
   initTouchGestures({ sidebarEl: d.sidebarEl });
   initKeyboardShortcuts({

@@ -1,4 +1,3 @@
-import { openDialog } from "./dialog";
 import { jsonFetch } from "./http";
 
 type MediaItem = {
@@ -86,15 +85,9 @@ function buildTile(item: MediaItem, onDeleted: () => void): HTMLElement {
   return tile;
 }
 
-export function openMediaBrowser(): void {
-  const { dialog, close } = openDialog({ className: "mb-dialog" });
-
-  const inner = document.createElement("div");
-  inner.className = "mb-inner";
-
-  const title = document.createElement("h2");
-  title.className = "mb-title";
-  title.textContent = "Media library";
+export function buildMediaBrowser(): HTMLElement {
+  const container = document.createElement("div");
+  container.className = "mb-browser";
 
   const filterRow = document.createElement("div");
   filterRow.className = "mb-filter-row";
@@ -136,12 +129,6 @@ export function openMediaBrowser(): void {
   loadMoreBtn.className = "mb-btn mb-btn-secondary";
   loadMoreBtn.textContent = "Load more";
   loadMoreBtn.hidden = true;
-
-  const closeBtn = document.createElement("button");
-  closeBtn.type = "button";
-  closeBtn.className = "mb-btn mb-btn-ghost mb-close";
-  closeBtn.textContent = "Close";
-  closeBtn.addEventListener("click", close);
 
   let offset = 0;
   let total = 0;
@@ -199,9 +186,9 @@ export function openMediaBrowser(): void {
     load(false).catch((err: unknown) => console.error("media list", err));
   });
 
-  inner.append(title, filterRow, errEl, emptyEl, grid, loadMoreBtn, closeBtn);
-  dialog.appendChild(inner);
+  container.append(filterRow, errEl, emptyEl, grid, loadMoreBtn);
 
-  dialog.showModal();
   load(true).catch((err: unknown) => console.error("media list", err));
+
+  return container;
 }

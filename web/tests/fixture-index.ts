@@ -41,12 +41,12 @@ export const fixtureIndexHTML = `<!doctype html>
             <span class="edit" aria-hidden="true"></span>
           </div>
           <div class="actions">
-            <select id="theme-select" class="theme-select" title="Theme" aria-label="Theme"></select>
             <button id="shortcuts-help-btn" class="icbtn" type="button" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
             <span id="buffer-memcount" class="memcount" title="Members" hidden>
               <span id="member-count-inline">0</span>
             </span>
             <button class="icbtn" type="button" title="Channel info" aria-label="Channel info"></button>
+            <button id="buffer-options-btn" class="icbtn" type="button" title="Channel options" aria-label="Channel options" hidden></button>
             <button id="toggle-members" class="icbtn toggled" type="button" title="Toggle member list" aria-label="Toggle member list"></button>
           </div>
         </header>

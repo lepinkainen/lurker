@@ -185,33 +185,98 @@
     font-size: 0.8125rem;
   }
 
-  .sd-dialog {
-    background: var(--bg-2);
-    border: 1px solid var(--hair-strong);
-    border-radius: 8px;
-    color: var(--fg-0);
-    padding: 0;
-    width: 640px;
-    max-width: calc(100vw - 32px);
-    max-height: calc(100vh - 64px);
-    overflow-y: auto;
-  }
-
-  .sd-dialog::backdrop {
-    background: rgb(0 0 0 / 60%);
-  }
-
-  .sd-inner {
+  /*
+   * In-pane settings view: an opaque overlay absolutely positioned over
+   * #main (which is position: relative — see topicbar.css .mainpane). It
+   * replaces the message view area while the sidebar stays visible and
+   * interactive alongside it. Not a <dialog> — no top-layer, no backdrop.
+   */
+  .settings-view {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
     display: flex;
     flex-direction: column;
     gap: 12px;
     padding: 24px;
+    background: var(--bg-1);
+    color: var(--fg-0);
+    overflow: hidden;
+  }
+
+  /* Modeless: sidebar stays interactive, so no focus trap. Focus outline on
+     the root itself would look like a stray ring around the whole panel. */
+  .settings-view:focus {
+    outline: none;
+  }
+
+  .sd-view-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex: none;
   }
 
   .sd-title {
     font-size: 1.1rem;
     font-weight: 600;
-    margin: 0 0 4px;
+    margin: 0;
+    flex: none;
+  }
+
+  .sd-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    gap: 0;
+  }
+
+  .sd-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 180px;
+    flex: none;
+    border-right: 1px solid var(--hair);
+    padding-right: 12px;
+    margin-right: 12px;
+    overflow-y: auto;
+  }
+
+  .sd-nav-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: var(--fg-1);
+    font-size: 0.875rem;
+    font-family: var(--sans);
+    cursor: pointer;
+  }
+
+  .sd-nav-item:hover {
+    background: var(--bg-3);
+    color: var(--fg-0);
+  }
+
+  .sd-nav-item.active {
+    background: var(--accent-soft);
+    color: var(--fg-0);
+    font-weight: 600;
+  }
+
+  .sd-content {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-right: 4px;
   }
 
   .sd-section-title {
@@ -243,12 +308,23 @@
 
   .sd-diff {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    flex-direction: row;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   .sd-diff[hidden] {
     display: none;
+  }
+
+  .sd-diff-col {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
   }
 
   .sd-diff-label {
@@ -268,8 +344,9 @@
     line-height: 1.5;
     padding: 10px 12px;
     margin: 0;
-    max-height: 220px;
-    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
     white-space: pre;
   }
 
@@ -333,7 +410,10 @@
   }
 
   .sd-close {
-    align-self: flex-end;
+    /* Sits inside .sd-view-header's row layout, not a column, so align to
+       the row's cross axis rather than the column-oriented flex-end used by
+       other bottom-of-section sd-btn instances. */
+    align-self: center;
   }
 
   .sd-highlight-list {
@@ -405,33 +485,60 @@
     font-family: var(--mono);
   }
 
-  .mb-dialog {
-    background: var(--bg-2);
-    border: 1px solid var(--hair-strong);
-    border-radius: 8px;
-    color: var(--fg-0);
-    padding: 0;
-    width: 720px;
-    max-width: calc(100vw - 32px);
-    max-height: calc(100vh - 64px);
-    overflow-y: auto;
-  }
-
-  .mb-dialog::backdrop {
-    background: rgb(0 0 0 / 60%);
-  }
-
-  .mb-inner {
+  .sd-theme-grid {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 24px;
+    gap: 6px;
   }
 
-  .mb-title {
-    font-size: 1.1rem;
-    font-weight: 600;
-    margin: 0 0 4px;
+  .sd-theme-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 36px;
+    padding: 0 12px;
+    text-align: left;
+    border-radius: 6px;
+    border: 1px solid var(--hair-strong);
+    background: var(--bg-1);
+    color: var(--fg-1);
+    font-size: 0.85rem;
+    font-family: var(--sans);
+    cursor: pointer;
+  }
+
+  .sd-theme-chip:hover {
+    background: var(--bg-3);
+    color: var(--fg-0);
+  }
+
+  .sd-theme-chip.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--fg-0);
+  }
+
+  .sd-theme-swatches {
+    display: flex;
+    gap: 2px;
+  }
+
+  .sd-theme-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    border: 1px solid var(--hair);
+  }
+
+  .sd-theme-name {
+    white-space: nowrap;
+  }
+
+  .mb-browser {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
   .mb-filter-row {
@@ -558,9 +665,5 @@
     color: var(--fg-2);
     align-self: flex-end;
     margin-top: 4px;
-  }
-
-  .mb-close {
-    align-self: flex-end;
   }
 }

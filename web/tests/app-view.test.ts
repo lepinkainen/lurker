@@ -46,6 +46,7 @@ function refs(): DomRefs {
     bufferTopicEl: document.createElement("div"),
     bufferMemcountEl: document.createElement("span"),
     memberCountInlineEl: document.createElement("span"),
+    bufferOptionsBtnEl: button(),
     toggleMembersEl: button(),
     shortcutsHelpBtnEl: button(),
     mobileMenuEl: button(),
@@ -154,5 +155,32 @@ describe("createAppView", () => {
     d.sbScrollEl.querySelector<HTMLButtonElement>(".sbrow.chan")?.click();
 
     expect(setActive).toHaveBeenCalledWith("10");
+  });
+
+  it("openActiveBufferOptions opens the dialog for the active channel", () => {
+    state.networks.set("1", net({ id: "1" }));
+    state.activeId = "10";
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#go" }));
+    const d = refs();
+    const view = createAppView(d, { sendCmd: vi.fn(), setActive: vi.fn(), stick: createScrollStick(d.messagesEl) });
+
+    view.openActiveBufferOptions();
+
+    const dialog = document.body.querySelector("dialog");
+    expect(dialog).not.toBeNull();
+    expect(dialog?.querySelector(".nf-title")?.textContent).toBe("#go display");
+    dialog?.remove();
+  });
+
+  it("openActiveBufferOptions is a no-op for the status buffer", () => {
+    state.networks.set("1", net({ id: "1" }));
+    state.activeId = "10";
+    state.buffers.set("10", buf({ id: "10", network_id: "1", kind: "status", name: "(status)" }));
+    const d = refs();
+    const view = createAppView(d, { sendCmd: vi.fn(), setActive: vi.fn(), stick: createScrollStick(d.messagesEl) });
+
+    view.openActiveBufferOptions();
+
+    expect(document.body.querySelector("dialog")).toBeNull();
   });
 });

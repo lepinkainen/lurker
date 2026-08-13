@@ -14,7 +14,7 @@ import {
 } from "./messages";
 import { nickAvatar } from "./nick";
 import type { ScrollStick } from "./scroll-stick";
-import { renderSidebar } from "./sidebar";
+import { openBufferOptions, renderSidebar, type SidebarDeps } from "./sidebar";
 import { renderSidebarStatus } from "./status";
 
 export type AppViewDeps = {
@@ -34,7 +34,17 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
     statusViewEl: d.statusViewEl,
     bufferNameEl: d.bufferNameEl,
     bufferTopicEl: d.bufferTopicEl,
+    bufferOptionsBtnEl: d.bufferOptionsBtnEl,
     inputEl: d.inputEl,
+  };
+  // Shared with openActiveBufferOptions below so the topicbar gear button
+  // reuses the exact sidebar wiring (sendCmd, setActive, iconEl) the dialog
+  // needs to rerender the sidebar row after a settings change.
+  const sidebarDeps: SidebarDeps = {
+    sbScrollEl: d.sbScrollEl,
+    setActive: deps.setActive,
+    iconEl,
+    sendCmd: deps.sendCmd,
   };
   const ackBufferRead = (bufferId: string) => deps.ackBufferRead?.(bufferId);
   const messageDeps = () => ({ renderPromptNick: view.renderPromptNick, iconEl, stick: deps.stick, ackBufferRead });
@@ -67,8 +77,15 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
         sendCmd: deps.sendCmd,
       }),
     updateInputEnabled: () => updateInputEnabled(d.inputEl),
-    renderSidebar: () =>
-      renderSidebar({ sbScrollEl: d.sbScrollEl, setActive: deps.setActive, iconEl, sendCmd: deps.sendCmd }),
+    renderSidebar: () => renderSidebar(sidebarDeps),
+    // Opens the display-options dialog for the currently active buffer.
+    // Wired to the topicbar gear button (#buffer-options-btn); the button
+    // itself is hidden for status buffers by renderHeader, so this is a
+    // no-op guard rather than the primary gate.
+    openActiveBufferOptions: () => {
+      const buffer = activeBuffer();
+      if (buffer && buffer.kind !== "status") openBufferOptions(buffer, sidebarDeps);
+    },
     appendMessage: (msg: Message) => {
       onMessage(msg, {
         renderActiveView: view.renderActiveView,

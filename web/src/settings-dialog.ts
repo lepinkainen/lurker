@@ -1,7 +1,8 @@
-import { openDialog } from "./dialog";
 import { getHighlights, putHighlights } from "./highlights-api";
 import { jsonFetch, sendJSON } from "./http";
-import { openMediaBrowser } from "./media-browser";
+import { buildMediaBrowser } from "./media-browser";
+import { applyTheme, loadInitialTheme, persistThemeId, storedThemeId, type Theme } from "./theme";
+import { closeAllDrawers } from "./ui-shell";
 
 interface ServerIdentity {
   name: string;
@@ -50,10 +51,10 @@ function buildServerInfoSection(): HTMLElement[] {
   return [sectionTitle, list];
 }
 
-function buildHighlightsSection(dialog: HTMLDialogElement): HTMLElement[] {
+function buildHighlightsSection(handle: SettingsViewHandle): HTMLElement[] {
   const sectionTitle = document.createElement("h3");
   sectionTitle.className = "sd-section-title";
-  sectionTitle.textContent = "Highlight words";
+  sectionTitle.textContent = "Notifications";
 
   const desc = document.createElement("p");
   desc.className = "sd-desc";
@@ -143,7 +144,7 @@ function buildHighlightsSection(dialog: HTMLDialogElement): HTMLElement[] {
     render();
   };
   document.addEventListener("lurker:highlights", onRemoteChange);
-  dialog.addEventListener("close", () => document.removeEventListener("lurker:highlights", onRemoteChange));
+  handle.onClose(() => document.removeEventListener("lurker:highlights", onRemoteChange));
 
   return [sectionTitle, desc, listEl, form, errEl];
 }
@@ -157,25 +158,10 @@ function buildMediaLibrarySection(): HTMLElement[] {
   desc.className = "sd-desc";
   desc.textContent = "Browse and delete images uploaded through this bouncer.";
 
-  const browseBtn = document.createElement("button");
-  browseBtn.type = "button";
-  browseBtn.className = "sd-btn sd-btn-secondary";
-  browseBtn.textContent = "Browse uploaded media";
-  browseBtn.addEventListener("click", () => openMediaBrowser());
-
-  return [sectionTitle, desc, browseBtn];
+  return [sectionTitle, desc, buildMediaBrowser()];
 }
 
-export function openSettingsDialog(): void {
-  const { dialog, close } = openDialog({ className: "sd-dialog" });
-
-  const inner = document.createElement("div");
-  inner.className = "sd-inner";
-
-  const title = document.createElement("h2");
-  title.className = "sd-title";
-  title.textContent = "Settings";
-
+function buildConfigSyncSection(_handle: SettingsViewHandle): HTMLElement[] {
   const sectionTitle = document.createElement("h3");
   sectionTitle.className = "sd-section-title";
   sectionTitle.textContent = "Config file sync";
@@ -186,10 +172,9 @@ export function openSettingsDialog(): void {
     "Preview and save the current network configuration back to config.yaml. " +
     "Channels and extra servers defined manually in the file are preserved.";
 
-  const previewBtn = document.createElement("button");
-  previewBtn.type = "button";
-  previewBtn.className = "sd-btn sd-btn-secondary";
-  previewBtn.textContent = "Preview changes";
+  const loadingEl = document.createElement("p");
+  loadingEl.className = "sd-desc";
+  loadingEl.textContent = "Loading…";
 
   const errEl = document.createElement("p");
   errEl.className = "sd-error";
@@ -217,7 +202,15 @@ export function openSettingsDialog(): void {
   const proposedPre = document.createElement("pre");
   proposedPre.className = "sd-pre";
 
-  diffArea.append(currentLabel, currentPre, proposedLabel, proposedPre);
+  const currentCol = document.createElement("div");
+  currentCol.className = "sd-diff-col";
+  currentCol.append(currentLabel, currentPre);
+
+  const proposedCol = document.createElement("div");
+  proposedCol.className = "sd-diff-col";
+  proposedCol.append(proposedLabel, proposedPre);
+
+  diffArea.append(currentCol, proposedCol);
 
   const saveBtn = document.createElement("button");
   saveBtn.type = "button";
@@ -250,9 +243,8 @@ export function openSettingsDialog(): void {
     }
   }
 
-  previewBtn.addEventListener("click", async () => {
-    previewBtn.disabled = true;
-    previewBtn.textContent = "Loading…";
+  async function refresh(): Promise<void> {
+    loadingEl.hidden = false;
     errEl.hidden = true;
     msgEl.hidden = true;
     saveBtn.hidden = true;
@@ -273,10 +265,9 @@ export function openSettingsDialog(): void {
       errEl.textContent = err instanceof Error ? err.message : "Request failed";
       errEl.hidden = false;
     } finally {
-      previewBtn.disabled = false;
-      previewBtn.textContent = "Preview changes";
+      loadingEl.hidden = true;
     }
-  });
+  }
 
   saveBtn.addEventListener("click", async () => {
     saveBtn.disabled = true;
@@ -286,6 +277,20 @@ export function openSettingsDialog(): void {
 
     try {
       await sendJSON<unknown>("/api/config/yaml/save", "POST", { content: proposedContent });
+      try {
+        await refresh();
+      } catch (refreshErr) {
+        // Save succeeded; only the post-save preview refresh failed. Show
+        // both — the confirmation is still true, but the diff/preview may
+        // now be stale.
+        errEl.textContent =
+          "Saved, but failed to refresh preview: " +
+          (refreshErr instanceof Error ? refreshErr.message : "request failed");
+        errEl.hidden = false;
+      }
+      // Set after refresh() resolves: refresh() hides msgEl at its start and
+      // may repopulate it with a "no changes" message — this overwrite is
+      // the stronger, more relevant signal right after a save.
       msgEl.textContent = "Saved to config.yaml.";
       msgEl.hidden = false;
     } catch (err) {
@@ -297,27 +302,271 @@ export function openSettingsDialog(): void {
     }
   });
 
+  refresh().catch((err: unknown) => console.error("config preview", err));
+
+  return [sectionTitle, desc, loadingEl, errEl, msgEl, diffArea, saveBtn];
+}
+
+// Representative color keys used to render a small preview swatch for each
+// theme chip. Picked to give a quick "feel" of the theme: a background, the
+// accent, and a foreground tone. Missing keys are skipped gracefully.
+const THEME_PREVIEW_KEYS = ["bg-2", "accent", "fg-0"];
+
+function buildAppearanceSection(_handle: SettingsViewHandle): HTMLElement[] {
+  const sectionTitle = document.createElement("h3");
+  sectionTitle.className = "sd-section-title";
+  sectionTitle.textContent = "Appearance";
+
+  const desc = document.createElement("p");
+  desc.className = "sd-desc";
+  desc.textContent = "Pick a color theme.";
+
+  const grid = document.createElement("div");
+  grid.className = "sd-theme-grid";
+
+  function renderChips(themes: Theme[], activeId: string | null) {
+    grid.innerHTML = "";
+    if (themes.length === 0) {
+      const note = document.createElement("p");
+      note.className = "sd-desc";
+      note.textContent = "No themes available.";
+      grid.appendChild(note);
+      return;
+    }
+    for (const theme of themes) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "sd-theme-chip";
+      if (theme.id === activeId) chip.classList.add("active");
+
+      const swatches = document.createElement("span");
+      swatches.className = "sd-theme-swatches";
+      for (const key of THEME_PREVIEW_KEYS) {
+        const color = theme.colors?.[key];
+        if (!color) continue;
+        const block = document.createElement("span");
+        block.className = "sd-theme-swatch";
+        block.style.background = color;
+        swatches.appendChild(block);
+      }
+
+      const label = document.createElement("span");
+      label.className = "sd-theme-name";
+      label.textContent = theme.name;
+
+      chip.append(swatches, label);
+      chip.addEventListener("click", () => {
+        applyTheme(theme);
+        persistThemeId(theme.id);
+        for (const el of grid.querySelectorAll(".sd-theme-chip")) el.classList.remove("active");
+        chip.classList.add("active");
+      });
+      grid.appendChild(chip);
+    }
+  }
+
+  loadInitialTheme()
+    .then(({ themes, active }) => {
+      renderChips(themes, active?.id ?? storedThemeId());
+    })
+    .catch(() => {
+      renderChips([], null);
+    });
+
+  return [sectionTitle, desc, grid];
+}
+
+interface SettingsCategory {
+  id: string;
+  label: string;
+  build: (handle: SettingsViewHandle) => HTMLElement[];
+}
+
+const SETTINGS_CATEGORIES: SettingsCategory[] = [
+  {
+    id: "general",
+    label: "General",
+    build: (handle) => [...buildHighlightsSection(handle), ...buildServerInfoSection()],
+  },
+  {
+    id: "appearance",
+    label: "Appearance",
+    build: buildAppearanceSection,
+  },
+  {
+    id: "media",
+    label: "Media library",
+    build: buildMediaLibrarySection,
+  },
+  {
+    id: "config",
+    label: "Config file sync",
+    build: buildConfigSyncSection,
+  },
+];
+
+export type SettingsViewHandle = {
+  root: HTMLElement;
+  onClose(cb: () => void): void;
+};
+
+type ActiveSettingsView = {
+  root: HTMLElement;
+  teardown: () => void;
+};
+
+let activeView: ActiveSettingsView | null = null;
+
+/**
+ * Opens the in-pane settings view inside #main, covering the buffer view
+ * (sidebar stays interactive). Calling this again while the view is open
+ * closes it instead — the gear button toggles.
+ */
+export function openSettingsView(): void {
+  if (activeView) {
+    closeSettingsView();
+    return;
+  }
+
+  const mainEl = document.getElementById("main");
+  if (!mainEl) return;
+
+  // Hide the member pane while settings are open. Inline style (rather than
+  // a class) is used because it needs to beat the unlayered mobile.css
+  // `.memberpane { display: flex }` rules; the previous inline value is
+  // saved and restored on teardown so we don't clobber other state.
+  const memberPane = document.getElementById("member-pane");
+  const prevMemberPaneDisplay = memberPane?.style.display ?? "";
+  if (memberPane) memberPane.style.display = "none";
+
+  // Settings is a full-pane view, not a drawer: collapse any open mobile
+  // sidebar/members drawer so it isn't buried under their fixed z-50 layer.
+  closeAllDrawers();
+
+  const root = document.createElement("div");
+  root.className = "settings-view";
+  root.tabIndex = -1;
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-label", "Settings");
+
+  // Modeless: sidebar stays interactive intentionally, so no aria-modal and
+  // no focus trap. We just move focus onto the view on open and restore it
+  // to whatever had focus before on close.
+  const previouslyFocused = document.activeElement;
+
+  const closeCallbacks: Array<() => void> = [];
+  const handle: SettingsViewHandle = {
+    root,
+    onClose(cb) {
+      closeCallbacks.push(cb);
+    },
+  };
+
+  const header = document.createElement("div");
+  header.className = "sd-view-header";
+
+  const title = document.createElement("h2");
+  title.className = "sd-title";
+  title.textContent = "Settings";
+
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";
   closeBtn.className = "sd-btn sd-btn-ghost sd-close";
   closeBtn.textContent = "Close";
-  closeBtn.addEventListener("click", close);
+  closeBtn.addEventListener("click", closeSettingsView);
 
-  inner.append(
-    title,
-    ...buildServerInfoSection(),
-    ...buildHighlightsSection(dialog),
-    ...buildMediaLibrarySection(),
-    sectionTitle,
-    desc,
-    previewBtn,
-    errEl,
-    msgEl,
-    diffArea,
-    saveBtn,
-    closeBtn,
-  );
-  dialog.appendChild(inner);
+  header.append(title, closeBtn);
 
-  dialog.showModal();
+  const body = document.createElement("div");
+  body.className = "sd-body";
+
+  const nav = document.createElement("nav");
+  nav.className = "sd-nav";
+
+  const content = document.createElement("div");
+  content.className = "sd-content";
+
+  // Built panels are cached per category and reused across nav clicks within
+  // this view instance: rebuilding on every click was re-registering
+  // document listeners (highlights), re-fetching (media list, themes,
+  // config preview) and re-running side effects (applyTheme) each time a
+  // category was revisited. closeCallbacks still flush once, at view close.
+  const panels = new Map<string, HTMLElement[]>();
+
+  function selectCategory(category: SettingsCategory) {
+    for (const btn of nav.querySelectorAll(".sd-nav-item")) {
+      const isActive = btn.getAttribute("data-category-id") === category.id;
+      btn.classList.toggle("active", isActive);
+      if (isActive) btn.setAttribute("aria-current", "true");
+      else btn.removeAttribute("aria-current");
+    }
+    let built = panels.get(category.id);
+    if (!built) {
+      built = category.build(handle);
+      panels.set(category.id, built);
+    }
+    content.replaceChildren(...built);
+  }
+
+  for (const category of SETTINGS_CATEGORIES) {
+    const navBtn = document.createElement("button");
+    navBtn.type = "button";
+    navBtn.className = "sd-nav-item";
+    navBtn.textContent = category.label;
+    navBtn.setAttribute("data-category-id", category.id);
+    navBtn.addEventListener("click", () => selectCategory(category));
+    nav.appendChild(navBtn);
+  }
+
+  const firstCategory = SETTINGS_CATEGORIES[0];
+  if (firstCategory) selectCategory(firstCategory);
+
+  body.append(nav, content);
+  root.append(header, body);
+  mainEl.appendChild(root);
+
+  // Make the buffer view underneath (topicbar/messages/composer) inert while
+  // settings are open: removes it from the tab order and a11y tree. This is
+  // modeless (sidebar/member pane are separate elements and untouched), so
+  // inert only applies to whatever sibling content #main already had.
+  const covered = [...mainEl.children].filter((el) => el !== root && !el.hasAttribute("inert"));
+  for (const el of covered) el.setAttribute("inert", "");
+
+  root.focus();
+
+  // Capture-phase Esc handler: closes the view and stops the key from ever
+  // reaching keyboard-routing's bubble-phase document listener (which would
+  // otherwise treat a bare Esc as a read-ack for the active buffer). A real
+  // <dialog> (e.g. openNetworkForm, or the buffer options dialog) stacked on
+  // top of the modeless settings view must keep its native Esc-to-close
+  // behavior, so this handler backs off whenever one is open.
+  const onKeydown = (e: KeyboardEvent) => {
+    if (e.key !== "Escape") return;
+    if (document.querySelector("dialog[open]")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeSettingsView();
+  };
+  document.addEventListener("keydown", onKeydown, true);
+
+  activeView = {
+    root,
+    teardown: () => {
+      document.removeEventListener("keydown", onKeydown, true);
+      for (const cb of closeCallbacks) cb();
+      if (memberPane) memberPane.style.display = prevMemberPaneDisplay;
+      for (const el of covered) el.removeAttribute("inert");
+      root.remove();
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+        previouslyFocused.focus();
+      }
+    },
+  };
+}
+
+function closeSettingsView(): void {
+  if (!activeView) return;
+  const view = activeView;
+  activeView = null;
+  view.teardown();
 }
