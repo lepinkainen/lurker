@@ -81,6 +81,7 @@ This prevents wasted debugging of a "missing" feature that is actually a stale b
 - No auth, no multi-user, no public-internet assumptions unless asked.
 - Web UI scope minimal, v1-aligned.
 - `README.md` stays concise/human; do not document features/config/APIs there. Use `ai-docs/`.
+- When adding, removing, or modifying a feature, update the relevant `ai-docs/` file(s) in the same change (e.g. `frontend.md`, `rest-api.md`, `websocket-protocol.md`, `theming.md`, `keyboard-shortcuts.md`, `behaviors/`). Grep ai-docs for symbols/ids you rename or delete — stale references count as doc drift.
 
 ## Stack
 
