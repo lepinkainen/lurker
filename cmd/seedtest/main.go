@@ -324,7 +324,13 @@ func fixture() []seedNetwork {
 					Lines: []seedLine{
 						{Sender: "gopher1", Kind: "privmsg", Content: "anyone using generics for sql scanning yet?", Offset: 2 * time.Hour},
 						{Sender: "gopher2", Kind: "privmsg", Content: "yeah, works great with sqlc", Offset: 2*time.Hour + 45*time.Second},
+						// Consecutive same-sender messages inside the client's
+						// 5-minute grouping window: follow-ups render without a
+						// repeated nick (msg.flat.cont).
+						{Sender: "gopher2", Kind: "privmsg", Content: "the row-scanning boilerplate basically disappears", Offset: 2*time.Hour + 1*time.Minute},
+						{Sender: "gopher2", Kind: "privmsg", Content: "and the generated code is easy to read too", Offset: 2*time.Hour + 90*time.Second},
 						{Sender: "gopher1", Kind: "privmsg", Content: "nice, will try it out", Offset: 2*time.Hour + 2*time.Minute},
+						{Sender: "gopher1", Kind: "privmsg", Content: "got a link to a good example repo?", Offset: 2*time.Hour + 2*time.Minute + 20*time.Second},
 					},
 				},
 				{
