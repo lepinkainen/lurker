@@ -34,6 +34,24 @@ Important invariants:
 - `pinned` and `pin_order` are stored server-side in `buffer_settings` so they follow the user across browsers/devices; the Pinned section sorts `(pin_order, name)` and pinned channels stay listed under their network group as well
 - sidebar drag-and-drop (`src/sidebar-dnd.ts`) covers two independent drags, tracked in separate `state.drag` (networks) / `state.pinDrag` (pinned rows) slots so neither highlights the other's targets. Both share one implementation (`attachReorderDragHandlers` / `endDropZone`), draw a 2px accent insertion bar on the hovered target, and use strict insert-before semantics plus an always-present end-of-list strip (`.sb-net-end` / `.sb-pin-end`) so the last slot is reachable — the bar is therefore always where the dragged item lands. Networks POST the ordered id list to `/api/networks/reorder` and apply `sort_order` optimistically; pinned drops POST the full ordered id list to `/api/buffers/pinned/reorder`, applies `pin_order` optimistically, and rolls back if the request fails (e.g. 404 against a backend predating the endpoint). The server's `pinned_reorder` broadcast then confirms or corrects the order
 - other buffer settings (`show_embeds`, `show_presence_events`, `collapse_presence_events`) are also server-persisted
+- per-buffer options (pin, embeds, presence, archive, delete) are edited via the topicbar gear button (`#buffer-options-btn`, hidden for status buffers), which opens a small `nf-dialog` for the active buffer (`sidebar.ts` `openBufferOptions`); sidebar rows carry no inline controls
+
+## Settings view
+
+`settings-dialog.ts` `openSettingsView()` renders an IRCCloud-style in-pane
+settings surface: an opaque overlay covering `#main` (sidebar stays
+interactive; covered `#main` children get `inert`; the member pane is hidden
+via inline `style.display` so unlayered `mobile.css` can't override it). Left
+nav + content pane; categories come from a `SETTINGS_CATEGORIES` registry
+(`{id, label, build}`) — currently General (highlight words, server info),
+Appearance (theme picker), Media library (inline media browser from
+`media-browser.ts` `buildMediaBrowser`), Config file sync (auto-fetched
+side-by-side diff + save). Panels are built once per open and cached
+(`replaceChildren` swap) so tab switches don't refetch or duplicate listeners;
+teardown callbacks registered via `SettingsViewHandle.onClose` run at close.
+Toggled by the sidebar footer gear; closes via Close button or capture-phase
+`Esc` (which backs off while a real `<dialog>` is stacked on top). On ≤640px
+the nav becomes a horizontal tab strip (`mobile.css`).
 
 ## Image attachment
 

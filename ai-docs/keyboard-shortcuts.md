@@ -85,8 +85,11 @@ When `Esc` is pressed, close or cancel the highest-priority active UI in this or
 
 1. channel switcher
 2. shortcuts help overlay
-3. other modal dialogs
-4. otherwise no action
+3. other modal dialogs (network form, buffer options)
+4. settings view (in-pane, capture-phase listener; backs off while a real
+   `<dialog>` is open on top so the dialog closes first)
+5. otherwise bare `Esc` acks the active buffer's unread marker (see
+   `behaviors/new-messages-marker.md`)
 
 `Esc` should not change buffers by itself.
 
