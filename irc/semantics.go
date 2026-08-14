@@ -107,6 +107,14 @@ func mentionRegexp(nick string) *regexp.Regexp {
 	return compiled
 }
 
+// isServerSender reports whether sender is a server name rather than a user
+// nick. Nicknames cannot contain '.' or ':' (RFC 2812), while server names
+// practically always do; server-originated numerics (001 welcome, MOTD,
+// etc.) routinely embed the user's nick and must not mention or highlight.
+func isServerSender(sender string) bool {
+	return strings.ContainsAny(sender, ".:")
+}
+
 // ComputeMessageSemantics derives display flags for a stored message. nick
 // is the network's current nickname; pass "" when unknown (mention/self
 // detection are then both false). target is the message's target field, used
@@ -131,12 +139,12 @@ func ComputeMessageSemantics(kind, sender, content, target, nick string) Message
 	if nick != "" && sender != "" && strings.EqualFold(sender, nick) {
 		out.IsSelf = true
 	}
-	if nick != "" && content != "" {
+	if nick != "" && content != "" && !isServerSender(sender) {
 		if re := mentionRegexp(nick); re != nil && re.MatchString(content) {
 			out.MentionsMe = true
 		}
 	}
-	if content != "" && !out.IsSelf {
+	if content != "" && !out.IsSelf && !isServerSender(sender) {
 		if pattern, ok := matchHighlight(content); ok {
 			out.Highlight = true
 			out.HighlightPattern = pattern

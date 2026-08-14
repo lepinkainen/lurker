@@ -111,6 +111,22 @@ func TestComputeMessageSemantics(t *testing.T) {
 			nick:    "bo.",
 			want:    MessageSemantics{DisplayKind: "message", CountsAsUnread: true, MentionsMe: false},
 		},
+		{
+			name:    "server-sender welcome numeric does not mention or highlight",
+			kind:    "notice",
+			sender:  "underworld.no.quakenet.org",
+			content: "Welcome to the QuakeNet IRC Network, Shrike",
+			nick:    "Shrike",
+			want:    MessageSemantics{DisplayKind: "notice", CountsAsUnread: true, MentionsMe: false, Highlight: false},
+		},
+		{
+			name:    "normal user sender still mentions",
+			kind:    "privmsg",
+			sender:  "alice",
+			content: "hi Shrike",
+			nick:    "Shrike",
+			want:    MessageSemantics{DisplayKind: "message", CountsAsUnread: true, MentionsMe: true},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
