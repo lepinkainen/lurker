@@ -411,6 +411,13 @@ private struct MessageRow: View {
           Button("Copy Nickname") {
             Clipboard.copy(message.sender)
           }
+          Divider()
+          Button("Mute \(message.sender)") {
+            model.mute(nick: message.sender, in: message.networkID)
+          }
+          Button("Unmute \(message.sender)") {
+            model.unmute(nick: message.sender, in: message.networkID)
+          }
         }
       }
       .accessibilityElement(children: .combine)

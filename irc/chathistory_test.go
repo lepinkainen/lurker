@@ -162,7 +162,7 @@ func TestChathistoryIgnoredSenderStillCountsTowardPagination(t *testing.T) {
 	stubChathistory(f.Handler, 2, &sent)
 
 	ctx := t.Context()
-	if err := ircdb.CreateIgnore(ctx, f.Stores.Control, f.Network.ID, "spammer"); err != nil {
+	if err := ircdb.CreateIgnore(ctx, f.Stores.Control, f.Network.ID, "spammer", ircdb.IgnoreLevelHide); err != nil {
 		t.Fatal(err)
 	}
 

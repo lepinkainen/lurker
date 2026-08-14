@@ -192,8 +192,25 @@ func (s *Server) prefetchUnreadCounts(ctx context.Context, netID uuid.UUID, netB
 		slog.Error("batch unread candidates", "err", err, "network_id", netID)
 		return
 	}
+	muted := s.mutedMatcher(ctx, netID)
 	for bufID, cands := range batchUnread {
-		out[bufID] = tallyUnread(cands, nick)
+		out[bufID] = tallyUnread(cands, nick, muted)
+	}
+}
+
+// mutedMatcher loads a network's ignore entries once and returns a
+// predicate for whether a sender is muted (stored+shown but excluded from
+// unread counts). Failures degrade to "nothing muted".
+func (s *Server) mutedMatcher(ctx context.Context, netID uuid.UUID) func(sender string) bool {
+	if s.Stores == nil || s.Stores.Control == nil {
+		return func(string) bool { return false }
+	}
+	entries, err := ircdb.ListIgnores(ctx, s.Stores.Control, netID)
+	if err != nil || len(entries) == 0 {
+		return func(string) bool { return false }
+	}
+	return func(sender string) bool {
+		return ircdb.IgnoreLevelFor(entries, sender) == ircdb.IgnoreLevelMute
 	}
 }
 
@@ -209,18 +226,23 @@ type unreadTally struct {
 // tallyUnread folds unread candidates through ComputeMessageSemantics.
 // Self-authored messages never count and never anchor the marker; with an
 // unknown nick self-detection degrades to counting everything, same as
-// mention detection.
-func tallyUnread(cands []ircdb.UnreadCandidate, nick string) unreadTally {
+// mention detection. muted reports whether a sender is mute-tier ignored:
+// their messages still badge mentions/highlights but never count toward
+// unread and never anchor the marker.
+func tallyUnread(cands []ircdb.UnreadCandidate, nick string, muted func(sender string) bool) unreadTally {
 	var t unreadTally
 	for _, c := range cands {
 		sem := irc.ComputeMessageSemantics(c.Kind, c.Sender, c.Content, "", nick)
-		if !sem.CountsAsUnread || sem.IsSelf {
+		if sem.IsSelf || !sem.CountsAsUnread {
 			continue
 		}
-		t.Unread++
 		if sem.MentionsMe || sem.Highlight {
 			t.Mentions++
 		}
+		if muted != nil && muted(c.Sender) {
+			continue
+		}
+		t.Unread++
 		if t.MarkerID == uuid.Nil || bytes.Compare(c.ID[:], t.MarkerID[:]) < 0 {
 			t.MarkerID = c.ID
 		}
@@ -451,7 +473,8 @@ func (s *Server) computeUnreadCounts(ctx context.Context, networkID, bufferID, l
 		slog.Warn("unread candidates", "err", err, "buffer_id", bufferID)
 		return unreadTally{}
 	}
-	return tallyUnread(cands, nick)
+	muted := s.mutedMatcher(ctx, networkID)
+	return tallyUnread(cands, nick, muted)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -127,6 +127,14 @@ func parseInput(content string, buffer inputBuffer) (clientCmd, error) {
 		cmd.Target = args
 	case "ignorelist":
 		cmd.Type = "ignorelist"
+	case "mute":
+		cmd.Type = "mute"
+		cmd.Target = args
+	case "unmute":
+		cmd.Type = "unmute"
+		cmd.Target = args
+	case "mutelist":
+		cmd.Type = "mutelist"
 	case "archive":
 		cmd.Type = "archive_buffer"
 	case "unarchive":

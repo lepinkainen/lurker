@@ -43,7 +43,12 @@ type WSMessage =
   | { type: "member_list"; network_id: string; buffer_id: string; members?: Member[] }
   | { type: "netsplit"; buffer_id: string; netsplit: NetsplitInfo; message_ids?: string[] }
   | ({ type: "channel_list" } & ChannelListUpdate)
-  | { type: "ignorelist_result"; req_id: string; network_id: string; masks: string[] }
+  | {
+      type: "ignorelist_result";
+      req_id: string;
+      network_id: string;
+      entries: { mask: string; level: "hide" | "mute" }[];
+    }
   | { type: "highlights"; patterns?: string[] };
 
 export function createWSRouter(view: AppView, sendCmd: (cmd: Record<string, unknown>) => void): (msg: unknown) => void {
@@ -150,7 +155,10 @@ export function createWSRouter(view: AppView, sendCmd: (cmd: Record<string, unkn
         if (applyChannelListUpdate(m)) view.renderActiveView();
         break;
       case "ignorelist_result":
-        console.log("ignore list:", m.masks);
+        console.log(
+          "ignore list:",
+          m.entries.map((e) => `${e.mask} (${e.level})`),
+        );
         break;
       case "highlights":
         // Highlight matching is server-side; new flags arrive on future

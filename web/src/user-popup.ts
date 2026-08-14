@@ -11,7 +11,7 @@ type PopupCtx = {
   sendCmd: SendCmd;
 };
 
-type ActiveForm = "invite" | "ignore" | null;
+type ActiveForm = "invite" | "ignore" | "mute" | null;
 
 type PopupHandle = {
   el: HTMLElement;
@@ -120,6 +120,15 @@ function renderActions(h: PopupHandle, actions: HTMLElement) {
   );
   if (!h.member.self) {
     actions.appendChild(
+      actionBtn("~", "Mute (no activity)…", () => {
+        if (h.activeForm === "mute") {
+          h.tail.querySelector<HTMLInputElement>(".up-inline-form input")?.focus();
+          return;
+        }
+        showIgnoreForm(h, "mute");
+      }),
+    );
+    actions.appendChild(
       actionBtn(
         "×",
         "Ignore…",
@@ -128,7 +137,7 @@ function renderActions(h: PopupHandle, actions: HTMLElement) {
             h.tail.querySelector<HTMLInputElement>(".up-inline-form input")?.focus();
             return;
           }
-          showIgnoreForm(h);
+          showIgnoreForm(h, "ignore");
         },
         true,
       ),
@@ -285,14 +294,15 @@ function showInviteForm(h: PopupHandle) {
   input.focus();
 }
 
-function showIgnoreForm(h: PopupHandle) {
-  h.activeForm = "ignore";
+function showIgnoreForm(h: PopupHandle, kind: "ignore" | "mute") {
+  h.activeForm = kind;
   h.tail.replaceChildren();
   const form = document.createElement("div");
   form.className = "up-inline-form";
 
+  const cmdType = kind === "mute" ? "mute" : "ignore";
   const label = document.createElement("label");
-  label.textContent = "Ignore mask:";
+  label.textContent = kind === "mute" ? "Mute mask:" : "Ignore mask:";
   form.appendChild(label);
 
   const input = document.createElement("input");
@@ -305,7 +315,7 @@ function showIgnoreForm(h: PopupHandle) {
   const send = () => {
     const mask = input.value.trim();
     if (!mask) return;
-    h.sendCmd({ type: "ignore", network_id: h.networkId, target: mask });
+    h.sendCmd({ type: cmdType, network_id: h.networkId, target: mask });
     closeUserPopup();
   };
 
@@ -318,7 +328,7 @@ function showIgnoreForm(h: PopupHandle) {
   const submit = document.createElement("button");
   submit.type = "button";
   submit.className = "primary";
-  submit.textContent = "Ignore";
+  submit.textContent = kind === "mute" ? "Mute" : "Ignore";
   submit.addEventListener("click", send);
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") send();

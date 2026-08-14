@@ -444,6 +444,19 @@ final class AppModel {
     send(command)
   }
 
+  /// Soft-ignore: `nick`'s messages in `networkID` stay visible but stop
+  /// raising the unread/activity dot. Mentions and highlights still badge —
+  /// only the plain unread count and "New messages" marker are suppressed.
+  /// Contrast with the (currently web-only) hard `ignore`, which drops
+  /// messages entirely.
+  func mute(nick: String, in networkID: UUID) {
+    command(ClientCommand(type: "mute", networkID: networkID, target: nick))
+  }
+
+  func unmute(nick: String, in networkID: UUID) {
+    command(ClientCommand(type: "unmute", networkID: networkID, target: nick))
+  }
+
   @discardableResult
   func loadOlderHistory() -> Task<Void, Never>? {
     guard let id = selectedBufferID,
@@ -561,7 +574,8 @@ final class AppModel {
   }
 
   func nextBuffer(unreadOnly: Bool = false, mentionsOnly: Bool = false, direction: Int = 1) {
-    var candidates = sidebarBufferOrder()
+    let order = sidebarBufferOrder()
+    var candidates = order
     if unreadOnly {
       candidates = candidates.filter { buffers[$0]?.unread ?? 0 > 0 }
     }
@@ -569,10 +583,23 @@ final class AppModel {
       candidates = candidates.filter { buffers[$0]?.mentions ?? 0 > 0 }
     }
     guard !candidates.isEmpty else { return }
-    let index =
-      selectedBufferID.flatMap { candidates.firstIndex(of: $0) } ?? (direction > 0 ? -1 : 0)
-    let next = (index + direction + candidates.count) % candidates.count
-    selectBuffer(candidates[next])
+    guard let selected = selectedBufferID, let pos = order.firstIndex(of: selected) else {
+      selectBuffer(direction > 0 ? candidates.first! : candidates.last!)
+      return
+    }
+    // Selected buffer may not itself be a candidate (e.g. it has no unread
+    // while navigating unread-only): walk relative to its sidebar position
+    // rather than its (nonexistent) index within `candidates`, so up/down
+    // land on the nearest candidate above/below rather than wrapping to the
+    // global first/last.
+    let position = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
+    let next =
+      direction > 0
+      ? (candidates.first { (position[$0] ?? Int.max) > pos } ?? candidates.first!)
+      : (candidates.last { (position[$0] ?? Int.min) < pos } ?? candidates.last!)
+    if next != selected {
+      selectBuffer(next)
+    }
   }
 
   func focusStatusBuffer() {

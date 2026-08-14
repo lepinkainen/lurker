@@ -61,7 +61,7 @@ func TestTallyUnreadSkipsSelfAndAnchorsMarker(t *testing.T) {
 		{ID: id3, Kind: "privmsg", Sender: "alice", Content: "hi bob"},
 		{ID: id4, Kind: "privmsg", Sender: "alice", Content: "plain"},
 	}
-	got := tallyUnread(cands, "bob")
+	got := tallyUnread(cands, "bob", nil)
 	if got.Unread != 2 {
 		t.Fatalf("unread = %d, want 2 (self message and join excluded)", got.Unread)
 	}
@@ -76,14 +76,35 @@ func TestTallyUnreadSkipsSelfAndAnchorsMarker(t *testing.T) {
 }
 
 func TestTallyUnreadEmptyAndUnknownNick(t *testing.T) {
-	if got := tallyUnread(nil, "bob"); got != (unreadTally{}) {
+	if got := tallyUnread(nil, "bob", nil); got != (unreadTally{}) {
 		t.Fatalf("empty tally = %+v, want zero", got)
 	}
 	// Unknown nick: self-detection degrades to counting everything.
 	id := uuid.Must(uuid.NewV7())
-	got := tallyUnread([]ircdb.UnreadCandidate{{ID: id, Kind: "privmsg", Sender: "Bob", Content: "x"}}, "")
+	got := tallyUnread([]ircdb.UnreadCandidate{{ID: id, Kind: "privmsg", Sender: "Bob", Content: "x"}}, "", nil)
 	if got.Unread != 1 || got.MarkerID != id {
 		t.Fatalf("tally = %+v, want unread=1 marker=%v", got, id)
+	}
+}
+
+func TestTallyUnreadMutedSuppressesUnreadButKeepsMentions(t *testing.T) {
+	id1 := uuid.Must(uuid.NewV7())
+	id2 := uuid.Must(uuid.NewV7())
+	cands := []ircdb.UnreadCandidate{
+		{ID: id1, Kind: "privmsg", Sender: "weatherbot", Content: "sunny today"},
+		{ID: id2, Kind: "privmsg", Sender: "weatherbot", Content: "hey bob, sunny today"},
+	}
+	muted := func(sender string) bool { return sender == "weatherbot" }
+
+	got := tallyUnread(cands, "bob", muted)
+	if got.Unread != 0 {
+		t.Fatalf("unread = %d, want 0 (both messages from a muted sender)", got.Unread)
+	}
+	if got.Mentions != 1 {
+		t.Fatalf("mentions = %d, want 1 (mention survives mute)", got.Mentions)
+	}
+	if got.MarkerID != uuid.Nil {
+		t.Fatalf("marker = %v, want Nil (muted sender never anchors the marker)", got.MarkerID)
 	}
 }
 

@@ -2,8 +2,6 @@ package irc
 
 import (
 	"log/slog"
-	"path"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,24 +36,19 @@ func (h *handler) onPrivmsg(_ *girc.Client, e girc.Event) {
 	h.storeEvent(e, bufName, bufferKind, kind, "", content)
 }
 
-// isIgnored checks whether the given nick matches any configured ignore mask.
-func (h *handler) isIgnored(nick string) bool {
+// ignoreLevel returns the configured ignore level ("", hide, or mute) for
+// the given nick.
+func (h *handler) ignoreLevel(nick string) string {
 	if h.stores == nil {
-		return false
+		return ""
 	}
 	ctx, cancel := h.eventContext()
 	defer cancel()
-	masks, err := ircdb.ListIgnores(ctx, h.stores.Control, h.networkID)
-	if err != nil || len(masks) == 0 {
-		return false
+	entries, err := ircdb.ListIgnores(ctx, h.stores.Control, h.networkID)
+	if err != nil || len(entries) == 0 {
+		return ""
 	}
-	nickLower := strings.ToLower(nick)
-	for _, mask := range masks {
-		if matched, _ := path.Match(strings.ToLower(mask), nickLower); matched {
-			return true
-		}
-	}
-	return false
+	return ircdb.IgnoreLevelFor(entries, nick)
 }
 
 // storeEvent is the single funnel for inbound IRC events. It upserts the
@@ -71,8 +64,14 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 			userhost = e.Source.Ident + "@" + e.Source.Host
 		}
 	}
-	if sender != "" && sender != "*" && h.isIgnored(sender) {
-		return
+	muted := false
+	if sender != "" && sender != "*" {
+		switch h.ignoreLevel(sender) {
+		case ircdb.IgnoreLevelHide:
+			return
+		case ircdb.IgnoreLevelMute:
+			muted = true
+		}
 	}
 	h.noteBotTag(e)
 	msgID, _ := e.Tags.Get("msgid")
@@ -138,6 +137,9 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 			Content:   content,
 		},
 	}).WithSemantics(nick)
+	if muted {
+		ev.CountsAsUnread = false
+	}
 	ev.Netsplit = nsMeta
 	h.hub.Publish(ev)
 	h.enqueuePreviews(id, bufID, bufKind, kind, content)

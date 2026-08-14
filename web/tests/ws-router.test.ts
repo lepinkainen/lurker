@@ -126,10 +126,18 @@ describe("ws-router state transformations", () => {
     expect(state.networks.has("missing")).toBe(false);
   });
 
-  it("ignorelist_result writes masks to console", () => {
+  it("ignorelist_result writes mask+level entries to console", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    createWSRouter(fakeView())({ type: "ignorelist_result", req_id: "r1", network_id: "n1", masks: ["a!*@*"] });
-    expect(log).toHaveBeenCalledWith("ignore list:", ["a!*@*"]);
+    createWSRouter(fakeView())({
+      type: "ignorelist_result",
+      req_id: "r1",
+      network_id: "n1",
+      entries: [
+        { mask: "a!*@*", level: "hide" },
+        { mask: "weatherbot", level: "mute" },
+      ],
+    });
+    expect(log).toHaveBeenCalledWith("ignore list:", ["a!*@* (hide)", "weatherbot (mute)"]);
     log.mockRestore();
   });
 });

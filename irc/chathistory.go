@@ -240,7 +240,7 @@ func (h *handler) storeBackfillMessage(e girc.Event, batchRef, target string) {
 	}
 	st.mu.Unlock()
 
-	if sender != "" && sender != "*" && h.isIgnored(sender) {
+	if sender != "" && sender != "*" && h.ignoreLevel(sender) == ircdb.IgnoreLevelHide {
 		return
 	}
 

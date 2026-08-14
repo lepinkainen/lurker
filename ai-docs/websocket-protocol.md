@@ -20,7 +20,7 @@ Current client command envelope fields:
 - `buffer_id` — UUIDv7 string
 - `network_id` — UUIDv7 string
 - `channel`
-- `target` — nick or channel for commands that target a user (`msg`, `whois`, `invite`, `kick`, `notice`, `ctcp`, `query`, `op`, `deop`, `voice`, `devoice`, `ban`, `unban`, `kickban`, `ignore`, `unignore`)
+- `target` — nick or channel for commands that target a user (`msg`, `whois`, `invite`, `kick`, `notice`, `ctcp`, `query`, `op`, `deop`, `voice`, `devoice`, `ban`, `unban`, `kickban`, `ignore`, `unignore`, `mute`, `unmute`)
 - `content`
 - `before` — UUIDv7 message ID string for history pagination
 - `limit`
@@ -80,9 +80,14 @@ Current client command envelope fields:
 
 #### Ignore management
 
-- `ignore` — add an ignore mask to a network (uses `network_id` + `target`)
-- `unignore` — remove an ignore mask from a network (uses `network_id` + `target`)
-- `ignorelist` — list all ignore masks for a network (uses `network_id`)
+Two-tier ignore: `hide` masks are dropped before storage (never persisted, never shown); `mute` masks are stored and shown normally but excluded from unread counts and the "New messages" marker — mentions/highlights from a muted sender still count. `CreateIgnore` upserts by `(network_id, mask)`, so re-adding an existing mask at a different level promotes/demotes it rather than erroring.
+
+- `ignore` — add a **hide**-tier ignore mask to a network (uses `network_id` + `target`)
+- `unignore` — remove an ignore mask from a network, regardless of level (uses `network_id` + `target`)
+- `ignorelist` — list all ignore entries (mask + level) for a network (uses `network_id`)
+- `mute` — add a **mute**-tier ignore mask to a network (uses `network_id` + `target`)
+- `unmute` — remove an ignore mask from a network; identical to `unignore` since mask removal is level-agnostic (uses `network_id` + `target`)
+- `mutelist` — alias for `ignorelist`; same combined hide+mute list (uses `network_id`)
 
 ## Generic command responses
 
@@ -111,14 +116,17 @@ Error envelope:
 }
 ```
 
-`ignorelist_result` — response to `ignorelist` command:
+`ignorelist_result` — response to both `ignorelist` and `mutelist` commands. `entries` carries every configured mask for the network with its level (`hide` or `mute`):
 
 ```json
 {
   "type": "ignorelist_result",
   "req_id": "r1",
   "network_id": "...",
-  "masks": ["*!*@spam.example.com"]
+  "entries": [
+    { "mask": "*!*@spam.example.com", "level": "hide" },
+    { "mask": "weatherbot", "level": "mute" }
+  ]
 }
 ```
 
@@ -156,8 +164,8 @@ Important event shapes:
 - `kind`
 - `target`
 - `content`
-- `display_kind`, `is_self`, `mentions_me`, `counts_as_unread` — server-computed semantics (`irc.ComputeMessageSemantics`); clients consume verbatim
-- `highlight`, `highlight_pattern` — set when `content` matches a user-defined highlight pattern (`irc/highlights.go`, configured via `PUT /api/settings/highlights`); word-boundary case-insensitive matching, self-authored messages never highlight. Clients treat `highlight` like `mentions_me` for badges/styling but can distinguish the two
+- `display_kind`, `is_self`, `mentions_me`, `counts_as_unread` — server-computed semantics (`irc.ComputeMessageSemantics`); clients consume verbatim. Server-originated messages (`sender` containing `.` or `:`, e.g. a server hostname on numerics like the 001 welcome) never set `mentions_me`, even if the content embeds the user's nick
+- `highlight`, `highlight_pattern` — set when `content` matches a user-defined highlight pattern (`irc/highlights.go`, configured via `PUT /api/settings/highlights`); word-boundary case-insensitive matching, self-authored messages never highlight, nor do server-originated messages (see `mentions_me` above). Clients treat `highlight` like `mentions_me` for badges/styling but can distinguish the two
 - `sender_color` — nick-color palette index for `sender` (Go `nickcolor` package; omitted when no sender)
 - `target_color` — palette index for `target` when it is a nick (`kick`/`nick` kinds only)
 - `netsplit` — `{id, server_a, server_b}` on quit/join messages belonging to a collapsed netsplit group (server-side clustering, `irc/netsplit_tracker.go`)

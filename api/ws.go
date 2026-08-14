@@ -71,11 +71,19 @@ type bufferLastSeenEvent struct {
 	Mentions int        `json:"mentions"`
 }
 
+// ignoreEntryWire is the wire shape of one ignore entry (mask + level).
+// ircdb.IgnoreEntry has no json tags of its own, so we keep a small
+// api-local mirror rather than tag the storage type.
+type ignoreEntryWire struct {
+	Mask  string `json:"mask"`
+	Level string `json:"level"`
+}
+
 type ignoreListResult struct {
-	Type      string    `json:"type"`
-	ReqID     string    `json:"req_id"`
-	NetworkID uuid.UUID `json:"network_id"`
-	Masks     []string  `json:"masks"`
+	Type      string            `json:"type"`
+	ReqID     string            `json:"req_id"`
+	NetworkID uuid.UUID         `json:"network_id"`
+	Entries   []ignoreEntryWire `json:"entries"`
 }
 
 // messageSender covers outbound IRC messages to channels and users plus
@@ -279,12 +287,8 @@ func (s *Server) handleCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd
 		s.cmdBanlist(ctx, c, cmd)
 	case "kickban":
 		s.cmdKickban(ctx, c, cmd)
-	case "ignore":
-		s.cmdIgnore(ctx, c, cmd)
-	case "unignore":
-		s.cmdUnignore(ctx, c, cmd)
-	case "ignorelist":
-		s.cmdIgnorelist(ctx, c, cmd)
+	case "ignore", "unignore", "ignorelist", "mute", "unmute", "mutelist":
+		s.dispatchIgnoreCmd(ctx, c, cmd)
 	default:
 		if s.handleBufferLifecycleCmd(ctx, c, cmd) {
 			return
@@ -769,13 +773,32 @@ func (s *Server) cmdKickban(ctx context.Context, c *websocket.Conn, cmd clientCm
 	writeWSAck(ctx, c, cmd.ReqID)
 }
 
+// dispatchIgnoreCmd routes the hide/mute ignore command family. It's
+// factored out of handleCmd's switch to keep that switch's cyclomatic
+// complexity down; mutelist is an alias for ignorelist (one combined
+// mask+level list backs both slash commands).
+func (s *Server) dispatchIgnoreCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	switch cmd.Type {
+	case "ignore":
+		s.cmdIgnore(ctx, c, cmd)
+	case "unignore":
+		s.cmdUnignore(ctx, c, cmd)
+	case "mute":
+		s.cmdMute(ctx, c, cmd)
+	case "unmute":
+		s.cmdUnmute(ctx, c, cmd)
+	case "ignorelist", "mutelist":
+		s.cmdIgnorelist(ctx, c, cmd)
+	}
+}
+
 func (s *Server) cmdIgnore(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	mask := strings.TrimSpace(cmd.Target)
 	if cmd.NetworkID == uuid.Nil || mask == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "ignore requires network_id and target")
 		return
 	}
-	if err := ircdb.CreateIgnore(ctx, s.Stores.Control, cmd.NetworkID, mask); err != nil {
+	if err := ircdb.CreateIgnore(ctx, s.Stores.Control, cmd.NetworkID, mask, ircdb.IgnoreLevelHide); err != nil {
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return
 	}
@@ -795,22 +818,57 @@ func (s *Server) cmdUnignore(ctx context.Context, c *websocket.Conn, cmd clientC
 	writeWSAck(ctx, c, cmd.ReqID)
 }
 
+// cmdMute adds a mute-tier ignore: matching senders' messages are still
+// stored and shown, but never count toward unread (mentions/highlights are
+// unaffected). Re-muting a hide-tier mask promotes it to mute, and vice
+// versa for cmdIgnore, since CreateIgnore upserts the level.
+func (s *Server) cmdMute(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	mask := strings.TrimSpace(cmd.Target)
+	if cmd.NetworkID == uuid.Nil || mask == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "mute requires network_id and target")
+		return
+	}
+	if err := ircdb.CreateIgnore(ctx, s.Stores.Control, cmd.NetworkID, mask, ircdb.IgnoreLevelMute); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+// cmdUnmute removes a mask from the ignore list. Mask removal is
+// level-agnostic, so this is identical to cmdUnignore.
+func (s *Server) cmdUnmute(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	mask := strings.TrimSpace(cmd.Target)
+	if cmd.NetworkID == uuid.Nil || mask == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "unmute requires network_id and target")
+		return
+	}
+	if err := ircdb.DeleteIgnore(ctx, s.Stores.Control, cmd.NetworkID, mask); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+// cmdIgnorelist returns the combined hide+mute ignore list for a network.
+// It backs both the "ignorelist" and "mutelist" commands.
 func (s *Server) cmdIgnorelist(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	if cmd.NetworkID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "ignorelist requires network_id")
 		return
 	}
-	masks, err := ircdb.ListIgnores(ctx, s.Stores.Control, cmd.NetworkID)
+	entries, err := ircdb.ListIgnores(ctx, s.Stores.Control, cmd.NetworkID)
 	if err != nil {
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return
 	}
-	if masks == nil {
-		masks = []string{}
+	wire := make([]ignoreEntryWire, len(entries))
+	for i, e := range entries {
+		wire[i] = ignoreEntryWire{Mask: e.Mask, Level: e.Level}
 	}
 	_ = wsjson.Write(ctx, c, ignoreListResult{
 		Type: "ignorelist_result", ReqID: cmd.ReqID,
-		NetworkID: cmd.NetworkID, Masks: masks,
+		NetworkID: cmd.NetworkID, Entries: wire,
 	})
 }
 

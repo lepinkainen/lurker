@@ -37,6 +37,13 @@ struct MembersInspector: View {
               sendTarget("whois", member.nick)
             }
             Divider()
+            Button("Mute \(member.nick)") {
+              muteTarget(member.nick, muted: true)
+            }
+            Button("Unmute \(member.nick)") {
+              muteTarget(member.nick, muted: false)
+            }
+            Divider()
             Button("Copy Nickname") {
               Clipboard.copy(member.nick)
             }
@@ -64,6 +71,15 @@ struct MembersInspector: View {
   private func sendTarget(_ type: String, _ nick: String) {
     guard let networkID = model.selectedBuffer?.networkID else { return }
     model.command(ClientCommand(type: type, networkID: networkID, target: nick))
+  }
+
+  private func muteTarget(_ nick: String, muted: Bool) {
+    guard let networkID = model.selectedBuffer?.networkID else { return }
+    if muted {
+      model.mute(nick: nick, in: networkID)
+    } else {
+      model.unmute(nick: nick, in: networkID)
+    }
   }
 }
 
