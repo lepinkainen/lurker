@@ -62,6 +62,34 @@ struct AppModelTests {
     #expect(model.selectedBufferID == query.id)
   }
 
+  // Regression: when the *selected* buffer has no unread itself, unread-only
+  // navigation must walk relative to its sidebar position (nearest candidate
+  // above/below), not fall back to the global first/last unread buffer.
+  @Test func unreadOnlyNavigationIsRelativeToSelectedBufferWithNoUnread() {
+    let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
+    let networkID = UUID()
+    var above = buffer("#zzz-above", networkID: networkID, unread: 3)
+    var selected = buffer("#mmm-selected", networkID: networkID, unread: 0)
+    var below = buffer("#aaa-below", networkID: networkID, unread: 2)
+    // Force sidebar order above -> selected -> below regardless of name,
+    // matching what a user would see if they'd manually reordered them.
+    above.sortOrder = 0
+    selected.sortOrder = 1
+    below.sortOrder = 2
+
+    model.networks[networkID] = network(id: networkID)
+    model.buffers = Dictionary(
+      uniqueKeysWithValues: [above, selected, below].map { ($0.id, $0) })
+    model.selectedBufferID = selected.id
+
+    model.nextBuffer(unreadOnly: true, direction: -1)
+    #expect(model.selectedBufferID == above.id)
+
+    model.selectedBufferID = selected.id
+    model.nextBuffer(unreadOnly: true, direction: 1)
+    #expect(model.selectedBufferID == below.id)
+  }
+
   @Test func pinnedBuffersSortByPinOrderThenName() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()

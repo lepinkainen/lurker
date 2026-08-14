@@ -190,6 +190,8 @@ If the sidebar supports collapsed sections, navigation still uses the logical vi
 
 Unread navigation (`Alt+Shift+ArrowUp` / `Alt+Shift+ArrowDown`) navigates through channel-kind buffers (`kind = "channel"`) with unread messages, excluding the currently active buffer.
 
+Navigation is relative to the active buffer's position in sidebar order, not to its position among unread buffers: up/down selects the nearest unread buffer above/below the active buffer's sidebar slot, even when the active buffer itself has no unread (and so is not part of the unread-only set).
+
 If no unread channel buffer exists in the requested direction, wrapping around once is preferred.
 
 ### First unread buffer
