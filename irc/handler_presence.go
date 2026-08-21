@@ -24,6 +24,11 @@ func (h *handler) onQuit(c *girc.Client, e girc.Event) {
 		return
 	}
 	h.bots.unmark(nick)
+	hadAvatar := h.avatars.clear(nick)
+	_, ircloudAvatar := irccloudAvatarURL(e.Source.Ident, e.Source.Host)
+	if h.hub != nil && (hadAvatar || ircloudAvatar) {
+		h.hub.Publish(&AvatarEvent{Type: "avatar", NetworkID: h.networkID, Nick: nick, HasAvatar: false})
+	}
 	channels, tracked := h.userChannels.dropUser(nick)
 	if !tracked {
 		// Unknown user (or userChannels store missing) — keep the
@@ -65,6 +70,12 @@ func (h *handler) onNick(c *girc.Client, e girc.Event) {
 	channels, tracked := h.userChannels.channelsFor(e.Source.Name)
 	h.userChannels.renameUser(e.Source.Name, newNick)
 	h.bots.rename(e.Source.Name, newNick)
+	movedAvatar := h.avatars.rename(e.Source.Name, newNick)
+	_, ircloudAvatar := irccloudAvatarURL(e.Source.Ident, e.Source.Host)
+	if h.hub != nil && (movedAvatar || ircloudAvatar) {
+		h.hub.Publish(&AvatarEvent{Type: "avatar", NetworkID: h.networkID, Nick: e.Source.Name, HasAvatar: false})
+		h.hub.Publish(&AvatarEvent{Type: "avatar", NetworkID: h.networkID, Nick: newNick, HasAvatar: true})
+	}
 	h.fanOutPresence(e, channels, tracked, "nick", newNick, "")
 }
 
@@ -142,7 +153,7 @@ func (h *handler) publishMemberList(c *girc.Client, channel string) {
 	if c == nil || channel == "" {
 		return
 	}
-	members := buildChannelMembers(c, channel, h.bots)
+	members := buildChannelMembers(c, channel, h.bots, h.avatars)
 	if members == nil {
 		return
 	}
@@ -198,6 +209,11 @@ func hashMemberList(members []ChannelUser) uint64 {
 			_, _ = h.Write([]byte{0})
 		}
 		if m.Bot {
+			_, _ = h.Write([]byte{1})
+		} else {
+			_, _ = h.Write([]byte{0})
+		}
+		if m.HasAvatar {
 			_, _ = h.Write([]byte{1})
 		} else {
 			_, _ = h.Write([]byte{0})

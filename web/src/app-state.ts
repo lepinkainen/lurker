@@ -114,6 +114,8 @@ export type Member = {
   // IRCv3 bot mode (https://ircv3.net/specs/extensions/bot-mode).
   bot?: boolean;
   color?: number;
+  // IRCv3 metadata avatar present (omitted by the backend when false).
+  has_avatar?: boolean;
 };
 
 export type StateResponse = {

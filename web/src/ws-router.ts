@@ -1,7 +1,7 @@
-import { type Member, type Message, type NetsplitInfo, state } from "./app-state";
+import { activeBuffer, type Member, type Message, type NetsplitInfo, state } from "./app-state";
 import type { AppView } from "./app-view";
 import { applyChannelListUpdate, type ChannelListUpdate } from "./channel-list";
-import { registerMemberNickColors, registerMessageNickColors } from "./nick-colors";
+import { registerAvatar, registerMemberNickColors, registerMessageNickColors } from "./nick-colors";
 
 type WSMessage =
   | ({ type: "message" } & Message)
@@ -41,6 +41,7 @@ type WSMessage =
   | { type: "history_backfill"; network_id: string; buffer_id: string; count: number }
   | { type: "preview"; buffer_id: string; message_id: string; previews?: Message["previews"] }
   | { type: "member_list"; network_id: string; buffer_id: string; members?: Member[] }
+  | { type: "avatar"; network_id: string; nick: string; has_avatar?: boolean }
   | { type: "netsplit"; buffer_id: string; netsplit: NetsplitInfo; message_ids?: string[] }
   | ({ type: "channel_list" } & ChannelListUpdate)
   | {
@@ -133,6 +134,17 @@ export function createWSRouter(view: AppView, sendCmd: (cmd: Record<string, unkn
       case "member_list":
         registerMemberNickColors(m.members || [], m.network_id);
         view.setMembers(m.buffer_id, m.members || []);
+        break;
+      case "avatar":
+        registerAvatar(m.network_id, m.nick, m.has_avatar);
+        // Only the active buffer's network is ever on screen (member list,
+        // message rows, input nick all render the active buffer). Reuse the
+        // same refresh calls member_list already does for the active buffer.
+        if (activeBuffer()?.network_id === m.network_id) {
+          view.renderMembers();
+          view.renderActiveView();
+          view.renderPromptNick();
+        }
         break;
       case "netsplit": {
         // Retroactive annotation: earlier quits were published before the

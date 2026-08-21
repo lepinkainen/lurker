@@ -145,6 +145,13 @@
     image-rendering: auto;
   }
 
+  /* A real IRCv3 metadata avatar (vs. the procedural identicon canvas)
+     renders as a photo, not pixel art, cropped to fill the same box. */
+  img.nick-avatar {
+    object-fit: cover;
+    image-rendering: auto;
+  }
+
   .msg .body {
     flex: 1;
     min-width: 0;

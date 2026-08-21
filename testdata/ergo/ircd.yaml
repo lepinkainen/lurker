@@ -46,6 +46,14 @@ channels:
     registration:
         enabled: true
 
+metadata:
+    enabled: true
+    operator-only-modification: false
+    max-subs: 100
+    max-keys: 100
+    client-throttle:
+        enabled: false
+
 datastore:
     path: /tmp/ircd.db
     autoupgrade: true

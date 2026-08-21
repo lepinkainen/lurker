@@ -29,6 +29,13 @@ func (h *handler) register(c *girc.Client) {
 	c.Handlers.Add(girc.RPL_WHOREPLY, h.onWhoBotReply)
 	c.Handlers.Add(girc.RPL_WHOSPCRPL, h.onWhoxBotReply)
 	c.Handlers.Add(rplWhoisBot, h.onWhoisBot)
+	// IRCv3 metadata: avatar URLs. girc has no support for METADATA or its
+	// numerics at all.
+	c.Handlers.Add("METADATA", h.onMetadata)
+	c.Handlers.Add(rplWhoisKeyValue, h.onWhoisKeyValue)
+	c.Handlers.Add(rplKeyValue, h.onKeyValue)
+	c.Handlers.Add(rplKeyNotSet, h.onKeyNotSet)
+	c.Handlers.Add(rplMetadataSyncLater, h.onMetadataSyncLater)
 	c.Handlers.Add(girc.UPDATE_STATE, h.onStateUpdate)
 	c.Handlers.Add(girc.RPL_LIST, h.onRPLList)
 	c.Handlers.Add(girc.RPL_LISTEND, h.onRPLListEnd)
@@ -117,6 +124,11 @@ func isExplicitlyHandledEvent(command string) bool {
 		girc.RPL_WHOSPCRPL,
 		girc.RPL_ENDOFWHO,
 		rplWhoisBot,
+		"METADATA",
+		rplWhoisKeyValue,
+		rplKeyValue,
+		rplKeyNotSet,
+		rplMetadataSyncLater,
 		girc.PING,
 		girc.PONG:
 		return true

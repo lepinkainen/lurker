@@ -9,7 +9,7 @@ import (
 	"github.com/lrstanley/girc"
 )
 
-func buildChannelMembers(c *girc.Client, channel string, bots *botTracker) []ChannelUser {
+func buildChannelMembers(c *girc.Client, channel string, bots *botTracker, avatars *avatarTracker) []ChannelUser {
 	if c == nil || channel == "" {
 		return nil
 	}
@@ -31,14 +31,19 @@ func buildChannelMembers(c *girc.Client, channel string, bots *botTracker) []Cha
 			// clients render it as plain text, so strip codes server-side.
 			realname = strings.TrimSpace(mirc.Strip(user.Extras.Name))
 		}
+		hasAvatar := avatars.has(displayNick)
+		if !hasAvatar && user != nil {
+			_, hasAvatar = irccloudAvatarURL(user.Ident, user.Host)
+		}
 		members = append(members, ChannelUser{
-			Nick:     displayNick,
-			Prefix:   channelMemberPrefix(user, channel),
-			Realname: realname,
-			Away:     user != nil && user.Extras.Away != "",
-			Self:     strings.EqualFold(displayNick, selfNick),
-			Bot:      bots.isBot(displayNick),
-			Color:    nickcolor.Index(displayNick),
+			Nick:      displayNick,
+			Prefix:    channelMemberPrefix(user, channel),
+			Realname:  realname,
+			Away:      user != nil && user.Extras.Away != "",
+			Self:      strings.EqualFold(displayNick, selfNick),
+			Bot:       bots.isBot(displayNick),
+			HasAvatar: hasAvatar,
+			Color:     nickcolor.Index(displayNick),
 		})
 	}
 	sort.Slice(members, func(i, j int) bool { return strings.ToLower(members[i].Nick) < strings.ToLower(members[j].Nick) })

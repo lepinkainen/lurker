@@ -63,6 +63,11 @@ final class AppModel {
   /// session: a member list rebuilt before the server's WHO reply lands would
   /// otherwise flip the glyph back.
   private(set) var botNicks: Set<String> = []
+  /// Lowercased nicks known to have an avatar image, keyed like `botNicks`.
+  /// Member lists carry the flag directly on `Member`, but message rows only
+  /// have a sender string, so it is remembered here too — mirrors `botNicks`
+  /// for the same reason. Updated by member lists and by `avatar` events.
+  private(set) var avatarNicks: Set<String> = []
   var selectedBufferID: UUID?
   var historyExhausted: Set<UUID> = []
   var historyLoading: Set<UUID> = []
@@ -780,6 +785,14 @@ final class AppModel {
     case .members(let event):
       members[event.bufferID] = event.members
       noteBots(event.members, networkID: event.networkID)
+      noteAvatars(event.members, networkID: event.networkID)
+    case .avatar(let event):
+      let key = nickKey(event.networkID, event.nick)
+      if event.hasAvatar {
+        avatarNicks.insert(key)
+      } else {
+        avatarNicks.remove(key)
+      }
     case .netsplit(let event):
       guard var list = messages[event.bufferID] else { return }
       let ids = Set(event.messageIDs)
@@ -1031,7 +1044,7 @@ final class AppModel {
   /// the entry (a human taking over a bot's nick stops rendering as a bot).
   private func noteBots(_ list: [Member], networkID: UUID) {
     for member in list {
-      let key = botKey(networkID, member.nick)
+      let key = nickKey(networkID, member.nick)
       if member.bot == true {
         botNicks.insert(key)
       } else {
@@ -1040,7 +1053,20 @@ final class AppModel {
     }
   }
 
-  private func botKey(_ networkID: UUID, _ nick: String) -> String {
+  /// Member lists are authoritative snapshots of the server-side tracker,
+  /// same as `noteBots`: an explicit hasAvatar=false clears the entry.
+  private func noteAvatars(_ list: [Member], networkID: UUID) {
+    for member in list {
+      let key = nickKey(networkID, member.nick)
+      if member.hasAvatar == true {
+        avatarNicks.insert(key)
+      } else {
+        avatarNicks.remove(key)
+      }
+    }
+  }
+
+  private func nickKey(_ networkID: UUID, _ nick: String) -> String {
     "\(networkID.uuidString):\(nick.lowercased())"
   }
 
@@ -1052,7 +1078,32 @@ final class AppModel {
       let bufferID = selectedBufferID,
       let networkID = buffers[bufferID]?.networkID
     else { return false }
-    return botNicks.contains(botKey(networkID, nick))
+    return botNicks.contains(nickKey(networkID, nick))
+  }
+
+  /// Whether the nick is known to have an avatar image on the selected
+  /// buffer's network. Mirrors `isBot` exactly.
+  func hasAvatar(_ nick: String) -> Bool {
+    guard !nick.isEmpty,
+      let bufferID = selectedBufferID,
+      let networkID = buffers[bufferID]?.networkID
+    else { return false }
+    return avatarNicks.contains(nickKey(networkID, nick))
+  }
+
+  /// Builds the `/api/avatar` URL for a nick on a network. `size` is clamped
+  /// server-side to {16,32,64,128,256}; 64 covers a ~14pt avatar box up to
+  /// retina scales. `nil` when no server is configured.
+  func avatarURL(networkID: UUID, nick: String, size: Int = 64) -> URL? {
+    guard let base = configuredURL else { return nil }
+    var components = URLComponents(
+      url: base.appending(path: "api/avatar"), resolvingAgainstBaseURL: false)
+    components?.queryItems = [
+      URLQueryItem(name: "network", value: networkID.uuidString),
+      URLQueryItem(name: "nick", value: nick),
+      URLQueryItem(name: "size", value: String(size)),
+    ]
+    return components?.url
   }
 
   private func updateBadge() {
@@ -1065,6 +1116,7 @@ final class AppModel {
     messages.removeAll()
     members.removeAll()
     botNicks.removeAll()
+    avatarNicks.removeAll()
     historyExhausted.removeAll()
     historyAnchor = nil
     channelList = nil

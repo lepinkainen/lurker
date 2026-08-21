@@ -245,6 +245,10 @@ struct Member: Codable, Identifiable, Sendable, Hashable {
   /// so snapshots from a backend predating the flag still decode.
   var bot: Bool? = nil
   var color: Int? = nil
+  /// Whether the server resolved an avatar image for this nick (IRCv3
+  /// metadata or IRCCloud hostmask fallback). Omitted (not `false`) when
+  /// absent, so optional like `bot` for the same predating-backend reason.
+  var hasAvatar: Bool? = nil
 }
 
 struct StateSnapshot: Codable, Sendable {
@@ -360,6 +364,14 @@ struct MemberListEvent: Codable, Sendable {
   let members: [Member]
 }
 
+/// Live avatar change for a single nick on a network. Carries no URL — the
+/// image itself is always fetched from `/api/avatar` on demand.
+struct AvatarEvent: Codable, Sendable {
+  let networkID: UUID
+  let nick: String
+  let hasAvatar: Bool
+}
+
 struct HistoryBackfillEvent: Codable, Sendable {
   let networkID: UUID
   let bufferID: UUID
@@ -423,6 +435,7 @@ enum ServerEvent: Sendable {
   case historyBackfill(HistoryBackfillEvent)
   case preview(PreviewEvent)
   case members(MemberListEvent)
+  case avatar(AvatarEvent)
   case netsplit(NetsplitEvent)
   case channelList(ChannelListEvent)
   case ack(CommandResponse)
@@ -450,6 +463,7 @@ extension ServerEvent: Decodable {
     case "history_backfill": self = .historyBackfill(try HistoryBackfillEvent(from: decoder))
     case "preview": self = .preview(try PreviewEvent(from: decoder))
     case "member_list": self = .members(try MemberListEvent(from: decoder))
+    case "avatar": self = .avatar(try AvatarEvent(from: decoder))
     case "netsplit": self = .netsplit(try NetsplitEvent(from: decoder))
     case "channel_list": self = .channelList(try ChannelListEvent(from: decoder))
     case "ack": self = .ack(try CommandResponse(from: decoder))

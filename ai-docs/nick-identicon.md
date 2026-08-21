@@ -25,6 +25,23 @@ alongside the palette index, so message rows and system lines render the
 glyph too; the flag is sticky for the session, since a member list rebuilt
 before the server's WHO reply lands would otherwise flip the glyph back.
 
+## Metadata avatars override the identicon
+
+When a user has published an IRCv3 metadata `avatar` (see
+[irc-runtime.md](irc-runtime.md)), the client renders that image in the box
+instead of the generated identicon — a real avatar identifies the person
+better than the procedural one. Render precedence at the shared avatar
+choke point is: **bot glyph → metadata avatar → identicon**.
+
+The image is loaded from the backend's SSRF-guarded proxy,
+`/api/avatar?network=&nick=&size=` (see [rest-api.md](rest-api.md)), never
+from the remote host directly. Like the bot flag, avatar presence is a
+per-`(network, nick)` boolean the client remembers (from `has_avatar` on
+member-list entries and the `avatar` WS event), so message rows and the input
+area show it too, not just the member list. If the image fails to load (404,
+broken URL, not yet cached) the client falls back to the identicon, so the box
+is never empty.
+
 ## Palette index origin
 
 The nick→color mapping is computed **server-side** by the Go `nickcolor`

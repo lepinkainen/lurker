@@ -19,6 +19,14 @@ func (h *handler) onConnected(c *girc.Client, e girc.Event) {
 			slog.Warn("send connect command", "err", err, "network", h.networkName)
 		}
 	}
+	// Subscribe to avatar metadata pushes (IRCv3 draft/metadata-2). Gated on
+	// the cap so we never send METADATA to a server that never advertised
+	// it. See irc/handler_metadata.go.
+	if h.hasCap != nil && h.hasCap("draft/metadata-2") {
+		if err := c.Cmd.SendRaw("METADATA * SUB avatar"); err != nil {
+			slog.Warn("subscribe avatar metadata", "err", err, "network", h.networkName)
+		}
+	}
 	joinBatched(c, h.autojoin)
 	// Channel gaps are requested per self-JOIN; query gaps have no join
 	// event, so request them as soon as the connection registers.

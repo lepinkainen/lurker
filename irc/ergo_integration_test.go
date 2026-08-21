@@ -224,6 +224,103 @@ func TestErgoBotModeDetection(t *testing.T) {
 	waitForMember(t, m, nrow.ID, channel, "robo2", true, 20*time.Second)
 }
 
+// waitForAvatar polls the manager's avatar tracker until AvatarURL returns
+// wantURL for nick, or fails the test after timeout.
+func waitForAvatar(t *testing.T, m *Manager, networkID uuid.UUID, nick, wantURL string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		got, ok := m.AvatarURL(networkID, nick)
+		if ok && got == wantURL {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s avatar %q, last seen: %q (ok=%v)", nick, wantURL, got, ok)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestErgoAvatarMetadata covers IRCv3 metadata
+// (https://ircv3.net/specs/extensions/metadata, draft/metadata-2) against
+// Ergo's real implementation: when another user SETs their "avatar"
+// metadata key, lurker (having negotiated the cap and sent
+// "METADATA * SUB avatar") must learn it via Manager.AvatarURL and reflect
+// it in the channel member snapshot's HasAvatar flag.
+func TestErgoAvatarMetadata(t *testing.T) {
+	addr := ergoAddr(t)
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var port int
+	if _, err := fmt.Sscanf(portStr, "%d", &port); err != nil {
+		t.Fatal(err)
+	}
+
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stores.Close() })
+
+	channel := fmt.Sprintf("#avatars-%d", time.Now().UnixNano()%1_000_000_000)
+	ctx := t.Context()
+
+	alice := dialRaw(t, addr, "alice")
+	alice.send("JOIN %s", channel)
+	alice.waitFor(" 366 ", 10*time.Second) // end of NAMES
+
+	nc := NetworkConfig{
+		Name:     "ergoavatars",
+		Servers:  []ServerConfig{{Host: host, Port: port}},
+		Nick:     "lurker",
+		Channels: []string{channel},
+	}
+	nrow, err := stores.UpsertNetwork(ctx, ircdb.Network{Name: nc.Name, Host: host, Port: port, Nick: nc.Nick})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager(ctx, stores, hub.New())
+	if err := m.StartNetwork(nrow.ID, nc); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = m.StopNetwork(nrow.ID)
+		m.Wait()
+	})
+
+	// Wait until lurker has joined, completed cap negotiation (including
+	// sending METADATA * SUB avatar), and sees alice as a co-member.
+	waitForMember(t, m, nrow.ID, channel, "alice", false, 20*time.Second)
+
+	avatarURL := "https://example.com/avatar/{size}/alice.png"
+	alice.send("METADATA * SET avatar :%s", avatarURL)
+	// Ergo answers a SET with RPL_KEYVALUE (761) to the setter, not a raw
+	// "METADATA" command line: ":ergo.test 761 alice alice avatar * <value>".
+	alice.waitFor(" 761 ", 10*time.Second)
+
+	// The stored URL is the raw template — {size} substitution happens at
+	// the proxy layer, not here.
+	waitForAvatar(t, m, nrow.ID, "alice", avatarURL, 20*time.Second)
+
+	var found *ChannelUser
+	for _, member := range m.ChannelMembers(nrow.ID, channel) {
+		if strings.EqualFold(member.Nick, "alice") {
+			mem := member
+			found = &mem
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("alice not found in channel members for %s", channel)
+	}
+	if !found.HasAvatar {
+		t.Errorf("alice member snapshot HasAvatar = false, want true: %+v", found)
+	}
+}
+
 func TestErgoChathistoryBackfill(t *testing.T) {
 	addr := ergoAddr(t)
 	host, portStr, err := net.SplitHostPort(addr)

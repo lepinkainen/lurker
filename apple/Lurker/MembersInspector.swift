@@ -22,7 +22,7 @@ struct MembersInspector: View {
         .padding(.bottom, 8)
 
       List(filtered) { member in
-        MemberRow(member: member)
+        MemberRow(member: member, networkID: model.selectedBuffer?.networkID)
           .listRowSeparator(.hidden)
           .contextMenu {
             Text(member.nick)
@@ -85,6 +85,7 @@ struct MembersInspector: View {
 
 private struct MemberRow: View {
   let member: Member
+  let networkID: UUID?
 
   var body: some View {
     HStack(spacing: 7) {
@@ -92,7 +93,9 @@ private struct MemberRow: View {
         .font(.footnote.monospaced().weight(.bold))
         .foregroundStyle(prefixColor)
         .frame(width: 10)
-      NickAvatar(nick: member.nick, colorIndex: member.color, isBot: member.bot == true)
+      NickAvatar(
+        nick: member.nick, colorIndex: member.color, isBot: member.bot == true,
+        networkID: networkID, hasAvatar: member.hasAvatar == true)
       VStack(alignment: .leading, spacing: 1) {
         Text(member.nick)
           .font(.body.monospaced().weight(member.`self` ? .bold : .regular))

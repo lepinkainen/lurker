@@ -464,3 +464,22 @@ Only active under `media.backend: disk`. With `backend: s3` there is no local co
 ## Preview attachment on reads
 
 `/api/state` and `/api/buffers/{id}/history` attach URL previews inline on each `message` under a `previews` field via `Server.attachPreviews` — groups messages by network, reads `message_previews` from each log DB, batch-loads URL rows from `previews.db` in one `GetMany`. No network calls on the read path. See [irc-runtime.md](irc-runtime.md) for the pipeline that populates these.
+
+## `GET /api/avatar`
+
+Proxies a user's avatar image so the browser never talks to the remote host directly (the avatar URL is attacker-controlled). Backed by `irc.Manager.AvatarURL` and `preview.Fetcher.FetchImage`, which reuses the preview pipeline's SSRF-guarded, DNS-pinned HTTP client — no second unguarded transport. `AvatarURL` resolves the URL from either of two sources: the per-network in-memory tracker populated from `draft/metadata-2` `avatar` key (explicit, takes precedence), or, as a fallback, an IRCCloud avatar derived on the fly from the nick's hostmask (see [irc-runtime.md](irc-runtime.md) "Metadata avatars").
+
+Query parameters:
+
+- `network` required, network UUID
+- `nick` required
+- `size` optional pixel size, clamped to the nearest of `{16, 32, 64, 128, 256}` (default `64`). A literal `{size}` token in the resolved avatar URL is substituted with the clamped value; URLs without the token are used as-is.
+
+Responses:
+
+- `200` — image bytes with the upstream `Content-Type` and `Cache-Control: public, max-age=3600`.
+- `400` — missing/invalid `network` or `nick`.
+- `404` — no avatar known for that nick/network, or the fetch was rejected by the SSRF policy (`preview.ErrBlocked`).
+- `502` — fetch failed, or the upstream response wasn't `image/*` (`preview.ErrNotImage`).
+
+Fetched bytes are cached in-memory in `Server.avatarCache` (mutex-guarded map, 1-hour TTL), keyed by the resolved (post-size-substitution) URL. `Server.PreviewFetcher` (set from `preview.Service.Fetcher()` in `main.go`) must be non-nil or the endpoint 404s.

@@ -48,6 +48,11 @@
     line-height: 28px;
   }
 
+  .user-popup .up-hdr img.nick-avatar {
+    object-fit: cover;
+    image-rendering: auto;
+  }
+
   .user-popup .up-who {
     min-width: 0;
     flex: 1;

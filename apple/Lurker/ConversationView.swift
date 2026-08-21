@@ -442,7 +442,8 @@ private struct MessageRow: View {
           HStack(alignment: .firstTextBaseline, spacing: 4) {
             NickAvatar(
               nick: message.sender, colorIndex: message.senderColor,
-              isBot: model.isBot(message.sender)
+              isBot: model.isBot(message.sender),
+              networkID: message.networkID, hasAvatar: model.hasAvatar(message.sender)
             )
             .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
             Text(message.sender)
@@ -472,7 +473,8 @@ private struct MessageRow: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
               NickAvatar(
                 nick: message.sender, colorIndex: message.senderColor,
-                isBot: model.isBot(message.sender)
+                isBot: model.isBot(message.sender),
+                networkID: message.networkID, hasAvatar: model.hasAvatar(message.sender)
               )
               .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
               Text(message.sender)

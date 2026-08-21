@@ -48,6 +48,10 @@ type handler struct {
 	// bots tracks IRCv3 bot-mode nicks for this network. Shared with the
 	// Manager so REST member snapshots see the same flags as WS pushes.
 	bots *botTracker
+	// avatars tracks IRCv3 metadata (draft/metadata-2) avatar URLs per nick
+	// for this network. Shared with the Manager so REST member snapshots and
+	// Manager.AvatarURL agree with WS pushes.
+	avatars *avatarTracker
 	// client is the girc client this handler is registered on, for the paths
 	// that need it outside a handler callback (message-tag bot detection).
 	client *girc.Client

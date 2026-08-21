@@ -13,6 +13,7 @@ import (
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/hub"
 	"github.com/lepinkainen/lurker/media"
+	"github.com/lepinkainen/lurker/preview"
 	"github.com/lepinkainen/lurker/theme"
 	"github.com/lepinkainen/lurker/updates"
 )
@@ -41,6 +42,15 @@ type Server struct {
 	// Media serves the local-disk upload endpoints (POST /api/upload,
 	// GET /uploads/{key...}). Nil disables uploads entirely.
 	Media *media.Service
+	// PreviewFetcher is the preview package's SSRF-guarded HTTP client,
+	// reused by GET /api/avatar to proxy remote avatar images without ever
+	// letting the browser touch the remote host. Nil makes the avatar
+	// endpoint 404. Get it from preview.Service.Fetcher() rather than
+	// constructing a second Fetcher.
+	PreviewFetcher *preview.Fetcher
+	// avatarCache holds proxied avatar bytes keyed by resolved URL. Set up
+	// lazily by Handler.
+	avatarCache *avatarCache
 	// ConfigNetworkNames is the set of network names defined in config.yaml
 	// (plus data sources) at boot. config.yaml is the source of truth on
 	// startup: networks outside this set are ephemeral and get marked
@@ -58,6 +68,9 @@ type Server struct {
 // Handler returns an http.Handler with all routes wired. Route pattern
 // syntax uses Go 1.22+ ServeMux.
 func (s *Server) Handler() http.Handler {
+	if s.avatarCache == nil {
+		s.avatarCache = newAvatarCache()
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.healthz)
 	mux.HandleFunc("GET /healthz", s.healthz)
@@ -84,6 +97,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/settings/highlights", s.putHighlights)
 	mux.HandleFunc("GET /api/config/yaml/preview", s.configYAMLPreview)
 	mux.HandleFunc("POST /api/config/yaml/save", s.configYAMLSave)
+	mux.HandleFunc("GET /api/avatar", s.avatar)
 
 	if s.Media != nil {
 		s.Media.RegisterRoutes(mux)

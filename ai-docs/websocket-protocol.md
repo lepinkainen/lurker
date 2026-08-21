@@ -142,6 +142,7 @@ Currently published events:
 - `member_list` — full channel member list snapshot
 - `preview` — URL previews ready for a message
 - `presence` — lightweight join/part/quit/kick/nick-change events
+- `avatar` — a user's IRCv3 metadata avatar appeared, changed, or cleared
 - `buffer_settings` — per-buffer display preferences changed
 - `buffer_reorder` — manual channel ordering changed for one network
 - `pinned_reorder` — manual ordering of the global Pinned section changed
@@ -218,7 +219,7 @@ Two server-side variants share this type:
 - `network_id`
 - `buffer_id`
 - `channel`
-- `members` — array of `{nick, prefix?, realname?, away, self, bot, color}`; `realname` is pre-stripped of mIRC codes server-side, `color` is the nick-color palette index, `bot` is IRCv3 bot mode (see [irc-runtime.md](irc-runtime.md))
+- `members` — array of `{nick, prefix?, realname?, away, self, bot, color, has_avatar?}`; `realname` is pre-stripped of mIRC codes server-side, `color` is the nick-color palette index, `bot` is IRCv3 bot mode (see [irc-runtime.md](irc-runtime.md)), `has_avatar` (omitted when false) means the user published an IRCv3 metadata `avatar` and the client should render `/api/avatar` instead of the identicon (see [rest-api.md](rest-api.md), [irc-runtime.md](irc-runtime.md))
 
 `preview`
 
@@ -236,6 +237,12 @@ Only previews with `kind` = `image` or `opengraph` are published. Negative resul
 - `nick` — affected nick
 - `state` — `"join"`, `"part"`, `"quit"`, `"kick"`, or `"nick"`
 - `target` — new nick when `state` = `"nick"`
+
+`avatar`
+
+- `network_id`
+- `nick` — affected nick
+- `has_avatar` — `true` when the user's IRCv3 metadata `avatar` key was set/changed, `false` when cleared. Carries no URL: the client flips a per-`(network, nick)` flag and (re)points the nick icon at `/api/avatar?network=&nick=` (see [rest-api.md](rest-api.md)). Published only on an actual state transition, so repeated SYNC/GET pushes of an unchanged value are suppressed server-side
 
 `buffer_settings`
 

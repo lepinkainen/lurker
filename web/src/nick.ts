@@ -1,13 +1,36 @@
 import { nickColor, type SysMessage } from "./format";
-import { isBotNick, nickColorIndex } from "./nick-colors";
+import { avatarUrlFor, isBotNick, nickColorIndex } from "./nick-colors";
 import { NICK_HUES } from "./nick-palette";
 
 // Nicks flagged with IRCv3 bot mode get a robot glyph instead of the
 // generated identicon — the identicon distinguishes humans from each other,
-// which is not what matters about a bot.
+// which is not what matters about a bot. Otherwise, a known IRCv3 metadata
+// avatar wins over the procedural identicon; the identicon is the fallback
+// for everyone else, and for a broken/not-yet-cached avatar image (see
+// avatarImg's error handler below).
 export function nickAvatar(nick: string): HTMLElement {
   if (isBotNick(nick)) return botAvatar();
+  const url = avatarUrlFor(nick);
+  if (url) return avatarImg(nick, url);
   return identiconAvatar(nick);
+}
+
+function avatarImg(nick: string, url: string): HTMLImageElement {
+  const img = document.createElement("img");
+  img.className = "nick-avatar";
+  img.src = url;
+  img.alt = "";
+  img.loading = "lazy";
+  // 404 (no avatar after all), transient fetch failure, or a broken image —
+  // fall back to the identicon rather than showing a broken-image glyph.
+  img.addEventListener(
+    "error",
+    () => {
+      img.replaceWith(identiconAvatar(nick));
+    },
+    { once: true },
+  );
+  return img;
 }
 
 function botAvatar(): HTMLElement {

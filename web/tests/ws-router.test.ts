@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { state } from "../src/app-state";
 import type { AppView } from "../src/app-view";
+import { hasAvatarFor } from "../src/nick-colors";
 import { resetAppState } from "../src/reset";
 import { createWSRouter } from "../src/ws-router";
 
@@ -139,6 +140,52 @@ describe("ws-router state transformations", () => {
     });
     expect(log).toHaveBeenCalledWith("ignore list:", ["a!*@* (hide)", "weatherbot (mute)"]);
     log.mockRestore();
+  });
+});
+
+describe("ws-router avatar", () => {
+  beforeEach(() => resetAppState());
+  afterEach(() => resetAppState());
+
+  function seedActiveBuffer(networkId = "n1") {
+    state.buffers.set("b1", {
+      id: "b1",
+      network_id: networkId,
+      name: "#a",
+      kind: "channel",
+      unread: 0,
+      mentions: 0,
+      show_embeds: true,
+      show_presence_events: true,
+      collapse_presence_events: false,
+      pinned: false,
+    });
+    state.activeId = "b1";
+  }
+
+  it("registers the avatar regardless of the active buffer", () => {
+    const view = fakeView();
+    createWSRouter(view)({ type: "avatar", network_id: "n1", nick: "alice", has_avatar: true });
+    seedActiveBuffer("n1");
+    expect(hasAvatarFor("alice")).toBe(true);
+  });
+
+  it("refreshes members, active view, and prompt nick when it matches the active network", () => {
+    seedActiveBuffer("n1");
+    const view = fakeView();
+    createWSRouter(view)({ type: "avatar", network_id: "n1", nick: "alice", has_avatar: true });
+    expect(view.renderMembers).toHaveBeenCalledTimes(1);
+    expect(view.renderActiveView).toHaveBeenCalledTimes(1);
+    expect(view.renderPromptNick).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not refresh the view for a network that isn't active", () => {
+    seedActiveBuffer("n1");
+    const view = fakeView();
+    createWSRouter(view)({ type: "avatar", network_id: "n2", nick: "alice", has_avatar: true });
+    expect(view.renderMembers).not.toHaveBeenCalled();
+    expect(view.renderActiveView).not.toHaveBeenCalled();
+    expect(view.renderPromptNick).not.toHaveBeenCalled();
   });
 });
 

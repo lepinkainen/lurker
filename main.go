@@ -105,6 +105,7 @@ func main() {
 		BuildTime:          buildTime,
 		UpdateChecker:      updateChecker,
 		Media:              mediaSvc,
+		PreviewFetcher:     previewSvc.Fetcher(),
 		ConfigNetworkNames: yamlNetworkNames,
 		ConfigPreview: func(ctx context.Context) (string, string, error) {
 			nets, err := db.ListNetworksWithSASL(ctx, stores.Control)

@@ -120,6 +120,17 @@ func (s *Service) Start(ctx context.Context) {
 	slog.Info("preview workers started", "workers", s.cfg.Workers, "ttl", s.cfg.CacheTTL, "max_bytes", s.cfg.MaxBytes)
 }
 
+// Fetcher returns the Service's SSRF-guarded HTTP fetcher for callers that
+// need direct fetches (e.g. the avatar proxy) outside the async preview
+// pipeline. Reuses the same pinning transport as the preview workers rather
+// than standing up a second client.
+func (s *Service) Fetcher() *Fetcher {
+	if s == nil {
+		return nil
+	}
+	return s.fetcher
+}
+
 // Close stops workers and waits for them to drain.
 func (s *Service) Close() error {
 	if s == nil || s.cancel == nil {

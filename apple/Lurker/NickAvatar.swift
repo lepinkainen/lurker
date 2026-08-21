@@ -75,15 +75,26 @@ func oklchColor(l: Double, c: Double, h: Double) -> Color {
   return Color(.sRGB, red: gamma(r), green: gamma(g), blue: gamma(bl), opacity: 1)
 }
 
-/// Small identicon square drawn next to a nick, deterministic from the nick
-/// text with a color derived from the server-assigned palette index.
+/// Small avatar square drawn next to a nick: a bot glyph for IRCv3 bot-mode
+/// nicks, the server-resolved avatar image when one exists, or a
+/// deterministic identicon (color from the server-assigned palette index) as
+/// the fallback for both "no avatar" and "avatar failed to load".
 struct NickAvatar: View {
   let nick: String
   let colorIndex: Int?
   /// IRCv3 bot-mode nicks show a robot glyph instead: the identicon exists to
   /// tell humans apart, which is not what matters about a bot.
   var isBot: Bool = false
+  /// Network the nick belongs to, needed to build the `/api/avatar` URL.
+  /// `nil` when the call site has no network in hand — falls back to the
+  /// identicon like `hasAvatar: false` would.
+  var networkID: UUID? = nil
+  /// Whether the server has resolved an avatar image for this nick (IRCv3
+  /// metadata or IRCCloud hostmask fallback).
+  var hasAvatar: Bool = false
   var size: CGFloat = 14
+
+  @Environment(AppModel.self) private var model
 
   var body: some View {
     if isBot {
@@ -91,6 +102,20 @@ struct NickAvatar: View {
         .font(.system(size: size * 0.86))
         .frame(width: size, height: size)
         .accessibilityLabel("bot")
+    } else if hasAvatar, let networkID, let url = model.avatarURL(networkID: networkID, nick: nick)
+    {
+      CachedAsyncImage(
+        url: url,
+        content: { image in
+          image
+            .resizable()
+            .scaledToFill()
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: 2))
+        },
+        placeholder: { identicon },
+        failure: { identicon }
+      )
     } else {
       identicon
     }

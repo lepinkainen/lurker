@@ -100,7 +100,16 @@ custom properties. See [theming.md](theming.md) for the model and how to add one
 
 Nick avatars (the small identicon square next to a nick) are a deterministic,
 client-agnostic algorithm — see [nick-identicon.md](nick-identicon.md) for the
-spec every conforming client must reproduce exactly.
+spec every conforming client must reproduce exactly. `nickAvatar` in
+`web/src/nick.ts` is the single render choke point, with precedence bot glyph →
+metadata avatar → identicon. IRCv3 metadata avatars override the identicon: a
+per-`(network, nick)` registry in `web/src/nick-colors.ts` (mirroring the bot
+registry — `registerAvatar` / `hasAvatarFor` / `avatarUrlFor`, resolved against
+the active buffer's network) remembers which nicks have an avatar, fed by
+`has_avatar` on member-list snapshots and the `avatar` WS event
+(`web/src/ws-router.ts`). When known, `nickAvatar` renders an `<img>` pointed at
+the backend proxy `/api/avatar` with an `error` handler that swaps back to the
+identicon on any load failure.
 
 ## Interaction specs
 

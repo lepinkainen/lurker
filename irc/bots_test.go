@@ -153,7 +153,7 @@ func TestChannelMembersCarryBotFlag(t *testing.T) {
 
 	bots := newBotTracker()
 	bots.mark("helperbot")
-	members := buildChannelMembers(client, "#test", bots)
+	members := buildChannelMembers(client, "#test", bots, nil)
 	if len(members) != 2 {
 		t.Fatalf("len(members) = %d, want 2", len(members))
 	}
