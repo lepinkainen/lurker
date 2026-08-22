@@ -164,7 +164,7 @@ struct SidebarView: View {
         }
         .font(.body)
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Theme.rowHorizontalInset)
         .padding(.bottom, 8)
       }
       .background(.bar)
@@ -258,13 +258,13 @@ struct SidebarView: View {
             model.selectBuffer(buffer.id)
           } content: {
             BufferRow(buffer: buffer, network: network)
-              .padding(.leading, 14)
+              .padding(.leading, Theme.sidebarChildIndent)
           }
           .bufferMenu(buffer, model: model) { pendingDelete = $0 }
           .sidebarDraggable(
             kind: .channel(networkID: network.id, bufferID: buffer.id),
             target: .row(buffer.id),
-            indicatorInset: 14,
+            indicatorInset: Theme.sidebarChildIndent,
             accepts: { isChannelDrag($0, of: network.id) },
             drag: $drag,
             commit: { fromID in
@@ -298,7 +298,7 @@ struct SidebarView: View {
             model.selectBuffer(buffer.id)
           } content: {
             BufferRow(buffer: buffer, network: network)
-              .padding(.leading, 14)
+              .padding(.leading, Theme.sidebarChildIndent)
           }
           .bufferMenu(buffer, model: model) { pendingDelete = $0 }
         }
@@ -348,7 +348,7 @@ struct SidebarView: View {
         Label(network.name, systemImage: "pause.circle")
           .foregroundStyle(.secondary)
           .font(.subheadline)
-          .padding(.horizontal, 12)
+          .padding(.horizontal, Theme.rowHorizontalInset)
           .padding(.vertical, 4)
       }
     }
@@ -557,9 +557,9 @@ private struct SidebarSectionHeader: View {
 
   var body: some View {
     Text(title)
-      .font(.caption.weight(.semibold))
+      .font(Theme.Fonts.sectionHeader)
       .foregroundStyle(.secondary)
-      .padding(.horizontal, 12)
+      .padding(.horizontal, Theme.rowHorizontalInset)
       .padding(.top, 10)
       .padding(.bottom, 2)
   }
@@ -582,10 +582,10 @@ private struct ArchivesToggleRow: View {
           .foregroundStyle(.tertiary)
         Spacer()
       }
-      .font(.caption.weight(.semibold))
+      .font(Theme.Fonts.sectionHeader)
       .foregroundStyle(.secondary)
       .padding(.horizontal, 8)
-      .padding(.leading, 14)
+      .padding(.leading, Theme.sidebarChildIndent)
       .padding(.vertical, 4)
       .contentShape(.rect)
     }
@@ -629,12 +629,18 @@ private struct NetworkHeaderRow: View {
   let action: () -> Void
   let statusAction: () -> Void
   let collapseAction: () -> Void
+  // Reveals the overflow menu on hover (macOS only); the control stays in the
+  // tree at all times and only its opacity changes, so the row never
+  // re-lays-out. On iOS the menu is always visible — there is no hover.
+  #if os(macOS)
+    @State private var isHovered = false
+  #endif
 
   var body: some View {
     HStack(spacing: 4) {
       Button(action: collapseAction) {
         Image(systemName: "chevron.right")
-          .font(.caption.weight(.semibold))
+          .font(Theme.Fonts.smallIcon)
           .foregroundStyle(.secondary)
           .rotationEffect(.degrees(isCollapsed ? 0 : 90))
           .frame(width: 16, height: 16)
@@ -652,6 +658,7 @@ private struct NetworkHeaderRow: View {
           Text(network.name)
             .font(.headline)
             .lineLimit(1)
+            .truncationMode(.tail)
           Spacer()
           if mentions > 0 {
             CountBadge(count: mentions, mention: true)
@@ -670,7 +677,7 @@ private struct NetworkHeaderRow: View {
         // TODO: reconnect / network settings once backend ClientCommand exists
       } label: {
         Image(systemName: "ellipsis")
-          .font(.caption.weight(.semibold))
+          .font(Theme.Fonts.smallIcon)
           .foregroundStyle(.secondary)
           .frame(width: 16, height: 16)
       }
@@ -678,6 +685,7 @@ private struct NetworkHeaderRow: View {
       .fixedSize()
       #if os(macOS)
         .menuStyle(.borderlessButton)
+        .opacity(isHovered ? 1 : 0)
       #endif
     }
     .padding(.trailing, 6)
@@ -687,6 +695,9 @@ private struct NetworkHeaderRow: View {
     )
     .padding(.horizontal, 4)
     .padding(.top, 4)
+    #if os(macOS)
+      .onHover { isHovered = $0 }
+    #endif
   }
 
   private var statusColor: Color {
@@ -712,6 +723,7 @@ private struct BufferRow: View {
       }
       Text(label)
         .lineLimit(1)
+        .truncationMode(.tail)
         .foregroundStyle(textStyle)
       Spacer(minLength: 4)
       if buffer.mentions > 0 {
@@ -752,8 +764,8 @@ private struct CountBadge: View {
 
   var body: some View {
     Text(count.formatted())
-      .font(.caption.monospacedDigit().weight(.semibold))
-      .padding(.horizontal, 5)
+      .font(Theme.Fonts.badge)
+      .padding(.horizontal, Theme.badgeHorizontalPadding)
       .padding(.vertical, 1)
       .foregroundStyle(mention ? Color.white : Color.secondary)
       .background(mention ? Color.orange : Color.secondary.opacity(0.14), in: .capsule)

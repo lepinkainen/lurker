@@ -45,6 +45,12 @@ SwiftUI sources are shared; platform differences are isolated:
 
 Known iOS follow-ups: real background push needs APNs plus server support (today notifications are local, foreground-only, because iOS suspends the WebSocket in the background), and small-screen polish such as swipe-between-buffers.
 
+## Theme
+
+`Theme.swift` centralizes the app's type scale and a handful of recurring layout metrics (row insets, sidebar child indent, badge padding). `Theme.Fonts` tokens are named for role, not appearance (`nick`, `message`, `timestamp`, `badge`, `sectionHeader`, `smallIcon`), since several resolve to the same underlying `Font` value but mark distinct call sites (e.g. `nick` and `message` are both `.body.monospaced()` today but are free to diverge later). Scale always comes from semantic text styles (`.caption`…`.title3`), never a hardcoded point size; emphasis is weight, de-emphasis is color (`.secondary`/`.tertiary`). New UI should reach for a `Theme` token instead of a literal font or padding value; add a new token only once a value is genuinely reused for the same role (roughly: the third occurrence), not for a one-off.
+
+Hover-revealed affordances (macOS only) follow an opacity-fade rule, never insert-on-hover: the control stays in the view tree at a fixed size and only its opacity changes with `.onHover`, so the row never re-lays-out or jitters. `NetworkHeaderRow`'s overflow menu (`SidebarView.swift`) is the current example — visible only while the row is hovered on macOS, always visible on iOS (there is no hover there, so the `#if os(macOS)` opacity/`.onHover` pair is skipped entirely).
+
 ## Connection and trust model
 
 The client accepts one base endpoint and uses the backend's existing REST and WebSocket APIs without server changes. It validates `/whoami` before saving a server and also checks `/api/tailscale-status`.

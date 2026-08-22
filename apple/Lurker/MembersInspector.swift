@@ -98,9 +98,10 @@ private struct MemberRow: View {
         networkID: networkID, hasAvatar: member.hasAvatar == true)
       VStack(alignment: .leading, spacing: 1) {
         Text(member.nick)
-          .font(.body.monospaced().weight(member.`self` ? .bold : .regular))
+          .font(Theme.Fonts.nick.weight(member.`self` ? .bold : .regular))
           .foregroundStyle(member.away ? .secondary : .primary)
           .lineLimit(1)
+          .truncationMode(.tail)
       }
     }
     .help(member.realname ?? member.nick)

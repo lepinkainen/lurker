@@ -29,6 +29,7 @@
 		A10000000000000000000015 /* emoji-map.json in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000017 /* emoji-map.json */; };
 		A10000000000000000000016 /* NickAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000018 /* NickAvatar.swift */; };
 		A10000000000000000000017 /* CachedAsyncImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000019 /* CachedAsyncImage.swift */; };
+		A10000000000000000000018 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001A /* Theme.swift */; };
 		A20000000000000000000001 /* EndpointPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* EndpointPolicyTests.swift */; };
 		A20000000000000000000002 /* SlashCommandsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* SlashCommandsTests.swift */; };
 		A20000000000000000000003 /* WireModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* WireModelTests.swift */; };
@@ -82,6 +83,7 @@
 		B10000000000000000000017 /* emoji-map.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "emoji-map.json"; path = "../../web/src/emoji-map.json"; sourceTree = "<group>"; };
 		B10000000000000000000018 /* NickAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NickAvatar.swift; sourceTree = "<group>"; };
 		B10000000000000000000019 /* CachedAsyncImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedAsyncImage.swift; sourceTree = "<group>"; };
+		B1000000000000000000001A /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		B20000000000000000000001 /* EndpointPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndpointPolicyTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* SlashCommandsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommandsTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000003 /* WireModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireModelTests.swift; sourceTree = "<group>"; };
@@ -136,6 +138,7 @@
 				B1000000000000000000000C /* SettingsView.swift */,
 				B1000000000000000000000D /* SidebarView.swift */,
 				B1000000000000000000000E /* SlashCommands.swift */,
+				B1000000000000000000001A /* Theme.swift */,
 				B1000000000000000000000F /* Info.plist */,
 				B10000000000000000000010 /* Lurker.entitlements */,
 				B10000000000000000000011 /* Assets.xcassets */,
@@ -272,6 +275,7 @@
 				A1000000000000000000000D, A1000000000000000000000E, A10000000000000000000010,
 				A10000000000000000000011, A10000000000000000000012, A10000000000000000000013,
 				A10000000000000000000014, A10000000000000000000016, A10000000000000000000017,
+				A10000000000000000000018,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

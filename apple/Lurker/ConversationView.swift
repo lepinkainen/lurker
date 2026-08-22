@@ -111,7 +111,7 @@ private struct ConversationHeader: View {
             Text("ARCHIVED")
               .font(.caption.weight(.bold))
               .foregroundStyle(.secondary)
-              .padding(.horizontal, 5)
+              .padding(.horizontal, Theme.badgeHorizontalPadding)
               .padding(.vertical, 2)
               .background(.quaternary, in: .rect(cornerRadius: 3))
           }
@@ -120,11 +120,12 @@ private struct ConversationHeader: View {
           .font(.body)
           .foregroundStyle(.secondary)
           .lineLimit(1)
+          .truncationMode(.tail)
           .textSelection(.enabled)
       }
       Spacer()
     }
-    .padding(.horizontal, 14)
+    .padding(.horizontal, Theme.rowHorizontalInset)
     .padding(.vertical, 9)
     .background(.bar)
   }
@@ -283,7 +284,7 @@ private struct DaySeparator: View {
         .foregroundStyle(.secondary)
       line
     }
-    .padding(.horizontal, 14)
+    .padding(.horizontal, Theme.rowHorizontalInset)
     .padding(.vertical, 9)
     .accessibilityElement(children: .combine)
   }
@@ -304,7 +305,7 @@ private struct UnreadSeparator: View {
       Rectangle().frame(height: 1)
     }
     .foregroundStyle(.orange)
-    .padding(.horizontal, 14)
+    .padding(.horizontal, Theme.rowHorizontalInset)
     .padding(.vertical, 5)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("New messages begin here")
@@ -379,7 +380,7 @@ private struct PresenceSummary: View {
         .foregroundStyle(.secondary)
         .padding(.vertical, 3)
     }
-    .padding(.horizontal, 14)
+    .padding(.horizontal, Theme.rowHorizontalInset)
   }
 
   private var summary: String {
@@ -447,9 +448,10 @@ private struct MessageRow: View {
             )
             .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
             Text(message.sender)
-              .font(.body.monospaced().weight(message.isSelf == true ? .bold : .medium))
+              .font(Theme.Fonts.nick.weight(message.isSelf == true ? .bold : .medium))
               .foregroundStyle(nickPaletteColor(message.senderColor))
               .lineLimit(1)
+              .truncationMode(.tail)
           }
           .help(message.userhost ?? message.sender)
           VStack(alignment: .leading, spacing: 6) {
@@ -478,9 +480,10 @@ private struct MessageRow: View {
               )
               .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
               Text(message.sender)
-                .font(.body.monospaced().weight(message.isSelf == true ? .bold : .semibold))
+                .font(Theme.Fonts.nick.weight(message.isSelf == true ? .bold : .semibold))
                 .foregroundStyle(nickPaletteColor(message.senderColor))
                 .lineLimit(1)
+                .truncationMode(.tail)
             }
             Spacer(minLength: 4)
             timestamp
@@ -494,7 +497,7 @@ private struct MessageRow: View {
 
   private var timestamp: some View {
     Text(displayTime(message.ts))
-      .font(.caption.monospacedDigit())
+      .font(Theme.Fonts.timestamp)
       .foregroundStyle(.tertiary)
       .accessibilityHidden(true)
   }
@@ -507,14 +510,14 @@ private struct MessageRow: View {
 
   private var systemBody: some View {
     Text(systemText)
-      .font(.body.monospaced())
+      .font(Theme.Fonts.message)
       .foregroundStyle(.secondary)
       .textSelection(.enabled)
   }
 
   private var messageBody: some View {
     Text(attributedBody(message))
-      .font(.body.monospaced())
+      .font(Theme.Fonts.message)
       .foregroundStyle(message.displayKind == "action" ? .purple : .primary)
       .textSelection(.enabled)
   }
@@ -712,12 +715,12 @@ private struct ComposerView: View {
       }
       HStack(alignment: .bottom, spacing: 8) {
         Text(model.selectedNetwork?.nick ?? "you")
-          .font(.body.monospaced().weight(.semibold))
+          .font(Theme.Fonts.nick.weight(.semibold))
           .foregroundStyle(.white)
         //          .padding(.bottom, 6)
         TextField(placeholder, text: $model.composerText, axis: .vertical)
           .textFieldStyle(.plain)
-          .font(.body.monospaced())
+          .font(Theme.Fonts.message)
           .lineLimit(1...5)
           .focused($focused)
           .onSubmit { model.sendComposer() }
@@ -965,8 +968,8 @@ func attributedBody(_ message: Message) -> AttributedString {
   let plainText = segments.map(\.text).joined()
   for segment in segments {
     var value = AttributedString(segment.text)
-    if segment.bold == true { value.font = .body.monospaced().bold() }
-    if segment.italic == true { value.font = .body.monospaced().italic() }
+    if segment.bold == true { value.font = Theme.Fonts.message.bold() }
+    if segment.italic == true { value.font = Theme.Fonts.message.italic() }
     if segment.underline == true { value.underlineStyle = .single }
     if segment.strike == true { value.strikethroughStyle = .single }
     if let foreground = segment.fg { value.foregroundColor = mircColor(foreground) }

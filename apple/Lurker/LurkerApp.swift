@@ -28,6 +28,7 @@ struct LurkerApp: App {
           .onAppear { model.start() }
       }
       .defaultSize(width: 1180, height: 760)
+      .windowResizability(.contentMinSize)
       .commands {
         LurkerCommands(model: model)
       }

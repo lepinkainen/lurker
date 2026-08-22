@@ -15,7 +15,7 @@ struct ComposerPopupView: View {
         ForEach(Array(nicks.enumerated()), id: \.element) { index, nick in
           row(isSelected: index == selection, index: index) {
             Text(nick)
-              .font(.body.monospaced())
+              .font(Theme.Fonts.nick)
           }
         }
       case .emoji(let matches):
@@ -24,7 +24,7 @@ struct ComposerPopupView: View {
             HStack(spacing: 8) {
               Text(match.emoji)
               Text(":\(match.name):")
-                .font(.body.monospaced())
+                .font(Theme.Fonts.nick)
                 .foregroundStyle(.secondary)
             }
           }
@@ -33,10 +33,10 @@ struct ComposerPopupView: View {
         ForEach(commands) { command in
           HStack(spacing: 6) {
             Text(command.command)
-              .font(.body.monospaced().weight(.semibold))
+              .font(Theme.Fonts.nick.weight(.semibold))
             if !command.arguments.isEmpty {
               Text(command.arguments)
-                .font(.body.monospaced())
+                .font(Theme.Fonts.message)
                 .foregroundStyle(.secondary)
             }
             Spacer(minLength: 12)

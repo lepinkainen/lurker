@@ -64,7 +64,7 @@ struct ChannelListView: View {
       HStack(alignment: .firstTextBaseline, spacing: 10) {
         VStack(alignment: .leading, spacing: 2) {
           Text(entry.name)
-            .font(.body.monospaced().weight(.semibold))
+            .font(Theme.Fonts.nick.weight(.semibold))
           if let topic = entry.topic, !topic.isEmpty {
             Text(topic)
               .font(.body)
