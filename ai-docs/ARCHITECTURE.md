@@ -10,6 +10,7 @@ This document is for AI agents and other technical readers. It gives the system 
 - [irc-runtime.md](irc-runtime.md) — `irc.Manager`, handler, event persistence, URL preview pipeline, event hub
 - [frontend.md](frontend.md) — web UI layout, source-of-truth rules, hydration model
 - [apple.md](apple.md) — native SwiftUI client, endpoint policy, state model, packaging
+- [apple-pitfalls.md](apple-pitfalls.md) — Lurker-specific SwiftUI/macOS crash and layout pitfalls, with fixes
 - [theming.md](theming.md) — YAML themes, loader, `GET /api/themes`, how to add a theme
 - [tui.md](tui.md) — terminal UI client, configuration, keyboard controls, API usage
 - [keyboard-shortcuts.md](keyboard-shortcuts.md) — channel switcher and keyboard shortcut UX spec
