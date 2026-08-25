@@ -85,7 +85,7 @@ This prevents wasted debugging of a "missing" feature that is actually a stale b
 
 ## Stack
 
-Go 1.26 backend. Vite + TypeScript frontend in `web/`. SQLite storage. WebSocket `/api/stream`. Docker image publishes to `ghcr.io/lepinkainen/lurker` on push to `main`, serves frontend from `/app/web/dist`.
+Go 1.27 backend. Vite + TypeScript frontend in `web/`. SQLite storage. WebSocket `/api/stream`. Docker image publishes to `ghcr.io/lepinkainen/lurker` on push to `main`, serves frontend from `/app/web/dist`.
 
 ## Ignored / generated
 

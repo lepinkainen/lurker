@@ -42,7 +42,7 @@ Do not add public-internet deployment assumptions or app-level auth unless the u
 
 ## Stack
 
-- Backend: Go `1.26`
+- Backend: Go `1.27`
 - Frontend: Vite + TypeScript in `web/`
 - Storage: SQLite (`control.db` plus one DB per network)
 - Streaming: WebSocket API at `/api/stream`
