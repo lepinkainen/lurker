@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -93,9 +94,9 @@ func (r *callRecorder) callNames() []string {
 func (r *callRecorder) lastArgs(name string) ([]any, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for i := len(r.calls) - 1; i >= 0; i-- {
-		if r.calls[i].Name == name {
-			return r.calls[i].Args, true
+	for _, v := range slices.Backward(r.calls) {
+		if v.Name == name {
+			return v.Args, true
 		}
 	}
 	return nil, false

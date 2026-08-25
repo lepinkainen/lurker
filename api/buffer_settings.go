@@ -62,8 +62,8 @@ func (s *Server) reorderPinnedBuffers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	event := pinnedReorderEvent{Type: "pinned_reorder"}
-	event.Buffers = make([]pinnedSortEntryDTO, 0, len(entries))
+	event := pinnedReorderEvent{Type: "pinned_reorder",
+		Buffers: make([]pinnedSortEntryDTO, 0, len(entries))}
 	for _, e := range entries {
 		event.Buffers = append(event.Buffers, pinnedSortEntryDTO{ID: e.ID, PinOrder: e.SortOrder})
 	}

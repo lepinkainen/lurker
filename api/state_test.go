@@ -227,7 +227,7 @@ func TestAttachPreviewsLeavesMessagesUntouchedWithoutLinks(t *testing.T) {
 	stores, s, n, bufID := newHistoryTestServer(t)
 	ids := insertHistoryMessages(t, stores, n.ID, bufID, 1)
 
-	dto := messageDTO{MessageCore: irc.MessageCore{ID: ids[0], NetworkID: n.ID, BufferID: bufID}}
+	dto := messageDTO{ID: ids[0], NetworkID: n.ID, BufferID: bufID}
 	msgs := []messageDTO{dto}
 	s.attachPreviews(t.Context(), msgs)
 	if len(msgs[0].Previews) != 0 {
@@ -250,7 +250,7 @@ func TestAttachPreviewsResolvesCachedDisplayablePreview(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msgs := []messageDTO{{MessageCore: irc.MessageCore{ID: ids[0], NetworkID: n.ID, BufferID: bufID}}}
+	msgs := []messageDTO{{ID: ids[0], NetworkID: n.ID, BufferID: bufID}}
 	s.attachPreviews(t.Context(), msgs)
 	if len(msgs[0].Previews) != 1 {
 		t.Fatalf("previews len = %d want 1: %+v", len(msgs[0].Previews), msgs[0].Previews)
@@ -275,7 +275,7 @@ func TestAttachPreviewsSkipsNonDisplayableKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msgs := []messageDTO{{MessageCore: irc.MessageCore{ID: ids[0], NetworkID: n.ID, BufferID: bufID}}}
+	msgs := []messageDTO{{ID: ids[0], NetworkID: n.ID, BufferID: bufID}}
 	s.attachPreviews(t.Context(), msgs)
 	if len(msgs[0].Previews) != 0 {
 		t.Fatalf("expected error-kind to be filtered: %+v", msgs[0].Previews)
