@@ -453,21 +453,20 @@ private struct MessageRow: View {
       .accessibilityLabel("\(message.sender), \(displayTime(message.ts)), \(message.content)")
   }
 
-  // macOS: fixed timestamp gutter, then a content-sized left-aligned nick with
-  // the body immediately following (nicks vary in width; bodies don't align into
-  // a column — matches the web client). iOS: those columns eat ~160pt of a 402pt
-  // screen, so the nick moves to its own line above the body with the timestamp
-  // trailing it, and the body wraps at full width.
+  // iOS-only since the macOS timeline moved to TimelineTextView.swift: the
+  // nick sits on its own line above the body with the timestamp trailing it,
+  // so the body wraps at full width on a compact screen.
   @ViewBuilder private var layout: some View {
-    #if os(macOS)
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
+    if message.displayKind == "sys" {
+      HStack(alignment: .firstTextBaseline, spacing: 6) {
+        systemIcon
+        systemBody
+        Spacer(minLength: 4)
         timestamp
-          .frame(width: 42, alignment: .trailing)
-        if message.displayKind == "sys" {
-          systemIcon
-            .frame(width: 14)
-          systemBody
-        } else {
+      }
+    } else {
+      VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
           HStack(alignment: .firstTextBaseline, spacing: 4) {
             NickAvatar(
               nick: message.sender, colorIndex: message.senderColor,
@@ -476,51 +475,18 @@ private struct MessageRow: View {
             )
             .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
             Text(message.sender)
-              .font(Theme.Fonts.nick.weight(message.isSelf == true ? .bold : .medium))
+              .font(Theme.Fonts.nick.weight(message.isSelf == true ? .bold : .semibold))
               .foregroundStyle(nickPaletteColor(message.senderColor))
               .lineLimit(1)
               .truncationMode(.tail)
           }
-          .help(message.userhost ?? message.sender)
-          VStack(alignment: .leading, spacing: 6) {
-            messageBody
-            embeds
-          }
-        }
-        Spacer(minLength: 4)
-      }
-    #else
-      if message.displayKind == "sys" {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-          systemIcon
-          systemBody
           Spacer(minLength: 4)
           timestamp
         }
-      } else {
-        VStack(alignment: .leading, spacing: 2) {
-          HStack(alignment: .firstTextBaseline, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-              NickAvatar(
-                nick: message.sender, colorIndex: message.senderColor,
-                isBot: model.isBot(message.sender),
-                networkID: message.networkID, hasAvatar: model.hasAvatar(message.sender)
-              )
-              .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
-              Text(message.sender)
-                .font(Theme.Fonts.nick.weight(message.isSelf == true ? .bold : .semibold))
-                .foregroundStyle(nickPaletteColor(message.senderColor))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            }
-            Spacer(minLength: 4)
-            timestamp
-          }
-          messageBody
-          embeds
-        }
+        messageBody
+        embeds
       }
-    #endif
+    }
   }
 
   private var timestamp: some View {
