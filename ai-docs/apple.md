@@ -35,7 +35,7 @@ The UI follows the web client's information hierarchy, not its CSS. It uses syst
 
 SwiftUI sources are shared; platform differences are isolated:
 
-- `Platform.swift` holds the shim layer: semantic `Color` helpers (`.lurkerTimelineBackground`, `.lurkerSeparator`, `.lurkerControlBackground`, `.lurkerLink`) resolving to `NSColor` on macOS / `UIColor` on iOS, and `Clipboard.copy(_:)` wrapping `NSPasteboard` / `UIPasteboard`. Keep color/clipboard `#if os(...)` branching confined to this file so views stay platform-agnostic; do not reintroduce unguarded AppKit or UIKit usage in shared views.
+- `Platform.swift` holds the shim layer: semantic `Color` helpers (`.lurkerTimelineBackground`, `.lurkerSeparator`, `.lurkerControlBackground`, `.lurkerLink`) resolving to `NSColor` on macOS / `UIColor` on iOS, and `Clipboard.copy(_:)` wrapping `NSPasteboard` / `UIPasteboard`. Keep color/clipboard `#if os(...)` branching confined to this file so views stay platform-agnostic; do not reintroduce unguarded AppKit or UIKit usage in shared views. The one sanctioned exception is `TimelineTextView.swift`: the macOS message timeline is an AppKit `NSTextView` by design (see "macOS timeline architecture" below), and that file is wholly `#if os(macOS)`.
 - `LurkerApp.swift` splits scenes: macOS keeps `Window` + `Settings` scene + menu-bar `LurkerCommands`; iOS uses a `WindowGroup`, and settings is an in-app sheet (`AppModel.showingSettings`) because iOS has no `Settings` scene.
 - `RootView.swift` picks the layout: `NavigationSplitView` on macOS and iPad regular width; on iPhone (compact width) a `NavigationStack` where selecting a buffer pushes the conversation (`AppModel.compactConversationVisible`, set in `selectBuffer` so the channel switcher and notification taps also push). Compact width puts the connection-status and channel-switcher buttons in the sidebar navigation bar and the Members toggle on the conversation screen; the members list presents as a sheet there, and the inspector default is hidden on iOS.
 - The members-inspector visibility binding routes through `setInspectorVisible` so interactive dismissal persists to `UserDefaults`.
@@ -102,27 +102,24 @@ task test-apple-ui
 The UI test launches with `-ui-testing`, which replaces network access with deterministic in-process fixture data and suppresses notification authorization prompts.
 It signs the local test runner ad hoc and requires Xcode to have UI automation permission in System Settings.
 
-## Deferred: hand cursor over inline links (macOS)
+## macOS timeline architecture (NSTextView)
 
-Preview cards show the pointing-hand cursor via a plain `.pointerStyle(.link)` on the card button (`ConversationView.swift`, `PreviewCard`). Doing the same for inline URLs *inside* message text was implemented and then dropped as too complex for the payoff. Recorded here in case it becomes worth it later.
+On macOS the message timeline is a single AppKit `NSTextView` using TextKit 2 (`TimelineTextView.swift`, wholly `#if os(macOS)`); iOS keeps the SwiftUI `TimelineView` (ScrollView + LazyVStack) in `ConversationView.swift`. The rewrite exists because SwiftUI `Text` link hit-testing is unreliable in wrapped multi-link messages (clicks opened the wrong URL), a per-range hand cursor is impossible over selectable SwiftUI text, and `.textSelection(.enabled)` cannot select across rows. The text view gives exact link targets, the pointing-hand cursor (`linkTextAttributes`), and cross-row copy natively — the previously documented twin-`Text` cursor workaround is obsolete and was deleted with this section's predecessor.
 
-Why it is hard:
+Structure:
 
-- SwiftUI has no per-character-range pointer API; `.pointerStyle` applies to a whole view.
-- `.textSelection(.enabled)` re-asserts the I-beam cursor on every pointer move, so a static pointer style is overridden anyway.
-- Selectable `Text` bypasses custom `TextRenderer`s, so you cannot observe link-run geometry on the visible text directly.
+- `MacTimelineContainer` (SwiftUI) pins the `UnreadBar` via `safeAreaInset` and floats the history-loading spinner; `TimelineTextView` is the `NSViewRepresentable` (`NSScrollView` + `TimelineNSTextView(usingTextLayoutManager: true)`).
+- **TextKit 2 rule: never touch `textView.layoutManager`** — reading it silently downgrades to TextKit 1. Use `textLayoutManager`/`textContentStorage` only.
+- Timeline derivation (`timelineItems` in `ConversationView.swift` — day separators, unread separator, presence grouping) is shared between the iOS view and the macOS coordinator.
+- `TimelineCoordinator` keeps a rendered-block table (one block per `TimelineItem`) and applies minimal storage edits from the pure `TimelineDiff`: identical id lists → in-place block replacement (preview arrival, netsplit tag, presence-run growth); strict-suffix id lists → append; anything else (buffer switch, history prepend, settings change) → full rebuild.
+- Each message is one paragraph: `\t` + timestamp (right tab stop at the 42pt gutter) + `\t` + nick + body, `headIndent` aligning wrapped lines under the nick column. Custom attributes: `.lurkerMessageID` (context-menu lookup), `.lurkerCopyExclude` (rows dropped from Copy).
+- Scrolling: rebuilds land at the bottom; a new-message append auto-scrolls **only when the viewport is already near the bottom** (deliberate change from the SwiftUI timeline's unconditional jump — scrolled-up reading position is preserved, the unread bar still shows). Older-history loads trigger from the clip-view bounds notification (viewport near the top edge), and the `historyAnchor` restore pins the previously-first visible message back to the top after a prepend, same contract as the SwiftUI path.
+- Copy is sanitized (`TimelineNSTextView.copy`): `.lurkerCopyExclude` runs and attachment placeholders are dropped, the tab gutter flattens to spaces, so pasted lines read `HH:MM nick body` — cross-row selection includes timestamps and nicks.
+- Context menu (Copy Message / Copy Nickname / Mute / Unmute) maps the click's character index to its message via the block table; nick tooltips use the `.toolTip` attribute.
+- Esc-to-ack works when the text view is first responder via `cancelOperation`, mirroring `ConversationView`'s `.onKeyPress(.escape)`.
+- Interim states, to be replaced in follow-ups: previews render as `↗ title` link lines (attachment-hosted preview cards planned); nick avatars, the system-row SF Symbol icon, and full-row mention-highlight tinting are absent (glyph-only orange tint for mentions); collapsed presence groups render as a non-interactive summary line; per-message accessibility elements are gone (the timeline is one `AXTextArea`), so the UI tests assert on the text view's value and the history test's frame-anchoring assertion is relaxed until AX children return.
 
-The working approach (all `#if os(macOS)`, in `MessageRow`):
-
-1. Mark link runs. Rebuild the `AttributedString` as concatenated `Text` pieces; pieces whose run has `.link` get `.customAttribute(LinkRunAttribute())` (an empty `TextAttribute` struct).
-2. Record their rects. Overlay that rebuilt text on the visible selectable `Text` with identical font, plus `.allowsHitTesting(false)` and `.accessibilityHidden(true)`. Give the overlay a `TextRenderer` whose `draw` walks `layout` lines/runs, collects `run.typographicBounds.rect` for runs carrying `LinkRunAttribute`, and stores them in an `NSLock`-guarded box object (renderer draws off the main path; the box makes it `Sendable`). The renderer draws nothing — the visible twin underneath renders.
-3. Flip the cursor manually. `.onContinuousHover(coordinateSpace: .local)` on the visible text: on `.active`, hit-test the point against the recorded rects and call `NSCursor.pointingHand.set()` on hit / `NSCursor.iBeam.set()` when leaving a hit (must re-set on *every* move because the selectable text keeps re-asserting I-beam); on `.ended`, restore `NSCursor.arrow` if a link was hovered. Track the previous hit in a `@State private var hoveringLink`.
-
-State lived as `@State private var linkRects = LinkRunRects()` on `MessageRow`. Fragile points: the twin must match layout exactly (same font modifiers, same wrapping width), and cursor churn during scroll needs care.
-
-UI-test technique (also removed, `LurkerUITests.swift` history): link runs are not separate accessibility elements, so the test swept `coordinate(withNormalizedOffset:)` hover stops across the message row and compared `NSCursor.currentSystem?.image.tiffRepresentation` against `NSCursor.pointingHand` at each stop, asserting a hit somewhere over the link text and no hit over a plain message. The preview-card variant of that sweep test is still in the suite.
-
-Full implementation: see the pre-removal diff of `ConversationView.swift` (git history of this branch, removed together with this section's addition).
+UI-test technique for cursor feedback (`testPointerBecomesHandOverInlineLink`): link runs are not separate accessibility elements, so the test sweeps `coordinate(withNormalizedOffset:)` hover stops across the timeline and compares `NSCursor.currentSystem?.image.tiffRepresentation` against `NSCursor.pointingHand`.
 
 ## Signed distribution
 

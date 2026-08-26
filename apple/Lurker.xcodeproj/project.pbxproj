@@ -30,6 +30,7 @@
 		A10000000000000000000016 /* NickAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000018 /* NickAvatar.swift */; };
 		A10000000000000000000017 /* CachedAsyncImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000019 /* CachedAsyncImage.swift */; };
 		A10000000000000000000018 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001A /* Theme.swift */; };
+		A10000000000000000000019 /* TimelineTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001B /* TimelineTextView.swift */; };
 		A20000000000000000000001 /* EndpointPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* EndpointPolicyTests.swift */; };
 		A20000000000000000000002 /* SlashCommandsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* SlashCommandsTests.swift */; };
 		A20000000000000000000003 /* WireModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* WireModelTests.swift */; };
@@ -37,6 +38,7 @@
 		A20000000000000000000005 /* ComposerAutocompleteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000005 /* ComposerAutocompleteTests.swift */; };
 		A20000000000000000000006 /* InputHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000006 /* InputHistoryTests.swift */; };
 		A20000000000000000000007 /* ImageEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000007 /* ImageEncodingTests.swift */; };
+		A20000000000000000000008 /* TimelineTextViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000008 /* TimelineTextViewTests.swift */; };
 		A30000000000000000000001 /* LurkerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000001 /* LurkerUITests.swift */; };
 /* End PBXBuildFile section */
 
@@ -84,6 +86,7 @@
 		B10000000000000000000018 /* NickAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NickAvatar.swift; sourceTree = "<group>"; };
 		B10000000000000000000019 /* CachedAsyncImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedAsyncImage.swift; sourceTree = "<group>"; };
 		B1000000000000000000001A /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		B1000000000000000000001B /* TimelineTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineTextView.swift; sourceTree = "<group>"; };
 		B20000000000000000000001 /* EndpointPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndpointPolicyTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* SlashCommandsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommandsTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000003 /* WireModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireModelTests.swift; sourceTree = "<group>"; };
@@ -91,6 +94,7 @@
 		B20000000000000000000005 /* ComposerAutocompleteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerAutocompleteTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000006 /* InputHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputHistoryTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000007 /* ImageEncodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageEncodingTests.swift; sourceTree = "<group>"; };
+		B20000000000000000000008 /* TimelineTextViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineTextViewTests.swift; sourceTree = "<group>"; };
 		B30000000000000000000001 /* LurkerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LurkerUITests.swift; sourceTree = "<group>"; };
 		B40000000000000000000001 /* Lurker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Lurker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B40000000000000000000002 /* LurkerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LurkerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -139,6 +143,7 @@
 				B1000000000000000000000D /* SidebarView.swift */,
 				B1000000000000000000000E /* SlashCommands.swift */,
 				B1000000000000000000001A /* Theme.swift */,
+				B1000000000000000000001B /* TimelineTextView.swift */,
 				B1000000000000000000000F /* Info.plist */,
 				B10000000000000000000010 /* Lurker.entitlements */,
 				B10000000000000000000011 /* Assets.xcassets */,
@@ -157,6 +162,7 @@
 				B20000000000000000000005 /* ComposerAutocompleteTests.swift */,
 				B20000000000000000000006 /* InputHistoryTests.swift */,
 				B20000000000000000000007 /* ImageEncodingTests.swift */,
+				B20000000000000000000008 /* TimelineTextViewTests.swift */,
 			);
 			path = LurkerTests;
 			sourceTree = "<group>";
@@ -275,14 +281,14 @@
 				A1000000000000000000000D, A1000000000000000000000E, A10000000000000000000010,
 				A10000000000000000000011, A10000000000000000000012, A10000000000000000000013,
 				A10000000000000000000014, A10000000000000000000016, A10000000000000000000017,
-				A10000000000000000000018,
+				A10000000000000000000018, A10000000000000000000019,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		E20000000000000000000002 = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003, A20000000000000000000004, A20000000000000000000005, A20000000000000000000006, A20000000000000000000007);
+			files = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003, A20000000000000000000004, A20000000000000000000005, A20000000000000000000006, A20000000000000000000007, A20000000000000000000008);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		E30000000000000000000002 = {

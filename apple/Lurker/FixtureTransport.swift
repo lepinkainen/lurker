@@ -8,6 +8,7 @@ actor FixtureTransport: LurkerTransport {
   static let fullChannelID = UUID(uuidString: "0198F5F3-0000-7A8B-9B42-4D6E72C4D8F2")!
   static let archivedChannelID = UUID(uuidString: "0198F5F3-1000-7A8B-9B42-4D6E72C4D8F3")!
   static let archivedQueryID = UUID(uuidString: "0198F5F3-2000-7A8B-9B42-4D6E72C4D8F4")!
+  static let hntopChannelID = UUID(uuidString: "0198F5F3-3000-7A8B-9B42-4D6E72C4D8F5")!
 
   static let fullTotal = 400
   static let fullPageSize = 50
@@ -70,6 +71,56 @@ actor FixtureTransport: LurkerTransport {
         ))
     }
     return messages
+  }
+
+  // Link-heavy bot channel (##hntop-style): every message carries a story URL
+  // and an HN comments URL back to back, most rows wrapping across lines.
+  // This is the repro shape for the SwiftUI wrong-link bug the NSTextView
+  // timeline exists to fix — click targets must resolve to the exact URL.
+  static let hntopMessages: [Message] = buildHntopMessages()
+
+  nonisolated static func buildHntopMessages() -> [Message] {
+    let stories: [(String, String, Int)] = [
+      (
+        "One Go binary, one YAML file, one SQLite database: I wrote my monitoring tool [2 brvier]",
+        "https://rvier.fr/posts/why-i-wrote-my-own-monitoring-tool-EN", 49_441_101
+      ),
+      (
+        "Show HN: TeXbrain, a LaTeX editor that runs pdfTeX in the browser via WASM [3 swimmingbrain]",
+        "https://github.com/swimmingbrain/texbrain", 49_441_375
+      ),
+      (
+        "Queryable Executables [4 rguiscard]",
+        "https://fzakaria.com/2026/08/24/actually-queryable-executables", 49_442_589
+      ),
+      (
+        "Show HN: Lightweight system monitor for Linux VPS written in Go [46 ygagaga]",
+        "https://github.com/leodeim/vpsmon", 49_437_361
+      ),
+      (
+        "Stalking the Wily Hacker: 40 years later — Cliff Stoll [video] [9 zoenolan]",
+        "https://www.youtube.com/watch?v=656058JxTM0", 49_395_802
+      ),
+      (
+        "Secret Cold War IBM Supercomputer Was Built for One Job [3 jnord]",
+        "https://spectrum.ieee.org/cold-war-codebreaker-nsa-ibm", 49_444_232
+      ),
+    ]
+    let formatter = ISO8601DateFormatter()
+    guard let base = formatter.date(from: "2026-07-23T06:05:00Z") else { return [] }
+    return stories.enumerated().map { index, story in
+      Message(
+        id: UUID(uuidString: String(format: "0198F5F3-C000-7000-8000-%012X", index))!,
+        networkID: networkID,
+        bufferID: hntopChannelID,
+        ts: formatter.string(from: base.addingTimeInterval(Double(index) * 540)),
+        sender: "egobot",
+        kind: "privmsg",
+        content: "\(story.0) \(story.1) https://news.ycombinator.com/item?id=\(story.2)",
+        displayKind: "message",
+        senderColor: 13
+      )
+    }
   }
 
   nonisolated static let identity = ServiceIdentity(
@@ -162,6 +213,20 @@ actor FixtureTransport: LurkerTransport {
       collapsePresenceEvents: false,
       pinned: false,
       archived: true,
+      unread: 0,
+      mentions: 0
+    )
+    let hntopChannel = Buffer(
+      id: hntopChannelID,
+      networkID: networkID,
+      name: "##hntop",
+      kind: "channel",
+      topic: "HN Top Stories Live | Bot posts any story the instant it hits the top 30.",
+      joined: true,
+      showEmbeds: true,
+      showPresenceEvents: true,
+      collapsePresenceEvents: true,
+      pinned: false,
       unread: 0,
       mentions: 0
     )
@@ -294,10 +359,11 @@ actor FixtureTransport: LurkerTransport {
           disabled: false
         )
       ],
-      buffers: [status, channel, query, fullChannel, archivedChannel, archivedQuery],
+      buffers: [status, channel, query, fullChannel, hntopChannel, archivedChannel, archivedQuery],
       initialMessages: [
         channelID.uuidString: messages,
         fullChannelID.uuidString: Array(fullMessages.suffix(fullPageSize)),
+        hntopChannelID.uuidString: hntopMessages,
       ],
       members: [
         channelID.uuidString: [

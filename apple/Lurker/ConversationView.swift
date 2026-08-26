@@ -15,7 +15,14 @@ struct ConversationView: View {
         ConversationHeader(buffer: buffer, network: model.selectedNetwork)
         Divider()
         SyncBanner()
-        TimelineView(buffer: buffer)
+        // macOS renders the timeline as a single AppKit NSTextView for correct
+        // link hit-testing, hand cursor, and cross-row selection; iOS keeps the
+        // SwiftUI implementation. See ai-docs/apple.md.
+        #if os(macOS)
+          MacTimelineContainer(buffer: buffer)
+        #else
+          TimelineView(buffer: buffer)
+        #endif
         Divider()
         ComposerView(buffer: buffer)
       }
@@ -221,44 +228,53 @@ private struct TimelineView: View {
   }
 
   private var items: [TimelineItem] {
-    var result: [TimelineItem] = []
-    var lastDay: String?
-    var presence: [Message] = []
-
-    func flushPresence() {
-      guard !presence.isEmpty else { return }
-      if buffer.collapsePresenceEvents, presence.count > 1 {
-        result.append(.presence(presence[0].id, presence))
-      } else {
-        result.append(contentsOf: presence.map(TimelineItem.message))
-      }
-      presence.removeAll(keepingCapacity: true)
-    }
-
-    for message in model.selectedMessages {
-      let day = dayKey(message.ts)
-      if day != lastDay {
-        flushPresence()
-        result.append(.day("day-\(day)", displayDay(message.ts)))
-        lastDay = day
-      }
-      if buffer.markerID == message.id {
-        flushPresence()
-        result.append(.unread("unread-\(message.id.uuidString)"))
-      }
-      if isPresence(message) {
-        presence.append(message)
-      } else {
-        flushPresence()
-        result.append(.message(message))
-      }
-    }
-    flushPresence()
-    return result
+    timelineItems(model.selectedMessages, buffer: buffer)
   }
 }
 
-private enum TimelineItem: Identifiable {
+/// Derives the renderable timeline (day separators, unread separator, presence
+/// grouping) from the visible message list. Shared by the iOS SwiftUI timeline
+/// and the macOS NSTextView coordinator so the grouping rules stay
+/// single-sourced.
+@MainActor
+func timelineItems(_ messages: [Message], buffer: Buffer) -> [TimelineItem] {
+  var result: [TimelineItem] = []
+  var lastDay: String?
+  var presence: [Message] = []
+
+  func flushPresence() {
+    guard !presence.isEmpty else { return }
+    if buffer.collapsePresenceEvents, presence.count > 1 {
+      result.append(.presence(presence[0].id, presence))
+    } else {
+      result.append(contentsOf: presence.map(TimelineItem.message))
+    }
+    presence.removeAll(keepingCapacity: true)
+  }
+
+  for message in messages {
+    let day = dayKey(message.ts)
+    if day != lastDay {
+      flushPresence()
+      result.append(.day("day-\(day)", displayDay(message.ts)))
+      lastDay = day
+    }
+    if buffer.markerID == message.id {
+      flushPresence()
+      result.append(.unread("unread-\(message.id.uuidString)"))
+    }
+    if isPresence(message) {
+      presence.append(message)
+    } else {
+      flushPresence()
+      result.append(.message(message))
+    }
+  }
+  flushPresence()
+  return result
+}
+
+enum TimelineItem: Identifiable, Equatable {
   case day(String, String)
   case unread(String)
   case message(Message)
@@ -315,7 +331,7 @@ private struct UnreadSeparator: View {
 /// Floating control pinned above the timeline whenever the selected buffer has
 /// a server-derived marker. Tapping it is the primary ack affordance: it clears
 /// the marker, divider, and badges everywhere.
-private struct UnreadBar: View {
+struct UnreadBar: View {
   @Environment(AppModel.self) private var model
   let buffer: Buffer
 
@@ -383,15 +399,20 @@ private struct PresenceSummary: View {
     .padding(.horizontal, Theme.rowHorizontalInset)
   }
 
-  private var summary: String {
-    if let split = messages.compactMap(\.netsplit).first {
-      return "\(messages.count) users affected by netsplit \(split.serverA) ↔ \(split.serverB)"
-    }
-    let kinds = Dictionary(grouping: messages, by: \.kind).mapValues(\.count)
-    return kinds.sorted(by: { $0.key < $1.key })
-      .map { "\($0.value) \($0.key)" }
-      .joined(separator: " • ")
+  private var summary: String { presenceSummaryText(messages) }
+}
+
+/// Label for a collapsed presence run ("3 join • 1 part", or the netsplit
+/// variant), shared by the SwiftUI DisclosureGroup and the macOS NSTextView
+/// timeline.
+func presenceSummaryText(_ messages: [Message]) -> String {
+  if let split = messages.compactMap(\.netsplit).first {
+    return "\(messages.count) users affected by netsplit \(split.serverA) ↔ \(split.serverB)"
   }
+  let kinds = Dictionary(grouping: messages, by: \.kind).mapValues(\.count)
+  return kinds.sorted(by: { $0.key < $1.key })
+    .map { "\($0.value) \($0.key)" }
+    .joined(separator: " • ")
 }
 
 private struct MessageRow: View {
@@ -534,43 +555,51 @@ private struct MessageRow: View {
     message.mentionsMe == true || message.highlight == true ? .orange.opacity(0.10) : .clear
   }
 
-  private var systemSymbol: String {
-    switch message.kind {
-    case "join": "arrow.right"
-    case "part", "quit": "arrow.left"
-    case "kick": "figure.fall"
-    case "topic": "text.quote"
-    case "connected": "bolt.horizontal.circle"
-    case "disconnected": "bolt.slash"
-    case "away": "moon.zzz"
-    case "back": "sun.max"
-    case "nick": "person.text.rectangle"
-    case "account": "person.crop.circle.badge.checkmark"
-    case "chghost": "at"
-    default: "info.circle"
-    }
-  }
+  private var systemSymbol: String { systemMessageSymbol(message) }
 
-  private var systemText: String {
-    let target = message.target ?? ""
-    switch message.kind {
-    case "away":
-      return message.content.isEmpty
-        ? "\(message.sender) is away" : "\(message.sender) is away (\(message.content))"
-    case "back":
-      return "\(message.sender) is back"
-    case "nick" where !target.isEmpty:
-      return "\(message.sender) is now known as \(target)"
-    case "account":
-      return message.content.isEmpty
-        ? "\(message.sender) logged out" : "\(message.sender) logged in as \(message.content)"
-    case "chghost":
-      return "\(message.sender) changed host to \(message.content)"
-    default:
-      return [message.sender, message.content.isEmpty ? message.kind : message.content]
-        .filter { !$0.isEmpty }
-        .joined(separator: " ")
-    }
+  private var systemText: String { systemMessageText(message) }
+}
+
+/// SF Symbol name for a system-event message, shared by the SwiftUI row and
+/// the macOS NSTextView timeline.
+func systemMessageSymbol(_ message: Message) -> String {
+  switch message.kind {
+  case "join": "arrow.right"
+  case "part", "quit": "arrow.left"
+  case "kick": "figure.fall"
+  case "topic": "text.quote"
+  case "connected": "bolt.horizontal.circle"
+  case "disconnected": "bolt.slash"
+  case "away": "moon.zzz"
+  case "back": "sun.max"
+  case "nick": "person.text.rectangle"
+  case "account": "person.crop.circle.badge.checkmark"
+  case "chghost": "at"
+  default: "info.circle"
+  }
+}
+
+/// Human-readable text for a system-event message, shared by the SwiftUI row
+/// and the macOS NSTextView timeline.
+func systemMessageText(_ message: Message) -> String {
+  let target = message.target ?? ""
+  switch message.kind {
+  case "away":
+    return message.content.isEmpty
+      ? "\(message.sender) is away" : "\(message.sender) is away (\(message.content))"
+  case "back":
+    return "\(message.sender) is back"
+  case "nick" where !target.isEmpty:
+    return "\(message.sender) is now known as \(target)"
+  case "account":
+    return message.content.isEmpty
+      ? "\(message.sender) logged out" : "\(message.sender) logged in as \(message.content)"
+  case "chghost":
+    return "\(message.sender) changed host to \(message.content)"
+  default:
+    return [message.sender, message.content.isEmpty ? message.kind : message.content]
+      .filter { !$0.isEmpty }
+      .joined(separator: " ")
   }
 }
 
@@ -993,7 +1022,7 @@ func attributedBody(_ message: Message) -> AttributedString {
   return result
 }
 
-private func mircColor(_ value: Int) -> Color {
+func mircColor(_ value: Int) -> Color {
   let palette: [Color] = [
     .white, .black, .blue, .green, .red, .brown, .purple, .orange,
     .yellow, .green, .teal, .cyan, .blue, .pink, .gray, .secondary,
@@ -1012,13 +1041,13 @@ func dayKey(_ raw: String, calendar: Calendar = .current) -> String {
 }
 
 @MainActor
-private func displayDay(_ raw: String) -> String {
+func displayDay(_ raw: String) -> String {
   guard let date = parseTimestamp(raw) else { return dayKey(raw) }
   return date.formatted(.dateTime.weekday(.wide).month(.wide).day().year())
 }
 
 @MainActor
-private func displayTime(_ raw: String) -> String {
+func displayTime(_ raw: String) -> String {
   guard let date = parseTimestamp(raw) else {
     return String(raw.dropFirst(11).prefix(5))
   }
@@ -1034,7 +1063,7 @@ private func parseTimestamp(_ raw: String) -> Date? {
 }
 
 @MainActor
-private enum TimelineFormatters {
+enum TimelineFormatters {
   static let linkDetector = try? NSDataDetector(
     types: NSTextCheckingResult.CheckingType.link.rawValue)
   static let iso8601 = ISO8601DateFormatter()
