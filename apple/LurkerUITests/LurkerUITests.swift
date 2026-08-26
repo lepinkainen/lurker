@@ -122,11 +122,14 @@ final class LurkerUITests: XCTestCase {
       messageRow(containing: "backlog line #349:").exists, "older page loaded prematurely")
 
     // Scroll to the top edge; crossing the threshold triggers the older-page
-    // fetch (instant in fixtures) and merges #300–#349.
+    // fetch (instant in fixtures) and merges #300–#349. Delta size matters:
+    // the final gesture keeps coasting after the anchor restore, so a big
+    // delta (40) drags the viewport hundreds of points past the anchored row
+    // and fails the frame assert, while a tiny one (5) never reaches the top.
     let olderRow = messageRow(containing: "backlog line #349:")
     var attempts = 0
-    while !olderRow.exists && attempts < 60 {
-      timeline.scroll(byDeltaX: 0, deltaY: 40)
+    while !olderRow.exists && attempts < 150 {
+      timeline.scroll(byDeltaX: 0, deltaY: 15)
       attempts += 1
     }
     XCTAssertTrue(olderRow.waitForExistence(timeout: 2), "older page never merged")

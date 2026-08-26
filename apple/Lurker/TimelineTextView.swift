@@ -94,7 +94,7 @@
         .cursor: NSCursor.pointingHand
       ]
 
-      let scrollView = NSScrollView()
+      let scrollView = TimelineScrollView()
       scrollView.documentView = textView
       scrollView.hasVerticalScroller = true
       scrollView.drawsBackground = true
@@ -342,11 +342,25 @@
       return scrollView.documentVisibleRect.maxY >= textView.frame.maxY - 40
     }
 
-    private func scrollToBottom(animated: Bool = false) {
+    /// Forces exact (non-estimated) layout of the whole document and sizes
+    /// the text view to match. `ensureLayout(for: documentRange)` is not
+    /// enough: TextKit 2 leaves off-viewport fragment frames *estimated*, so
+    /// scroll targets computed from them land pages away and get clamped
+    /// against a stale document height. Rebuilds are rare (buffer switch,
+    /// history page); full layout of a backlog page is cheap.
+    private func forceFullLayout() {
       guard let textView, let layout = textView.textLayoutManager else { return }
-      // Full layout so the document height is exact, not estimated; rebuilds
-      // are rare (buffer switch, history page) and appends are cheap.
-      layout.ensureLayout(for: layout.documentRange)
+      layout.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { _ in true }
+      let usage = layout.usageBoundsForTextContainer
+      let height = usage.maxY + textView.textContainerInset.height * 2
+      if abs(textView.frame.height - height) > 0.5 {
+        textView.setFrameSize(NSSize(width: textView.frame.width, height: height))
+      }
+    }
+
+    private func scrollToBottom(animated: Bool = false) {
+      guard let textView else { return }
+      forceFullLayout()
       if animated {
         textView.enclosingScrollView?.contentView.animator().setBoundsOrigin(bottomOrigin())
       } else {
@@ -366,7 +380,7 @@
         let contentStorage = textView.textContentStorage,
         let index = blocks.firstIndex(where: { $0.item.anchorMessageID == messageID })
       else { return }
-      layout.ensureLayout(for: layout.documentRange)
+      forceFullLayout()
       guard
         let location = contentStorage.location(
           contentStorage.documentRange.location, offsetBy: offset(of: index)),
@@ -406,7 +420,7 @@
         let layout = textView.textLayoutManager,
         let content = textView.textContentStorage
       else { return [] }
-      layout.ensureLayout(for: layout.documentRange)
+      forceFullLayout()
       let inset = textView.textContainerInset
       var elements: [NSAccessibilityElement] = []
       var location = 0
@@ -621,6 +635,18 @@
       }
       guard !pieces.isEmpty else { return }
       Clipboard.copy(pieces.joined(separator: "\n"))
+    }
+  }
+
+  /// Overriding scrollWheel(with:) opts this scroll view out of AppKit's
+  /// asynchronous "responsive scrolling" (per the AppKit release notes).
+  /// Responsive scrolling applies wheel/momentum deltas on a concurrent pass
+  /// that overrides programmatic origin changes — the history-prepend anchor
+  /// restore must win over an in-flight gesture, or the viewport lands one
+  /// page off and can cascade extra history loads.
+  final class TimelineScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+      super.scrollWheel(with: event)
     }
   }
 
