@@ -15,8 +15,22 @@
   extension NSAttributedString.Key {
     /// Message a run belongs to; drives the context menu.
     static let lurkerMessageID = NSAttributedString.Key("lurkerMessageID")
-    /// Runs excluded from Copy (unread separator, preview placeholders).
+    /// Runs excluded from Copy (unread separator, preview cards).
     static let lurkerCopyExclude = NSAttributedString.Key("lurkerCopyExclude")
+    /// NSColor painted across the full row width by `LurkerLayoutFragment`
+    /// (mention highlight). Glyph-scoped `.backgroundColor` can't reach the
+    /// container edges.
+    static let lurkerRowHighlight = NSAttributedString.Key("lurkerRowHighlight")
+    /// NSColor of the hairline rules drawn beside a separator title (day /
+    /// unread separators) by `LurkerLayoutFragment`.
+    static let lurkerSeparatorRule = NSAttributedString.Key("lurkerSeparatorRule")
+  }
+
+  /// Everything the block builder needs besides the item itself.
+  struct TimelineRenderContext {
+    let buffer: Buffer?
+    let model: AppModel
+    var expandedGroups: Set<UUID> = []
   }
 
   /// SwiftUI shell around the text view: pins the UnreadBar above it and
@@ -73,10 +87,11 @@
       textView.minSize = .zero
       textView.maxSize = NSSize(
         width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+      // Cursor only: link *styling* stays per-run (message links are blue and
+      // underlined, the presence-summary toggle is secondary text) — a color
+      // here would repaint every .link range uniformly.
       textView.linkTextAttributes = [
-        .foregroundColor: NSColor.linkColor,
-        .underlineStyle: NSUnderlineStyle.single.rawValue,
-        .cursor: NSCursor.pointingHand,
+        .cursor: NSCursor.pointingHand
       ]
 
       let scrollView = NSScrollView()
@@ -113,7 +128,9 @@
     func updateNSView(_ container: NSView, context: Context) {
       // Reading `selectedMessages` (and, inside sync, `historyAnchor`) here
       // registers SwiftUI observation, so model mutations re-invoke this.
-      let items = timelineItems(model.selectedMessages, buffer: buffer)
+      let items = timelineItems(
+        model.selectedMessages, buffer: buffer,
+        expandedGroups: context.coordinator.expandedPresenceGroups)
       context.coordinator.sync(items: items, buffer: buffer, model: model)
     }
   }
@@ -145,6 +162,17 @@
     private var renderedFingerprint: Fingerprint?
     private(set) var buffer: Buffer?
     private(set) var model: AppModel?
+    /// Collapsed presence runs the user expanded in place (keyed by the run's
+    /// first member id). Coordinator-owned so it survives rebuilds, unlike the
+    /// iOS DisclosureGroup's @State. Cleared on buffer switch.
+    private(set) var expandedPresenceGroups: Set<UUID> = []
+    private var avatarLoadsInFlight: Set<URL> = []
+
+    private var renderContext: TimelineRenderContext? {
+      guard let model else { return nil }
+      return TimelineRenderContext(
+        buffer: buffer, model: model, expandedGroups: expandedPresenceGroups)
+    }
 
     func install(
       textView: TimelineNSTextView, scrollView: NSScrollView, axHost: TimelineAXHostView
@@ -153,6 +181,8 @@
       self.scrollView = scrollView
       self.axHost = axHost
       textView.coordinator = self
+      textView.delegate = self
+      textView.textLayoutManager?.delegate = self
       axHost.coordinator = self
       NotificationCenter.default.addObserver(
         self,
@@ -172,11 +202,13 @@
       }
 
       if buffer.id != renderedBufferID || fingerprint != renderedFingerprint {
+        if buffer.id != renderedBufferID { expandedPresenceGroups = [] }
         rebuild(items)
         scrollToBottom()
         // An anchor addressed to another buffer is stale: drop it without
         // scrolling rather than leaving it to block further load-older calls.
         consumeAnchor(model, ownedBy: nil)
+        kickAvatarLoads(items)
         return
       }
 
@@ -204,15 +236,28 @@
           if pinned { scrollToBottom(animated: true) }
         }
       }
+      kickAvatarLoads(items)
+    }
+
+    /// Re-derives the item list from the current model state (used after a
+    /// coordinator-owned state change like a presence-group toggle, where no
+    /// model mutation will re-invoke updateNSView).
+    private func resyncFromModel() {
+      guard let model, let buffer else { return }
+      let items = timelineItems(
+        model.selectedMessages, buffer: buffer, expandedGroups: expandedPresenceGroups)
+      sync(items: items, buffer: buffer, model: model)
     }
 
     // MARK: Storage edits
 
     private func rebuild(_ items: [TimelineItem]) {
-      guard let textView, let storage = textView.textStorage else { return }
+      guard let textView, let storage = textView.textStorage, let context = renderContext else {
+        return
+      }
       let document = NSMutableAttributedString()
       blocks = items.map { item in
-        let block = timelineBlockText(item, buffer: buffer)
+        let block = timelineBlockText(item, context: context)
         document.append(block)
         return RenderedBlock(item: item, length: block.length)
       }
@@ -220,8 +265,10 @@
     }
 
     private func replaceBlock(at index: Int, with item: TimelineItem) {
-      guard let textView, let storage = textView.textStorage else { return }
-      let block = timelineBlockText(item, buffer: buffer)
+      guard let textView, let storage = textView.textStorage, let context = renderContext else {
+        return
+      }
+      let block = timelineBlockText(item, context: context)
       let range = NSRange(location: offset(of: index), length: blocks[index].length)
       textView.textContentStorage?.performEditingTransaction {
         storage.replaceCharacters(in: range, with: block)
@@ -230,15 +277,55 @@
     }
 
     private func appendBlocks(_ items: ArraySlice<TimelineItem>) {
-      guard let textView, let storage = textView.textStorage else { return }
+      guard let textView, let storage = textView.textStorage, let context = renderContext else {
+        return
+      }
       let appended = NSMutableAttributedString()
       for item in items {
-        let block = timelineBlockText(item, buffer: buffer)
+        let block = timelineBlockText(item, context: context)
         appended.append(block)
         blocks.append(RenderedBlock(item: item, length: block.length))
       }
       textView.textContentStorage?.performEditingTransaction {
         storage.append(appended)
+      }
+    }
+
+    // MARK: Avatars
+
+    /// Fires cache-filling fetches for avatars the block builder had to
+    /// render as identicons, then re-renders those senders' rows when the
+    /// image lands. Loads are deduplicated by URL across syncs.
+    private func kickAvatarLoads(_ items: [TimelineItem]) {
+      guard let model, let buffer else { return }
+      var pending: [URL: String] = [:]
+      for item in items {
+        guard case .message(let message) = item,
+          message.displayKind != "sys",
+          model.hasAvatar(message.sender),
+          let url = model.avatarURL(networkID: message.networkID, nick: message.sender),
+          ImageCache.shared.cached(for: url) == nil
+        else { continue }
+        pending[url] = message.sender
+      }
+      let bufferID = buffer.id
+      for (url, nick) in pending where !avatarLoadsInFlight.contains(url) {
+        avatarLoadsInFlight.insert(url)
+        Task { @MainActor [weak self] in
+          _ = await ImageCache.shared.image(for: url)
+          guard let self else { return }
+          self.avatarLoadsInFlight.remove(url)
+          self.avatarLoaded(nick: nick, bufferID: bufferID)
+        }
+      }
+    }
+
+    private func avatarLoaded(nick: String, bufferID: UUID) {
+      guard buffer?.id == bufferID else { return }
+      for (index, block) in blocks.enumerated() {
+        if case .message(let message) = block.item, message.sender == nick {
+          replaceBlock(at: index, with: block.item)
+        }
       }
     }
 
@@ -398,6 +485,74 @@
     @objc func unmuteSender(_ sender: NSMenuItem) {
       guard let message = sender.representedObject as? Message else { return }
       model?.unmute(nick: message.sender, in: message.networkID)
+    }
+  }
+
+  extension TimelineCoordinator: NSTextViewDelegate {
+    /// Internal lurker-presence:// links toggle a collapsed presence run's
+    /// in-place expansion; real URLs fall through to the default opener.
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+      guard let url = link as? URL,
+        url.scheme == "lurker-presence",
+        let id = (url.host()).flatMap(UUID.init(uuidString:))
+      else { return false }
+      expandedPresenceGroups.formSymmetricDifference([id])
+      resyncFromModel()
+      return true
+    }
+  }
+
+  extension TimelineCoordinator: @preconcurrency NSTextLayoutManagerDelegate {
+    /// Paragraphs tagged with a full-row highlight or separator rules render
+    /// through `LurkerLayoutFragment`, which draws behind/around the text.
+    func textLayoutManager(
+      _ textLayoutManager: NSTextLayoutManager,
+      textLayoutFragmentFor location: NSTextLocation,
+      in textElement: NSTextElement
+    ) -> NSTextLayoutFragment {
+      if let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0 {
+        let attributes = paragraph.attributedString.attributes(at: 0, effectiveRange: nil)
+        let highlight = attributes[.lurkerRowHighlight] as? NSColor
+        let rule = attributes[.lurkerSeparatorRule] as? NSColor
+        if highlight != nil || rule != nil {
+          let fragment = LurkerLayoutFragment(
+            textElement: textElement, range: textElement.elementRange)
+          fragment.rowHighlight = highlight
+          fragment.separatorRule = rule
+          return fragment
+        }
+      }
+      return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+    }
+  }
+
+  /// Custom drawing behind/around a paragraph: full-container-width mention
+  /// highlight, and the hairline rules flanking a centered separator title.
+  final class LurkerLayoutFragment: NSTextLayoutFragment {
+    var rowHighlight: NSColor?
+    var separatorRule: NSColor?
+
+    override func draw(at point: CGPoint, in context: CGContext) {
+      context.saveGState()
+      if let rowHighlight {
+        context.setFillColor(rowHighlight.cgColor)
+        context.fill(CGRect(origin: point, size: layoutFragmentFrame.size))
+      }
+      if let separatorRule, let line = textLineFragments.first {
+        let bounds = line.typographicBounds
+        let y = point.y + layoutFragmentFrame.height / 2
+        let inset: CGFloat = 12
+        let gap: CGFloat = 8
+        context.setStrokeColor(separatorRule.cgColor)
+        context.setLineWidth(1)
+        context.move(to: CGPoint(x: point.x + inset, y: y))
+        context.addLine(to: CGPoint(x: point.x + bounds.minX - gap, y: y))
+        context.move(to: CGPoint(x: point.x + bounds.maxX + gap, y: y))
+        context.addLine(to: CGPoint(x: point.x + layoutFragmentFrame.width - inset, y: y))
+        context.strokePath()
+      }
+      context.restoreGState()
+      super.draw(at: point, in: context)
     }
   }
 
@@ -617,38 +772,54 @@
   /// Renders one `TimelineItem` as an attributed paragraph (or several, for a
   /// message with previews). Every block ends in exactly one "\n".
   @MainActor
-  func timelineBlockText(_ item: TimelineItem, buffer: Buffer?) -> NSAttributedString {
+  func timelineBlockText(
+    _ item: TimelineItem, context: TimelineRenderContext
+  ) -> NSAttributedString {
     switch item {
     case .day(_, let title):
       return separatorLine(
-        title, color: .secondaryLabelColor, style: RowStyles.centered,
-        weight: .medium)
+        title, color: .secondaryLabelColor, rule: .separatorColor,
+        style: RowStyles.centered, weight: .medium)
     case .unread:
       let line = separatorLine(
-        "New Messages", color: .systemOrange, style: RowStyles.unread,
-        weight: .semibold)
+        "New Messages", color: .systemOrange,
+        rule: NSColor.systemOrange.withAlphaComponent(0.35),
+        style: RowStyles.unread, weight: .semibold)
       let excluded = NSMutableAttributedString(attributedString: line)
       excluded.addAttribute(
         .lurkerCopyExclude, value: true,
         range: NSRange(location: 0, length: excluded.length))
       return excluded
-    case .presence(_, let messages):
+    case .presence(let id, let messages):
+      let expanded = context.expandedGroups.contains(id)
+      let arrow = expanded ? "▾" : "▸"
       let text = NSMutableAttributedString(
-        string: presenceSummaryText(messages) + "\n",
+        string: "\(arrow) \(presenceSummaryText(messages))",
         attributes: [
           .font: TimelineNSFonts.presenceSummary,
           .foregroundColor: NSColor.secondaryLabelColor,
           .paragraphStyle: RowStyles.indented,
+          // Internal toggle link: activation + hand cursor for free; styling
+          // stays secondary because linkTextAttributes only sets the cursor.
+          .link: URL(string: "lurker-presence://\(id.uuidString)")!,
         ])
+      text.append(
+        NSAttributedString(
+          string: "\n",
+          attributes: [
+            .font: TimelineNSFonts.presenceSummary,
+            .paragraphStyle: RowStyles.indented,
+          ]))
       return text
     case .message(let message):
-      return messageBlock(message, buffer: buffer)
+      return messageBlock(message, context: context)
     }
   }
 
   @MainActor
   private func separatorLine(
-    _ title: String, color: NSColor, style: NSParagraphStyle, weight: NSFont.Weight
+    _ title: String, color: NSColor, rule: NSColor, style: NSParagraphStyle,
+    weight: NSFont.Weight
   ) -> NSAttributedString {
     NSAttributedString(
       string: title + "\n",
@@ -656,11 +827,14 @@
         .font: TimelineNSFonts.footnote(weight),
         .foregroundColor: color,
         .paragraphStyle: style,
+        .lurkerSeparatorRule: rule,
       ])
   }
 
   @MainActor
-  private func messageBlock(_ message: Message, buffer: Buffer?) -> NSAttributedString {
+  private func messageBlock(
+    _ message: Message, context: TimelineRenderContext
+  ) -> NSAttributedString {
     let block = NSMutableAttributedString()
     let time = displayTime(message.ts)
 
@@ -675,16 +849,20 @@
 
     if message.displayKind == "sys" {
       block.append(
+        systemIconAttachment(for: message, font: TimelineNSFonts.message))
+      block.append(
         NSAttributedString(
-          string: systemMessageText(message),
+          string: " " + systemMessageText(message),
           attributes: [
             .font: TimelineNSFonts.message,
             .foregroundColor: NSColor.secondaryLabelColor,
             .paragraphStyle: RowStyles.message,
           ]))
     } else {
+      let nickFont = TimelineNSFonts.nick(isSelf: message.isSelf == true)
+      block.append(avatarRun(for: message, model: context.model, font: nickFont))
       var nickAttributes: [NSAttributedString.Key: Any] = [
-        .font: TimelineNSFonts.nick(isSelf: message.isSelf == true),
+        .font: nickFont,
         .foregroundColor: NSColor(nickPaletteColor(message.senderColor)),
         .paragraphStyle: RowStyles.message,
         .toolTip: message.userhost ?? message.sender,
@@ -715,22 +893,22 @@
         string: "\n",
         attributes: [.font: TimelineNSFonts.message, .paragraphStyle: RowStyles.message]))
 
-    if message.mentionsMe == true || message.highlight == true {
-      // ponytail: glyph-only tint; full-row width needs a custom
-      // NSTextLayoutFragment, planned with the rich-content pass.
-      block.addAttribute(
-        .backgroundColor, value: NSColor.systemOrange.withAlphaComponent(0.10),
-        range: NSRange(location: 0, length: block.length))
-    }
-
-    // Interim preview rendering: one link line per preview until the
-    // attachment-based cards land. Excluded from Copy — the raw URL is
-    // already in the message text.
-    if buffer?.showEmbeds != false {
+    // Preview cards render as their own attachment paragraphs inside the same
+    // block, so a `.preview` event is a plain block replacement. Excluded from
+    // Copy — the raw URL is already in the message text.
+    if context.buffer?.showEmbeds != false {
       for preview in message.previews ?? []
       where preview.kind == "image" || preview.kind == "opengraph" {
-        block.append(previewLine(preview))
+        block.append(previewParagraph(preview, model: context.model))
       }
+    }
+
+    if message.mentionsMe == true || message.highlight == true {
+      // Painted at full container width by LurkerLayoutFragment; covers the
+      // preview paragraphs too, like the SwiftUI row background did.
+      block.addAttribute(
+        .lurkerRowHighlight, value: NSColor.systemOrange.withAlphaComponent(0.10),
+        range: NSRange(location: 0, length: block.length))
     }
 
     block.addAttribute(
@@ -739,28 +917,268 @@
     return block
   }
 
+  /// 14×14 avatar square before the nick (bot glyph / server avatar /
+  /// identicon), aligned like the SwiftUI row's firstTextBaseline guide.
   @MainActor
-  private func previewLine(_ preview: Preview) -> NSAttributedString {
-    let title = preview.title ?? preview.siteName ?? preview.url
-    var attributes: [NSAttributedString.Key: Any] = [
-      .font: TimelineNSFonts.footnote(.regular),
-      .foregroundColor: NSColor.linkColor,
-      .paragraphStyle: RowStyles.indented,
-      .lurkerCopyExclude: true,
-    ]
-    if let url = URL(string: preview.url) {
-      attributes[.link] = url
+  private func avatarRun(for message: Message, model: AppModel, font: NSFont) -> NSAttributedString
+  {
+    if model.isBot(message.sender) {
+      return NSAttributedString(
+        string: "🤖 ",
+        attributes: [.font: font, .paragraphStyle: RowStyles.message])
     }
-    let line = NSMutableAttributedString(string: "↗ \(title)", attributes: attributes)
-    line.append(
-      NSAttributedString(
-        string: "\n",
-        attributes: [
-          .font: TimelineNSFonts.footnote(.regular),
-          .paragraphStyle: RowStyles.indented,
-          .lurkerCopyExclude: true,
-        ]))
-    return line
+    let image: NSImage
+    if model.hasAvatar(message.sender),
+      let url = model.avatarURL(networkID: message.networkID, nick: message.sender),
+      let cached = ImageCache.shared.cached(for: url)
+    {
+      image = AvatarImages.rounded(cached, cacheKey: url.absoluteString)
+    } else {
+      // Identicon now; `kickAvatarLoads` re-renders the row if a server
+      // avatar arrives later.
+      image = AvatarImages.identicon(nick: message.sender, colorIndex: message.senderColor)
+    }
+    let attachment = NSTextAttachment()
+    attachment.image = image
+    let size: CGFloat = 14
+    attachment.bounds = CGRect(
+      x: 0, y: (font.capHeight - size) / 2, width: size, height: size)
+    let run = NSMutableAttributedString(attachment: attachment)
+    run.append(NSAttributedString(string: " ", attributes: [.font: font]))
+    run.addAttribute(
+      .paragraphStyle, value: RowStyles.message, range: NSRange(location: 0, length: run.length))
+    return run
+  }
+
+  @MainActor
+  private func systemIconAttachment(for message: Message, font: NSFont) -> NSAttributedString {
+    let attachment = NSTextAttachment()
+    let size: CGFloat = 12
+    attachment.image = AvatarImages.symbol(
+      systemMessageSymbol(message), pointSize: size, color: .secondaryLabelColor)
+    attachment.bounds = CGRect(
+      x: 0, y: (font.capHeight - size) / 2, width: size, height: size)
+    let run = NSMutableAttributedString(attachment: attachment)
+    run.addAttribute(
+      .paragraphStyle, value: RowStyles.message, range: NSRange(location: 0, length: run.length))
+    return run
+  }
+
+  /// One paragraph per preview: a live SwiftUI card hosted through
+  /// `NSTextAttachmentViewProvider`.
+  @MainActor
+  private func previewParagraph(_ preview: Preview, model: AppModel) -> NSAttributedString {
+    let attachment = PreviewTextAttachment(preview: preview, model: model)
+    let paragraph = NSMutableAttributedString(attachment: attachment)
+    paragraph.append(NSAttributedString(string: "\n"))
+    paragraph.addAttributes(
+      [
+        .paragraphStyle: RowStyles.indented,
+        .font: TimelineNSFonts.message,
+        .lurkerCopyExclude: true,
+      ], range: NSRange(location: 0, length: paragraph.length))
+    return paragraph
+  }
+
+  // MARK: - Avatar / symbol bitmaps
+
+  /// Cached NSImage renderings for inline attachments. All images use
+  /// drawing-handler blocks, so dynamic colors resolve at draw time and adapt
+  /// to appearance changes without cache invalidation.
+  @MainActor
+  private enum AvatarImages {
+    private static let identicons = NSCache<NSString, NSImage>()
+    private static let avatars = NSCache<NSString, NSImage>()
+    private static let symbols = NSCache<NSString, NSImage>()
+
+    static func identicon(nick: String, colorIndex: Int?, size: CGFloat = 14) -> NSImage {
+      let key = "\(nick)#\(colorIndex ?? -1)" as NSString
+      if let hit = identicons.object(forKey: key) { return hit }
+      let rows = nickIdenticonRows(nick)
+      let color = NSColor(nickPaletteColor(colorIndex))
+      let image = NSImage(
+        size: NSSize(width: size, height: size), flipped: true
+      ) { _ in
+        NSBezierPath(
+          roundedRect: NSRect(x: 0, y: 0, width: size, height: size), xRadius: 2, yRadius: 2
+        ).addClip()
+        let cell = size / 5
+        color.setFill()
+        for (y, row) in rows.enumerated() {
+          for (x, on) in row.enumerated() where on {
+            NSRect(x: CGFloat(x) * cell, y: CGFloat(y) * cell, width: cell, height: cell).fill()
+          }
+        }
+        return true
+      }
+      identicons.setObject(image, forKey: key)
+      return image
+    }
+
+    /// Rounded-rect scaledToFill crop of a fetched avatar, mirroring
+    /// NickAvatar's clipShape.
+    static func rounded(_ source: NSImage, cacheKey: String, size: CGFloat = 14) -> NSImage {
+      let key = cacheKey as NSString
+      if let hit = avatars.object(forKey: key) { return hit }
+      let image = NSImage(
+        size: NSSize(width: size, height: size), flipped: false
+      ) { rect in
+        NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).addClip()
+        let sourceSize = source.size
+        guard sourceSize.width > 0, sourceSize.height > 0 else { return true }
+        let scale = max(size / sourceSize.width, size / sourceSize.height)
+        let drawSize = NSSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
+        let origin = NSPoint(x: (size - drawSize.width) / 2, y: (size - drawSize.height) / 2)
+        source.draw(
+          in: NSRect(origin: origin, size: drawSize), from: .zero, operation: .sourceOver,
+          fraction: 1)
+        return true
+      }
+      avatars.setObject(image, forKey: key)
+      return image
+    }
+
+    /// SF Symbol tinted for attributed-string use (attachment images don't
+    /// pick up .foregroundColor on macOS).
+    static func symbol(_ name: String, pointSize: CGFloat, color: NSColor) -> NSImage {
+      let key = "\(name)#\(pointSize)" as NSString
+      if let hit = symbols.object(forKey: key) { return hit }
+      let image = NSImage(
+        size: NSSize(width: pointSize, height: pointSize), flipped: false
+      ) { rect in
+        guard
+          let base = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: pointSize, weight: .regular))
+        else { return true }
+        base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+        color.set()
+        rect.fill(using: .sourceAtop)
+        return true
+      }
+      symbols.setObject(image, forKey: key)
+      return image
+    }
+  }
+
+  // MARK: - Preview attachments
+
+  /// Attachment whose view is the shared SwiftUI `PreviewCard` (OpenGraph
+  /// card or inline image) hosted in an NSHostingView.
+  final class PreviewTextAttachment: NSTextAttachment {
+    let preview: Preview
+    let model: AppModel
+
+    init(preview: Preview, model: AppModel) {
+      self.preview = preview
+      self.model = model
+      super.init(data: nil, ofType: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+      fatalError("not decodable")
+    }
+
+    override func viewProvider(
+      for parentView: NSView?, location: NSTextLocation, textContainer: NSTextContainer?
+    ) -> NSTextAttachmentViewProvider? {
+      let provider = PreviewAttachmentViewProvider(
+        textAttachment: self, parentView: parentView,
+        textLayoutManager: textContainer?.textLayoutManager, location: location)
+      provider.tracksTextAttachmentViewBounds = true
+      return provider
+    }
+  }
+
+  /// An inline image growing from its placeholder to the loaded bitmap is the
+  /// one post-insertion size change; this relay invalidates layout so TextKit
+  /// re-queries attachmentBounds. Guarded against invalidation loops. A
+  /// MainActor class so the hosted SwiftUI view can hold it across the
+  /// Sendable boundary into NSHostingView.
+  @MainActor
+  final class PreviewAttachmentResizeRelay {
+    weak var layoutManager: NSTextLayoutManager?
+    weak var hostView: NSView?
+    var location: NSTextLocation?
+    private var lastSize: CGSize = .zero
+
+    func fire() {
+      guard let hostView else { return }
+      let size = hostView.fittingSize
+      guard size != lastSize, lastSize != .zero else {
+        lastSize = size
+        return
+      }
+      lastSize = size
+      if let location {
+        layoutManager?.invalidateLayout(for: NSTextRange(location: location))
+      }
+    }
+  }
+
+  final class PreviewAttachmentViewProvider: NSTextAttachmentViewProvider {
+    private weak var layoutManager: NSTextLayoutManager?
+
+    override init(
+      textAttachment: NSTextAttachment, parentView: NSView?,
+      textLayoutManager: NSTextLayoutManager?, location: NSTextLocation
+    ) {
+      self.layoutManager = textLayoutManager
+      super.init(
+        textAttachment: textAttachment, parentView: parentView,
+        textLayoutManager: textLayoutManager, location: location)
+    }
+
+    // NSTextAttachmentViewProvider's overrides are declared nonisolated, but
+    // TextKit view hosting always calls them on the main thread — hence the
+    // assumeIsolated + unsafe self smuggling (assumeIsolated traps off-main,
+    // so a wrong assumption fails loudly, not racily).
+
+    override func loadView() {
+      nonisolated(unsafe) let unsafeSelf = self
+      MainActor.assumeIsolated {
+        guard let attachment = unsafeSelf.textAttachment as? PreviewTextAttachment else { return }
+        let relay = PreviewAttachmentResizeRelay()
+        relay.layoutManager = unsafeSelf.layoutManager
+        relay.location = unsafeSelf.location
+        let host = NSHostingView(
+          rootView: PreviewAttachmentRoot(
+            preview: attachment.preview, model: attachment.model, relay: relay))
+        relay.hostView = host
+        host.sizingOptions = [.intrinsicContentSize]
+        unsafeSelf.view = host
+      }
+    }
+
+    override func attachmentBounds(
+      for attributes: [NSAttributedString.Key: Any], location: NSTextLocation,
+      textContainer: NSTextContainer?, proposedLineFragment: CGRect, position: CGPoint
+    ) -> CGRect {
+      nonisolated(unsafe) let unsafeSelf = self
+      return MainActor.assumeIsolated {
+        unsafeSelf.view?.layoutSubtreeIfNeeded()
+        var size = unsafeSelf.view?.fittingSize ?? .zero
+        let available = proposedLineFragment.width - RowMetrics.contentLeft - RowMetrics.inset
+        if available > 50 { size.width = min(size.width, available) }
+        return CGRect(origin: .zero, size: size)
+      }
+    }
+  }
+
+  /// Hosted SwiftUI root for a preview attachment: the shared PreviewCard
+  /// plus a geometry probe that tells the relay when the content resized.
+  private struct PreviewAttachmentRoot: View {
+    let preview: Preview
+    let model: AppModel
+    let relay: PreviewAttachmentResizeRelay
+
+    var body: some View {
+      PreviewCard(preview: preview)
+        .environment(model)
+        .onGeometryChange(for: CGSize.self, of: \.size) { _ in
+          MainActor.assumeIsolated { relay.fire() }
+        }
+    }
   }
 
   /// NSAttributedString mirror of `attributedBody` (ConversationView.swift):

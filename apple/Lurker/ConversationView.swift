@@ -235,9 +235,13 @@ private struct TimelineView: View {
 /// Derives the renderable timeline (day separators, unread separator, presence
 /// grouping) from the visible message list. Shared by the iOS SwiftUI timeline
 /// and the macOS NSTextView coordinator so the grouping rules stay
-/// single-sourced.
+/// single-sourced. `expandedGroups` (macOS) lists collapsed presence runs the
+/// user expanded in place: those emit their member rows after the summary. The
+/// iOS DisclosureGroup manages its own expansion and passes nothing.
 @MainActor
-func timelineItems(_ messages: [Message], buffer: Buffer) -> [TimelineItem] {
+func timelineItems(
+  _ messages: [Message], buffer: Buffer, expandedGroups: Set<UUID> = []
+) -> [TimelineItem] {
   var result: [TimelineItem] = []
   var lastDay: String?
   var presence: [Message] = []
@@ -246,6 +250,9 @@ func timelineItems(_ messages: [Message], buffer: Buffer) -> [TimelineItem] {
     guard !presence.isEmpty else { return }
     if buffer.collapsePresenceEvents, presence.count > 1 {
       result.append(.presence(presence[0].id, presence))
+      if expandedGroups.contains(presence[0].id) {
+        result.append(contentsOf: presence.map(TimelineItem.message))
+      }
     } else {
       result.append(contentsOf: presence.map(TimelineItem.message))
     }
@@ -603,7 +610,7 @@ func systemMessageText(_ message: Message) -> String {
   }
 }
 
-private struct PreviewCard: View {
+struct PreviewCard: View {
   @Environment(AppModel.self) private var model
   let preview: Preview
 
@@ -676,7 +683,7 @@ private struct PreviewCard: View {
 
 /// Full inline rendering for kind == "image" previews: the preview URL is
 /// the image (web parity: renderImagePreview, max 480×320, contain-fit).
-private struct InlineImageView: View {
+struct InlineImageView: View {
   let url: URL
 
   var body: some View {

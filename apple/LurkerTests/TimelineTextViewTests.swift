@@ -154,37 +154,52 @@ import Testing
     }
   }
 
+  @MainActor
+  private func makeContext(
+    buffer: Buffer? = nil, expandedGroups: Set<UUID> = []
+  ) -> TimelineRenderContext {
+    let defaults = UserDefaults(suiteName: "xyz.endymion.lurker.tests.\(UUID().uuidString)")!
+    let model = AppModel(transport: FixtureTransport(), defaults: defaults)
+    return TimelineRenderContext(
+      buffer: buffer ?? makeBuffer(), model: model, expandedGroups: expandedGroups)
+  }
+
   struct TimelineBlockTests {
     @Test @MainActor func messageBlockCarriesGutterNickBodyAndID() {
       let message = makeMessage(content: "hello world")
-      let block = timelineBlockText(.message(message), buffer: makeBuffer())
+      let block = timelineBlockText(.message(message), context: makeContext())
       #expect(block.string.hasSuffix("tove hello world\n"))
       #expect(block.string.hasPrefix("\t"))
       let id = block.attribute(.lurkerMessageID, at: 0, effectiveRange: nil) as? String
       #expect(id == message.id.uuidString)
     }
 
-    @Test @MainActor func unreadSeparatorIsExcludedFromCopy() {
-      let block = timelineBlockText(.unread("unread-x"), buffer: makeBuffer())
+    @Test @MainActor func unreadSeparatorIsExcludedFromCopyAndCarriesRule() {
+      let block = timelineBlockText(.unread("unread-x"), context: makeContext())
       #expect(block.string == "New Messages\n")
-      let excluded = block.attribute(.lurkerCopyExclude, at: 0, effectiveRange: nil)
-      #expect(excluded != nil)
+      #expect(block.attribute(.lurkerCopyExclude, at: 0, effectiveRange: nil) != nil)
+      #expect(block.attribute(.lurkerSeparatorRule, at: 0, effectiveRange: nil) is NSColor)
     }
 
-    @Test @MainActor func previewsRenderAsExcludedLinkLines() {
+    @Test @MainActor func previewsRenderAsExcludedAttachmentParagraphs() {
       let message = makeMessage(
         content: "see https://example.com",
         previews: [
           Lurker.Preview(url: "https://example.com", kind: "opengraph", title: "Example Site")
         ]
       )
-      let block = timelineBlockText(.message(message), buffer: makeBuffer())
-      #expect(block.string.contains("↗ Example Site"))
-      let previewStart = (block.string as NSString).range(of: "↗").location
-      let excluded = block.attribute(.lurkerCopyExclude, at: previewStart, effectiveRange: nil)
-      #expect(excluded != nil)
-      let link = block.attribute(.link, at: previewStart, effectiveRange: nil) as? URL
-      #expect(link?.absoluteString == "https://example.com")
+      let block = timelineBlockText(.message(message), context: makeContext())
+      var attachments: [PreviewTextAttachment] = []
+      block.enumerateAttribute(
+        .attachment, in: NSRange(location: 0, length: block.length)
+      ) { value, range, _ in
+        if let attachment = value as? PreviewTextAttachment {
+          attachments.append(attachment)
+          #expect(
+            block.attribute(.lurkerCopyExclude, at: range.location, effectiveRange: nil) != nil)
+        }
+      }
+      #expect(attachments.map(\.preview.url) == ["https://example.com"])
     }
 
     @Test @MainActor func embedsHiddenWhenBufferDisablesThem() {
@@ -196,8 +211,51 @@ import Testing
           Lurker.Preview(url: "https://example.com", kind: "opengraph", title: "Example Site")
         ]
       )
-      let block = timelineBlockText(.message(message), buffer: buffer)
-      #expect(!block.string.contains("↗"))
+      let block = timelineBlockText(.message(message), context: makeContext(buffer: buffer))
+      var found = false
+      block.enumerateAttribute(
+        .attachment, in: NSRange(location: 0, length: block.length)
+      ) { value, _, _ in
+        if value is PreviewTextAttachment { found = true }
+      }
+      #expect(!found)
+    }
+
+    @Test @MainActor func mentionRowsCarryTheFullWidthHighlightTag() {
+      var message = makeMessage(content: "hey shrike")
+      message.mentionsMe = true
+      let block = timelineBlockText(.message(message), context: makeContext())
+      #expect(block.attribute(.lurkerRowHighlight, at: 0, effectiveRange: nil) is NSColor)
+    }
+
+    @Test @MainActor func presenceSummaryTogglesArrowAndCarriesInternalLink() {
+      let join1 = makeMessage(sender: "a", kind: "join", content: "", displayKind: "sys")
+      let join2 = makeMessage(sender: "b", kind: "join", content: "", displayKind: "sys")
+      let item = TimelineItem.presence(join1.id, [join1, join2])
+
+      let collapsed = timelineBlockText(item, context: makeContext())
+      #expect(collapsed.string.hasPrefix("▸ "))
+      let link = collapsed.attribute(.link, at: 0, effectiveRange: nil) as? URL
+      #expect(link?.scheme == "lurker-presence")
+      #expect(link?.host()?.lowercased() == join1.id.uuidString.lowercased())
+
+      let expanded = timelineBlockText(
+        item, context: makeContext(expandedGroups: [join1.id]))
+      #expect(expanded.string.hasPrefix("▾ "))
+    }
+
+    @Test @MainActor func expandedPresenceGroupEmitsMemberRows() {
+      let join1 = makeMessage(sender: "a", kind: "join", content: "", displayKind: "sys")
+      let join2 = makeMessage(sender: "b", kind: "join", content: "", displayKind: "sys")
+      let buffer = makeBuffer(collapsePresence: true)
+
+      let collapsed = timelineItems([join1, join2], buffer: buffer)
+      #expect(collapsed.count == 2)  // day separator + summary
+
+      let expanded = timelineItems([join1, join2], buffer: buffer, expandedGroups: [join1.id])
+      #expect(expanded.count == 4)  // day + summary + two member rows
+      #expect(expanded[2] == .message(join1))
+      #expect(expanded[3] == .message(join2))
     }
   }
 
