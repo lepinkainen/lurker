@@ -53,7 +53,7 @@
       TimelineCoordinator()
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> NSView {
       let textView = TimelineNSTextView(usingTextLayoutManager: true)
       textView.isEditable = false
       textView.isSelectable = true
@@ -86,11 +86,31 @@
       scrollView.backgroundColor = .textBackgroundColor
       scrollView.contentView.postsBoundsChangedNotifications = true
 
-      context.coordinator.install(textView: textView, scrollView: scrollView)
-      return scrollView
+      // NSTextView's legacy accessibility machinery ignores a subclass's
+      // modern accessibilityChildren() override, so per-message AX rows live
+      // on a transparent sibling host view instead.
+      let container = NSView()
+      let axHost = TimelineAXHostView()
+      scrollView.translatesAutoresizingMaskIntoConstraints = false
+      axHost.translatesAutoresizingMaskIntoConstraints = false
+      container.addSubview(scrollView)
+      container.addSubview(axHost)
+      NSLayoutConstraint.activate([
+        scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+        scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        axHost.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        axHost.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        axHost.topAnchor.constraint(equalTo: container.topAnchor),
+        axHost.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+      ])
+
+      context.coordinator.install(textView: textView, scrollView: scrollView, axHost: axHost)
+      return container
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ container: NSView, context: Context) {
       // Reading `selectedMessages` (and, inside sync, `historyAnchor`) here
       // registers SwiftUI observation, so model mutations re-invoke this.
       let items = timelineItems(model.selectedMessages, buffer: buffer)
@@ -115,16 +135,25 @@
 
     private weak var textView: TimelineNSTextView?
     private weak var scrollView: NSScrollView?
+    private weak var axHost: TimelineAXHostView?
+    // AX clients hold opaque tokens into these objects and resolve them
+    // later; without a strong reference here the elements deallocate between
+    // the children query and the attribute fetch and get pruned.
+    private var axRowElements: [NSAccessibilityElement] = []
     private var blocks: [RenderedBlock] = []
     private var renderedBufferID: UUID?
     private var renderedFingerprint: Fingerprint?
     private(set) var buffer: Buffer?
     private(set) var model: AppModel?
 
-    func install(textView: TimelineNSTextView, scrollView: NSScrollView) {
+    func install(
+      textView: TimelineNSTextView, scrollView: NSScrollView, axHost: TimelineAXHostView
+    ) {
       self.textView = textView
       self.scrollView = scrollView
+      self.axHost = axHost
       textView.coordinator = self
+      axHost.coordinator = self
       NotificationCenter.default.addObserver(
         self,
         selector: #selector(clipViewBoundsChanged),
@@ -279,6 +308,54 @@
       }
     }
 
+    // MARK: Accessibility
+
+    /// One AX element per message block, restoring the SwiftUI timeline's
+    /// contract: label "<sender>, <time>, <content>" with the row's on-screen
+    /// frame. Elements are rebuilt on every call — accessibility queries are
+    /// rare and the layout is the source of truth for frames.
+    func accessibilityRows() -> [NSAccessibilityElement] {
+      guard let textView, let axHost,
+        let layout = textView.textLayoutManager,
+        let content = textView.textContentStorage
+      else { return [] }
+      layout.ensureLayout(for: layout.documentRange)
+      let inset = textView.textContainerInset
+      var elements: [NSAccessibilityElement] = []
+      var location = 0
+      for block in blocks {
+        defer { location += block.length }
+        guard case .message(let message) = block.item else { continue }
+        guard
+          let start = content.location(
+            content.documentRange.location, offsetBy: location),
+          let end = content.location(start, offsetBy: block.length),
+          let range = NSTextRange(location: start, end: end)
+        else { continue }
+        var rect = CGRect.null
+        layout.enumerateTextSegments(in: range, type: .standard, options: []) {
+          _, frame, _, _ in
+          rect = rect.union(frame)
+          return true
+        }
+        guard !rect.isNull else { continue }
+        // Fragment frames are container coordinates; the view adds the inset.
+        // convert(_:to:) resolves scrolling and flippedness into the host's
+        // space, which is what accessibilityFrameInParentSpace expects.
+        let inView = rect.offsetBy(dx: inset.width, dy: inset.height)
+        let parentSpace = textView.convert(inView, to: axHost)
+        let label = "\(message.sender), \(displayTime(message.ts)), \(message.content)"
+        let element =
+          NSAccessibilityElement.element(
+            withRole: .staticText, frame: .zero, label: label, parent: axHost)
+          as! NSAccessibilityElement
+        element.setAccessibilityFrameInParentSpace(parentSpace)
+        elements.append(element)
+      }
+      axRowElements = elements
+      return elements
+    }
+
     // MARK: Interactions
 
     func message(atCharacterIndex index: Int) -> Message? {
@@ -389,6 +466,33 @@
       }
       guard !pieces.isEmpty else { return }
       Clipboard.copy(pieces.joined(separator: "\n"))
+    }
+  }
+
+  /// Transparent overlay whose only job is exposing per-message AX rows —
+  /// NSTextView's legacy accessibility path ignores subclass overrides of the
+  /// modern accessibilityChildren(), a plain NSView honors them. Never
+  /// intercepts events.
+  final class TimelineAXHostView: NSView {
+    weak var coordinator: TimelineCoordinator?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+      nil
+    }
+
+    override func isAccessibilityElement() -> Bool {
+      // A real element (not an ignored pass-through view): ignored views'
+      // custom accessibilityChildren are dropped from the AX tree entirely.
+      true
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? {
+      .group
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+      let rows = coordinator?.accessibilityRows() ?? []
+      return rows.isEmpty ? super.accessibilityChildren() : rows
     }
   }
 

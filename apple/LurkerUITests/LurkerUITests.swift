@@ -25,14 +25,11 @@ final class LurkerUITests: XCTestCase {
     // The rest of the assertions need #lurker's conversation on screen.
     selectBuffer("#lurker")
 
-    // The macOS timeline is a single NSTextView (one AXTextArea); the fixture
-    // message shows up in its value. Interim for the NSTextView rewrite —
-    // per-message accessibility elements return in a follow-up.
+    // The macOS timeline is a single NSTextView; each message is exposed as
+    // an AX child with the combined "sender, time, content" label.
     XCTAssertTrue(timeline.waitForExistence(timeout: 5))
-    expectation(
-      for: NSPredicate(format: "value CONTAINS %@", "The native client is connected."),
-      evaluatedWith: timeline)
-    waitForExpectations(timeout: 5)
+    let message = messageRow(containing: "The native client is connected.")
+    XCTAssertTrue(message.waitForExistence(timeout: 5))
 
     // The header topic uses `lineLimit(1)`, so its rendered value truncates when the
     // detail column is narrow ("Native client deve…"). Match a prefix that always fits.
@@ -104,13 +101,12 @@ final class LurkerUITests: XCTestCase {
     archivesRow.click()
   }
 
-  // Loading an older history page must keep pagination bounded: scrolling to
-  // the top fetches exactly the next page, not a runaway cascade to the start
-  // of the backlog. Interim for the NSTextView rewrite: the timeline is one
-  // AXTextArea, so per-row frame anchoring can't be asserted until
-  // per-message accessibility elements return in a follow-up — this version
-  // asserts page merging and the absence of runaway pagination via the text
-  // value.
+  // Loading an older history page must keep the viewport anchored on the
+  // previously-oldest message; without that the scroll position stays at the
+  // top of the grown content and pagination runs away page after page.
+  // Message AX rows exist for every *loaded* message (the NSTextView exposes
+  // all blocks, rendered or not), so existence asserts loading and frames
+  // assert the viewport position.
   func testHistoryLoadAnchorsScrollPosition() {
     // The sidebar row is a Button whose label folds in the unread badge
     // ("#lurker-full, 10 unread messages").
@@ -121,27 +117,36 @@ final class LurkerUITests: XCTestCase {
     fullRow.click()
 
     // Initial page is the newest 50 of 400 fixture messages (#350–#399).
-    XCTAssertTrue(timeline.waitForExistence(timeout: 5))
-    expectation(
-      for: NSPredicate(format: "value CONTAINS %@", "backlog line #399:"),
-      evaluatedWith: timeline)
-    waitForExpectations(timeout: 5)
-    XCTAssertFalse(timelineText.contains("backlog line #349:"), "older page loaded prematurely")
+    XCTAssertTrue(messageRow(containing: "backlog line #399:").waitForExistence(timeout: 5))
+    XCTAssertFalse(
+      messageRow(containing: "backlog line #349:").exists, "older page loaded prematurely")
 
     // Scroll to the top edge; crossing the threshold triggers the older-page
     // fetch (instant in fixtures) and merges #300–#349.
+    let olderRow = messageRow(containing: "backlog line #349:")
     var attempts = 0
-    while !timelineText.contains("backlog line #349:") && attempts < 60 {
+    while !olderRow.exists && attempts < 60 {
       timeline.scroll(byDeltaX: 0, deltaY: 40)
       attempts += 1
     }
-    XCTAssertTrue(timelineText.contains("backlog line #349:"), "older page never merged")
+    XCTAssertTrue(olderRow.waitForExistence(timeout: 2), "older page never merged")
 
+    // The anchor restore pins the previously-oldest visible message (#350)
+    // back to the top edge of the viewport.
     sleep(2)
     screenshot(named: "apple-history-anchor")
+    let scrollView = app.scrollViews.allElementsBoundByIndex
+      .max(by: { $0.frame.width < $1.frame.width })!
+    let anchored = messageRow(containing: "backlog line #350:")
+    XCTAssertTrue(anchored.exists, "anchored row missing")
+    let offset = anchored.frame.minY - scrollView.frame.minY
+    XCTAssertLessThan(offset, 150, "previously-oldest row not anchored near the top")
+    XCTAssertGreaterThan(offset, -50, "previously-oldest row scrolled above the viewport")
+
     // Runaway pagination would keep fetching page after page all the way to
     // the very start of the backlog.
-    XCTAssertFalse(timelineText.contains("backlog line #0:"), "pagination ran away to the start")
+    XCTAssertFalse(
+      messageRow(containing: "backlog line #0:").exists, "pagination ran away to the start")
   }
 
   private func screenshot(named name: String) {
@@ -205,8 +210,11 @@ final class LurkerUITests: XCTestCase {
     app.textViews.firstMatch
   }
 
-  private var timelineText: String {
-    (timeline.value as? String) ?? ""
+  /// A message's AX row (label "sender, time, content"), exposed as an
+  /// accessibility child of the timeline text view.
+  private func messageRow(containing text: String) -> XCUIElement {
+    app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
   }
 
   /// Sidebar rows are Buttons whose label folds in the badge
