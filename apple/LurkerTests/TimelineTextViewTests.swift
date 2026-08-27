@@ -9,6 +9,7 @@ import Testing
 
   private func makeMessage(
     id: UUID = UUID(),
+    networkID: UUID = UUID(),
     sender: String = "tove",
     kind: String = "privmsg",
     content: String,
@@ -18,7 +19,7 @@ import Testing
   ) -> Message {
     Message(
       id: id,
-      networkID: UUID(),
+      networkID: networkID,
       bufferID: UUID(),
       ts: "2026-07-23T08:12:00Z",
       sender: sender,
@@ -256,6 +257,122 @@ import Testing
       #expect(expanded.count == 4)  // day + summary + two member rows
       #expect(expanded[2] == .message(join1))
       #expect(expanded[3] == .message(join2))
+    }
+  }
+
+  /// A live coordinator wired to real (headless) AppKit views, fed from a
+  /// directly-mutated AppModel — the same objects updateNSView hands it.
+  @MainActor
+  private struct CoordinatorHarness {
+    let coordinator = TimelineCoordinator()
+    let textView: TimelineNSTextView
+    let scrollView: NSScrollView
+    let model: AppModel
+    let buffer: Buffer
+
+    init(buffer: Buffer, messages: [Message]) {
+      let defaults = UserDefaults(suiteName: "xyz.endymion.lurker.tests.\(UUID().uuidString)")!
+      model = AppModel(transport: nil, defaults: defaults, runsConnectionLoop: false)
+      self.buffer = buffer
+      model.buffers[buffer.id] = buffer
+      model.messages[buffer.id] = messages
+      model.selectedBufferID = buffer.id
+
+      textView = TimelineNSTextView(usingTextLayoutManager: true)
+      textView.isEditable = false
+      textView.textContainer?.widthTracksTextView = true
+      textView.textContainer?.lineFragmentPadding = 0
+      textView.isVerticallyResizable = true
+      textView.isHorizontallyResizable = false
+      textView.autoresizingMask = [.width]
+      textView.minSize = .zero
+      textView.maxSize = NSSize(
+        width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+      scrollView = TimelineScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+      scrollView.documentView = textView
+      coordinator.install(
+        textView: textView, scrollView: scrollView, axHost: TimelineAXHostView())
+    }
+
+    /// Mirrors updateNSView: derive items from the model, hand them to sync.
+    func sync() {
+      coordinator.sync(
+        items: timelineItems(
+          model.selectedMessages, buffer: buffer,
+          expandedGroups: coordinator.expandedPresenceGroups),
+        buffer: buffer, model: model)
+    }
+
+    var renderedText: String { textView.textStorage?.string ?? "" }
+
+    /// Test-side mirror of the coordinator's forceFullLayout so assertions
+    /// about pinning see the document's true height even when the code under
+    /// test never triggered a layout pass.
+    func forceLayout() {
+      guard let layout = textView.textLayoutManager else { return }
+      layout.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { _ in true }
+      let height = layout.usageBoundsForTextContainer.maxY + textView.textContainerInset.height * 2
+      if abs(textView.frame.height - height) > 0.5 {
+        textView.setFrameSize(NSSize(width: textView.frame.width, height: height))
+      }
+    }
+
+    var isPinnedToBottom: Bool {
+      scrollView.documentVisibleRect.maxY >= textView.frame.maxY - 40
+    }
+  }
+
+  struct TimelineCoordinatorTests {
+    @Test @MainActor func botFlagArrivingAfterRenderRefreshesRows() {
+      let buffer = makeBuffer()
+      let message = makeMessage(networkID: buffer.networkID, content: "beep boop")
+      let harness = CoordinatorHarness(buffer: buffer, messages: [message])
+      harness.sync()
+      #expect(!harness.renderedText.contains("🤖"))
+
+      // Bot mode lands via a member-list snapshot after the row rendered; the
+      // message list itself is unchanged, so the diff sees nothing to do.
+      harness.model.apply(
+        .members(
+          MemberListEvent(
+            networkID: buffer.networkID, bufferID: buffer.id,
+            members: [Member(nick: "tove", away: false, self: false, bot: true)])))
+      harness.sync()
+      #expect(harness.renderedText.contains("🤖"))
+    }
+
+    @Test @MainActor func replacementGrowthKeepsViewportPinnedToBottom() {
+      let buffer = makeBuffer()
+      var messages = (0..<40).map {
+        makeMessage(networkID: buffer.networkID, content: "line \($0)")
+      }
+      let harness = CoordinatorHarness(buffer: buffer, messages: messages)
+      harness.sync()
+      harness.forceLayout()
+      #expect(harness.isPinnedToBottom)
+
+      // Same id, taller content: a replacement-only diff, like a late preview.
+      messages[39].content = String(repeating: "a much longer wrapped line ", count: 40)
+      harness.model.messages[buffer.id] = messages
+      harness.sync()
+      harness.forceLayout()
+      #expect(harness.isPinnedToBottom)
+    }
+
+    @Test @MainActor func expandingTerminalPresenceGroupRedrawsItsArrow() {
+      let buffer = makeBuffer(collapsePresence: true)
+      let join1 = makeMessage(
+        networkID: buffer.networkID, sender: "a", kind: "join", content: "", displayKind: "sys")
+      let join2 = makeMessage(
+        networkID: buffer.networkID, sender: "b", kind: "join", content: "", displayKind: "sys")
+      let harness = CoordinatorHarness(buffer: buffer, messages: [join1, join2])
+      harness.sync()
+      #expect(harness.renderedText.contains("▸"))
+
+      let toggle = URL(string: "lurker-presence://\(join1.id.uuidString)")!
+      _ = harness.coordinator.textView(harness.textView, clickedOnLink: toggle, at: 0)
+      #expect(harness.renderedText.contains("▾"))
+      #expect(!harness.renderedText.contains("▸"))
     }
   }
 

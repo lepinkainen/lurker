@@ -143,6 +143,10 @@
     struct RenderedBlock {
       let item: TimelineItem
       var length: Int
+      /// What the row's avatar slot rendered as (bot glyph / cached image /
+      /// identicon). Depends on AppModel state outside the item, so a diff of
+      /// items alone can't see it change; compared on every sync instead.
+      var avatarKey: String?
     }
 
     private struct Fingerprint: Equatable {
@@ -218,24 +222,29 @@
         rebuild(items)
         restoreAnchor(anchor.messageID)
         consumeAnchor(model, ownedBy: buffer.id)
+        kickAvatarLoads(items)
         return
       }
 
+      let pinned = isNearBottom
       switch TimelineDiff.compute(old: blocks.map(\.item), new: items) {
       case .none:
-        return
+        break
       case .rebuild:
-        let pinned = isNearBottom
         rebuild(items)
         if pinned { scrollToBottom() }
       case .incremental(let replacements, let appendFrom):
-        let pinned = isNearBottom
         for index in replacements { replaceBlock(at: index, with: items[index]) }
-        if let appendFrom {
-          appendBlocks(items[appendFrom...])
-          if pinned { scrollToBottom(animated: true) }
+        if let appendFrom { appendBlocks(items[appendFrom...]) }
+        // Replacements can change block heights too (a late preview growing
+        // the last message), not just appends — re-pin for either.
+        if pinned, appendFrom != nil || !replacements.isEmpty {
+          scrollToBottom(animated: appendFrom != nil)
         }
       }
+      // Bot/avatar state lives in AppModel, not in the items, so even a .none
+      // diff can hide rows whose avatar slot is out of date.
+      if refreshStaleAvatarRows(), pinned { scrollToBottom() }
       kickAvatarLoads(items)
     }
 
@@ -259,7 +268,7 @@
       blocks = items.map { item in
         let block = timelineBlockText(item, context: context)
         document.append(block)
-        return RenderedBlock(item: item, length: block.length)
+        return RenderedBlock(item: item, length: block.length, avatarKey: avatarKey(for: item))
       }
       storage.setAttributedString(document)
     }
@@ -273,7 +282,8 @@
       textView.textContentStorage?.performEditingTransaction {
         storage.replaceCharacters(in: range, with: block)
       }
-      blocks[index] = RenderedBlock(item: item, length: block.length)
+      blocks[index] = RenderedBlock(
+        item: item, length: block.length, avatarKey: avatarKey(for: item))
     }
 
     private func appendBlocks(_ items: ArraySlice<TimelineItem>) {
@@ -284,7 +294,8 @@
       for item in items {
         let block = timelineBlockText(item, context: context)
         appended.append(block)
-        blocks.append(RenderedBlock(item: item, length: block.length))
+        blocks.append(
+          RenderedBlock(item: item, length: block.length, avatarKey: avatarKey(for: item)))
       }
       textView.textContentStorage?.performEditingTransaction {
         storage.append(appended)
@@ -322,11 +333,36 @@
 
     private func avatarLoaded(nick: String, bufferID: UUID) {
       guard buffer?.id == bufferID else { return }
-      for (index, block) in blocks.enumerated() {
-        if case .message(let message) = block.item, message.sender == nick {
-          replaceBlock(at: index, with: block.item)
-        }
+      _ = refreshStaleAvatarRows()
+    }
+
+    /// Mirrors `avatarRun`'s branch order; a mismatch with a block's rendered
+    /// key means the row must be re-rendered.
+    private func avatarKey(for item: TimelineItem) -> String? {
+      guard let model, case .message(let message) = item, message.displayKind != "sys" else {
+        return nil
       }
+      if model.isBot(message.sender) { return "bot" }
+      if model.hasAvatar(message.sender),
+        let url = model.avatarURL(networkID: message.networkID, nick: message.sender),
+        ImageCache.shared.cached(for: url) != nil
+      {
+        return url.absoluteString
+      }
+      return "identicon"
+    }
+
+    /// Re-renders rows whose avatar slot no longer matches the model (bot
+    /// flag or avatar metadata arriving after the row rendered, or a fetched
+    /// image landing in the cache). Returns whether anything changed.
+    private func refreshStaleAvatarRows() -> Bool {
+      var changed = false
+      for index in blocks.indices
+      where blocks[index].avatarKey != avatarKey(for: blocks[index].item) {
+        replaceBlock(at: index, with: blocks[index].item)
+        changed = true
+      }
+      return changed
     }
 
     private func offset(of index: Int) -> Int {
@@ -341,6 +377,12 @@
       guard let scrollView, let textView else { return true }
       return scrollView.documentVisibleRect.maxY >= textView.frame.maxY - 40
     }
+
+    // Internal faces of the pinning logic for PreviewAttachmentResizeRelay,
+    // which lives outside the coordinator but must preserve follow-at-bottom
+    // when an inline image grows after insertion.
+    var viewportPinnedToBottom: Bool { isNearBottom }
+    func repinToBottom() { scrollToBottom() }
 
     /// Forces exact (non-estimated) layout of the whole document and sizes
     /// the text view to match. `ensureLayout(for: documentRange)` is not
@@ -512,6 +554,16 @@
       else { return false }
       expandedPresenceGroups.formSymmetricDifference([id])
       resyncFromModel()
+      // Expanding a terminal group is a pure suffix append: the summary item
+      // itself compares equal, so the diff never redraws its arrow. Re-render
+      // the toggled block explicitly (collapse rebuilds, where this is a
+      // harmless no-op replacement).
+      if let index = blocks.firstIndex(where: {
+        if case .presence(let groupID, _) = $0.item { return groupID == id }
+        return false
+      }) {
+        replaceBlock(at: index, with: blocks[index].item)
+      }
       return true
     }
   }
@@ -1136,9 +1188,16 @@
         return
       }
       lastSize = size
+      // Check pinning before invalidating: the growth would otherwise push
+      // the viewport past the near-bottom threshold and kill auto-follow.
+      var ancestor = hostView.superview
+      while ancestor != nil, !(ancestor is TimelineNSTextView) { ancestor = ancestor?.superview }
+      let coordinator = (ancestor as? TimelineNSTextView)?.coordinator
+      let pinned = coordinator?.viewportPinnedToBottom ?? false
       if let location {
         layoutManager?.invalidateLayout(for: NSTextRange(location: location))
       }
+      if pinned { coordinator?.repinToBottom() }
     }
   }
 
