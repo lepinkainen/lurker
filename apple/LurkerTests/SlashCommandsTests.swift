@@ -62,6 +62,43 @@ struct SlashCommandsTests {
     #expect(filtered.content == "linux")
   }
 
+  @Test func parsesModerationCommands() {
+    guard case .command(let op) = SlashCommands.parse("/op tove", buffer: buffer) else {
+      Issue.record("Expected op command")
+      return
+    }
+    #expect(op.type == "op")
+    #expect(op.bufferID == buffer.id)
+    #expect(op.target == "tove")
+
+    guard case .command(let mode) = SlashCommands.parse("/mode +m", buffer: buffer) else {
+      Issue.record("Expected mode command")
+      return
+    }
+    #expect(mode.type == "mode")
+    #expect(mode.bufferID == buffer.id)
+    #expect(mode.content == "+m")
+
+    guard case .command(let kick) = SlashCommands.parse("/kick tove be nice", buffer: buffer)
+    else {
+      Issue.record("Expected kick command")
+      return
+    }
+    #expect(kick.type == "kick")
+    #expect(kick.target == "tove")
+    #expect(kick.content == "be nice")
+
+    // Target-less moderation commands are rejected with usage hints.
+    guard case .invalid = SlashCommands.parse("/voice", buffer: buffer) else {
+      Issue.record("Expected /voice without nick to be invalid")
+      return
+    }
+    guard case .invalid = SlashCommands.parse("/kickban", buffer: buffer) else {
+      Issue.record("Expected /kickban without nick to be invalid")
+      return
+    }
+  }
+
   @Test func statusBufferAcceptsCommandsOnly() {
     var status = buffer
     status.kind = "status"

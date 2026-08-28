@@ -37,6 +37,28 @@ struct MembersInspector: View {
               sendTarget("whois", member.nick)
             }
             Divider()
+            if member.prefix == "@" {
+              Button("Deop \(member.nick)") {
+                sendChannelModeTarget("deop", member.nick)
+              }
+            } else {
+              Button("Op \(member.nick)") {
+                sendChannelModeTarget("op", member.nick)
+              }
+            }
+            if member.prefix == "+" {
+              Button("Devoice \(member.nick)") {
+                sendChannelModeTarget("devoice", member.nick)
+              }
+            } else {
+              Button("Voice \(member.nick)") {
+                sendChannelModeTarget("voice", member.nick)
+              }
+            }
+            Button("Kick \(member.nick)") {
+              sendChannelModeTarget("kick", member.nick)
+            }
+            Divider()
             Button("Mute \(member.nick)") {
               muteTarget(member.nick, muted: true)
             }
@@ -71,6 +93,11 @@ struct MembersInspector: View {
   private func sendTarget(_ type: String, _ nick: String) {
     guard let networkID = model.selectedBuffer?.networkID else { return }
     model.command(ClientCommand(type: type, networkID: networkID, target: nick))
+  }
+
+  private func sendChannelModeTarget(_ type: String, _ nick: String) {
+    guard let bufferID = model.selectedBuffer?.id else { return }
+    model.command(ClientCommand(type: type, bufferID: bufferID, target: nick))
   }
 
   private func muteTarget(_ nick: String, muted: Bool) {

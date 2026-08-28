@@ -12,6 +12,7 @@ The app is intended to be useful as the everyday desktop client (with the same s
 - optional channel-member inspector
 - unread and mention counts, persisted read state, pinned buffers, and archived channels
 - common slash commands: `/me`, `/join`, `/part`, `/query`, `/msg`, `/nick`, `/whois`, `/away`, `/back`, and `/topic`
+- channel moderation: `/mode`, `/op`, `/deop`, `/voice`, `/devoice`, `/kick`, `/kickban`, `/ban`, `/unban`, and `/banlist` slash commands, plus Op/Voice/Kick actions in the member-list context menu (Op/Voice toggle to Deop/Devoice based on the member's current prefix)
 - link previews and presence-event display settings
 - mention notifications and an app-icon badge count (Dock tile on macOS, notification badge on iOS)
 - native menus and keyboard shortcuts on macOS, including the Command-K channel switcher

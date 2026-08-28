@@ -25,6 +25,16 @@ enum SlashCommands {
     .init(command: "/away", arguments: "[message]", description: "Set away status"),
     .init(command: "/back", arguments: "", description: "Clear away status"),
     .init(command: "/topic", arguments: "[topic]", description: "Set the channel topic"),
+    .init(command: "/mode", arguments: "<modes> [params]", description: "Set channel modes"),
+    .init(command: "/op", arguments: "<nick>", description: "Give channel op (+o)"),
+    .init(command: "/deop", arguments: "<nick>", description: "Remove channel op (-o)"),
+    .init(command: "/voice", arguments: "<nick>", description: "Give voice (+v)"),
+    .init(command: "/devoice", arguments: "<nick>", description: "Remove voice (-v)"),
+    .init(command: "/kick", arguments: "<nick> [reason]", description: "Kick nick from channel"),
+    .init(command: "/kickban", arguments: "<nick> [reason]", description: "Kick and ban nick"),
+    .init(command: "/ban", arguments: "<mask>", description: "Ban mask (+b)"),
+    .init(command: "/unban", arguments: "<mask>", description: "Unban mask (-b)"),
+    .init(command: "/banlist", arguments: "", description: "Show channel ban list"),
     .init(command: "/list", arguments: "[filter]", description: "List channels on the network"),
     .init(command: "/archive", arguments: "", description: "Archive this buffer"),
     .init(command: "/unarchive", arguments: "", description: "Unarchive this buffer"),
@@ -99,6 +109,31 @@ enum SlashCommands {
       return .command(ClientCommand(type: "back", networkID: buffer.networkID))
     case "topic":
       return .command(ClientCommand(type: "topic", bufferID: buffer.id, content: content))
+    case "mode":
+      return require(content, usage: "/mode <modes> [params]") {
+        ClientCommand(type: "mode", bufferID: buffer.id, content: content)
+      }
+    case "op", "deop", "voice", "devoice":
+      return require(content, usage: "/\(name) <nick>") {
+        ClientCommand(type: name, bufferID: buffer.id, target: content)
+      }
+    case "ban", "unban":
+      return require(content, usage: "/\(name) <mask>") {
+        ClientCommand(type: name, bufferID: buffer.id, target: content)
+      }
+    case "banlist":
+      return .command(ClientCommand(type: "banlist", bufferID: buffer.id))
+    case "kick", "kickban":
+      guard let target = rest.first else {
+        return .invalid("Usage: /\(name) <nick> [reason]")
+      }
+      return .command(
+        ClientCommand(
+          type: name,
+          bufferID: buffer.id,
+          target: target,
+          content: rest.dropFirst().joined(separator: " ")
+        ))
     case "list":
       return .command(ClientCommand(type: "list", networkID: buffer.networkID, content: content))
     case "archive":
