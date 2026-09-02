@@ -94,8 +94,12 @@ jobs:
           version: 3.x
 
       - name: Install SwiftFormat
+        # Pinned release binary; brew on the runner image lags and won't upgrade
+        # an already-installed formula. Keep in step with --minversion in
+        # apple/airbnb.swiftformat.
         run: |
-          brew install swiftformat
+          curl -sSL -o /tmp/swiftformat.zip https://github.com/nicklockwood/SwiftFormat/releases/download/0.63.0/swiftformat.zip
+          unzip -q -o /tmp/swiftformat.zip -d /usr/local/bin
           swiftformat --version
           swift --version
 
