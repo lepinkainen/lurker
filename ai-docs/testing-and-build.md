@@ -67,7 +67,8 @@ Preferred commands come from `Taskfile.yml`:
 - `task web-install`
 - `task web-dev`
 - `task web-build`
-- `task lint-apple` — check Swift formatting (macOS only)
+- `task lint-apple` — check Swift formatting against the Airbnb style guide via SwiftFormat, config in `apple/airbnb.swiftformat` (macOS only)
+- `task format-apple` — apply that formatting in place (macOS only)
 - `task test-apple` — run native unit tests (macOS only)
 - `task test-apple-ui` — run the fixture-driven native UI smoke test (macOS only)
 - `task build-apple` — build the unsigned Apple silicon debug app (macOS only)
