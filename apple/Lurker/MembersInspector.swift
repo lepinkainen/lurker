@@ -1,8 +1,10 @@
 import SwiftUI
 
+// MARK: - MembersInspector
+
 struct MembersInspector: View {
-  @Environment(AppModel.self) private var model
-  @State private var filter = ""
+
+  // MARK: Internal
 
   var body: some View {
     VStack(spacing: 0) {
@@ -82,6 +84,11 @@ struct MembersInspector: View {
     }
   }
 
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+  @State private var filter = ""
+
   private var filtered: [Member] {
     guard !filter.isEmpty else { return model.selectedMembers }
     return model.selectedMembers.filter {
@@ -108,9 +115,15 @@ struct MembersInspector: View {
       model.unmute(nick: nick, in: networkID)
     }
   }
+
 }
 
+// MARK: - MemberRow
+
 private struct MemberRow: View {
+
+  // MARK: Internal
+
   let member: Member
   let networkID: UUID?
 
@@ -121,8 +134,12 @@ private struct MemberRow: View {
         .foregroundStyle(prefixColor)
         .frame(width: 10)
       NickAvatar(
-        nick: member.nick, colorIndex: member.color, isBot: member.bot == true,
-        networkID: networkID, hasAvatar: member.hasAvatar == true)
+        nick: member.nick,
+        colorIndex: member.color,
+        isBot: member.bot == true,
+        networkID: networkID,
+        hasAvatar: member.hasAvatar == true,
+      )
       VStack(alignment: .leading, spacing: 1) {
         Text(member.nick)
           .font(Theme.Fonts.nick.weight(member.`self` ? .bold : .regular))
@@ -134,12 +151,17 @@ private struct MemberRow: View {
     .help(member.realname ?? member.nick)
   }
 
+  // MARK: Private
+
   private var prefixColor: Color {
     switch member.prefix {
-    case "@", "&", "~": .red
+    case "@",
+         "&",
+         "~": .red
     case "%": .purple
     case "+": .green
     default: .clear
     }
   }
+
 }

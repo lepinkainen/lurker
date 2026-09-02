@@ -1,5 +1,7 @@
 import SwiftUI
 
+// MARK: - ImageCache
+
 /// Shared image cache + loader for preview/thumbnail images in the timeline.
 ///
 /// SwiftUI's built-in `AsyncImage` ties its fetch to the view's lifetime: when
@@ -14,12 +16,14 @@ import SwiftUI
 /// read the cached result.
 @MainActor
 final class ImageCache {
+
+  // MARK: Lifecycle
+
+  private init() { }
+
+  // MARK: Internal
+
   static let shared = ImageCache()
-
-  private let cache = NSCache<NSURL, PlatformImage>()
-  private var inFlight: [URL: Task<PlatformImage?, Never>] = [:]
-
-  private init() {}
 
   /// Synchronous cache read, for views that want to render immediately
   /// without a loading flash when the image is already available.
@@ -54,7 +58,15 @@ final class ImageCache {
     inFlight[url] = task
     return await task.value
   }
+
+  // MARK: Private
+
+  private let cache = NSCache<NSURL, PlatformImage>()
+  private var inFlight = [URL: Task<PlatformImage?, Never>]()
+
 }
+
+// MARK: - CachedAsyncImage
 
 /// Cached replacement for `AsyncImage`, backed by `ImageCache`. Fetching is
 /// driven by `.task(id:)` so a URL change restarts loading, but — unlike
@@ -62,25 +74,27 @@ final class ImageCache {
 /// underlying fetch; it just stops this particular view from observing the
 /// result, and the cache is populated for whoever asks next.
 struct CachedAsyncImage<Content: View, Placeholder: View, Failure: View>: View {
-  let url: URL
-  let content: (Image) -> Content
-  let placeholder: () -> Placeholder
-  let failure: () -> Failure
 
-  @State private var image: PlatformImage?
-  @State private var failed = false
+  // MARK: Lifecycle
 
   init(
     url: URL,
     @ViewBuilder content: @escaping (Image) -> Content,
     @ViewBuilder placeholder: @escaping () -> Placeholder,
-    @ViewBuilder failure: @escaping () -> Failure
+    @ViewBuilder failure: @escaping () -> Failure,
   ) {
     self.url = url
     self.content = content
     self.placeholder = placeholder
     self.failure = failure
   }
+
+  // MARK: Internal
+
+  let url: URL
+  let content: (Image) -> Content
+  let placeholder: () -> Placeholder
+  let failure: () -> Failure
 
   var body: some View {
     Group {
@@ -95,7 +109,9 @@ struct CachedAsyncImage<Content: View, Placeholder: View, Failure: View>: View {
     // Show a cached hit synchronously, before the `.task` even runs, so
     // scrolling a row back into view never re-flashes the placeholder.
     .onAppear {
-      if image == nil { image = ImageCache.shared.cached(for: url) }
+      if image == nil {
+        image = ImageCache.shared.cached(for: url)
+      }
     }
     .task(id: url) {
       if let cached = ImageCache.shared.cached(for: url) {
@@ -113,6 +129,12 @@ struct CachedAsyncImage<Content: View, Placeholder: View, Failure: View>: View {
       }
     }
   }
+
+  // MARK: Private
+
+  @State private var image: PlatformImage?
+  @State private var failed = false
+
 }
 
 extension CachedAsyncImage where Failure == Placeholder {
@@ -123,11 +145,11 @@ extension CachedAsyncImage where Failure == Placeholder {
   init(
     url: URL,
     @ViewBuilder content: @escaping (Image) -> Content,
-    @ViewBuilder placeholder: @escaping () -> Placeholder
+    @ViewBuilder placeholder: @escaping () -> Placeholder,
   ) {
     self.url = url
     self.content = content
     self.placeholder = placeholder
-    self.failure = placeholder
+    failure = placeholder
   }
 }

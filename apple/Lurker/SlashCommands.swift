@@ -1,19 +1,30 @@
 import Foundation
 
+// MARK: - ComposerResult
+
 enum ComposerResult: Equatable, Sendable {
   case command(ClientCommand)
   case invalid(String)
 }
+
+// MARK: - SlashCommandHelp
 
 struct SlashCommandHelp: Equatable, Identifiable, Sendable {
   let command: String
   let arguments: String
   let description: String
 
-  var id: String { command }
+  var id: String {
+    command
+  }
 }
 
+// MARK: - SlashCommands
+
 enum SlashCommands {
+
+  // MARK: Internal
+
   static let help: [SlashCommandHelp] = [
     .init(command: "/me", arguments: "<action>", description: "Send an action"),
     .init(command: "/join", arguments: "<channel>", description: "Join a channel"),
@@ -39,8 +50,10 @@ enum SlashCommands {
     .init(command: "/archive", arguments: "", description: "Archive this buffer"),
     .init(command: "/unarchive", arguments: "", description: "Unarchive this buffer"),
     .init(
-      command: "/delete", arguments: "",
-      description: "Delete this archived buffer and its history"),
+      command: "/delete",
+      arguments: "",
+      description: "Delete this archived buffer and its history",
+    ),
   ]
 
   /// Commands whose name prefix-matches the first token of a `/`-leading
@@ -74,16 +87,20 @@ enum SlashCommands {
       return require(content, usage: "/me <action>") {
         ClientCommand(type: "me", bufferID: buffer.id, content: content)
       }
+
     case "join":
       return require(content, usage: "/join <channel>") {
         ClientCommand(type: "join", networkID: buffer.networkID, channel: content)
       }
+
     case "part":
       return .command(ClientCommand(type: "part", bufferID: buffer.id, content: content))
+
     case "query":
       return require(content, usage: "/query <nick>") {
         ClientCommand(type: "query", networkID: buffer.networkID, target: content)
       }
+
     case "msg":
       guard let target = rest.first, rest.count > 1 else {
         return .invalid("Usage: /msg <nick> <message>")
@@ -93,37 +110,53 @@ enum SlashCommands {
           type: "msg",
           networkID: buffer.networkID,
           target: target,
-          content: rest.dropFirst().joined(separator: " ")
-        ))
+          content: rest.dropFirst().joined(separator: " "),
+        )
+      )
+
     case "nick":
       return require(content, usage: "/nick <new nick>") {
         ClientCommand(type: "nick", networkID: buffer.networkID, content: content)
       }
+
     case "whois":
       return require(content, usage: "/whois <nick>") {
         ClientCommand(type: "whois", networkID: buffer.networkID, target: content)
       }
+
     case "away":
       return .command(ClientCommand(type: "away", networkID: buffer.networkID, content: content))
+
     case "back":
       return .command(ClientCommand(type: "back", networkID: buffer.networkID))
+
     case "topic":
       return .command(ClientCommand(type: "topic", bufferID: buffer.id, content: content))
+
     case "mode":
       return require(content, usage: "/mode <modes> [params]") {
         ClientCommand(type: "mode", bufferID: buffer.id, content: content)
       }
-    case "op", "deop", "voice", "devoice":
+
+    case "op",
+         "deop",
+         "voice",
+         "devoice":
       return require(content, usage: "/\(name) <nick>") {
         ClientCommand(type: name, bufferID: buffer.id, target: content)
       }
-    case "ban", "unban":
+
+    case "ban",
+         "unban":
       return require(content, usage: "/\(name) <mask>") {
         ClientCommand(type: name, bufferID: buffer.id, target: content)
       }
+
     case "banlist":
       return .command(ClientCommand(type: "banlist", bufferID: buffer.id))
-    case "kick", "kickban":
+
+    case "kick",
+         "kickban":
       guard let target = rest.first else {
         return .invalid("Usage: /\(name) <nick> [reason]")
       }
@@ -132,35 +165,44 @@ enum SlashCommands {
           type: name,
           bufferID: buffer.id,
           target: target,
-          content: rest.dropFirst().joined(separator: " ")
-        ))
+          content: rest.dropFirst().joined(separator: " "),
+        )
+      )
+
     case "list":
       return .command(ClientCommand(type: "list", networkID: buffer.networkID, content: content))
+
     case "archive":
       guard buffer.kind != "status" else {
         return .invalid("The status window cannot be archived.")
       }
       return .command(ClientCommand(type: "archive_buffer", bufferID: buffer.id))
+
     case "unarchive":
       guard buffer.kind != "status" else {
         return .invalid("The status window cannot be archived.")
       }
       return .command(ClientCommand(type: "unarchive_buffer", bufferID: buffer.id))
+
     case "delete":
       guard buffer.kind != "status", buffer.archived else {
         return .invalid("Only archived channels and conversations can be deleted.")
       }
       return .command(ClientCommand(type: "delete_buffer", bufferID: buffer.id))
+
     default:
       return .invalid("Unknown command /\(name)")
     }
   }
 
+  // MARK: Private
+
   private static func require(
     _ value: String,
     usage: String,
-    command: () -> ClientCommand
+    command: () -> ClientCommand,
   ) -> ComposerResult {
     value.isEmpty ? .invalid("Usage: \(usage)") : .command(command())
   }
+
 }

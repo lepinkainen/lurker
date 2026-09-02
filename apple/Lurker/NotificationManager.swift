@@ -2,17 +2,18 @@ import Foundation
 import UserNotifications
 
 #if os(macOS)
-  import AppKit
+import AppKit
 #endif
+
+// MARK: - NotificationManager
 
 @MainActor
 final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
+
+  // MARK: Internal
+
   static let shared = NotificationManager()
   nonisolated static let bufferIDKey = "bufferID"
-
-  private var openBuffer: (@MainActor @Sendable (UUID) -> Void)?
-  private var configured = false
-  private var lastBadgeCount: Int?
 
   func configure(openBuffer: @escaping @MainActor @Sendable (UUID) -> Void) {
     self.openBuffer = openBuffer
@@ -23,7 +24,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
       // `.badge` is required for `setBadgeCount` on iOS; harmless on macOS
       // (the dock tile badge itself needs no authorization).
       _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [
-        .alert, .sound, .badge,
+        .alert,
+        .sound,
+        .badge,
       ])
     }
   }
@@ -38,7 +41,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     let request = UNNotificationRequest(
       identifier: message.id.uuidString,
       content: content,
-      trigger: nil
+      trigger: nil,
     )
     UNUserNotificationCenter.current().add(request)
   }
@@ -50,37 +53,45 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     guard count != lastBadgeCount else { return }
     lastBadgeCount = count
     #if os(macOS)
-      NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
+    NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
     #else
-      UNUserNotificationCenter.current().setBadgeCount(count) { error in
-        if let error {
-          print("lurker: setBadgeCount failed: \(error)")
-        }
+    UNUserNotificationCenter.current().setBadgeCount(count) { error in
+      if let error {
+        print("lurker: setBadgeCount failed: \(error)")
       }
+    }
     #endif
   }
 
   nonisolated func userNotificationCenter(
     _: UNUserNotificationCenter,
-    willPresent _: UNNotification
+    willPresent _: UNNotification,
   ) async -> UNNotificationPresentationOptions {
     []
   }
 
   nonisolated func userNotificationCenter(
     _: UNUserNotificationCenter,
-    didReceive response: UNNotificationResponse
+    didReceive response: UNNotificationResponse,
   ) async {
-    guard let raw = response.notification.request.content.userInfo[Self.bufferIDKey] as? String,
+    guard
+      let raw = response.notification.request.content.userInfo[Self.bufferIDKey] as? String,
       let id = UUID(uuidString: raw)
     else {
       return
     }
     await MainActor.run {
       #if os(macOS)
-        NSApp.activate()
+      NSApp.activate()
       #endif
       openBuffer?(id)
     }
   }
+
+  // MARK: Private
+
+  private var openBuffer: (@MainActor @Sendable (UUID) -> Void)?
+  private var configured = false
+  private var lastBadgeCount: Int?
+
 }

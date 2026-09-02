@@ -4,10 +4,15 @@ import Testing
 
 @testable import Lurker
 
-@Suite
+// MARK: - AppModelTests
+
 @MainActor
 struct AppModelTests {
-  @Test func previewUsesSynchronousConnectedFixture() {
+
+  // MARK: Internal
+
+  @Test
+  func `preview uses synchronous connected fixture`() {
     let model = AppModel.preview()
 
     #expect(model.connectionState == .connected)
@@ -19,19 +24,23 @@ struct AppModelTests {
     #expect(model.connectionState == .connected)
   }
 
-  @Test func recognizesCurrentAndLegacyXcodePreviewEnvironments() {
+  @Test
+  func `recognizes current and legacy xcode preview environments`() {
     #expect(
       ProcessInfo.isPreviewEnvironment([
         "XCODE_RUNNING_FOR_PLAYGROUNDS": "1"
-      ]))
+      ])
+    )
     #expect(
       ProcessInfo.isPreviewEnvironment([
         "XCODE_RUNNING_FOR_PREVIEWS": "1"
-      ]))
+      ])
+    )
     #expect(!ProcessInfo.isPreviewEnvironment([:]))
   }
 
-  @Test func sidebarAndKeyboardNavigationShareOneOrder() {
+  @Test
+  func `sidebar and keyboard navigation share one order`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let status = buffer("*status*", kind: "status", networkID: networkID)
@@ -42,7 +51,8 @@ struct AppModelTests {
 
     model.networks[networkID] = network(id: networkID)
     model.buffers = Dictionary(
-      uniqueKeysWithValues: [status, pinned, joined, query, notJoined].map { ($0.id, $0) })
+      uniqueKeysWithValues: [status, pinned, joined, query, notJoined].map { ($0.id, $0) }
+    )
 
     #expect(model.pinnedBuffers.map(\.id) == [pinned.id])
     // Pinned channels stay listed under their network too.
@@ -65,7 +75,8 @@ struct AppModelTests {
   // Regression: when the *selected* buffer has no unread itself, unread-only
   // navigation must walk relative to its sidebar position (nearest candidate
   // above/below), not fall back to the global first/last unread buffer.
-  @Test func unreadOnlyNavigationIsRelativeToSelectedBufferWithNoUnread() {
+  @Test
+  func `unread only navigation is relative to selected buffer with no unread`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     var above = buffer("#zzz-above", networkID: networkID, unread: 3)
@@ -79,7 +90,8 @@ struct AppModelTests {
 
     model.networks[networkID] = network(id: networkID)
     model.buffers = Dictionary(
-      uniqueKeysWithValues: [above, selected, below].map { ($0.id, $0) })
+      uniqueKeysWithValues: [above, selected, below].map { ($0.id, $0) }
+    )
     model.selectedBufferID = selected.id
 
     model.nextBuffer(unreadOnly: true, direction: -1)
@@ -90,7 +102,8 @@ struct AppModelTests {
     #expect(model.selectedBufferID == below.id)
   }
 
-  @Test func pinnedBuffersSortByPinOrderThenName() {
+  @Test
+  func `pinned buffers sort by pin order then name`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     var alpha = buffer("#alpha", networkID: networkID, pinned: true)
@@ -105,7 +118,8 @@ struct AppModelTests {
     #expect(model.pinnedBuffers.map(\.id) == [mid.id, zeta.id, alpha.id])
   }
 
-  @Test func sidebarBufferOccurrencesNamespaceDuplicateRowsByPlacement() {
+  @Test
+  func `sidebar buffer occurrences namespace duplicate rows by placement`() {
     let networkID = UUID()
     let target = buffer("#pinned", networkID: networkID, pinned: true)
 
@@ -118,40 +132,53 @@ struct AppModelTests {
     #expect(pinned.buffer.id == network.buffer.id)
   }
 
-  @Test func sidebarOrderingMovesUpBeforeTarget() {
+  @Test
+  func `sidebar ordering moves up before target`() {
     let alpha = UUID()
     let beta = UUID()
     let gamma = UUID()
 
     let reordered = SidebarOrdering.moving(
-      [alpha, beta, gamma], from: gamma, before: beta)
+      [alpha, beta, gamma],
+      from: gamma,
+      before: beta,
+    )
 
     #expect(reordered == [alpha, gamma, beta])
   }
 
-  @Test func sidebarOrderingMovesDownBeforeTarget() {
+  @Test
+  func `sidebar ordering moves down before target`() {
     let alpha = UUID()
     let beta = UUID()
     let gamma = UUID()
 
     let reordered = SidebarOrdering.moving(
-      [alpha, beta, gamma], from: alpha, before: gamma)
+      [alpha, beta, gamma],
+      from: alpha,
+      before: gamma,
+    )
 
     #expect(reordered == [beta, alpha, gamma])
   }
 
-  @Test func sidebarOrderingMovesToEnd() {
+  @Test
+  func `sidebar ordering moves to end`() {
     let alpha = UUID()
     let beta = UUID()
     let gamma = UUID()
 
     let reordered = SidebarOrdering.moving(
-      [alpha, beta, gamma], from: alpha, before: nil)
+      [alpha, beta, gamma],
+      from: alpha,
+      before: nil,
+    )
 
     #expect(reordered == [beta, gamma, alpha])
   }
 
-  @Test func sidebarOrderingRejectsUnknownAndSelfTargets() {
+  @Test
+  func `sidebar ordering rejects unknown and self targets`() {
     let alpha = UUID()
     let beta = UUID()
     let unknown = UUID()
@@ -162,80 +189,96 @@ struct AppModelTests {
     #expect(SidebarOrdering.moving(ids, from: alpha, before: alpha) == nil)
   }
 
-  @Test func sidebarDropDelegateCommitsAcceptedRowAndClearsDrag() {
+  @Test
+  func `sidebar drop delegate commits accepted row and clears drag`() {
     let sourceID = UUID()
     let targetID = UUID()
     var drag: SidebarDrag? = SidebarDrag(kind: .network(sourceID))
-    var committedIDs: [UUID] = []
+    var committedIDs = [UUID]()
     let delegate = SidebarDropDelegate(
       target: .row(targetID),
       accepts: { kind in
-        if case .network = kind { return true }
+        if case .network = kind {
+          return true
+        }
         return false
       },
       drag: Binding(get: { drag }, set: { drag = $0 }),
-      commit: { committedIDs.append($0) })
+      commit: { committedIDs.append($0) },
+    )
 
     #expect(delegate.performDrop())
     #expect(committedIDs == [sourceID])
     #expect(drag == nil)
   }
 
-  @Test func sidebarDropDelegateCommitsEndTarget() {
+  @Test
+  func `sidebar drop delegate commits end target`() {
     let sourceID = UUID()
     var drag: SidebarDrag? = SidebarDrag(kind: .network(sourceID))
-    var committedIDs: [UUID] = []
+    var committedIDs = [UUID]()
     let delegate = SidebarDropDelegate(
       target: .endOfNetworks,
       accepts: { kind in
-        if case .network = kind { return true }
+        if case .network = kind {
+          return true
+        }
         return false
       },
       drag: Binding(get: { drag }, set: { drag = $0 }),
-      commit: { committedIDs.append($0) })
+      commit: { committedIDs.append($0) },
+    )
 
     #expect(delegate.performDrop())
     #expect(committedIDs == [sourceID])
     #expect(drag == nil)
   }
 
-  @Test func sidebarDropDelegateRejectsSelfTargetAndClearsDrag() {
+  @Test
+  func `sidebar drop delegate rejects self target and clears drag`() {
     let sourceID = UUID()
     var drag: SidebarDrag? = SidebarDrag(kind: .network(sourceID))
-    var committedIDs: [UUID] = []
+    var committedIDs = [UUID]()
     let delegate = SidebarDropDelegate(
       target: .row(sourceID),
       accepts: { _ in true },
       drag: Binding(get: { drag }, set: { drag = $0 }),
-      commit: { committedIDs.append($0) })
+      commit: { committedIDs.append($0) },
+    )
 
     #expect(!delegate.performDrop())
     #expect(committedIDs.isEmpty)
     #expect(drag == nil)
   }
 
-  @Test func sidebarDropDelegateRejectsWrongSpeciesAndClearsDrag() {
+  @Test
+  func `sidebar drop delegate rejects wrong species and clears drag`() {
     let networkID = UUID()
     let sourceID = UUID()
     let targetID = UUID()
     var drag: SidebarDrag? = SidebarDrag(
-      kind: .channel(networkID: networkID, bufferID: sourceID))
-    var committedIDs: [UUID] = []
+      kind: .channel(networkID: networkID, bufferID: sourceID)
+    )
+    var committedIDs = [UUID]()
     let delegate = SidebarDropDelegate(
       target: .row(targetID),
       accepts: { kind in
-        if case .network = kind { return true }
+        if case .network = kind {
+          return true
+        }
         return false
       },
       drag: Binding(get: { drag }, set: { drag = $0 }),
-      commit: { committedIDs.append($0) })
+      commit: { committedIDs.append($0) },
+    )
 
     #expect(!delegate.performDrop())
     #expect(committedIDs.isEmpty)
     #expect(drag == nil)
   }
 
-  @Test func reorderPinnedBuffersAppliesServerOrder() async {
+  @Test
+  func `reorder pinned buffers applies server order`() async {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let alpha = buffer("#alpha", networkID: networkID, pinned: true)
@@ -251,7 +294,8 @@ struct AppModelTests {
     #expect(model.composerError == nil)
   }
 
-  @Test func reorderPinnedBuffersRollsBackOnFailure() async {
+  @Test
+  func `reorder pinned buffers rolls back on failure`() async {
     let transport = FixtureTransport()
     await transport.setFailReorders(true)
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
@@ -268,10 +312,11 @@ struct AppModelTests {
     #expect(model.composerError != nil)
   }
 
-  // Archived buffers (any kind) leave the channel/query groups for the
-  // archived bucket; keyboard navigation skips them while the fold is closed
-  // and includes them once opened.
-  @Test func archivedBuffersFoldOutOfGroupsAndNavigation() {
+  /// Archived buffers (any kind) leave the channel/query groups for the
+  /// archived bucket; keyboard navigation skips them while the fold is closed
+  /// and includes them once opened.
+  @Test
+  func `archived buffers fold out of groups and navigation`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let status = buffer("*status*", kind: "status", networkID: networkID)
@@ -284,7 +329,8 @@ struct AppModelTests {
     model.buffers = Dictionary(
       uniqueKeysWithValues: [status, active, query, archivedChannel, archivedQuery].map {
         ($0.id, $0)
-      })
+      }
+    )
 
     let groups = model.sidebarBuffers(for: networkID)
     #expect(groups.channels.map(\.id) == [active.id])
@@ -305,7 +351,8 @@ struct AppModelTests {
     #expect(model.selectedBufferID == archivedQuery.id)
   }
 
-  @Test func bufferDeletedDropsStateAndReselects() {
+  @Test
+  func `buffer deleted drops state and reselects`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let doomed = buffer("spammer", kind: "query", networkID: networkID, archived: true)
@@ -324,7 +371,8 @@ struct AppModelTests {
     #expect(model.selectedBufferID == survivor.id)
   }
 
-  @Test func memberListRecordsBotNicks() {
+  @Test
+  func `member list records bot nicks`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let target = buffer("#alpha", networkID: networkID)
@@ -342,9 +390,13 @@ struct AppModelTests {
          "members":[
            {"nick":"HelperBot","away":false,"self":false,"bot":true,"color":3},
            {"nick":"alice","away":false,"self":false,"bot":false,"color":4}]}
-        """.utf8))
+        """.utf8
+      ),
+    )
     #expect(event != nil)
-    if let event { model.apply(event) }
+    if let event {
+      model.apply(event)
+    }
 
     #expect(model.members[target.id]?.first?.bot == true)
     // Case-insensitive, and remembered outside the member list so message
@@ -361,12 +413,17 @@ struct AppModelTests {
         {"type":"member_list","network_id":"\(networkID.uuidString)",
          "buffer_id":"\(target.id.uuidString)","channel":"#alpha",
          "members":[{"nick":"HelperBot","away":false,"self":false,"bot":false,"color":3}]}
-        """.utf8))
-    if let cleared { model.apply(cleared) }
+        """.utf8
+      ),
+    )
+    if let cleared {
+      model.apply(cleared)
+    }
     #expect(!model.isBot("helperbot"))
   }
 
-  @Test func memberListWithoutBotFieldDecodes() {
+  @Test
+  func `member list without bot field decodes`() {
     // Older backends omit `bot` entirely; the flag must stay absent, not fail
     // the decode of the whole member list.
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
@@ -383,16 +440,21 @@ struct AppModelTests {
         {"type":"member_list","network_id":"\(networkID.uuidString)",
          "buffer_id":"\(target.id.uuidString)","channel":"#alpha",
          "members":[{"nick":"alice","away":false,"self":false,"color":4}]}
-        """.utf8))
+        """.utf8
+      ),
+    )
     #expect(event != nil)
-    if let event { model.apply(event) }
+    if let event {
+      model.apply(event)
+    }
 
     #expect(model.members[target.id]?.count == 1)
     #expect(model.members[target.id]?.first?.bot == nil)
     #expect(!model.isBot("alice"))
   }
 
-  @Test func bufferUpdateArchivedMovesBufferBetweenGroups() {
+  @Test
+  func `buffer update archived moves buffer between groups`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let target = buffer("#alpha", networkID: networkID)
@@ -405,9 +467,13 @@ struct AppModelTests {
         """
         {"type":"buffer_update","id":"\(target.id.uuidString)",
          "network_id":"\(networkID.uuidString)","joined":false,"archived":true}
-        """.utf8))
+        """.utf8
+      ),
+    )
     #expect(archived != nil)
-    if let archived { model.apply(archived) }
+    if let archived {
+      model.apply(archived)
+    }
 
     #expect(model.buffers[target.id]?.archived == true)
     let groups = model.sidebarBuffers(for: networkID)
@@ -415,7 +481,8 @@ struct AppModelTests {
     #expect(groups.archived.map(\.id) == [target.id])
   }
 
-  @Test func archivesFoldStatePersistsAcrossRelaunch() {
+  @Test
+  func `archives fold state persists across relaunch`() {
     let defaults = isolatedDefaults()
     let networkID = UUID()
     let first = AppModel(transport: FixtureTransport(), defaults: defaults)
@@ -425,7 +492,8 @@ struct AppModelTests {
     #expect(second.archivesOpen.contains(networkID))
   }
 
-  @Test func networkCollapseStatePersistsAcrossRelaunch() {
+  @Test
+  func `network collapse state persists across relaunch`() {
     let defaults = isolatedDefaults()
     let networkID = UUID()
     let first = AppModel(transport: FixtureTransport(), defaults: defaults)
@@ -439,9 +507,10 @@ struct AppModelTests {
     #expect(!third.collapsedNetworks.contains(networkID))
   }
 
-  // A collapsed network keeps only its status buffer in the navigation order:
-  // the header still represents the status buffer, channels/queries are hidden.
-  @Test func collapsedNetworkNavigatesOnlyToStatus() {
+  /// A collapsed network keeps only its status buffer in the navigation order:
+  /// the header still represents the status buffer, channels/queries are hidden.
+  @Test
+  func `collapsed network navigates only to status`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let status = buffer("*status*", kind: "status", networkID: networkID)
@@ -453,7 +522,8 @@ struct AppModelTests {
     model.networks[networkID] = network(id: networkID)
     model.networks[otherNetworkID] = network(id: otherNetworkID)
     model.buffers = Dictionary(
-      uniqueKeysWithValues: [status, channel, query, otherStatus].map { ($0.id, $0) })
+      uniqueKeysWithValues: [status, channel, query, otherStatus].map { ($0.id, $0) }
+    )
 
     model.toggleNetworkCollapsed(networkID)
     model.selectedBufferID = status.id
@@ -466,7 +536,8 @@ struct AppModelTests {
     #expect(model.selectedBufferID == channel.id)
   }
 
-  @Test func channelsSortBySortOrderThenName() {
+  @Test
+  func `channels sort by sort order then name`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     var alpha = buffer("#alpha", networkID: networkID)
@@ -477,13 +548,15 @@ struct AppModelTests {
     // gamma keeps default 0: sorts first, ties would fall back to name.
     model.networks[networkID] = network(id: networkID)
     model.buffers = Dictionary(
-      uniqueKeysWithValues: [alpha, beta, gamma].map { ($0.id, $0) })
+      uniqueKeysWithValues: [alpha, beta, gamma].map { ($0.id, $0) }
+    )
 
     let groups = model.sidebarBuffers(for: networkID)
     #expect(groups.channels.map(\.id) == [gamma.id, beta.id, alpha.id])
   }
 
-  @Test func bufferDecodesWithoutSortOrderAsZero() throws {
+  @Test
+  func `buffer decodes without sort order as zero`() throws {
     // Old backends omit sort_order; the client must default to 0 so ordering
     // stays alphabetical (version-skew guard).
     let json = """
@@ -496,7 +569,8 @@ struct AppModelTests {
     #expect(decoded.sortOrder == 0)
   }
 
-  @Test func applyBufferReorderUpdatesSortOrders() {
+  @Test
+  func `apply buffer reorder updates sort orders`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let alpha = buffer("#alpha", networkID: networkID)
@@ -511,13 +585,17 @@ struct AppModelTests {
           buffers: [
             BufferSortEntry(id: beta.id, sortOrder: 0),
             BufferSortEntry(id: alpha.id, sortOrder: 1),
-          ])))
+          ],
+        )
+      )
+    )
 
     let groups = model.sidebarBuffers(for: networkID)
     #expect(groups.channels.map(\.id) == [beta.id, alpha.id])
   }
 
-  @Test func reorderChannelsRollsBackOnFailure() async {
+  @Test
+  func `reorder channels rolls back on failure`() async {
     let transport = FixtureTransport()
     await transport.setFailReorders(true)
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
@@ -534,7 +612,8 @@ struct AppModelTests {
     #expect(model.composerError != nil)
   }
 
-  @Test func reorderChannelsAppliesServerOrder() async throws {
+  @Test
+  func `reorder channels applies server order`() async throws {
     let transport = FixtureTransport()
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
     let networkID = UUID()
@@ -546,7 +625,11 @@ struct AppModelTests {
 
     let reordered = try #require(
       SidebarOrdering.moving(
-        [alpha.id, beta.id, gamma.id], from: alpha.id, before: gamma.id))
+        [alpha.id, beta.id, gamma.id],
+        from: alpha.id,
+        before: gamma.id,
+      )
+    )
     #expect(reordered == [beta.id, alpha.id, gamma.id])
     await model.reorderChannels(networkID: networkID, orderedIDs: reordered)?.value
 
@@ -557,7 +640,8 @@ struct AppModelTests {
     #expect(model.composerError == nil)
   }
 
-  @Test func reorderNetworksSendsCompleteSetIncludingDisabled() async throws {
+  @Test
+  func `reorder networks sends complete set including disabled`() async throws {
     let transport = FixtureTransport()
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
     let firstID = UUID()
@@ -577,7 +661,11 @@ struct AppModelTests {
 
     let reordered = try #require(
       SidebarOrdering.moving(
-        [firstID, secondID, thirdID], from: firstID, before: thirdID))
+        [firstID, secondID, thirdID],
+        from: firstID,
+        before: thirdID,
+      )
+    )
     #expect(reordered == [secondID, firstID, thirdID])
     await model.reorderNetworks(reordered)?.value
 
@@ -589,7 +677,8 @@ struct AppModelTests {
     #expect(model.networks[disabledID]?.sortOrder == 3)
   }
 
-  @Test func reorderRollbackPreservesInFlightUpdates() async {
+  @Test
+  func `reorder rollback preserves in flight updates`() async {
     let transport = FixtureTransport()
     await transport.setFailReorders(true)
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
@@ -608,9 +697,13 @@ struct AppModelTests {
         """
         {"type":"buffer_update","id":"\(alpha.id.uuidString)",
          "network_id":"\(networkID.uuidString)","unread":7}
-        """.utf8))
+        """.utf8
+      ),
+    )
     #expect(update != nil)
-    if let update { model.apply(update) }
+    if let update {
+      model.apply(update)
+    }
     await task?.value
 
     #expect(model.buffers[alpha.id]?.unread == 7)
@@ -618,7 +711,8 @@ struct AppModelTests {
     #expect(model.buffers[beta.id]?.sortOrder == 0)
   }
 
-  @Test func deletingSelectedBufferDoesNotLeakDraft() {
+  @Test
+  func `deleting selected buffer does not leak draft`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let doomed = buffer("spammer", kind: "query", networkID: networkID, archived: true)
@@ -634,7 +728,8 @@ struct AppModelTests {
     #expect(model.composerText == "")
   }
 
-  @Test func reorderNetworksRollsBackOnFailure() async {
+  @Test
+  func `reorder networks rolls back on failure`() async {
     let transport = FixtureTransport()
     await transport.setFailReorders(true)
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
@@ -653,7 +748,8 @@ struct AppModelTests {
     #expect(model.composerError != nil)
   }
 
-  @Test func sendComposerRecordsPlainMessagesNotSlashCommands() {
+  @Test
+  func `send composer records plain messages not slash commands`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let chan = buffer("#alpha", networkID: networkID)
@@ -671,7 +767,8 @@ struct AppModelTests {
     #expect(!model.navigateHistory(up: true) || model.composerText == "hello there")
   }
 
-  @Test func failedSendRestoresComposerText() async {
+  @Test
+  func `failed send restores composer text`() async {
     let transport = FixtureTransport()
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
     let networkID = UUID()
@@ -688,7 +785,8 @@ struct AppModelTests {
     #expect(model.composerError != nil)
   }
 
-  @Test func failedSendKeepsNewerComposerText() async {
+  @Test
+  func `failed send keeps newer composer text`() async {
     let transport = FixtureTransport()
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
     let networkID = UUID()
@@ -706,7 +804,8 @@ struct AppModelTests {
     #expect(model.composerText == "already typing again")
   }
 
-  @Test func bufferSwitchPreservesDraftsPerBuffer() {
+  @Test
+  func `buffer switch preserves drafts per buffer`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let first = buffer("#alpha", networkID: networkID)
@@ -725,7 +824,8 @@ struct AppModelTests {
     #expect(model.composerText == "draft in beta")
   }
 
-  @Test func attachImageDeliversToOriginBufferAfterSwitch() async {
+  @Test
+  func `attach image delivers to origin buffer after switch`() async {
     let transport = FixtureTransport()
     await transport.setHoldUploads(true)
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
@@ -748,7 +848,8 @@ struct AppModelTests {
     #expect(model.composerText.contains("https://fixture.local/uploads/test.jpg"))
   }
 
-  @Test func attachImageIgnoresOverlappingUpload() async {
+  @Test
+  func `attach image ignores overlapping upload`() async {
     let transport = FixtureTransport()
     await transport.setHoldUploads(true)
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
@@ -769,21 +870,25 @@ struct AppModelTests {
     #expect(!model.isUploading)
   }
 
-  @Test func dayKeyGroupsByLocalCalendarDay() {
+  @Test
+  func `day key groups by local calendar day`() throws {
     var helsinki = Calendar(identifier: .gregorian)
-    helsinki.timeZone = TimeZone(identifier: "Europe/Helsinki")!
+    helsinki.timeZone = try #require(TimeZone(identifier: "Europe/Helsinki"))
     // 23:30Z Aug 10 and 00:30Z Aug 11 are both Aug 11 in Helsinki (UTC+3):
     // one separator, not two.
     #expect(
       dayKey("2026-08-10T23:30:00Z", calendar: helsinki)
-        == dayKey("2026-08-11T00:30:00Z", calendar: helsinki))
+        == dayKey("2026-08-11T00:30:00Z", calendar: helsinki)
+    )
     // 20:30Z Aug 10 is still Aug 10 in Helsinki: separate days.
     #expect(
       dayKey("2026-08-10T20:30:00Z", calendar: helsinki)
-        != dayKey("2026-08-10T23:30:00Z", calendar: helsinki))
+        != dayKey("2026-08-10T23:30:00Z", calendar: helsinki)
+    )
   }
 
-  @Test func inlineImageURLAcceptsHTTPSOnly() {
+  @Test
+  func `inline image URL accepts HTTPS only`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let secure = Preview(url: "https://example.com/cat.png", kind: "image")
     let insecure = Preview(url: "http://example.com/cat.png", kind: "image")
@@ -791,26 +896,35 @@ struct AppModelTests {
     #expect(model.inlineImageURL(insecure) == nil)
   }
 
-  @Test func networkAggregateCountsSumAllBuffers() {
+  @Test
+  func `network aggregate counts sum all buffers`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let status = buffer("*status*", kind: "status", networkID: networkID, unread: 1)
     let pinned = buffer("#pinned", networkID: networkID, pinned: true, unread: 2, mentions: 1)
     let channel = buffer("#alpha", networkID: networkID, unread: 3)
     let archived = buffer(
-      "#old", networkID: networkID, joined: false, archived: true, unread: 4, mentions: 2)
+      "#old",
+      networkID: networkID,
+      joined: false,
+      archived: true,
+      unread: 4,
+      mentions: 2,
+    )
     let foreign = buffer("#other", networkID: UUID(), unread: 100, mentions: 100)
 
     model.networks[networkID] = network(id: networkID)
     model.buffers = Dictionary(
-      uniqueKeysWithValues: [status, pinned, channel, archived, foreign].map { ($0.id, $0) })
+      uniqueKeysWithValues: [status, pinned, channel, archived, foreign].map { ($0.id, $0) }
+    )
 
     let counts = model.networkAggregateCounts(networkID)
     #expect(counts.unread == 10)
     #expect(counts.mentions == 3)
   }
 
-  @Test func selectBufferPushesCompactConversation() {
+  @Test
+  func `select buffer pushes compact conversation`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let channel = buffer("#alpha", networkID: networkID)
@@ -827,7 +941,8 @@ struct AppModelTests {
     #expect(model.compactConversationVisible)
   }
 
-  @Test func inspectorDismissalPersistsAcrossRelaunch() {
+  @Test
+  func `inspector dismissal persists across relaunch`() {
     let defaults = isolatedDefaults()
     let first = AppModel(transport: FixtureTransport(), defaults: defaults)
     first.setInspectorVisible(false)
@@ -836,10 +951,11 @@ struct AppModelTests {
     #expect(!second.inspectorVisible)
   }
 
-  // Foregrounding while nominally connected probes the socket; the syncing
-  // flag covers the whole probe window so the UI can flag possibly-stale
-  // state, and clears once the ping resolves.
-  @Test func focusPingTogglesSyncing() async {
+  /// Foregrounding while nominally connected probes the socket; the syncing
+  /// flag covers the whole probe window so the UI can flag possibly-stale
+  /// state, and clears once the ping resolves.
+  @Test
+  func `focus ping toggles syncing`() async {
     let transport = FixtureTransport()
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
     model.connectionState = .connected
@@ -855,10 +971,11 @@ struct AppModelTests {
     #expect(await transport.disconnectCount == 0)
   }
 
-  // A failed focus ping cuts the socket so connectionLoop reconnects; the
-  // syncing flag must still clear (the banner then persists via
-  // connectionState leaving .connected, not via the flag).
-  @Test func focusPingFailureDisconnectsSocket() async {
+  /// A failed focus ping cuts the socket so connectionLoop reconnects; the
+  /// syncing flag must still clear (the banner then persists via
+  /// connectionState leaving .connected, not via the flag).
+  @Test
+  func `focus ping failure disconnects socket`() async {
     let transport = FixtureTransport()
     await transport.setFailPings(true)
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
@@ -871,9 +988,10 @@ struct AppModelTests {
     #expect(await transport.disconnectCount == 1)
   }
 
-  // Rapid activation events (didBecomeActive + scenePhase + wake can all
-  // fire together) must not stack pings.
-  @Test func concurrentActivationsPingOnce() async {
+  /// Rapid activation events (didBecomeActive + scenePhase + wake can all
+  /// fire together) must not stack pings.
+  @Test
+  func `concurrent activations ping once`() async {
     let transport = FixtureTransport()
     let model = AppModel(transport: transport, defaults: isolatedDefaults())
     model.connectionState = .connected
@@ -885,7 +1003,8 @@ struct AppModelTests {
     #expect(await transport.pingCount == 1)
   }
 
-  @Test func outOfSyncTracksConnectionStateAndPing() {
+  @Test
+  func `out of sync tracks connection state and ping`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
 
     model.connectionState = .notConfigured
@@ -903,15 +1022,21 @@ struct AppModelTests {
     #expect(model.outOfSync)
   }
 
-  // Opening a buffer, switching away from it, or foregrounding the app must
-  // never ack: badge, divider, and unread bar clear only on explicit ack.
-  @Test func selectingAndForegroundingNeverMarkRead() {
+  /// Opening a buffer, switching away from it, or foregrounding the app must
+  /// never ack: badge, divider, and unread bar clear only on explicit ack.
+  @Test
+  func `selecting and foregrounding never mark read`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let markerID = uuid(5)
     let unreadBuffer = buffer(
-      "#alpha", networkID: networkID, markerID: markerID, markerTS: "2026-07-23T08:12:00Z",
-      unread: 3, mentions: 1)
+      "#alpha",
+      networkID: networkID,
+      markerID: markerID,
+      markerTS: "2026-07-23T08:12:00Z",
+      unread: 3,
+      mentions: 1,
+    )
     let other = buffer("#beta", networkID: networkID)
     model.networks[networkID] = network(id: networkID)
     model.buffers = [unreadBuffer.id: unreadBuffer, other.id: other]
@@ -929,7 +1054,8 @@ struct AppModelTests {
     #expect(after?.lastSeenID == nil)
   }
 
-  @Test func channelListEventPresentsAndAccumulates() {
+  @Test
+  func `channel list event presents and accumulates`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
 
@@ -938,7 +1064,10 @@ struct AppModelTests {
         ChannelListEvent(
           networkID: networkID,
           entries: [ChannelListEntry(name: "#go-nuts", count: 412, topic: "Go talk")],
-          done: false)))
+          done: false,
+        )
+      )
+    )
     #expect(model.channelList?.entries?.count == 1)
     #expect(model.channelList?.done == false)
 
@@ -948,24 +1077,34 @@ struct AppModelTests {
         ChannelListEvent(
           networkID: networkID,
           entries: [ChannelListEntry(name: "#quiet", count: 2)],
-          done: true)))
+          done: true,
+        )
+      )
+    )
     #expect(model.channelList?.entries?.count == 2)
     #expect(model.channelList?.done == true)
 
     // A result for another network replaces the finished one.
     let otherNetwork = UUID()
     model.apply(
-      .channelList(ChannelListEvent(networkID: otherNetwork, entries: nil, done: true)))
+      .channelList(ChannelListEvent(networkID: otherNetwork, entries: nil, done: true))
+    )
     #expect(model.channelList?.networkID == otherNetwork)
     #expect(model.channelList?.entries == nil)
   }
 
-  @Test func ackReadClearsMarkerAndCountsAndAdvancesLastSeen() {
+  @Test
+  func `ack read clears marker and counts and advances last seen`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let target = buffer(
-      "#alpha", networkID: networkID, markerID: uuid(2), markerTS: "2026-07-23T08:12:00Z",
-      unread: 2, mentions: 1)
+      "#alpha",
+      networkID: networkID,
+      markerID: uuid(2),
+      markerTS: "2026-07-23T08:12:00Z",
+      unread: 2,
+      mentions: 1,
+    )
     model.networks[networkID] = network(id: networkID)
     model.buffers = [target.id: target]
     model.messages[target.id] = [
@@ -984,11 +1123,17 @@ struct AppModelTests {
     #expect(after?.mentions == 0)
   }
 
-  @Test func ackReadWithoutLoadedMessagesIsANoOp() {
+  @Test
+  func `ack read without loaded messages is A no op`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let target = buffer(
-      "#alpha", networkID: networkID, markerID: uuid(2), unread: 2, mentions: 1)
+      "#alpha",
+      networkID: networkID,
+      markerID: uuid(2),
+      unread: 2,
+      mentions: 1,
+    )
     model.networks[networkID] = network(id: networkID)
     model.buffers = [target.id: target]
 
@@ -998,9 +1143,10 @@ struct AppModelTests {
     #expect(model.buffers[target.id]?.unread == 2)
   }
 
-  // Live arrival counts in every buffer — including the selected one while the
-  // app is active — and the marker sticks to the first unread message.
-  @Test func liveArrivalCountsUnreadEvenInSelectedActiveBuffer() {
+  /// Live arrival counts in every buffer — including the selected one while the
+  /// app is active — and the marker sticks to the first unread message.
+  @Test
+  func `live arrival counts unread even in selected active buffer`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let target = buffer("#alpha", networkID: networkID, lastSeenID: uuid(1))
@@ -1021,7 +1167,8 @@ struct AppModelTests {
     #expect(after?.lastSeenID == uuid(1))
   }
 
-  @Test func selfSeenAndNonCountingMessagesNeverCount() {
+  @Test
+  func `self seen and non counting messages never count`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let target = buffer("#alpha", networkID: networkID, lastSeenID: uuid(5))
@@ -1039,14 +1186,20 @@ struct AppModelTests {
     #expect(model.messages[target.id]?.count == 3)
   }
 
-  // A remote ack arrives as buffer_update with marker_id: null — it must clear
-  // the marker here too; an update without the key leaves the marker alone.
-  @Test func bufferUpdateAppliesMarkerPresenceSemantics() throws {
+  /// A remote ack arrives as buffer_update with marker_id: null — it must clear
+  /// the marker here too; an update without the key leaves the marker alone.
+  @Test
+  func `buffer update applies marker presence semantics`() throws {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let networkID = UUID()
     let target = buffer(
-      "#alpha", networkID: networkID, markerID: uuid(2), markerTS: "2026-07-23T08:12:00Z",
-      unread: 2, mentions: 1)
+      "#alpha",
+      networkID: networkID,
+      markerID: uuid(2),
+      markerTS: "2026-07-23T08:12:00Z",
+      unread: 2,
+      mentions: 1,
+    )
     model.networks[networkID] = network(id: networkID)
     model.buffers = [target.id: target]
 
@@ -1056,7 +1209,9 @@ struct AppModelTests {
         """
         {"type":"buffer_update","id":"\(target.id.uuidString)",
          "network_id":"\(networkID.uuidString)","topic":"still unread"}
-        """.utf8))
+        """.utf8
+      ),
+    )
     model.apply(unchanged)
     #expect(model.buffers[target.id]?.markerID == uuid(2))
     #expect(model.buffers[target.id]?.topic == "still unread")
@@ -1069,7 +1224,9 @@ struct AppModelTests {
          "network_id":"\(networkID.uuidString)",
          "last_seen_id":"\(uuid(3).uuidString)",
          "marker_id":null,"unread":0,"mentions":0}
-        """.utf8))
+        """.utf8
+      ),
+    )
     model.apply(cleared)
     let after = model.buffers[target.id]
     #expect(after?.markerID == nil)
@@ -1079,7 +1236,8 @@ struct AppModelTests {
     #expect(after?.mentions == 0)
   }
 
-  @Test func snapshotHydratesMarkerFields() {
+  @Test
+  func `snapshot hydrates marker fields`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     model.applySnapshot(FixtureTransport.snapshot())
 
@@ -1089,12 +1247,14 @@ struct AppModelTests {
 
     let full = model.buffers[FixtureTransport.fullChannelID]
     let firstUnread = FixtureTransport.fullMessages[
-      FixtureTransport.fullTotal - FixtureTransport.fullUnread]
+      FixtureTransport.fullTotal - FixtureTransport.fullUnread
+    ]
     #expect(full?.markerID == firstUnread.id)
     #expect(full?.markerTS == firstUnread.ts)
   }
 
-  @Test func freshSnapshotResetsPaginationState() {
+  @Test
+  func `fresh snapshot resets pagination state`() {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     let bufferID = UUID()
     model.historyExhausted.insert(bufferID)
@@ -1102,14 +1262,16 @@ struct AppModelTests {
     model.historyAnchor = HistoryAnchor(bufferID: bufferID, messageID: UUID())
 
     model.applySnapshot(
-      StateSnapshot(networks: [], buffers: [], initialMessages: [:], members: [:]))
+      StateSnapshot(networks: [], buffers: [], initialMessages: [:], members: [:])
+    )
 
     #expect(model.historyExhausted.isEmpty)
     #expect(model.historyLoading.isEmpty)
     #expect(model.historyAnchor == nil)
   }
 
-  @Test func loadOlderHistoryAnchorsPreviousTopMessage() async {
+  @Test
+  func `load older history anchors previous top message`() async throws {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     model.applySnapshot(FixtureTransport.snapshot())
     model.selectedBufferID = FixtureTransport.fullChannelID
@@ -1120,12 +1282,15 @@ struct AppModelTests {
 
     #expect(
       model.historyAnchor
-        == HistoryAnchor(bufferID: FixtureTransport.fullChannelID, messageID: previousTop!))
+        == HistoryAnchor(bufferID: FixtureTransport.fullChannelID, messageID: try #require(previousTop))
+    )
     #expect(
-      model.messages[FixtureTransport.fullChannelID]?.first?.id != previousTop)
+      model.messages[FixtureTransport.fullChannelID]?.first?.id != previousTop
+    )
   }
 
-  @Test func exhaustedHistoryLoadSetsNoAnchor() async {
+  @Test
+  func `exhausted history load sets no anchor`() async {
     let model = AppModel(transport: FixtureTransport(), defaults: isolatedDefaults())
     model.applySnapshot(FixtureTransport.snapshot())
     // channelID's fixture history is already complete: fetch returns nothing.
@@ -1142,7 +1307,8 @@ struct AppModelTests {
   /// store head can be invisible — `scrollTo` on it silently no-ops and the
   /// load-older trigger re-fires. The pagination cursor must still be the raw
   /// head, otherwise the hidden rows get refetched forever.
-  @Test func loadOlderHistoryAnchorsRenderedRowNotRawStoreHead() async {
+  @Test
+  func `load older history anchors rendered row not raw store head`() async {
     let networkID = UUID()
     var channel = buffer("#alpha", networkID: networkID)
     channel.showPresenceEvents = false
@@ -1154,7 +1320,9 @@ struct AppModelTests {
     let hiddenJoin = presenceMessage(1, in: channel, networkID: networkID)
     let firstVisible = message(2, in: channel, networkID: networkID)
     model.messages[channel.id] = [
-      hiddenJoin, firstVisible, message(3, in: channel, networkID: networkID),
+      hiddenJoin,
+      firstVisible,
+      message(3, in: channel, networkID: networkID),
     ]
     await transport.setPage([message(0, in: channel, networkID: networkID)])
     model.selectedBufferID = channel.id
@@ -1164,13 +1332,15 @@ struct AppModelTests {
     await model.loadOlderHistory()?.value
 
     #expect(
-      model.historyAnchor == HistoryAnchor(bufferID: channel.id, messageID: firstVisible.id))
+      model.historyAnchor == HistoryAnchor(bufferID: channel.id, messageID: firstVisible.id)
+    )
     let cursors = await transport.cursors
     #expect(cursors == [hiddenJoin.id])
     #expect(model.messages[channel.id]?.count == 4)
   }
 
-  @Test func bufferSwitchClearsPendingHistoryAnchor() {
+  @Test
+  func `buffer switch clears pending history anchor`() {
     let networkID = UUID()
     let alpha = buffer("#alpha", networkID: networkID)
     let beta = buffer("#beta", networkID: networkID)
@@ -1188,7 +1358,8 @@ struct AppModelTests {
   /// Switching away and back while a page is in flight rebuilds the timeline
   /// bottom-anchored; applying the anchor then would yank the viewport off the
   /// newest messages. The fetched page still merges.
-  @Test func staleHistoryAnchorDroppedAfterBufferRoundTrip() async {
+  @Test
+  func `stale history anchor dropped after buffer round trip`() async {
     let networkID = UUID()
     let alpha = buffer("#alpha", networkID: networkID)
     let beta = buffer("#beta", networkID: networkID)
@@ -1215,7 +1386,8 @@ struct AppModelTests {
   /// Guard against a second page being fetched between the merge and the
   /// anchor's `scrollTo`: the prepended top rows can fire their load-older
   /// `onAppear` while the viewport is still at the top.
-  @Test func loadOlderHistorySkippedWhileAnchorPending() async {
+  @Test
+  func `load older history skipped while anchor pending`() async {
     let networkID = UUID()
     let channel = buffer("#alpha", networkID: networkID)
     let transport = HistoryStubTransport()
@@ -1235,6 +1407,8 @@ struct AppModelTests {
     #expect(cursors == [uuid(2)])
   }
 
+  // MARK: Private
+
   private func isolatedDefaults() -> UserDefaults {
     UserDefaults(suiteName: "xyz.endymion.lurker.tests.\(UUID().uuidString)")!
   }
@@ -1248,7 +1422,7 @@ struct AppModelTests {
       port: 6697,
       tls: true,
       nick: "shrike",
-      sortOrder: 0
+      sortOrder: 0,
     )
   }
 
@@ -1263,7 +1437,7 @@ struct AppModelTests {
     markerID: UUID? = nil,
     markerTS: String? = nil,
     unread: Int = 0,
-    mentions: Int = 0
+    mentions: Int = 0,
   ) -> Buffer {
     Buffer(
       id: UUID(),
@@ -1280,7 +1454,7 @@ struct AppModelTests {
       pinned: pinned,
       archived: archived,
       unread: unread,
-      mentions: mentions
+      mentions: mentions,
     )
   }
 
@@ -1297,7 +1471,7 @@ struct AppModelTests {
     ts: String = "2026-07-23T08:12:00Z",
     isSelf: Bool? = nil,
     mentionsMe: Bool? = nil,
-    countsAsUnread: Bool? = true
+    countsAsUnread: Bool? = true,
   ) -> Message {
     Message(
       id: uuid(ordinal),
@@ -1310,7 +1484,7 @@ struct AppModelTests {
       displayKind: "message",
       isSelf: isSelf,
       mentionsMe: mentionsMe,
-      countsAsUnread: countsAsUnread
+      countsAsUnread: countsAsUnread,
     )
   }
 
@@ -1324,15 +1498,18 @@ struct AppModelTests {
     value.content = ""
     return value
   }
+
 }
+
+// MARK: - HistoryStubTransport
 
 /// Minimal transport for pagination tests: records the `before` cursor of every
 /// history request and answers with a fixed page.
 private actor HistoryStubTransport: LurkerTransport {
-  private(set) var cursors: [UUID?] = []
-  private var page: [Message] = []
 
-  private struct Unsupported: Error {}
+  // MARK: Internal
+
+  private(set) var cursors = [UUID?]()
 
   func setPage(_ messages: [Message]) {
     page = messages
@@ -1343,25 +1520,45 @@ private actor HistoryStubTransport: LurkerTransport {
     return page
   }
 
-  func validateServer() async throws -> ServiceIdentity { throw Unsupported() }
-  func fetchState() async throws -> StateSnapshot { throw Unsupported() }
+  func validateServer() async throws -> ServiceIdentity {
+    throw Unsupported()
+  }
+
+  func fetchState() async throws -> StateSnapshot {
+    throw Unsupported()
+  }
+
   func updateBuffer(id _: UUID, patch _: BufferSettingsPatch) async throws -> BufferSettingsEvent {
     throw Unsupported()
   }
-  func reorderNetworks(ids _: [UUID]) async throws -> [Network] { throw Unsupported() }
+
+  func reorderNetworks(ids _: [UUID]) async throws -> [Network] {
+    throw Unsupported()
+  }
+
   func reorderBuffers(networkID _: UUID, ids _: [UUID]) async throws -> BufferReorderEvent {
     throw Unsupported()
   }
+
   func reorderPinnedBuffers(ids _: [UUID]) async throws -> PinnedReorderEvent {
     throw Unsupported()
   }
+
   func openEvents() async -> AsyncThrowingStream<ServerEvent, Error> {
     AsyncThrowingStream { _ in }
   }
-  func send(_: ClientCommand) async throws {}
-  func ping() async throws {}
-  func disconnect() async {}
+
+  func send(_: ClientCommand) async throws { }
+  func ping() async throws { }
+  func disconnect() async { }
   func upload(_: Data, filename _: String, contentType _: String) async throws -> URL {
     throw Unsupported()
   }
+
+  // MARK: Private
+
+  private struct Unsupported: Error { }
+
+  private var page = [Message]()
+
 }

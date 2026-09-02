@@ -4,7 +4,8 @@ import Testing
 @testable import Lurker
 
 struct WireModelTests {
-  @Test func decodesStateSnapshot() throws {
+  @Test
+  func `decodes state snapshot`() throws {
     let data = Data(
       """
       {
@@ -41,17 +42,19 @@ struct WireModelTests {
     #expect(state.buffers.first?.pinned == true)
     #expect(state.buffers.first?.mentions == 1)
     #expect(
-      state.buffers.first?.markerID == UUID(uuidString: "0198f5f2-a000-7000-8000-000000000001"))
+      state.buffers.first?.markerID == UUID(uuidString: "0198f5f2-a000-7000-8000-000000000001")
+    )
     #expect(state.buffers.first?.markerTS == "2026-07-23T08:12:00Z")
     // Marker keys omitted entirely — no marker.
     #expect(state.buffers.last?.markerID == nil)
     #expect(state.buffers.last?.markerTS == nil)
   }
 
-  // The mark_read variant of buffer_update always carries the `marker_id` key:
-  // JSON null means "caught up — clear the marker". The topic/joined variant
-  // omits the key = unchanged. The double-optional field must keep those apart.
-  @Test func decodesBufferUpdateMarkerPresentNullAndAbsent() throws {
+  /// The mark_read variant of buffer_update always carries the `marker_id` key:
+  /// JSON null means "caught up — clear the marker". The topic/joined variant
+  /// omits the key = unchanged. The double-optional field must keep those apart.
+  @Test
+  func `decodes buffer update marker present null and absent`() throws {
     func decode(_ json: String) throws -> BufferUpdateEvent {
       let event = try JSONDecoder.lurker().decode(ServerEvent.self, from: Data(json.utf8))
       guard case .bufferUpdate(let update) = event else {
@@ -72,7 +75,8 @@ struct WireModelTests {
         "marker_ts": "2026-07-23T08:13:00Z",
         "unread": 4, "mentions": 1
       }
-      """)
+      """
+    )
     #expect(set.markerID == UUID(uuidString: "0198f5f2-a000-7000-8000-000000000002"))
     #expect(set.markerTS == "2026-07-23T08:13:00Z")
     #expect(set.unread == 4)
@@ -87,9 +91,10 @@ struct WireModelTests {
         "marker_id": null,
         "unread": 0, "mentions": 0
       }
-      """)
-    #expect(cleared.markerID != nil)  // key present…
-    #expect(cleared.markerID! == nil)  // …with explicit null: clear the marker
+      """
+    )
+    // Key present with explicit null: outer optional is .some, inner is nil — clear the marker.
+    #expect(cleared.markerID == .some(nil))
 
     let unchanged = try decode(
       """
@@ -99,26 +104,29 @@ struct WireModelTests {
         "network_id": "0198f5f2-8f2a-7a8b-9b42-4d6e72c4d8f1",
         "topic": "fresh topic"
       }
-      """)
-    #expect(unchanged.markerID == nil)  // key absent: marker unchanged
+      """
+    )
+    #expect(unchanged.markerID == nil) // key absent: marker unchanged
     #expect(unchanged.topic == "fresh topic")
   }
 
-  // Third leg of the presence-kind contract: irc.presenceKinds (Go) and
-  // PRESENCE_KINDS (web) assert against the same fixture, so a kind added
-  // server-side fails here until the Swift mirror follows.
-  @Test func presenceKindsMatchSharedContract() throws {
+  /// Third leg of the presence-kind contract: irc.presenceKinds (Go) and
+  /// PRESENCE_KINDS (web) assert against the same fixture, so a kind added
+  /// server-side fails here until the Swift mirror follows.
+  @Test
+  func `presence kinds match shared contract`() throws {
     let fixture = URL(fileURLWithPath: #filePath)
-      .deletingLastPathComponent()  // LurkerTests
-      .deletingLastPathComponent()  // macos
-      .deletingLastPathComponent()  // repo root
+      .deletingLastPathComponent() // LurkerTests
+      .deletingLastPathComponent() // macos
+      .deletingLastPathComponent() // repo root
       .appending(path: "testdata/semantic-kinds.json")
     struct Contract: Decodable { let presenceKinds: [String] }
     let contract = try JSONDecoder().decode(Contract.self, from: Data(contentsOf: fixture))
     #expect(Set(contract.presenceKinds) == presenceKinds)
   }
 
-  @Test func decodesKnownAndUnknownEvents() throws {
+  @Test
+  func `decodes known and unknown events`() throws {
     let message = Data(
       """
       {
@@ -154,16 +162,20 @@ struct WireModelTests {
     #expect(type == "future_event")
   }
 
-  @Test func decodesBufferDeletedAndArchivedFields() throws {
+  @Test
+  func `decodes buffer deleted and archived fields`() throws {
     let deleted = Data(
       """
       {"type":"buffer_deleted",
        "id":"0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20",
        "network_id":"0198F5F2-8F2A-7A8B-9B42-4D6E72C4D8F1"}
-      """.utf8)
+      """.utf8
+    )
     guard
       case .bufferDeleted(let event) = try JSONDecoder.lurker().decode(
-        ServerEvent.self, from: deleted)
+        ServerEvent.self,
+        from: deleted,
+      )
     else {
       Issue.record("Expected buffer_deleted event")
       return
@@ -177,10 +189,13 @@ struct WireModelTests {
        "id":"0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20",
        "network_id":"0198F5F2-8F2A-7A8B-9B42-4D6E72C4D8F1",
        "joined":false,"archived":true}
-      """.utf8)
+      """.utf8
+    )
     guard
       case .bufferUpdate(let updated) = try JSONDecoder.lurker().decode(
-        ServerEvent.self, from: update)
+        ServerEvent.self,
+        from: update,
+      )
     else {
       Issue.record("Expected buffer_update event")
       return
@@ -193,10 +208,13 @@ struct WireModelTests {
        "id":"0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20",
        "show_embeds":true,"show_presence_events":true,
        "collapse_presence_events":false,"pinned":false,"archived":true}
-      """.utf8)
+      """.utf8
+    )
     guard
       case .bufferSettings(let event2) = try JSONDecoder.lurker().decode(
-        ServerEvent.self, from: settings)
+        ServerEvent.self,
+        from: settings,
+      )
     else {
       Issue.record("Expected buffer_settings event")
       return
@@ -204,12 +222,13 @@ struct WireModelTests {
     #expect(event2.archived == true)
   }
 
-  @Test func encodesCommandAcronymsAsSnakeCase() throws {
+  @Test
+  func `encodes command acronyms as snake case`() throws {
     let command = ClientCommand(
       type: "mark_read",
       reqID: "request-1",
       bufferID: UUID(uuidString: "0198f5f2-9348-7ed6-b3b4-cd8a1a6e8b20"),
-      messageID: UUID(uuidString: "0198f5f2-a000-7000-8000-000000000001")
+      messageID: UUID(uuidString: "0198f5f2-a000-7000-8000-000000000001"),
     )
     let object = try JSONSerialization.jsonObject(with: JSONEncoder.lurker().encode(command))
     let payload = try #require(object as? [String: Any])
@@ -219,7 +238,8 @@ struct WireModelTests {
     #expect(payload["reqID"] == nil)
   }
 
-  @Test func decodesRESTHistoryEnvelope() throws {
+  @Test
+  func `decodes REST history envelope`() throws {
     let data = Data(
       """
       {
@@ -242,7 +262,8 @@ struct WireModelTests {
     #expect(history.messages.first?.content == "older message")
   }
 
-  @Test @MainActor func linksUseTheStrippedSegmentText() {
+  @Test @MainActor
+  func `links use the stripped segment text`() {
     let message = Message(
       id: UUID(),
       networkID: UUID(),
@@ -255,16 +276,17 @@ struct WireModelTests {
       segments: [
         MircSegment(text: "bold", bold: true),
         MircSegment(text: " https://example.com"),
-      ]
+      ],
     )
     let rendered = attributedBody(message)
     #expect(String(rendered.characters) == "bold https://example.com")
     #expect(rendered.runs.contains { $0.link?.absoluteString == "https://example.com" })
   }
 
-  // Clickability is driven by which runs carry `.link`, so the runs must cover
-  // exactly the URL text — nothing more, nothing less.
-  @Test @MainActor func linkRunsCoverOnlyTheURLText() {
+  /// Clickability is driven by which runs carry `.link`, so the runs must cover
+  /// exactly the URL text — nothing more, nothing less.
+  @Test @MainActor
+  func `link runs cover only the URL text`() {
     let message = Message(
       id: UUID(),
       networkID: UUID(),
@@ -273,8 +295,8 @@ struct WireModelTests {
       sender: "tove",
       kind: "privmsg",
       content:
-        "inline links: https://example.com/lurker and https://news.ycombinator.com/item?id=1",
-      displayKind: "message"
+      "inline links: https://example.com/lurker and https://news.ycombinator.com/item?id=1",
+      displayKind: "message",
     )
     let rendered = attributedBody(message)
     let linkRuns = rendered.runs.compactMap { run in
@@ -282,12 +304,16 @@ struct WireModelTests {
     }
     #expect(
       linkRuns.map(\.text) == [
-        "https://example.com/lurker", "https://news.ycombinator.com/item?id=1",
-      ])
+        "https://example.com/lurker",
+        "https://news.ycombinator.com/item?id=1",
+      ]
+    )
     #expect(
       linkRuns.map(\.url) == [
-        "https://example.com/lurker", "https://news.ycombinator.com/item?id=1",
-      ])
+        "https://example.com/lurker",
+        "https://news.ycombinator.com/item?id=1",
+      ]
+    )
 
     let plainText = rendered.runs.filter { $0.link == nil }.map {
       String(rendered.characters[$0.range])
@@ -295,7 +321,8 @@ struct WireModelTests {
     #expect(plainText == "inline links:  and ")
   }
 
-  @Test func decodesLiveServerStatusBufferMarker() throws {
+  @Test
+  func `decodes live server status buffer marker`() throws {
     // Byte-for-byte /api/state output from a live server (status buffer with
     // residual unread): absent topic/last_seen_id, lowercase marker uuid.
     let json = """
@@ -308,7 +335,8 @@ struct WireModelTests {
     #expect(buffer.markerTS == "2026-07-28T21:46:06Z")
   }
 
-  @Test func decodesChannelListEvent() throws {
+  @Test
+  func `decodes channel list event`() throws {
     let json = """
       {"type":"channel_list","network_id":"019faab1-2fc0-768b-a2dd-fc335dbd3dc0",\
       "entries":[{"name":"#go-nuts","count":412,"topic":"Go talk"},{"name":"#quiet","count":2}],"done":true}
@@ -329,7 +357,9 @@ struct WireModelTests {
       ServerEvent.self,
       from: Data(
         #"{"type":"channel_list","network_id":"019faab1-2fc0-768b-a2dd-fc335dbd3dc0","entries":null,"done":true}"#
-          .utf8))
+          .utf8
+      ),
+    )
     guard case .channelList(let emptyList) = empty else {
       Issue.record("Expected channelList event for empty list")
       return
@@ -337,7 +367,8 @@ struct WireModelTests {
     #expect(emptyList.entries == nil)
   }
 
-  @Test @MainActor func plainMessagesHaveNoLinkRuns() {
+  @Test @MainActor
+  func `plain messages have no link runs`() {
     let message = Message(
       id: UUID(),
       networkID: UUID(),
@@ -346,22 +377,32 @@ struct WireModelTests {
       sender: "tove",
       kind: "privmsg",
       content: "no links in here, just words",
-      displayKind: "message"
+      displayKind: "message",
     )
     let rendered = attributedBody(message)
     #expect(rendered.runs.allSatisfy { $0.link == nil })
   }
 
-  @Test func buildTimeLabelFallsBackToRawString() {
+  @Test
+  func `build time label falls back to raw string`() {
     let identity = ServiceIdentity(
-      name: "lurker", version: "dev", hash: "unknown", buildTime: "unknown")
+      name: "lurker",
+      version: "dev",
+      hash: "unknown",
+      buildTime: "unknown",
+    )
     #expect(identity.buildTimeLabel() == "unknown")
   }
 
-  @Test func buildTimeLabelFormatsISO8601WithRelativeAge() {
+  @Test
+  func `build time label formats ISO 8601 with relative age`() throws {
     let identity = ServiceIdentity(
-      name: "lurker", version: "v1.0.0", hash: "abc123", buildTime: "2026-07-26T12:00:00Z")
-    let now = ISO8601DateFormatter().date(from: "2026-07-29T12:00:00Z")!
+      name: "lurker",
+      version: "v1.0.0",
+      hash: "abc123",
+      buildTime: "2026-07-26T12:00:00Z",
+    )
+    let now = try #require(ISO8601DateFormatter().date(from: "2026-07-29T12:00:00Z"))
     let label = identity.buildTimeLabel(now: now)
     #expect(label.hasPrefix("2026-07-26T12:00:00Z ("))
     #expect(label.hasSuffix(")"))

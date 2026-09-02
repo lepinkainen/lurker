@@ -1,5 +1,7 @@
 import Foundation
 
+// MARK: - ServiceIdentity
+
 struct ServiceIdentity: Codable, Sendable, Equatable {
   let name: String
   let version: String
@@ -17,26 +19,17 @@ struct ServiceIdentity: Codable, Sendable, Equatable {
   }
 }
 
+// MARK: - TailscaleStatus
+
 struct TailscaleStatus: Codable, Sendable, Equatable {
   let status: String
 }
 
-struct Network: Codable, Identifiable, Sendable, Hashable {
-  let id: UUID
-  var name: String
-  var kind: String
-  var host: String
-  var port: Int
-  var tls: Bool
-  var nick: String
-  var realname: String? = nil
-  var status: String? = nil
-  var sortOrder: Int
-  var disabled: Bool = false
+// MARK: - Network
 
-  private enum CodingKeys: String, CodingKey {
-    case id, name, kind, host, port, tls, nick, realname, status, sortOrder, disabled
-  }
+struct Network: Codable, Identifiable, Sendable, Hashable {
+
+  // MARK: Lifecycle
 
   init(
     id: UUID,
@@ -49,7 +42,7 @@ struct Network: Codable, Identifiable, Sendable, Hashable {
     realname: String? = nil,
     status: String? = nil,
     sortOrder: Int,
-    disabled: Bool = false
+    disabled: Bool = false,
   ) {
     self.id = id
     self.name = name
@@ -78,43 +71,44 @@ struct Network: Codable, Identifiable, Sendable, Hashable {
     sortOrder = try values.decode(Int.self, forKey: .sortOrder)
     disabled = try values.decodeIfPresent(Bool.self, forKey: .disabled) ?? false
   }
-}
 
-struct Buffer: Codable, Identifiable, Sendable, Hashable {
+  // MARK: Internal
+
   let id: UUID
-  let networkID: UUID
   var name: String
   var kind: String
-  var topic: String? = nil
-  var joined: Bool
-  var lastSeenID: UUID? = nil
-  // Server-derived "New messages" marker: id/timestamp of the first unread
-  // message that counts. Clients hold no marker state of their own; see
-  // ai-docs/behaviors/new-messages-marker.md.
-  var markerID: UUID? = nil
-  var markerTS: String? = nil
-  var showEmbeds: Bool
-  var showPresenceEvents: Bool
-  var collapsePresenceEvents: Bool
-  var pinned: Bool
-  // Persisted server-side flag driving the Archives section. Channels are
-  // archived automatically on part/kick and unarchived on join; queries are
-  // archived manually and unarchived by new activity.
-  var archived: Bool = false
-  // Manual channel ordering; channels sort (sortOrder, name). Defaults to 0
-  // when absent so pre-sort_order backends keep alphabetical order.
-  var sortOrder: Int = 0
-  // Manual pinned-section ordering; pinned buffers sort (pinOrder, name).
-  // Defaults to 0 when absent so pre-pin_order backends keep name order.
-  var pinOrder: Int = 0
-  var unread: Int
-  var mentions: Int
+  var host: String
+  var port: Int
+  var tls: Bool
+  var nick: String
+  var realname: String? = nil
+  var status: String? = nil
+  var sortOrder: Int
+  var disabled = false
+
+  // MARK: Private
 
   private enum CodingKeys: String, CodingKey {
-    case id, networkID, name, kind, topic, joined, lastSeenID, markerID, markerTS,
-      showEmbeds, showPresenceEvents, collapsePresenceEvents, pinned, archived, sortOrder, pinOrder,
-      unread, mentions
+    case id
+    case name
+    case kind
+    case host
+    case port
+    case tls
+    case nick
+    case realname
+    case status
+    case sortOrder
+    case disabled
   }
+
+}
+
+// MARK: - Buffer
+
+struct Buffer: Codable, Identifiable, Sendable, Hashable {
+
+  // MARK: Lifecycle
 
   init(
     id: UUID,
@@ -134,7 +128,7 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
     sortOrder: Int = 0,
     pinOrder: Int = 0,
     unread: Int,
-    mentions: Int
+    mentions: Int,
   ) {
     self.id = id
     self.networkID = networkID
@@ -177,7 +171,64 @@ struct Buffer: Codable, Identifiable, Sendable, Hashable {
     unread = try values.decode(Int.self, forKey: .unread)
     mentions = try values.decode(Int.self, forKey: .mentions)
   }
+
+  // MARK: Internal
+
+  let id: UUID
+  let networkID: UUID
+  var name: String
+  var kind: String
+  var topic: String? = nil
+  var joined: Bool
+  var lastSeenID: UUID? = nil
+  // Server-derived "New messages" marker: id/timestamp of the first unread
+  // message that counts. Clients hold no marker state of their own; see
+  // ai-docs/behaviors/new-messages-marker.md.
+  var markerID: UUID? = nil
+  var markerTS: String? = nil
+  var showEmbeds: Bool
+  var showPresenceEvents: Bool
+  var collapsePresenceEvents: Bool
+  var pinned: Bool
+  // Persisted server-side flag driving the Archives section. Channels are
+  // archived automatically on part/kick and unarchived on join; queries are
+  // archived manually and unarchived by new activity.
+  var archived = false
+  // Manual channel ordering; channels sort (sortOrder, name). Defaults to 0
+  // when absent so pre-sort_order backends keep alphabetical order.
+  var sortOrder = 0
+  // Manual pinned-section ordering; pinned buffers sort (pinOrder, name).
+  // Defaults to 0 when absent so pre-pin_order backends keep name order.
+  var pinOrder = 0
+  var unread: Int
+  var mentions: Int
+
+  // MARK: Private
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case networkID
+    case name
+    case kind
+    case topic
+    case joined
+    case lastSeenID
+    case markerID
+    case markerTS
+    case showEmbeds
+    case showPresenceEvents
+    case collapsePresenceEvents
+    case pinned
+    case archived
+    case sortOrder
+    case pinOrder
+    case unread
+    case mentions
+  }
+
 }
+
+// MARK: - MircSegment
 
 struct MircSegment: Codable, Sendable, Hashable {
   let text: String
@@ -188,20 +239,29 @@ struct MircSegment: Codable, Sendable, Hashable {
   var fg: Int? = nil
 }
 
+// MARK: - NetsplitInfo
+
 struct NetsplitInfo: Codable, Sendable, Hashable {
   let serverA: String
   let serverB: String
 }
 
+// MARK: - Preview
+
 struct Preview: Codable, Sendable, Hashable, Identifiable {
-  var id: String { url }
   let url: String
   let kind: String
   var title: String? = nil
   var description: String? = nil
   var imageURL: String? = nil
   var siteName: String? = nil
+
+  var id: String {
+    url
+  }
 }
+
+// MARK: - Message
 
 struct Message: Codable, Identifiable, Sendable, Hashable {
   let id: UUID
@@ -230,12 +290,20 @@ struct Message: Codable, Identifiable, Sendable, Hashable {
 /// `show_presence_events` is off. Mirror of `irc.presenceKinds` (Go) and
 /// `PRESENCE_KINDS` (web/src/messages.ts); the shared contract fixture is
 /// `testdata/semantic-kinds.json`.
-let presenceKinds: Set<String> = [
-  "join", "part", "quit", "nick", "away", "back", "account", "chghost",
+let presenceKinds: Set = [
+  "join",
+  "part",
+  "quit",
+  "nick",
+  "away",
+  "back",
+  "account",
+  "chghost",
 ]
 
+// MARK: - Member
+
 struct Member: Codable, Identifiable, Sendable, Hashable {
-  var id: String { nick.lowercased() }
   let nick: String
   var prefix: String? = nil
   var realname: String? = nil
@@ -249,7 +317,13 @@ struct Member: Codable, Identifiable, Sendable, Hashable {
   /// metadata or IRCCloud hostmask fallback). Omitted (not `false`) when
   /// absent, so optional like `bot` for the same predating-backend reason.
   var hasAvatar: Bool? = nil
+
+  var id: String {
+    nick.lowercased()
+  }
 }
+
+// MARK: - StateSnapshot
 
 struct StateSnapshot: Codable, Sendable {
   var networks: [Network]
@@ -257,6 +331,8 @@ struct StateSnapshot: Codable, Sendable {
   var initialMessages: [String: [Message]]
   var members: [String: [Member]]?
 }
+
+// MARK: - BufferSettingsPatch
 
 struct BufferSettingsPatch: Codable, Sendable {
   var showEmbeds: Bool? = nil
@@ -266,6 +342,8 @@ struct BufferSettingsPatch: Codable, Sendable {
   var archived: Bool? = nil
 }
 
+// MARK: - BufferSettingsEvent
+
 struct BufferSettingsEvent: Codable, Sendable {
   let id: UUID
   let showEmbeds: Bool
@@ -273,11 +351,35 @@ struct BufferSettingsEvent: Codable, Sendable {
   let collapsePresenceEvents: Bool
   let pinned: Bool
   let archived: Bool
-  // Absent on pre-pin_order backends.
+  /// Absent on pre-pin_order backends.
   var pinOrder: Int? = nil
 }
 
+// MARK: - BufferUpdateEvent
+
 struct BufferUpdateEvent: Decodable, Sendable {
+
+  // MARK: Lifecycle
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(UUID.self, forKey: .id)
+    networkID = try values.decodeIfPresent(UUID.self, forKey: .networkID)
+    topic = try values.decodeIfPresent(String.self, forKey: .topic)
+    joined = try values.decodeIfPresent(Bool.self, forKey: .joined)
+    archived = try values.decodeIfPresent(Bool.self, forKey: .archived)
+    lastSeenID = try values.decodeIfPresent(UUID.self, forKey: .lastSeenID)
+    markerID =
+      values.contains(.markerID)
+        ? .some(try values.decodeIfPresent(UUID.self, forKey: .markerID))
+        : .none
+    markerTS = try values.decodeIfPresent(String.self, forKey: .markerTS)
+    unread = try values.decodeIfPresent(Int.self, forKey: .unread)
+    mentions = try values.decodeIfPresent(Int.self, forKey: .mentions)
+  }
+
+  // MARK: Internal
+
   let id: UUID
   var networkID: UUID?
   var topic: String?
@@ -293,47 +395,50 @@ struct BufferUpdateEvent: Decodable, Sendable {
   var unread: Int?
   var mentions: Int?
 
+  // MARK: Private
+
   private enum CodingKeys: String, CodingKey {
-    case id, networkID, topic, joined, archived, lastSeenID, markerID, markerTS, unread, mentions
+    case id
+    case networkID
+    case topic
+    case joined
+    case archived
+    case lastSeenID
+    case markerID
+    case markerTS
+    case unread
+    case mentions
   }
 
-  init(from decoder: Decoder) throws {
-    let values = try decoder.container(keyedBy: CodingKeys.self)
-    id = try values.decode(UUID.self, forKey: .id)
-    networkID = try values.decodeIfPresent(UUID.self, forKey: .networkID)
-    topic = try values.decodeIfPresent(String.self, forKey: .topic)
-    joined = try values.decodeIfPresent(Bool.self, forKey: .joined)
-    archived = try values.decodeIfPresent(Bool.self, forKey: .archived)
-    lastSeenID = try values.decodeIfPresent(UUID.self, forKey: .lastSeenID)
-    markerID =
-      values.contains(.markerID)
-      ? .some(try values.decodeIfPresent(UUID.self, forKey: .markerID))
-      : .none
-    markerTS = try values.decodeIfPresent(String.self, forKey: .markerTS)
-    unread = try values.decodeIfPresent(Int.self, forKey: .unread)
-    mentions = try values.decodeIfPresent(Int.self, forKey: .mentions)
-  }
 }
+
+// MARK: - BufferCreatedEvent
 
 struct BufferCreatedEvent: Codable, Sendable {
   let id: UUID
   let networkID: UUID
   let name: String
   let kind: String
-  // Absent on pre-sort_order backends.
+  /// Absent on pre-sort_order backends.
   var sortOrder: Int?
 }
+
+// MARK: - BufferDeletedEvent
 
 struct BufferDeletedEvent: Codable, Sendable {
   let id: UUID
   let networkID: UUID
 }
 
+// MARK: - BufferSortEntry
+
 /// One (buffer, sort_order) pair in a `buffer_reorder` event.
 struct BufferSortEntry: Codable, Sendable, Hashable {
   let id: UUID
   let sortOrder: Int
 }
+
+// MARK: - BufferReorderEvent
 
 /// Broadcast after POST /api/networks/{id}/buffers/reorder; carries the
 /// resulting order of ALL channel buffers of the network.
@@ -342,11 +447,15 @@ struct BufferReorderEvent: Codable, Sendable {
   let buffers: [BufferSortEntry]
 }
 
+// MARK: - PinnedSortEntry
+
 /// One (buffer, pin_order) pair in a `pinned_reorder` event.
 struct PinnedSortEntry: Codable, Sendable, Hashable {
   let id: UUID
   let pinOrder: Int
 }
+
+// MARK: - PinnedReorderEvent
 
 /// Broadcast after POST /api/buffers/pinned/reorder; carries the resulting
 /// order of ALL pinned buffers.
@@ -354,15 +463,21 @@ struct PinnedReorderEvent: Codable, Sendable {
   let buffers: [PinnedSortEntry]
 }
 
+// MARK: - NetworkReorderResponse
+
 struct NetworkReorderResponse: Codable, Sendable {
   let networks: [Network]
 }
+
+// MARK: - MemberListEvent
 
 struct MemberListEvent: Codable, Sendable {
   let networkID: UUID
   let bufferID: UUID
   let members: [Member]
 }
+
+// MARK: - AvatarEvent
 
 /// Live avatar change for a single nick on a network. Carries no URL — the
 /// image itself is always fetched from `/api/avatar` on demand.
@@ -372,10 +487,14 @@ struct AvatarEvent: Codable, Sendable {
   let hasAvatar: Bool
 }
 
+// MARK: - HistoryBackfillEvent
+
 struct HistoryBackfillEvent: Codable, Sendable {
   let networkID: UUID
   let bufferID: UUID
 }
+
+// MARK: - PreviewEvent
 
 struct PreviewEvent: Codable, Sendable {
   let messageID: UUID
@@ -384,16 +503,22 @@ struct PreviewEvent: Codable, Sendable {
   let previews: [Preview]
 }
 
+// MARK: - HistoryResult
+
 struct HistoryResult: Codable, Sendable {
   var reqID: String?
   let bufferID: UUID
   let messages: [Message]
 }
 
+// MARK: - NetworkStateEvent
+
 struct NetworkStateEvent: Codable, Sendable {
   let networkID: UUID
   let state: String
 }
+
+// MARK: - NetsplitEvent
 
 struct NetsplitEvent: Codable, Sendable {
   let networkID: UUID
@@ -402,18 +527,26 @@ struct NetsplitEvent: Codable, Sendable {
   let messageIDs: [UUID]
 }
 
+// MARK: - CommandResponse
+
 struct CommandResponse: Codable, Sendable {
   var reqID: String?
   var message: String?
 }
+
+// MARK: - ChannelListEntry
 
 struct ChannelListEntry: Decodable, Sendable, Hashable, Identifiable {
   let name: String
   let count: Int
   var topic: String? = nil
 
-  var id: String { name }
+  var id: String {
+    name
+  }
 }
+
+// MARK: - ChannelListEvent
 
 struct ChannelListEvent: Decodable, Sendable {
   let networkID: UUID
@@ -421,6 +554,8 @@ struct ChannelListEvent: Decodable, Sendable {
   let entries: [ChannelListEntry]?
   let done: Bool
 }
+
+// MARK: - ServerEvent
 
 enum ServerEvent: Sendable {
   case message(Message)
@@ -443,10 +578,11 @@ enum ServerEvent: Sendable {
   case ignored(String)
 }
 
+// MARK: Decodable
+
 extension ServerEvent: Decodable {
-  private struct Envelope: Decodable {
-    let type: String
-  }
+
+  // MARK: Lifecycle
 
   init(from decoder: Decoder) throws {
     let type = try Envelope(from: decoder).type
@@ -471,6 +607,13 @@ extension ServerEvent: Decodable {
     default: self = .ignored(type)
     }
   }
+
+  // MARK: Private
+
+  private struct Envelope: Decodable {
+    let type: String
+  }
+
 }
 
 extension JSONDecoder {
@@ -495,10 +638,9 @@ extension JSONEncoder {
   }
 }
 
-private struct LurkerCodingKey: CodingKey {
-  let stringValue: String
-  let intValue: Int?
+// MARK: - LurkerCodingKey
 
+private struct LurkerCodingKey: CodingKey {
   init?(stringValue: String) {
     self.stringValue = stringValue
     intValue = nil
@@ -508,9 +650,44 @@ private struct LurkerCodingKey: CodingKey {
     stringValue = String(intValue)
     self.intValue = intValue
   }
+
+  let stringValue: String
+  let intValue: Int?
 }
 
+// MARK: - WireKeyTransform
+
 private enum WireKeyTransform {
+
+  // MARK: Internal
+
+  static func decode(_ key: String) -> String {
+    if let mapped = decodedAcronyms[key] {
+      return mapped
+    }
+    let parts = key.split(separator: "_", omittingEmptySubsequences: false)
+    guard let first = parts.first, parts.count > 1 else { return key }
+    return first + parts.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined()
+  }
+
+  static func encode(_ key: String) -> String {
+    if let mapped = encodedAcronyms[key] {
+      return mapped
+    }
+    return key.reduce(into: "") { result, character in
+      if character.isUppercase {
+        if !result.isEmpty {
+          result.append("_")
+        }
+        result.append(character.lowercased())
+      } else {
+        result.append(character)
+      }
+    }
+  }
+
+  // MARK: Private
+
   private static let decodedAcronyms = [
     "buffer_id": "bufferID",
     "image_url": "imageURL",
@@ -527,22 +704,4 @@ private enum WireKeyTransform {
     uniqueKeysWithValues: decodedAcronyms.map { ($0.value, $0.key) }
   )
 
-  static func decode(_ key: String) -> String {
-    if let mapped = decodedAcronyms[key] { return mapped }
-    let parts = key.split(separator: "_", omittingEmptySubsequences: false)
-    guard let first = parts.first, parts.count > 1 else { return key }
-    return first + parts.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined()
-  }
-
-  static func encode(_ key: String) -> String {
-    if let mapped = encodedAcronyms[key] { return mapped }
-    return key.reduce(into: "") { result, character in
-      if character.isUppercase {
-        if !result.isEmpty { result.append("_") }
-        result.append(character.lowercased())
-      } else {
-        result.append(character)
-      }
-    }
-  }
 }

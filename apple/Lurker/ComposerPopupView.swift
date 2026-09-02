@@ -4,6 +4,9 @@ import SwiftUI
 /// are selectable (arrows + Tab/Enter, or tap); the slash-command listing is
 /// display-only reference, matching the web client's popups.
 struct ComposerPopupView: View {
+
+  // MARK: Internal
+
   let popup: ComposerPopup
   let selection: Int
   let accept: (Int) -> Void
@@ -18,6 +21,7 @@ struct ComposerPopupView: View {
               .font(Theme.Fonts.nick)
           }
         }
+
       case .emoji(let matches):
         ForEach(Array(matches.enumerated()), id: \.element.id) { index, match in
           row(isSelected: index == selection, index: index) {
@@ -29,6 +33,7 @@ struct ComposerPopupView: View {
             }
           }
         }
+
       case .command(let commands):
         ForEach(commands) { command in
           HStack(spacing: 6) {
@@ -47,6 +52,7 @@ struct ComposerPopupView: View {
           .padding(.horizontal, 8)
           .padding(.vertical, 3)
         }
+
       case .none:
         EmptyView()
       }
@@ -60,10 +66,12 @@ struct ComposerPopupView: View {
     .frame(maxWidth: 320, alignment: .leading)
   }
 
-  @ViewBuilder private func row(
+  // MARK: Private
+
+  private func row(
     isSelected: Bool,
     index: Int,
-    @ViewBuilder content: () -> some View
+    @ViewBuilder content: () -> some View,
   ) -> some View {
     Button {
       accept(index)
@@ -82,4 +90,5 @@ struct ComposerPopupView: View {
         .fill(Color.accentColor.opacity(isSelected ? 0.22 : 0))
     )
   }
+
 }

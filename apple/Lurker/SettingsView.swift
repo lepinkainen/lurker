@@ -1,10 +1,10 @@
 import SwiftUI
 
+// MARK: - SettingsView
+
 struct SettingsView: View {
-  @Environment(AppModel.self) private var model
-  @State private var server = ""
-  @State private var saving = false
-  @State private var error: String?
+
+  // MARK: Internal
 
   var body: some View {
     Form {
@@ -13,8 +13,8 @@ struct SettingsView: View {
           .textFieldStyle(.roundedBorder)
           .autocorrectionDisabled()
           #if os(iOS)
-            .textInputAutocapitalization(.never)
-            .keyboardType(.URL)
+          .textInputAutocapitalization(.never)
+          .keyboardType(.URL)
           #endif
         Text("Only localhost, Tailnet 100.64.0.0/10 addresses, and MagicDNS names are accepted.")
           .font(.footnote)
@@ -39,8 +39,9 @@ struct SettingsView: View {
           "Notify for mentions while Lurker is in the background",
           isOn: Binding(
             get: { model.notificationsEnabled },
-            set: { value in model.setNotificationsEnabled(value) }
-          ))
+            set: { value in model.setNotificationsEnabled(value) },
+          ),
+        )
       }
 
       Section("About") {
@@ -59,7 +60,15 @@ struct SettingsView: View {
     }
   }
 
-  @ViewBuilder private var connectionLabel: some View {
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+  @State private var server = ""
+  @State private var saving = false
+  @State private var error: String?
+
+  @ViewBuilder
+  private var connectionLabel: some View {
     if saving {
       ProgressView()
         .controlSize(.small)
@@ -83,15 +92,16 @@ struct SettingsView: View {
       saving = false
     }
   }
+
 }
 
+// MARK: - ConnectionEditor
+
 struct ConnectionEditor: View {
-  @Environment(AppModel.self) private var model
-  @Environment(\.dismiss) private var dismiss
+
+  // MARK: Internal
+
   let required: Bool
-  @State private var server = ""
-  @State private var saving = false
-  @State private var error: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
@@ -113,15 +123,17 @@ struct ConnectionEditor: View {
         .font(.title3.monospaced())
         .autocorrectionDisabled()
         #if os(iOS)
-          .textInputAutocapitalization(.never)
-          .keyboardType(.URL)
+        .textInputAutocapitalization(.never)
+        .keyboardType(.URL)
         #endif
         .onSubmit(connect)
 
       VStack(alignment: .leading, spacing: 5) {
         Label("localhost and loopback addresses", systemImage: "desktopcomputer")
         Label(
-          "Tailscale 100.64.0.0/10 addresses", systemImage: "point.3.connected.trianglepath.dotted")
+          "Tailscale 100.64.0.0/10 addresses",
+          systemImage: "point.3.connected.trianglepath.dotted",
+        )
         Label("MagicDNS names and *.ts.net hosts", systemImage: "network")
       }
       .font(.footnote)
@@ -149,13 +161,21 @@ struct ConnectionEditor: View {
     }
     .padding(24)
     #if os(macOS)
-      .frame(width: 480)
+    .frame(width: 480)
     #endif
     .interactiveDismissDisabled(required)
     .onAppear {
       server = model.configuredURL?.absoluteString ?? "http://localhost:8080"
     }
   }
+
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+  @Environment(\.dismiss) private var dismiss
+  @State private var server = ""
+  @State private var saving = false
+  @State private var error: String?
 
   private func connect() {
     guard !server.isEmpty, !saving else { return }
@@ -171,15 +191,16 @@ struct ConnectionEditor: View {
       saving = false
     }
   }
+
 }
 
 #if DEBUG
-  #Preview {
-    SettingsView()
-      .environment(AppModel.preview())
-      .tint(.mint)
-      #if os(macOS)
-        .frame(width: 500, height: 330)
-      #endif
-  }
+#Preview {
+  SettingsView()
+    .environment(AppModel.preview())
+    .tint(.mint)
+    #if os(macOS)
+    .frame(width: 500, height: 330)
+    #endif
+}
 #endif

@@ -3,11 +3,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 #if !os(macOS)
-  import PhotosUI
+import PhotosUI
 #endif
 
+// MARK: - ConversationView
+
 struct ConversationView: View {
-  @Environment(AppModel.self) private var model
+
+  // MARK: Internal
 
   var body: some View {
     if let buffer = model.selectedBuffer {
@@ -19,9 +22,9 @@ struct ConversationView: View {
         // link hit-testing, hand cursor, and cross-row selection; iOS keeps the
         // SwiftUI implementation. See ai-docs/apple.md.
         #if os(macOS)
-          MacTimelineContainer(buffer: buffer)
+        MacTimelineContainer(buffer: buffer)
         #else
-          TimelineView(buffer: buffer)
+        TimelineView(buffer: buffer)
         #endif
         Divider()
         ComposerView(buffer: buffer)
@@ -30,16 +33,16 @@ struct ConversationView: View {
         buffer.kind == "status" ? "\(model.selectedNetwork?.name ?? "") Status" : buffer.name
       )
       #if os(macOS)
-        // Hardware-keyboard ack. Key presses bubble from the focused view
-        // (usually the composer) up through ancestors, so this fires with no
-        // sheet on top; sheets own focus in their own hierarchy and keep
-        // their Esc-to-dismiss behavior. `.ignored` when there is nothing to
-        // ack preserves default Esc handling.
-        .onKeyPress(.escape) {
-          guard buffer.markerID != nil || buffer.unread > 0 else { return .ignored }
-          model.ackRead(buffer.id)
-          return .handled
-        }
+      // Hardware-keyboard ack. Key presses bubble from the focused view
+      // (usually the composer) up through ancestors, so this fires with no
+      // sheet on top; sheets own focus in their own hierarchy and keep
+      // their Esc-to-dismiss behavior. `.ignored` when there is nothing to
+      // ack preserves default Esc handling.
+      .onKeyPress(.escape) {
+        guard buffer.markerID != nil || buffer.unread > 0 else { return .ignored }
+        model.ackRead(buffer.id)
+        return .handled
+      }
       #endif
     } else {
       ContentUnavailableView {
@@ -48,7 +51,8 @@ struct ConversationView: View {
         Text(
           model.connectionState == .notConfigured
             ? "Choose a Lurker server to begin."
-            : "Select a channel or conversation in the sidebar.")
+            : "Select a channel or conversation in the sidebar."
+        )
       } actions: {
         if model.configuredURL == nil {
           Button("Set Up Connection") {
@@ -58,14 +62,21 @@ struct ConversationView: View {
       }
     }
   }
+
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+
 }
+
+// MARK: - SyncBanner
 
 /// Thin strip under the header while the displayed state may lag the backend
 /// (focus ping in flight, reconnecting, offline). Appearance is debounced so
 /// a fast focus ping doesn't flash the banner; hiding is immediate.
 private struct SyncBanner: View {
-  @Environment(AppModel.self) private var model
-  @State private var visible = false
+
+  // MARK: Internal
 
   var body: some View {
     Group {
@@ -95,16 +106,31 @@ private struct SyncBanner: View {
     }
   }
 
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+  @State private var visible = false
+
   private var text: String {
     switch model.connectionState {
     // reconnecting(0) is the in-flight retry attempt, not a countdown.
-    case .connected, .connecting, .notConfigured, .reconnecting(0): "Syncing…"
-    case .reconnecting, .offline: model.connectionState.label
+    case .connected,
+         .connecting,
+         .notConfigured,
+         .reconnecting(0): "Syncing…"
+    case .reconnecting,
+         .offline: model.connectionState.label
     }
   }
+
 }
 
+// MARK: - ConversationHeader
+
 private struct ConversationHeader: View {
+
+  // MARK: Internal
+
   let buffer: Buffer
   let network: Network?
 
@@ -137,16 +163,23 @@ private struct ConversationHeader: View {
     .background(.bar)
   }
 
+  // MARK: Private
+
   private var subtitle: String {
     if buffer.kind == "status" {
       return [network?.host, network?.status].compactMap(\.self).joined(separator: " • ")
     }
     return buffer.topic?.isEmpty == false ? buffer.topic! : network?.name ?? ""
   }
+
 }
 
+// MARK: - TimelineView
+
 private struct TimelineView: View {
-  @Environment(AppModel.self) private var model
+
+  // MARK: Internal
+
   let buffer: Buffer
 
   var body: some View {
@@ -162,8 +195,10 @@ private struct TimelineView: View {
             switch item {
             case .day(let id, let title):
               DaySeparator(title: title).id(id)
+
             case .unread(let id):
               UnreadSeparator().id(id)
+
             case .message(let message):
               MessageRow(message: message, buffer: buffer).id(message.id)
                 .onAppear {
@@ -171,6 +206,7 @@ private struct TimelineView: View {
                     model.loadOlderHistory()
                   }
                 }
+
             case .presence(let id, let messages):
               // A collapsed presence group can be the oldest item in the
               // buffer; without this the load-older trigger never fires.
@@ -218,7 +254,9 @@ private struct TimelineView: View {
       // to the sidebar) would otherwise leave it set forever, and load-older is
       // gated on it being nil.
       .onDisappear {
-        if model.historyAnchor?.bufferID == buffer.id { model.historyAnchor = nil }
+        if model.historyAnchor?.bufferID == buffer.id {
+          model.historyAnchor = nil
+        }
       }
     }
     // Rebuild the scroll container per buffer so switching channels always
@@ -227,9 +265,14 @@ private struct TimelineView: View {
     .background(Color.lurkerTimelineBackground)
   }
 
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+
   private var items: [TimelineItem] {
     timelineItems(model.selectedMessages, buffer: buffer)
   }
+
 }
 
 /// Derives the renderable timeline (day separators, unread separator, presence
@@ -240,11 +283,13 @@ private struct TimelineView: View {
 /// iOS DisclosureGroup manages its own expansion and passes nothing.
 @MainActor
 func timelineItems(
-  _ messages: [Message], buffer: Buffer, expandedGroups: Set<UUID> = []
+  _ messages: [Message],
+  buffer: Buffer,
+  expandedGroups: Set<UUID> = [],
 ) -> [TimelineItem] {
-  var result: [TimelineItem] = []
+  var result = [TimelineItem]()
   var lastDay: String?
-  var presence: [Message] = []
+  var presence = [Message]()
 
   func flushPresence() {
     guard !presence.isEmpty else { return }
@@ -281,6 +326,8 @@ func timelineItems(
   return result
 }
 
+// MARK: - TimelineItem
+
 enum TimelineItem: Identifiable, Equatable {
   case day(String, String)
   case unread(String)
@@ -289,14 +336,20 @@ enum TimelineItem: Identifiable, Equatable {
 
   var id: String {
     switch self {
-    case .day(let id, _), .unread(let id): id
+    case .day(let id, _),
+         .unread(let id): id
     case .message(let message): message.id.uuidString
     case .presence(let id, _): "presence-\(id.uuidString)"
     }
   }
 }
 
+// MARK: - DaySeparator
+
 private struct DaySeparator: View {
+
+  // MARK: Internal
+
   let title: String
 
   var body: some View {
@@ -312,12 +365,17 @@ private struct DaySeparator: View {
     .accessibilityElement(children: .combine)
   }
 
+  // MARK: Private
+
   private var line: some View {
     Rectangle()
       .fill(Color.lurkerSeparator)
       .frame(height: 1)
   }
+
 }
+
+// MARK: - UnreadSeparator
 
 private struct UnreadSeparator: View {
   var body: some View {
@@ -335,11 +393,15 @@ private struct UnreadSeparator: View {
   }
 }
 
+// MARK: - UnreadBar
+
 /// Floating control pinned above the timeline whenever the selected buffer has
 /// a server-derived marker. Tapping it is the primary ack affordance: it clears
 /// the marker, divider, and badges everywhere.
 struct UnreadBar: View {
-  @Environment(AppModel.self) private var model
+
+  // MARK: Internal
+
   let buffer: Buffer
 
   var body: some View {
@@ -364,6 +426,10 @@ struct UnreadBar: View {
     .accessibilityHint("Marks this conversation as read")
   }
 
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+
   private var label: String {
     // The count is unreliable at the server cap or when the marker message is
     // outside loaded history; fall back to the age of the boundary.
@@ -382,15 +448,21 @@ struct UnreadBar: View {
 
   private func sinceText(_ date: Date) -> String {
     let time = date.formatted(date: .omitted, time: .shortened)
-    if Calendar.current.isDateInToday(date) { return time }
-    if Calendar.current.isDateInYesterday(date) { return "yesterday \(time)" }
+    if Calendar.current.isDateInToday(date) {
+      return time
+    }
+    if Calendar.current.isDateInYesterday(date) {
+      return "yesterday \(time)"
+    }
     return date.formatted(date: .abbreviated, time: .shortened)
   }
+
 }
+
+// MARK: - PresenceSummary
 
 private struct PresenceSummary: View {
   let messages: [Message]
-  @State private var expanded = false
 
   var body: some View {
     DisclosureGroup(isExpanded: $expanded) {
@@ -406,7 +478,11 @@ private struct PresenceSummary: View {
     .padding(.horizontal, Theme.rowHorizontalInset)
   }
 
-  private var summary: String { presenceSummaryText(messages) }
+  @State private var expanded = false
+
+  private var summary: String {
+    presenceSummaryText(messages)
+  }
 }
 
 /// Label for a collapsed presence run ("3 join • 1 part", or the netsplit
@@ -418,12 +494,16 @@ func presenceSummaryText(_ messages: [Message]) -> String {
   }
   let kinds = Dictionary(grouping: messages, by: \.kind).mapValues(\.count)
   return kinds.sorted(by: { $0.key < $1.key })
-    .map { "\($0.value) \($0.key)" }
+    .lazy.map { "\($0.value) \($0.key)" }
     .joined(separator: " • ")
 }
 
+// MARK: - MessageRow
+
 private struct MessageRow: View {
-  @Environment(AppModel.self) private var model
+
+  // MARK: Internal
+
   let message: Message
   let buffer: Buffer?
 
@@ -453,10 +533,15 @@ private struct MessageRow: View {
       .accessibilityLabel("\(message.sender), \(displayTime(message.ts)), \(message.content)")
   }
 
-  // iOS-only since the macOS timeline moved to TimelineTextView.swift: the
-  // nick sits on its own line above the body with the timestamp trailing it,
-  // so the body wraps at full width on a compact screen.
-  @ViewBuilder private var layout: some View {
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+
+  /// iOS-only since the macOS timeline moved to TimelineTextView.swift: the
+  /// nick sits on its own line above the body with the timestamp trailing it,
+  /// so the body wraps at full width on a compact screen.
+  @ViewBuilder
+  private var layout: some View {
     if message.displayKind == "sys" {
       HStack(alignment: .firstTextBaseline, spacing: 6) {
         systemIcon
@@ -469,9 +554,11 @@ private struct MessageRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
           HStack(alignment: .firstTextBaseline, spacing: 4) {
             NickAvatar(
-              nick: message.sender, colorIndex: message.senderColor,
+              nick: message.sender,
+              colorIndex: message.senderColor,
               isBot: model.isBot(message.sender),
-              networkID: message.networkID, hasAvatar: model.hasAvatar(message.sender)
+              networkID: message.networkID,
+              hasAvatar: model.hasAvatar(message.sender),
             )
             .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
             Text(message.sender)
@@ -516,7 +603,8 @@ private struct MessageRow: View {
       .textSelection(.enabled)
   }
 
-  @ViewBuilder private var embeds: some View {
+  @ViewBuilder
+  private var embeds: some View {
     if buffer?.showEmbeds != false {
       ForEach(message.previews ?? []) { preview in
         PreviewCard(preview: preview)
@@ -528,9 +616,14 @@ private struct MessageRow: View {
     message.mentionsMe == true || message.highlight == true ? .orange.opacity(0.10) : .clear
   }
 
-  private var systemSymbol: String { systemMessageSymbol(message) }
+  private var systemSymbol: String {
+    systemMessageSymbol(message)
+  }
 
-  private var systemText: String { systemMessageText(message) }
+  private var systemText: String {
+    systemMessageText(message)
+  }
+
 }
 
 /// SF Symbol name for a system-event message, shared by the SwiftUI row and
@@ -538,7 +631,8 @@ private struct MessageRow: View {
 func systemMessageSymbol(_ message: Message) -> String {
   switch message.kind {
   case "join": "arrow.right"
-  case "part", "quit": "arrow.left"
+  case "part",
+       "quit": "arrow.left"
   case "kick": "figure.fall"
   case "topic": "text.quote"
   case "connected": "bolt.horizontal.circle"
@@ -559,16 +653,23 @@ func systemMessageText(_ message: Message) -> String {
   switch message.kind {
   case "away":
     return message.content.isEmpty
-      ? "\(message.sender) is away" : "\(message.sender) is away (\(message.content))"
+      ? "\(message.sender) is away"
+      : "\(message.sender) is away (\(message.content))"
+
   case "back":
     return "\(message.sender) is back"
+
   case "nick" where !target.isEmpty:
     return "\(message.sender) is now known as \(target)"
+
   case "account":
     return message.content.isEmpty
-      ? "\(message.sender) logged out" : "\(message.sender) logged in as \(message.content)"
+      ? "\(message.sender) logged out"
+      : "\(message.sender) logged in as \(message.content)"
+
   case "chghost":
     return "\(message.sender) changed host to \(message.content)"
+
   default:
     return [message.sender, message.content.isEmpty ? message.kind : message.content]
       .filter { !$0.isEmpty }
@@ -576,11 +677,14 @@ func systemMessageText(_ message: Message) -> String {
   }
 }
 
+// MARK: - PreviewCard
+
 struct PreviewCard: View {
-  @Environment(AppModel.self) private var model
+
+  // MARK: Internal
+
   let preview: Preview
 
-  @ViewBuilder
   var body: some View {
     // Backend preview kinds are "image" (render the URL itself inline) and
     // "opengraph" (card); anything else is dropped (web parity: preview.ts).
@@ -593,26 +697,18 @@ struct PreviewCard: View {
       } else {
         linked { card }
       }
+
     case "opengraph":
       linked { card }
+
     default:
       EmptyView()
     }
   }
 
-  @ViewBuilder private func linked(@ViewBuilder content: () -> some View) -> some View {
-    if let destination = URL(string: preview.url) {
-      Link(destination: destination) {
-        content()
-      }
-      .buttonStyle(.plain)
-      #if os(macOS)
-        .pointerStyle(.link)
-      #endif
-    } else {
-      content()
-    }
-  }
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
 
   private var card: some View {
     HStack(spacing: 10) {
@@ -645,7 +741,25 @@ struct PreviewCard: View {
         .stroke(.separator, lineWidth: 0.5)
     }
   }
+
+  @ViewBuilder
+  private func linked(@ViewBuilder content: () -> some View) -> some View {
+    if let destination = URL(string: preview.url) {
+      Link(destination: destination) {
+        content()
+      }
+      .buttonStyle(.plain)
+      #if os(macOS)
+      .pointerStyle(.link)
+      #endif
+    } else {
+      content()
+    }
+  }
+
 }
+
+// MARK: - InlineImageView
 
 /// Full inline rendering for kind == "image" previews: the preview URL is
 /// the image (web parity: renderImagePreview, max 480×320, contain-fit).
@@ -676,38 +790,33 @@ struct InlineImageView: View {
       failure: {
         // Broken image: nothing — the raw link stays in the message text.
         EmptyView()
-      }
+      },
     )
   }
 }
 
+// MARK: - ComposerPopupHeightKey
+
 private struct ComposerPopupHeightKey: PreferenceKey {
   static let defaultValue: CGFloat = 0
+
   static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
     value = max(value, nextValue())
   }
 }
 
+// MARK: - ComposerView
+
 private struct ComposerView: View {
-  @Environment(AppModel.self) private var model
+
+  // MARK: Internal
+
   let buffer: Buffer
-  @FocusState private var focused: Bool
-  @State private var popupSelection = 0
-  // The popup derives from the text, so Esc-dismissal needs an explicit flag;
-  // any text change re-arms it.
-  @State private var popupDismissed = false
-  // Measured height of the autocomplete panel, used to float it above the bar.
-  @State private var popupHeight: CGFloat = 0
-  #if os(macOS)
-    @State private var importingImage = false
-  #else
-    @State private var photoItem: PhotosPickerItem?
-  #endif
 
   var body: some View {
     @Bindable var model = model
     // Resolve once per render; the key handlers resolve once per event.
-    let popup = self.popup
+    let popup = popup
     VStack(alignment: .leading, spacing: 4) {
       if let error = model.composerError {
         Text(error)
@@ -767,7 +876,8 @@ private struct ComposerView: View {
         RoundedRectangle(cornerRadius: 8)
           .stroke(
             focused ? Color.accentColor : Color.lurkerSeparator,
-            lineWidth: focused ? 1.5 : 0.5)
+            lineWidth: focused ? 1.5 : 0.5,
+          )
       }
       // Floated above the bar without affecting its layout. Anchored to the
       // bar's top-leading, then offset up by its own measured height so it
@@ -780,7 +890,7 @@ private struct ComposerView: View {
           // (e.g. a member leaves mid-completion).
           ComposerPopupView(
             popup: popup,
-            selection: min(popupSelection, max(0, popup.selectableCount - 1))
+            selection: min(popupSelection, max(0, popup.selectableCount - 1)),
           ) { index in
             accept(index: index, in: popup)
           }
@@ -806,14 +916,32 @@ private struct ComposerView: View {
     // Clicking away from the composer dismisses the popup (web parity: the web
     // client hides it on input blur).
     .onChange(of: focused) { _, isFocused in
-      if !isFocused { popupDismissed = true }
+      if !isFocused {
+        popupDismissed = true
+      }
     }
     #if os(macOS)
-      // Autofocus on buffer switch is desktop-only: on iOS programmatic focus
-      // raises the software keyboard over the timeline the user came to read.
-      .onChange(of: buffer.id) { _, _ in focused = true }
+    // Autofocus on buffer switch is desktop-only: on iOS programmatic focus
+    // raises the software keyboard over the timeline the user came to read.
+    .onChange(of: buffer.id) { _, _ in focused = true }
     #endif
   }
+
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+  @FocusState private var focused: Bool
+  @State private var popupSelection = 0
+  /// The popup derives from the text, so Esc-dismissal needs an explicit flag;
+  /// any text change re-arms it.
+  @State private var popupDismissed = false
+  /// Measured height of the autocomplete panel, used to float it above the bar.
+  @State private var popupHeight: CGFloat = 0
+  #if os(macOS)
+  @State private var importingImage = false
+  #else
+  @State private var photoItem: PhotosPickerItem?
+  #endif
 
   private var popup: ComposerPopup {
     guard !popupDismissed, canSend else { return .none }
@@ -821,15 +949,80 @@ private struct ComposerView: View {
       text: model.composerText,
       buffer: buffer,
       members: model.members[buffer.id] ?? [],
-      ownNick: model.selectedNetwork?.nick
+      ownNick: model.selectedNetwork?.nick,
     )
+  }
+
+  private var canSend: Bool {
+    model.connectionState == .connected && (buffer.kind != "channel" || buffer.joined)
+  }
+
+  /// Attach affordance: a `fileImporter`-backed button on macOS, a
+  /// `PhotosPicker` on iOS. Both hand raw image data to
+  /// `AppModel.attachImage`, which normalizes/uploads it and appends the
+  /// resulting URL to the composer text.
+  @ViewBuilder
+  private var attachButton: some View {
+    #if os(macOS)
+    Button {
+      importingImage = true
+    } label: {
+      attachIcon
+    }
+    .buttonStyle(.plain)
+    .disabled(!canSend || model.isUploading)
+    .help("Attach image")
+    .fileImporter(isPresented: $importingImage, allowedContentTypes: [.image]) { result in
+      guard case .success(let url) = result else { return }
+      loadFile(at: url)
+    }
+    #else
+    PhotosPicker(selection: $photoItem, matching: .images) {
+      attachIcon
+    }
+    .disabled(!canSend || model.isUploading)
+    .onChange(of: photoItem) { _, newValue in
+      guard let newValue else { return }
+      Task {
+        if let data = try? await newValue.loadTransferable(type: Data.self) {
+          await model.attachImage(data, sourceType: nil)
+        }
+        photoItem = nil
+      }
+    }
+    #endif
+  }
+
+  @ViewBuilder
+  private var attachIcon: some View {
+    if model.isUploading {
+      ProgressView()
+        #if os(macOS)
+        .controlSize(.small)
+        #endif
+    } else {
+      Image(systemName: "paperclip")
+        .font(.title2)
+    }
+  }
+
+  private var placeholder: String {
+    if !canSend {
+      return model.connectionState == .connected
+        ? "This conversation is read-only"
+        : "Waiting for connection…"
+    }
+    if buffer.kind == "status" {
+      return "Commands only, e.g. /list, /nick, /msg NickServ …"
+    }
+    return "\(buffer.name)"
   }
 
   /// Tab/Enter acceptance of the highlighted nick/emoji row, clamped in case
   /// the match list shrank since the selection was made. The command popup is
   /// display-only, so those keys fall through (Enter submits).
   private func acceptSelection() -> Bool {
-    let popup = self.popup
+    let popup = popup
     let count = popup.selectableCount
     guard count > 0 else { return false }
     return accept(index: min(popupSelection, count - 1), in: popup)
@@ -842,12 +1035,17 @@ private struct ComposerView: View {
       guard nicks.indices.contains(index) else { return false }
       model.composerText = NickCompletion.apply(nick: nicks[index])
       return true
+
     case .emoji(let matches):
       guard matches.indices.contains(index) else { return false }
       model.composerText = EmojiCompletion.apply(
-        text: model.composerText, match: matches[index])
+        text: model.composerText,
+        match: matches[index],
+      )
       return true
-    case .command, .none:
+
+    case .command,
+         .none:
       return false
     }
   }
@@ -864,69 +1062,20 @@ private struct ComposerView: View {
     return model.navigateHistory(up: up) ? .handled : .ignored
   }
 
-  private var canSend: Bool {
-    model.connectionState == .connected && (buffer.kind != "channel" || buffer.joined)
-  }
-
-  /// Attach affordance: a `fileImporter`-backed button on macOS, a
-  /// `PhotosPicker` on iOS. Both hand raw image data to
-  /// `AppModel.attachImage`, which normalizes/uploads it and appends the
-  /// resulting URL to the composer text.
-  @ViewBuilder
-  private var attachButton: some View {
-    #if os(macOS)
-      Button {
-        importingImage = true
-      } label: {
-        attachIcon
-      }
-      .buttonStyle(.plain)
-      .disabled(!canSend || model.isUploading)
-      .help("Attach image")
-      .fileImporter(isPresented: $importingImage, allowedContentTypes: [.image]) { result in
-        guard case .success(let url) = result else { return }
-        loadFile(at: url)
-      }
-    #else
-      PhotosPicker(selection: $photoItem, matching: .images) {
-        attachIcon
-      }
-      .disabled(!canSend || model.isUploading)
-      .onChange(of: photoItem) { _, newValue in
-        guard let newValue else { return }
-        Task {
-          if let data = try? await newValue.loadTransferable(type: Data.self) {
-            await model.attachImage(data, sourceType: nil)
-          }
-          photoItem = nil
-        }
-      }
-    #endif
-  }
-
-  @ViewBuilder
-  private var attachIcon: some View {
-    if model.isUploading {
-      ProgressView()
-        #if os(macOS)
-          .controlSize(.small)
-        #endif
-    } else {
-      Image(systemName: "paperclip")
-        .font(.title2)
-    }
-  }
-
   #if os(macOS)
-    private func loadFile(at url: URL) {
-      let accessing = url.startAccessingSecurityScopedResource()
-      defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-      guard let data = try? Data(contentsOf: url) else { return }
-      let type = UTType(filenameExtension: url.pathExtension)
-      Task {
-        await model.attachImage(data, sourceType: type)
+  private func loadFile(at url: URL) {
+    let accessing = url.startAccessingSecurityScopedResource()
+    defer {
+      if accessing {
+        url.stopAccessingSecurityScopedResource()
       }
     }
+    guard let data = try? Data(contentsOf: url) else { return }
+    let type = UTType(filenameExtension: url.pathExtension)
+    Task {
+      await model.attachImage(data, sourceType: type)
+    }
+  }
   #endif
 
   /// Drop handler for image files dragged onto the composer bar.
@@ -946,16 +1095,6 @@ private struct ComposerView: View {
     return true
   }
 
-  private var placeholder: String {
-    if !canSend {
-      return model.connectionState == .connected
-        ? "This conversation is read-only" : "Waiting for connection…"
-    }
-    if buffer.kind == "status" {
-      return "Commands only, e.g. /list, /nick, /msg NickServ …"
-    }
-    return "\(buffer.name)"
-  }
 }
 
 private func isPresence(_ message: Message) -> Bool {
@@ -970,18 +1109,30 @@ func attributedBody(_ message: Message) -> AttributedString {
   let plainText = segments.map(\.text).joined()
   for segment in segments {
     var value = AttributedString(segment.text)
-    if segment.bold == true { value.font = Theme.Fonts.message.bold() }
-    if segment.italic == true { value.font = Theme.Fonts.message.italic() }
-    if segment.underline == true { value.underlineStyle = .single }
-    if segment.strike == true { value.strikethroughStyle = .single }
-    if let foreground = segment.fg { value.foregroundColor = mircColor(foreground) }
+    if segment.bold == true {
+      value.font = Theme.Fonts.message.bold()
+    }
+    if segment.italic == true {
+      value.font = Theme.Fonts.message.italic()
+    }
+    if segment.underline == true {
+      value.underlineStyle = .single
+    }
+    if segment.strike == true {
+      value.strikethroughStyle = .single
+    }
+    if let foreground = segment.fg {
+      value.foregroundColor = mircColor(foreground)
+    }
     result.append(value)
   }
   if let detector = TimelineFormatters.linkDetector {
     for match in detector.matches(
-      in: plainText, range: NSRange(plainText.startIndex..., in: plainText))
-    {
-      guard let url = match.url,
+      in: plainText,
+      range: NSRange(plainText.startIndex..., in: plainText),
+    ) {
+      guard
+        let url = match.url,
         let stringRange = Range(match.range, in: plainText),
         let attributedRange = Range(stringRange, in: result)
       else {
@@ -997,8 +1148,22 @@ func attributedBody(_ message: Message) -> AttributedString {
 
 func mircColor(_ value: Int) -> Color {
   let palette: [Color] = [
-    .white, .black, .blue, .green, .red, .brown, .purple, .orange,
-    .yellow, .green, .teal, .cyan, .blue, .pink, .gray, .secondary,
+    .white,
+    .black,
+    .blue,
+    .green,
+    .red,
+    .brown,
+    .purple,
+    .orange,
+    .yellow,
+    .green,
+    .teal,
+    .cyan,
+    .blue,
+    .pink,
+    .gray,
+    .secondary,
   ]
   return palette.indices.contains(value) ? palette[value] : .primary
 }
@@ -1035,20 +1200,23 @@ private func parseTimestamp(_ raw: String) -> Date? {
   return TimelineFormatters.iso8601.date(from: raw)
 }
 
+// MARK: - TimelineFormatters
+
 @MainActor
 enum TimelineFormatters {
   static let linkDetector = try? NSDataDetector(
-    types: NSTextCheckingResult.CheckingType.link.rawValue)
+    types: NSTextCheckingResult.CheckingType.link.rawValue
+  )
   static let iso8601 = ISO8601DateFormatter()
 }
 
 #if DEBUG
-  #Preview {
-    ConversationView()
-      .environment(AppModel.preview())
-      .tint(.mint)
-      #if os(macOS)
-        .frame(width: 700, height: 600)
-      #endif
-  }
+#Preview {
+  ConversationView()
+    .environment(AppModel.preview())
+    .tint(.mint)
+    #if os(macOS)
+    .frame(width: 700, height: 600)
+    #endif
+}
 #endif

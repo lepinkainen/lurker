@@ -3,9 +3,10 @@ import SwiftUI
 /// Result sheet for `/list`: the channels a network reported, joinable in
 /// place. Presented whenever `AppModel.channelList` is non-nil.
 struct ChannelListView: View {
-  @Environment(AppModel.self) private var model
+
+  // MARK: Internal
+
   let result: ChannelListEvent
-  @State private var filter = ""
 
   var body: some View {
     VStack(spacing: 0) {
@@ -29,6 +30,11 @@ struct ChannelListView: View {
     }
     .frame(minWidth: 460, minHeight: 380)
   }
+
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+  @State private var filter = ""
 
   private var header: some View {
     HStack {
@@ -87,7 +93,9 @@ struct ChannelListView: View {
 
   private func join(_ entry: ChannelListEntry) {
     model.command(
-      ClientCommand(type: "join", networkID: result.networkID, channel: entry.name))
+      ClientCommand(type: "join", networkID: result.networkID, channel: entry.name)
+    )
     model.channelList = nil
   }
+
 }

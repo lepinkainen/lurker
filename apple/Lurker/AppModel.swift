@@ -3,12 +3,16 @@ import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - ConnectionState
+
 enum ConnectionState: Equatable {
   case notConfigured
   case connecting
   case connected
   case reconnecting(Int)
   case offline(String)
+
+  // MARK: Internal
 
   var label: String {
     switch self {
@@ -23,18 +27,22 @@ enum ConnectionState: Equatable {
   var symbol: String {
     switch self {
     case .connected: "checkmark.circle.fill"
-    case .connecting, .reconnecting: "arrow.trianglehead.2.clockwise.rotate.90"
-    case .notConfigured, .offline: "exclamationmark.circle.fill"
+    case .connecting,
+         .reconnecting: "arrow.trianglehead.2.clockwise.rotate.90"
+    case .notConfigured,
+         .offline: "exclamationmark.circle.fill"
     }
   }
 }
+
+// MARK: - SidebarBufferGroups
 
 struct SidebarBufferGroups {
   let status: [Buffer]
   let channels: [Buffer]
   let queries: [Buffer]
-  // Buffers with the persisted archived flag (any kind), rendered inside the
-  // folded Archives section at the bottom of the network.
+  /// Buffers with the persisted archived flag (any kind), rendered inside the
+  /// folded Archives section at the bottom of the network.
   let archived: [Buffer]
 
   var all: [Buffer] {
@@ -42,49 +50,78 @@ struct SidebarBufferGroups {
   }
 }
 
+// MARK: - AppModel
+
 @MainActor
 @Observable
 final class AppModel {
-  private enum Defaults {
-    static let serverURL = "mac.serverURL"
-    static let selectedBuffer = "mac.selectedBuffer"
-    static let inspectorVisible = "mac.inspectorVisible"
-    static let notifications = "mac.notifications"
-    static let archivesOpen = "mac.archivesOpen"
-    static let collapsedNetworks = "mac.collapsedNetworks"
+
+  // MARK: Lifecycle
+
+  init(
+    transport: (any LurkerTransport)? = nil,
+    defaults: UserDefaults = .standard,
+    runsConnectionLoop: Bool = true,
+  ) {
+    self.transport = transport
+    self.defaults = defaults
+    self.runsConnectionLoop = runsConnectionLoop
+    selectedBufferID = defaults.string(forKey: Defaults.selectedBuffer).flatMap(
+      UUID.init(uuidString:)
+    )
+    inspectorVisible =
+      defaults.object(forKey: Defaults.inspectorVisible) as? Bool ?? Self.defaultInspectorVisible
+    notificationsEnabled = defaults.object(forKey: Defaults.notifications) as? Bool ?? true
+    archivesOpen = Set(
+      (defaults.stringArray(forKey: Defaults.archivesOpen) ?? []).compactMap(UUID.init(uuidString:))
+    )
+    collapsedNetworks = Set(
+      (defaults.stringArray(forKey: Defaults.collapsedNetworks) ?? [])
+        .compactMap(UUID.init(uuidString:))
+    )
+    if transport != nil {
+      connectionState = .connecting
+    }
   }
 
-  var networks: [UUID: Network] = [:]
-  var buffers: [UUID: Buffer] = [:]
-  var messages: [UUID: [Message]] = [:]
-  var members: [UUID: [Member]] = [:]
+  // MARK: Internal
+
+  // The members inspector starts hidden on iOS: `.inspector` presents as a
+  // full-screen sheet on iPhone, which would cover the app on first launch.
+  #if os(macOS)
+  static let defaultInspectorVisible = true
+  #else
+  static let defaultInspectorVisible = false
+  #endif
+
+  var networks = [UUID: Network]()
+  var buffers = [UUID: Buffer]()
+  var messages = [UUID: [Message]]()
+  var members = [UUID: [Member]]()
   /// Lowercased nicks flagged with IRCv3 bot mode. Only member lists carry
   /// the flag, so it is remembered here for message rows too. Sticky within a
   /// session: a member list rebuilt before the server's WHO reply lands would
   /// otherwise flip the glyph back.
-  private(set) var botNicks: Set<String> = []
+  private(set) var botNicks = Set<String>()
   /// Lowercased nicks known to have an avatar image, keyed like `botNicks`.
   /// Member lists carry the flag directly on `Member`, but message rows only
   /// have a sender string, so it is remembered here too — mirrors `botNicks`
   /// for the same reason. Updated by member lists and by `avatar` events.
-  private(set) var avatarNicks: Set<String> = []
+  private(set) var avatarNicks = Set<String>()
   var selectedBufferID: UUID?
-  var historyExhausted: Set<UUID> = []
-  var historyLoading: Set<UUID> = []
+  var historyExhausted = Set<UUID>()
+  var historyLoading = Set<UUID>()
   // Set after older history is prepended; the timeline scrolls this message
   // back to the top edge so the viewport doesn't jump to the new content and
   // re-trigger the load (runaway pagination). Consumed (nil'd) by the view.
   var historyAnchor: HistoryAnchor?
-  var connectionState: ConnectionState = .notConfigured
+  var connectionState = ConnectionState.notConfigured
   // True while an app-focus ping is probing a nominally-connected socket; the
   // displayed state can't be trusted until the probe resolves.
   var syncing = false
   var serviceIdentity: ServiceIdentity?
   var inspectorVisible = AppModel.defaultInspectorVisible
   var applicationActive = true
-  /// Set on app focus while offline: the reconnect countdown polls this each
-  /// second and retries immediately instead of waiting out the backoff.
-  private var skipReconnectDelay = false
   var showingConnectionEditor = false
   var showingChannelSwitcher = false
   // Latest /list result; non-nil presents the channel-list sheet.
@@ -100,59 +137,16 @@ final class AppModel {
   var inputHistory = InputHistory()
   // Per-network Archives fold state; folded by default, persisted across
   // launches like the other sidebar-adjacent Defaults.
-  var archivesOpen: Set<UUID> = []
+  var archivesOpen = Set<UUID>()
   // Per-network sidebar collapse; expanded by default, persisted.
-  var collapsedNetworks: Set<UUID> = []
+  var collapsedNetworks = Set<UUID>()
   var notificationsEnabled = true
-  var columnVisibility: NavigationSplitViewVisibility = .all
+  var columnVisibility = NavigationSplitViewVisibility.all
   // iOS compact width: whether ConversationView is pushed over the sidebar.
   var compactConversationVisible = false
   var focusComposerRequest = 0
-
-  // The members inspector starts hidden on iOS: `.inspector` presents as a
-  // full-screen sheet on iPhone, which would cover the app on first launch.
-  #if os(macOS)
-    static let defaultInspectorVisible = true
-  #else
-    static let defaultInspectorVisible = false
-  #endif
-
-  @ObservationIgnored private var transport: (any LurkerTransport)?
-  @ObservationIgnored private var connectionTask: Task<Void, Never>?
-  @ObservationIgnored private var queuedEvents: [ServerEvent] = []
-  @ObservationIgnored private var hydrated = false
-  // Retained so tests can await the focus ping deterministically.
+  /// Retained so tests can await the focus ping deterministically.
   @ObservationIgnored private(set) var verifyTask: Task<Void, Never>?
-  // Bumped on every selection change so an in-flight older-history fetch can
-  // tell that its anchor is stale by the time it resolves.
-  @ObservationIgnored private var selectionGeneration = 0
-  @ObservationIgnored private let defaults: UserDefaults
-  @ObservationIgnored private let runsConnectionLoop: Bool
-
-  init(
-    transport: (any LurkerTransport)? = nil,
-    defaults: UserDefaults = .standard,
-    runsConnectionLoop: Bool = true
-  ) {
-    self.transport = transport
-    self.defaults = defaults
-    self.runsConnectionLoop = runsConnectionLoop
-    selectedBufferID = defaults.string(forKey: Defaults.selectedBuffer).flatMap(
-      UUID.init(uuidString:))
-    inspectorVisible =
-      defaults.object(forKey: Defaults.inspectorVisible) as? Bool ?? Self.defaultInspectorVisible
-    notificationsEnabled = defaults.object(forKey: Defaults.notifications) as? Bool ?? true
-    archivesOpen = Set(
-      (defaults.stringArray(forKey: Defaults.archivesOpen) ?? []).compactMap(UUID.init(uuidString:))
-    )
-    collapsedNetworks = Set(
-      (defaults.stringArray(forKey: Defaults.collapsedNetworks) ?? [])
-        .compactMap(UUID.init(uuidString:))
-    )
-    if transport != nil {
-      connectionState = .connecting
-    }
-  }
 
   var configuredURL: URL? {
     guard let raw = defaults.string(forKey: Defaults.serverURL) else { return nil }
@@ -192,6 +186,28 @@ final class AppModel {
 
   var mentionTotal: Int {
     buffers.values.reduce(0) { $0 + $1.mentions }
+  }
+
+  /// True whenever the displayed state may lag the backend: a focus ping is
+  /// in flight, or the connection is anywhere but steady-state connected.
+  /// `.notConfigured` is excluded — that's an empty state, not a stale one.
+  var outOfSync: Bool {
+    if syncing {
+      return true
+    }
+    switch connectionState {
+    case .connected,
+         .notConfigured: return false
+    case .connecting,
+         .reconnecting,
+         .offline: return true
+    }
+  }
+
+  var pinnedBuffers: [Buffer] {
+    buffers.values
+      .filter { $0.pinned && $0.kind == "channel" }
+      .sorted(by: pinnedOrder)
   }
 
   func start() {
@@ -248,68 +264,10 @@ final class AppModel {
     applySelection(id)
   }
 
-  /// Shared selection change: stashes the outgoing buffer's draft and
-  /// restores the incoming one's. Passive paths (selection restore after a
-  /// snapshot or buffer deletion) use this directly so drafts never leak
-  /// between buffers, without selectBuffer's compact-width push.
-  private func applySelection(_ id: UUID) {
-    if let previous = selectedBufferID {
-      inputHistory.stashDraft(composerText, buffer: previous)
-    }
-    selectedBufferID = id
-    // Any pending older-history reposition belongs to the buffer we are
-    // leaving; the incoming (and later the returning) timeline is rebuilt
-    // bottom-anchored, so an anchor surviving the switch would yank its
-    // viewport back to an old pagination point. `selectionGeneration` also
-    // makes in-flight loadOlderHistory fetches drop their anchor on arrival.
-    historyAnchor = nil
-    selectionGeneration += 1
-    composerText = inputHistory.restoreDraft(buffer: id)
-    composerError = nil
-    defaults.set(id.uuidString, forKey: Defaults.selectedBuffer)
-  }
-
   func setApplicationActive(_ active: Bool) {
     applicationActive = active
     if active {
       verifyConnection()
-    }
-  }
-
-  /// On app focus: probe a nominally-connected socket with a WS ping so a
-  /// dead TCP connection is noticed now rather than after the OS timeout,
-  /// and cut any reconnect backoff short — the client should be usable by
-  /// the time the user starts typing.
-  private func verifyConnection() {
-    switch connectionState {
-    case .connected:
-      guard let transport, !syncing else { return }
-      syncing = true
-      verifyTask = Task {
-        do {
-          try await transport.ping()
-        } catch {
-          // Cancelling the socket makes the receive loop throw, which sends
-          // connectionLoop into its normal reconnect path.
-          await transport.disconnect()
-        }
-        syncing = false
-      }
-    case .reconnecting, .offline:
-      skipReconnectDelay = true
-    case .connecting, .notConfigured:
-      break
-    }
-  }
-
-  /// True whenever the displayed state may lag the backend: a focus ping is
-  /// in flight, or the connection is anywhere but steady-state connected.
-  /// `.notConfigured` is excluded — that's an empty state, not a stale one.
-  var outOfSync: Bool {
-    if syncing { return true }
-    switch connectionState {
-    case .connected, .notConfigured: return false
-    case .connecting, .reconnecting, .offline: return true
     }
   }
 
@@ -343,7 +301,9 @@ final class AppModel {
       collapsedNetworks.remove(networkID)
     }
     defaults.set(
-      collapsedNetworks.map(\.uuidString).sorted(), forKey: Defaults.collapsedNetworks)
+      collapsedNetworks.map(\.uuidString).sorted(),
+      forKey: Defaults.collapsedNetworks,
+    )
   }
 
   /// Unread/mention totals across every buffer of a network (status, pinned,
@@ -379,6 +339,7 @@ final class AppModel {
     case .invalid(let error):
       composerError = error
       return nil
+
     case .command(let command):
       // Only plain messages enter arrow-up history; slash commands do not
       // (web parity: recordSentInput).
@@ -410,7 +371,10 @@ final class AppModel {
     }
     do {
       let url = try await transport.upload(
-        normalized.data, filename: normalized.filename, contentType: normalized.contentType)
+        normalized.data,
+        filename: normalized.filename,
+        contentType: normalized.contentType,
+      )
       // The user may have switched buffers during the upload: the URL
       // belongs to the buffer the image was dropped on, not whichever is
       // visible now.
@@ -425,21 +389,14 @@ final class AppModel {
     }
   }
 
-  /// Appends text to the visible composer, space-padded from any existing
-  /// content, but always at the end since the SwiftUI TextField here has no
-  /// caret tracking.
-  private func appendToComposer(_ text: String) {
-    composerText = InputHistory.appending(text, to: composerText)
-  }
-
   /// Arrow-up/down history browsing from the composer. Returns true when the
   /// key was consumed (text replaced), false to let the caret move normally.
   func navigateHistory(up: Bool) -> Bool {
     guard let bufferID = selectedBufferID else { return false }
     let replacement =
       up
-      ? inputHistory.navigateUp(buffer: bufferID, current: composerText)
-      : inputHistory.navigateDown(buffer: bufferID)
+        ? inputHistory.navigateUp(buffer: bufferID, current: composerText)
+        : inputHistory.navigateDown(buffer: bufferID)
     guard let replacement else { return false }
     composerText = replacement
     return true
@@ -464,7 +421,8 @@ final class AppModel {
 
   @discardableResult
   func loadOlderHistory() -> Task<Void, Never>? {
-    guard let id = selectedBufferID,
+    guard
+      let id = selectedBufferID,
       !historyLoading.contains(id),
       // A pending anchor means the previous page's reposition hasn't landed
       // yet. The freshly prepended top rows can fire their load-older
@@ -600,15 +558,16 @@ final class AppModel {
     let position = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
     let next =
       direction > 0
-      ? (candidates.first { (position[$0] ?? Int.max) > pos } ?? candidates.first!)
-      : (candidates.last { (position[$0] ?? Int.min) < pos } ?? candidates.last!)
+        ? (candidates.first { (position[$0] ?? Int.max) > pos } ?? candidates.first!)
+        : (candidates.last { (position[$0] ?? Int.min) < pos } ?? candidates.last!)
     if next != selected {
       selectBuffer(next)
     }
   }
 
   func focusStatusBuffer() {
-    guard let networkID = selectedBuffer?.networkID,
+    guard
+      let networkID = selectedBuffer?.networkID,
       let status = buffers.values.first(where: { $0.networkID == networkID && $0.kind == "status" })
     else {
       return
@@ -625,6 +584,347 @@ final class AppModel {
   /// blocks plain http regardless).
   func inlineImageURL(_ preview: Preview) -> URL? {
     normalizedImageURL(preview.url)
+  }
+
+  func applySnapshot(_ snapshot: StateSnapshot) {
+    historyExhausted.removeAll(keepingCapacity: true)
+    historyLoading.removeAll(keepingCapacity: true)
+    historyAnchor = nil
+    networks = Dictionary(uniqueKeysWithValues: snapshot.networks.map { ($0.id, $0) })
+    buffers = Dictionary(uniqueKeysWithValues: snapshot.buffers.map { ($0.id, $0) })
+    messages = Dictionary(
+      uniqueKeysWithValues: snapshot.initialMessages.compactMap { key, value in
+        UUID(uuidString: key).map { ($0, value.sorted(by: messageOrder)) }
+      }
+    )
+    members = Dictionary(
+      uniqueKeysWithValues: (snapshot.members ?? [:]).compactMap { key, value in
+        UUID(uuidString: key).map { ($0, value) }
+      }
+    )
+    for (bufferID, list) in members {
+      if let networkID = buffers[bufferID]?.networkID {
+        noteBots(list, networkID: networkID)
+      }
+    }
+    restoreSelection()
+    updateBadge()
+  }
+
+  /// Internal (not private) so unit tests can drive server events directly.
+  func apply(_ event: ServerEvent) {
+    switch event {
+    case .message(let message):
+      apply(message)
+
+    case .bufferCreated(let event):
+      if buffers[event.id] == nil {
+        buffers[event.id] = Buffer(
+          id: event.id,
+          networkID: event.networkID,
+          name: event.name,
+          kind: event.kind,
+          topic: nil,
+          joined: event.kind == "channel",
+          lastSeenID: nil,
+          // Status windows carry server-generated content; no link previews.
+          showEmbeds: event.kind != "status",
+          showPresenceEvents: true,
+          collapsePresenceEvents: false,
+          pinned: false,
+          sortOrder: event.sortOrder ?? 0,
+          unread: 0,
+          mentions: 0,
+        )
+      }
+
+    case .bufferDeleted(let event):
+      removeBuffer(event.id)
+
+    case .bufferUpdate(let event):
+      guard var buffer = buffers[event.id] else { return }
+      if let topic = event.topic {
+        buffer.topic = topic
+      }
+      if let joined = event.joined {
+        buffer.joined = joined
+      }
+      if let archived = event.archived {
+        buffer.archived = archived
+      }
+      if let lastSeenID = event.lastSeenID {
+        buffer.lastSeenID = lastSeenID
+      }
+      // `marker_id` key present (mark_read variant): take it — inner nil means
+      // caught up, which clears the marker. Key absent: unchanged.
+      if let markerID = event.markerID {
+        buffer.markerID = markerID
+        buffer.markerTS = markerID == nil ? nil : event.markerTS
+      }
+      if let unread = event.unread {
+        buffer.unread = unread
+      }
+      if let mentions = event.mentions {
+        buffer.mentions = mentions
+      }
+      buffers[event.id] = buffer
+      updateBadge()
+
+    case .bufferSettings(let event):
+      apply(event)
+
+    case .bufferReorder(let event):
+      for entry in event.buffers {
+        buffers[entry.id]?.sortOrder = entry.sortOrder
+      }
+
+    case .pinnedReorder(let event):
+      for entry in event.buffers {
+        buffers[entry.id]?.pinOrder = entry.pinOrder
+      }
+
+    case .networkState(let event):
+      guard var network = networks[event.networkID] else { return }
+      network.status = event.state
+      networks[event.networkID] = network
+
+    case .history(let event):
+      mergeMessages(event.messages, into: event.bufferID)
+      if event.messages.isEmpty {
+        historyExhausted.insert(event.bufferID)
+      }
+
+    case .historyBackfill(let event):
+      refetchBackfilledHistory(event.bufferID)
+
+    case .preview(let event):
+      guard
+        var list = messages[event.bufferID],
+        let index = list.firstIndex(where: { $0.id == event.messageID })
+      else {
+        return
+      }
+      list[index].previews = event.previews
+      messages[event.bufferID] = list
+
+    case .members(let event):
+      members[event.bufferID] = event.members
+      noteBots(event.members, networkID: event.networkID)
+      noteAvatars(event.members, networkID: event.networkID)
+
+    case .avatar(let event):
+      let key = nickKey(event.networkID, event.nick)
+      if event.hasAvatar {
+        avatarNicks.insert(key)
+      } else {
+        avatarNicks.remove(key)
+      }
+
+    case .netsplit(let event):
+      guard var list = messages[event.bufferID] else { return }
+      let ids = Set(event.messageIDs)
+      for index in list.indices where ids.contains(list[index].id) {
+        list[index].netsplit = event.netsplit
+      }
+      messages[event.bufferID] = list
+
+    case .channelList(let event):
+      // Web parity (channel-list.ts): a result for a different network starts
+      // fresh; entries accumulate in case the server ever streams batches.
+      if var current = channelList, current.networkID == event.networkID, !current.done {
+        current = ChannelListEvent(
+          networkID: event.networkID,
+          entries: (current.entries ?? []) + (event.entries ?? []),
+          done: event.done,
+        )
+        channelList = current
+      } else {
+        channelList = event
+      }
+
+    case .error(let response):
+      composerError = response.message ?? "The server rejected the command."
+
+    case .ack,
+         .ignored:
+      break
+    }
+  }
+
+  /// Explicit user ack — the only way the marker, badges, and unread bar
+  /// clear. Optimistically drops them locally; the server persists the new
+  /// `last_seen_id` and broadcasts `buffer_update` to every client.
+  func ackRead(_ bufferID: UUID) {
+    guard var buffer = buffers[bufferID], let last = messages[bufferID]?.last else { return }
+    buffer.lastSeenID = last.id
+    buffer.markerID = nil
+    buffer.markerTS = nil
+    buffer.unread = 0
+    buffer.mentions = 0
+    buffers[bufferID] = buffer
+    updateBadge()
+    send(ClientCommand(type: "mark_read", bufferID: bufferID, messageID: last.id))
+  }
+
+  /// Reorder the pinned section via drag and drop. Optimistic with rollback;
+  /// the server broadcasts pinned_reorder to other clients and returns the
+  /// same event shape here.
+  @discardableResult
+  func reorderPinnedBuffers(_ orderedIDs: [UUID]) -> Task<Void, Never>? {
+    guard let transport else { return nil }
+    // Field-level snapshot, same reasoning as reorderNetworks.
+    let previous = orderedIDs.compactMap { id in buffers[id].map { (id, $0.pinOrder) } }
+    for (index, id) in orderedIDs.enumerated() {
+      buffers[id]?.pinOrder = index
+    }
+    return Task {
+      do {
+        let event = try await transport.reorderPinnedBuffers(ids: orderedIDs)
+        apply(.pinnedReorder(event))
+      } catch {
+        for (id, pinOrder) in previous {
+          buffers[id]?.pinOrder = pinOrder
+        }
+        composerError = error.localizedDescription
+      }
+    }
+  }
+
+  func sidebarBuffers(for networkID: UUID) -> SidebarBufferGroups {
+    // Pinned channels stay listed under their network in addition to the
+    // Pinned section.
+    let values = buffers.values.filter { $0.networkID == networkID }
+    return SidebarBufferGroups(
+      status: values.filter { $0.kind == "status" }.sorted(by: bufferOrder),
+      // Channels honor manual ordering (sortOrder, then name); other groups
+      // stay purely alphabetical.
+      channels: values.filter { $0.kind == "channel" && !$0.archived }.sorted(by: channelOrder),
+      queries: values.filter { $0.kind == "query" && !$0.archived }.sorted(by: bufferOrder),
+      archived: values.filter { $0.kind != "status" && $0.archived }.sorted(by: bufferOrder),
+    )
+  }
+
+  /// Whether the nick is known to be an IRCv3 bot on the selected buffer's
+  /// network (every call site renders the selected buffer's content).
+  /// Case-insensitive, matching the server's own nick folding.
+  func isBot(_ nick: String) -> Bool {
+    guard
+      !nick.isEmpty,
+      let bufferID = selectedBufferID,
+      let networkID = buffers[bufferID]?.networkID
+    else { return false }
+    return botNicks.contains(nickKey(networkID, nick))
+  }
+
+  /// Whether the nick is known to have an avatar image on the selected
+  /// buffer's network. Mirrors `isBot` exactly.
+  func hasAvatar(_ nick: String) -> Bool {
+    guard
+      !nick.isEmpty,
+      let bufferID = selectedBufferID,
+      let networkID = buffers[bufferID]?.networkID
+    else { return false }
+    return avatarNicks.contains(nickKey(networkID, nick))
+  }
+
+  /// Builds the `/api/avatar` URL for a nick on a network. `size` is clamped
+  /// server-side to {16,32,64,128,256}; 64 covers a ~14pt avatar box up to
+  /// retina scales. `nil` when no server is configured.
+  func avatarURL(networkID: UUID, nick: String, size: Int = 64) -> URL? {
+    guard let base = configuredURL else { return nil }
+    var components = URLComponents(
+      url: base.appending(path: "api/avatar"),
+      resolvingAgainstBaseURL: false,
+    )
+    components?.queryItems = [
+      URLQueryItem(name: "network", value: networkID.uuidString),
+      URLQueryItem(name: "nick", value: nick),
+      URLQueryItem(name: "size", value: String(size)),
+    ]
+    return components?.url
+  }
+
+  // MARK: Private
+
+  private enum Defaults {
+    static let serverURL = "mac.serverURL"
+    static let selectedBuffer = "mac.selectedBuffer"
+    static let inspectorVisible = "mac.inspectorVisible"
+    static let notifications = "mac.notifications"
+    static let archivesOpen = "mac.archivesOpen"
+    static let collapsedNetworks = "mac.collapsedNetworks"
+  }
+
+  /// Set on app focus while offline: the reconnect countdown polls this each
+  /// second and retries immediately instead of waiting out the backoff.
+  private var skipReconnectDelay = false
+
+  @ObservationIgnored private var transport: (any LurkerTransport)?
+  @ObservationIgnored private var connectionTask: Task<Void, Never>?
+  @ObservationIgnored private var queuedEvents = [ServerEvent]()
+  @ObservationIgnored private var hydrated = false
+  // Bumped on every selection change so an in-flight older-history fetch can
+  // tell that its anchor is stale by the time it resolves.
+  @ObservationIgnored private var selectionGeneration = 0
+  @ObservationIgnored private let defaults: UserDefaults
+  @ObservationIgnored private let runsConnectionLoop: Bool
+
+  /// Shared selection change: stashes the outgoing buffer's draft and
+  /// restores the incoming one's. Passive paths (selection restore after a
+  /// snapshot or buffer deletion) use this directly so drafts never leak
+  /// between buffers, without selectBuffer's compact-width push.
+  private func applySelection(_ id: UUID) {
+    if let previous = selectedBufferID {
+      inputHistory.stashDraft(composerText, buffer: previous)
+    }
+    selectedBufferID = id
+    // Any pending older-history reposition belongs to the buffer we are
+    // leaving; the incoming (and later the returning) timeline is rebuilt
+    // bottom-anchored, so an anchor surviving the switch would yank its
+    // viewport back to an old pagination point. `selectionGeneration` also
+    // makes in-flight loadOlderHistory fetches drop their anchor on arrival.
+    historyAnchor = nil
+    selectionGeneration += 1
+    composerText = inputHistory.restoreDraft(buffer: id)
+    composerError = nil
+    defaults.set(id.uuidString, forKey: Defaults.selectedBuffer)
+  }
+
+  /// On app focus: probe a nominally-connected socket with a WS ping so a
+  /// dead TCP connection is noticed now rather than after the OS timeout,
+  /// and cut any reconnect backoff short — the client should be usable by
+  /// the time the user starts typing.
+  private func verifyConnection() {
+    switch connectionState {
+    case .connected:
+      guard let transport, !syncing else { return }
+      syncing = true
+      verifyTask = Task {
+        do {
+          try await transport.ping()
+        } catch {
+          // Cancelling the socket makes the receive loop throw, which sends
+          // connectionLoop into its normal reconnect path.
+          await transport.disconnect()
+        }
+        syncing = false
+      }
+
+    case .reconnecting,
+         .offline:
+      skipReconnectDelay = true
+
+    case .connecting,
+         .notConfigured:
+      break
+    }
+  }
+
+  /// Appends text to the visible composer, space-padded from any existing
+  /// content, but always at the end since the SwiftUI TextField here has no
+  /// caret tracking.
+  private func appendToComposer(_ text: String) {
+    composerText = InputHistory.appending(text, to: composerText)
   }
 
   private func normalizedImageURL(_ raw: String?) -> URL? {
@@ -671,10 +971,14 @@ final class AppModel {
         let delay = min(30, 1 << min(attempt - 1, 5))
         connectionState = .offline(error.localizedDescription)
         for remaining in stride(from: delay, through: 1, by: -1) {
-          if skipReconnectDelay { break }
+          if skipReconnectDelay {
+            break
+          }
           connectionState = .reconnecting(remaining)
           try? await Task.sleep(for: .seconds(1))
-          if Task.isCancelled { return }
+          if Task.isCancelled {
+            return
+          }
         }
         skipReconnectDelay = false
       }
@@ -689,136 +993,6 @@ final class AppModel {
     apply(event)
   }
 
-  func applySnapshot(_ snapshot: StateSnapshot) {
-    historyExhausted.removeAll(keepingCapacity: true)
-    historyLoading.removeAll(keepingCapacity: true)
-    historyAnchor = nil
-    networks = Dictionary(uniqueKeysWithValues: snapshot.networks.map { ($0.id, $0) })
-    buffers = Dictionary(uniqueKeysWithValues: snapshot.buffers.map { ($0.id, $0) })
-    messages = Dictionary(
-      uniqueKeysWithValues: snapshot.initialMessages.compactMap { key, value in
-        UUID(uuidString: key).map { ($0, value.sorted(by: messageOrder)) }
-      })
-    members = Dictionary(
-      uniqueKeysWithValues: (snapshot.members ?? [:]).compactMap { key, value in
-        UUID(uuidString: key).map { ($0, value) }
-      })
-    for (bufferID, list) in members {
-      if let networkID = buffers[bufferID]?.networkID {
-        noteBots(list, networkID: networkID)
-      }
-    }
-    restoreSelection()
-    updateBadge()
-  }
-
-  // Internal (not private) so unit tests can drive server events directly.
-  func apply(_ event: ServerEvent) {
-    switch event {
-    case .message(let message):
-      apply(message)
-    case .bufferCreated(let event):
-      if buffers[event.id] == nil {
-        buffers[event.id] = Buffer(
-          id: event.id,
-          networkID: event.networkID,
-          name: event.name,
-          kind: event.kind,
-          topic: nil,
-          joined: event.kind == "channel",
-          lastSeenID: nil,
-          // Status windows carry server-generated content; no link previews.
-          showEmbeds: event.kind != "status",
-          showPresenceEvents: true,
-          collapsePresenceEvents: false,
-          pinned: false,
-          sortOrder: event.sortOrder ?? 0,
-          unread: 0,
-          mentions: 0
-        )
-      }
-    case .bufferDeleted(let event):
-      removeBuffer(event.id)
-    case .bufferUpdate(let event):
-      guard var buffer = buffers[event.id] else { return }
-      if let topic = event.topic { buffer.topic = topic }
-      if let joined = event.joined { buffer.joined = joined }
-      if let archived = event.archived { buffer.archived = archived }
-      if let lastSeenID = event.lastSeenID { buffer.lastSeenID = lastSeenID }
-      // `marker_id` key present (mark_read variant): take it — inner nil means
-      // caught up, which clears the marker. Key absent: unchanged.
-      if let markerID = event.markerID {
-        buffer.markerID = markerID
-        buffer.markerTS = markerID == nil ? nil : event.markerTS
-      }
-      if let unread = event.unread { buffer.unread = unread }
-      if let mentions = event.mentions { buffer.mentions = mentions }
-      buffers[event.id] = buffer
-      updateBadge()
-    case .bufferSettings(let event):
-      apply(event)
-    case .bufferReorder(let event):
-      for entry in event.buffers {
-        buffers[entry.id]?.sortOrder = entry.sortOrder
-      }
-    case .pinnedReorder(let event):
-      for entry in event.buffers {
-        buffers[entry.id]?.pinOrder = entry.pinOrder
-      }
-    case .networkState(let event):
-      guard var network = networks[event.networkID] else { return }
-      network.status = event.state
-      networks[event.networkID] = network
-    case .history(let event):
-      mergeMessages(event.messages, into: event.bufferID)
-      if event.messages.isEmpty { historyExhausted.insert(event.bufferID) }
-    case .historyBackfill(let event):
-      refetchBackfilledHistory(event.bufferID)
-    case .preview(let event):
-      guard var list = messages[event.bufferID],
-        let index = list.firstIndex(where: { $0.id == event.messageID })
-      else {
-        return
-      }
-      list[index].previews = event.previews
-      messages[event.bufferID] = list
-    case .members(let event):
-      members[event.bufferID] = event.members
-      noteBots(event.members, networkID: event.networkID)
-      noteAvatars(event.members, networkID: event.networkID)
-    case .avatar(let event):
-      let key = nickKey(event.networkID, event.nick)
-      if event.hasAvatar {
-        avatarNicks.insert(key)
-      } else {
-        avatarNicks.remove(key)
-      }
-    case .netsplit(let event):
-      guard var list = messages[event.bufferID] else { return }
-      let ids = Set(event.messageIDs)
-      for index in list.indices where ids.contains(list[index].id) {
-        list[index].netsplit = event.netsplit
-      }
-      messages[event.bufferID] = list
-    case .channelList(let event):
-      // Web parity (channel-list.ts): a result for a different network starts
-      // fresh; entries accumulate in case the server ever streams batches.
-      if var current = channelList, current.networkID == event.networkID, !current.done {
-        current = ChannelListEvent(
-          networkID: event.networkID,
-          entries: (current.entries ?? []) + (event.entries ?? []),
-          done: event.done)
-        channelList = current
-      } else {
-        channelList = event
-      }
-    case .error(let response):
-      composerError = response.message ?? "The server rejected the command."
-    case .ack, .ignored:
-      break
-    }
-  }
-
   private func apply(_ event: BufferSettingsEvent) {
     guard var buffer = buffers[event.id] else { return }
     buffer.showEmbeds = event.showEmbeds
@@ -826,7 +1000,9 @@ final class AppModel {
     buffer.collapsePresenceEvents = event.collapsePresenceEvents
     buffer.pinned = event.pinned
     buffer.archived = event.archived
-    if let pinOrder = event.pinOrder { buffer.pinOrder = pinOrder }
+    if let pinOrder = event.pinOrder {
+      buffer.pinOrder = pinOrder
+    }
     buffers[event.id] = buffer
   }
 
@@ -838,7 +1014,9 @@ final class AppModel {
     members.removeValue(forKey: id)
     historyExhausted.remove(id)
     historyLoading.remove(id)
-    if historyAnchor?.bufferID == id { historyAnchor = nil }
+    if historyAnchor?.bufferID == id {
+      historyAnchor = nil
+    }
     if selectedBufferID == id {
       selectedBufferID = nil
       restoreSelection()
@@ -870,7 +1048,7 @@ final class AppModel {
         NotificationManager.shared.post(
           message: message,
           buffer: buffer,
-          network: networks[buffer.networkID]
+          network: networks[buffer.networkID],
         )
       }
     }
@@ -897,7 +1075,9 @@ final class AppModel {
         let isUnseen = buffer.lastSeenID.map { message.id.uuidString > $0.uuidString } ?? true
         guard isUnseen else { continue }
         buffer.unread += 1
-        if message.mentionsMe == true || message.highlight == true { buffer.mentions += 1 }
+        if message.mentionsMe == true || message.highlight == true {
+          buffer.mentions += 1
+        }
         // Recovered messages predate any live arrivals, so the marker moves
         // back to the earliest of them.
         if buffer.markerID.map({ message.id.uuidString < $0.uuidString }) ?? true {
@@ -919,21 +1099,6 @@ final class AppModel {
       byID[message.id] = message
     }
     messages[bufferID] = byID.values.sorted(by: messageOrder)
-  }
-
-  /// Explicit user ack — the only way the marker, badges, and unread bar
-  /// clear. Optimistically drops them locally; the server persists the new
-  /// `last_seen_id` and broadcasts `buffer_update` to every client.
-  func ackRead(_ bufferID: UUID) {
-    guard var buffer = buffers[bufferID], let last = messages[bufferID]?.last else { return }
-    buffer.lastSeenID = last.id
-    buffer.markerID = nil
-    buffer.markerTS = nil
-    buffer.unread = 0
-    buffer.mentions = 0
-    buffers[bufferID] = buffer
-    updateBadge()
-    send(ClientCommand(type: "mark_read", bufferID: bufferID, messageID: last.id))
   }
 
   @discardableResult
@@ -988,53 +1153,11 @@ final class AppModel {
     return result.filter { seen.insert($0).inserted }
   }
 
-  var pinnedBuffers: [Buffer] {
-    buffers.values
-      .filter { $0.pinned && $0.kind == "channel" }
-      .sorted(by: pinnedOrder)
-  }
-
-  /// Reorder the pinned section via drag and drop. Optimistic with rollback;
-  /// the server broadcasts pinned_reorder to other clients and returns the
-  /// same event shape here.
-  @discardableResult
-  func reorderPinnedBuffers(_ orderedIDs: [UUID]) -> Task<Void, Never>? {
-    guard let transport else { return nil }
-    // Field-level snapshot, same reasoning as reorderNetworks.
-    let previous = orderedIDs.compactMap { id in buffers[id].map { (id, $0.pinOrder) } }
-    for (index, id) in orderedIDs.enumerated() {
-      buffers[id]?.pinOrder = index
-    }
-    return Task {
-      do {
-        let event = try await transport.reorderPinnedBuffers(ids: orderedIDs)
-        apply(.pinnedReorder(event))
-      } catch {
-        for (id, pinOrder) in previous {
-          buffers[id]?.pinOrder = pinOrder
-        }
-        composerError = error.localizedDescription
-      }
-    }
-  }
-
-  func sidebarBuffers(for networkID: UUID) -> SidebarBufferGroups {
-    // Pinned channels stay listed under their network in addition to the
-    // Pinned section.
-    let values = buffers.values.filter { $0.networkID == networkID }
-    return SidebarBufferGroups(
-      status: values.filter { $0.kind == "status" }.sorted(by: bufferOrder),
-      // Channels honor manual ordering (sortOrder, then name); other groups
-      // stay purely alphabetical.
-      channels: values.filter { $0.kind == "channel" && !$0.archived }.sorted(by: channelOrder),
-      queries: values.filter { $0.kind == "query" && !$0.archived }.sorted(by: bufferOrder),
-      archived: values.filter { $0.kind != "status" && $0.archived }.sorted(by: bufferOrder)
-    )
-  }
-
   private func visibleMessages(_ values: [Message], in buffer: Buffer?) -> [Message] {
     guard let buffer else { return values }
-    if buffer.showPresenceEvents { return values }
+    if buffer.showPresenceEvents {
+      return values
+    }
     return values.filter { !presenceKinds.contains($0.kind) }
   }
 
@@ -1070,42 +1193,6 @@ final class AppModel {
     "\(networkID.uuidString):\(nick.lowercased())"
   }
 
-  /// Whether the nick is known to be an IRCv3 bot on the selected buffer's
-  /// network (every call site renders the selected buffer's content).
-  /// Case-insensitive, matching the server's own nick folding.
-  func isBot(_ nick: String) -> Bool {
-    guard !nick.isEmpty,
-      let bufferID = selectedBufferID,
-      let networkID = buffers[bufferID]?.networkID
-    else { return false }
-    return botNicks.contains(nickKey(networkID, nick))
-  }
-
-  /// Whether the nick is known to have an avatar image on the selected
-  /// buffer's network. Mirrors `isBot` exactly.
-  func hasAvatar(_ nick: String) -> Bool {
-    guard !nick.isEmpty,
-      let bufferID = selectedBufferID,
-      let networkID = buffers[bufferID]?.networkID
-    else { return false }
-    return avatarNicks.contains(nickKey(networkID, nick))
-  }
-
-  /// Builds the `/api/avatar` URL for a nick on a network. `size` is clamped
-  /// server-side to {16,32,64,128,256}; 64 covers a ~14pt avatar box up to
-  /// retina scales. `nil` when no server is configured.
-  func avatarURL(networkID: UUID, nick: String, size: Int = 64) -> URL? {
-    guard let base = configuredURL else { return nil }
-    var components = URLComponents(
-      url: base.appending(path: "api/avatar"), resolvingAgainstBaseURL: false)
-    components?.queryItems = [
-      URLQueryItem(name: "network", value: networkID.uuidString),
-      URLQueryItem(name: "nick", value: nick),
-      URLQueryItem(name: "size", value: String(size)),
-    ]
-    return components?.url
-  }
-
   private func updateBadge() {
     NotificationManager.shared.setBadge(mentionTotal)
   }
@@ -1123,7 +1210,10 @@ final class AppModel {
     selectedBufferID = nil
     hydrated = false
   }
+
 }
+
+// MARK: - HistoryAnchor
 
 /// Identifies the message that was at the top of a buffer before an older
 /// history page was prepended, so the timeline can pin it back to the top
@@ -1135,7 +1225,9 @@ struct HistoryAnchor: Equatable {
 
 private func memberRank(_ prefix: String?) -> Int {
   switch prefix {
-  case "@", "&", "~": 0
+  case "@",
+       "&",
+       "~": 0
   case "%": 1
   case "+": 2
   default: 3
@@ -1159,97 +1251,150 @@ private func pinnedOrder(_ lhs: Buffer, _ rhs: Buffer) -> Bool {
 }
 
 #if DEBUG
-  @MainActor
-  extension AppModel {
-    /// A fully hydrated, "connected and joined" model for SwiftUI previews.
-    /// Populates state synchronously instead of running the async connection loop,
-    /// so previews render fully populated in a single pass with no transport,
-    /// async work, or mark-read side effects.
-    static func preview() -> AppModel {
-      let model = AppModel(transport: FixtureTransport(), runsConnectionLoop: false)
-      model.applySnapshot(FixtureTransport.snapshot())
-      model.serviceIdentity = FixtureTransport.identity
-      model.connectionState = .connected
-      model.hydrated = true
-      model.selectedBufferID = FixtureTransport.channelID
-      return model
-    }
+@MainActor
+extension AppModel {
+  /// A fully hydrated, "connected and joined" model for SwiftUI previews.
+  /// Populates state synchronously instead of running the async connection loop,
+  /// so previews render fully populated in a single pass with no transport,
+  /// async work, or mark-read side effects.
+  static func preview() -> AppModel {
+    let model = AppModel(transport: FixtureTransport(), runsConnectionLoop: false)
+    model.applySnapshot(FixtureTransport.snapshot())
+    model.serviceIdentity = FixtureTransport.identity
+    model.connectionState = .connected
+    model.hydrated = true
+    model.selectedBufferID = FixtureTransport.channelID
+    return model
+  }
 
-    /// A multi-network fixture for the sidebar preview: several servers, each with
-    /// a status buffer plus a handful of channels/queries carrying varied unread and
-    /// mention counts. Hand-built here (not via `FixtureTransport`) so it can grow
-    /// without disturbing the UI-test fixture.
-    static func previewSidebar() -> AppModel {
-      var networks: [Network] = []
-      var buffers: [Buffer] = []
-      var firstChannelID: UUID?
+  /// A multi-network fixture for the sidebar preview: several servers, each with
+  /// a status buffer plus a handful of channels/queries carrying varied unread and
+  /// mention counts. Hand-built here (not via `FixtureTransport`) so it can grow
+  /// without disturbing the UI-test fixture.
+  static func previewSidebar() -> AppModel {
+    var networks = [Network]()
+    var buffers = [Buffer]()
+    var firstChannelID: UUID?
 
-      func addNetwork(
-        _ name: String, sort: Int, status: String,
-        channels: [(name: String, unread: Int, mentions: Int, joined: Bool)],
-        queries: [String] = []
-      ) {
-        // Parted channels double as archived fixtures (server archives on part).
-        let netID = UUID()
-        networks.append(
-          Network(
-            id: netID, name: name, kind: "irc", host: "irc.\(name.lowercased()).net",
-            port: 6697, tls: true, nick: "shrike", status: status, sortOrder: sort))
+    func addNetwork(
+      _ name: String,
+      sort: Int,
+      status: String,
+      channels: [(name: String, unread: Int, mentions: Int, joined: Bool)],
+      queries: [String] = [],
+    ) {
+      // Parted channels double as archived fixtures (server archives on part).
+      let netID = UUID()
+      networks.append(
+        Network(
+          id: netID,
+          name: name,
+          kind: "irc",
+          host: "irc.\(name.lowercased()).net",
+          port: 6697,
+          tls: true,
+          nick: "shrike",
+          status: status,
+          sortOrder: sort,
+        )
+      )
+      buffers.append(
+        Buffer(
+          id: UUID(),
+          networkID: netID,
+          name: name,
+          kind: "status",
+          joined: true,
+          showEmbeds: false,
+          showPresenceEvents: true,
+          collapsePresenceEvents: false,
+          pinned: false,
+          unread: 0,
+          mentions: 0,
+        )
+      )
+      for channel in channels {
+        let id = UUID()
+        if firstChannelID == nil {
+          firstChannelID = id
+        }
         buffers.append(
           Buffer(
-            id: UUID(), networkID: netID, name: name, kind: "status", joined: true,
-            showEmbeds: false, showPresenceEvents: true, collapsePresenceEvents: false,
-            pinned: false, unread: 0, mentions: 0))
-        for channel in channels {
-          let id = UUID()
-          if firstChannelID == nil { firstChannelID = id }
-          buffers.append(
-            Buffer(
-              id: id, networkID: netID, name: channel.name, kind: "channel", joined: channel.joined,
-              showEmbeds: true, showPresenceEvents: true, collapsePresenceEvents: true,
-              pinned: false, archived: !channel.joined, unread: channel.unread,
-              mentions: channel.mentions))
-        }
-        for query in queries {
-          buffers.append(
-            Buffer(
-              id: UUID(), networkID: netID, name: query, kind: "query", joined: true,
-              showEmbeds: true, showPresenceEvents: true, collapsePresenceEvents: false,
-              pinned: false, unread: 0, mentions: 0))
-        }
+            id: id,
+            networkID: netID,
+            name: channel.name,
+            kind: "channel",
+            joined: channel.joined,
+            showEmbeds: true,
+            showPresenceEvents: true,
+            collapsePresenceEvents: true,
+            pinned: false,
+            archived: !channel.joined,
+            unread: channel.unread,
+            mentions: channel.mentions,
+          )
+        )
       }
-
-      addNetwork(
-        "Libera", sort: 0, status: "connected",
-        channels: [
-          (name: "#general", unread: 0, mentions: 0, joined: true),
-          (name: "#dev", unread: 3, mentions: 0, joined: true),
-          (name: "#swift", unread: 0, mentions: 0, joined: true),
-        ],
-        queries: ["tove"])
-      addNetwork(
-        "OFTC", sort: 1, status: "connected",
-        channels: [
-          (name: "#tor", unread: 12, mentions: 2, joined: true),
-          (name: "#debian", unread: 0, mentions: 0, joined: true),
-        ])
-      addNetwork(
-        "Rizon", sort: 2, status: "connecting",
-        channels: [
-          (name: "#anime", unread: 99, mentions: 5, joined: true),
-          (name: "#help", unread: 0, mentions: 0, joined: false),
-        ])
-
-      let model = AppModel(transport: FixtureTransport(), runsConnectionLoop: false)
-      model.applySnapshot(
-        StateSnapshot(networks: networks, buffers: buffers, initialMessages: [:], members: nil))
-      model.serviceIdentity = FixtureTransport.identity
-      model.connectionState = .connected
-      model.hydrated = true
-      model.selectedBufferID = firstChannelID
-      return model
+      for query in queries {
+        buffers.append(
+          Buffer(
+            id: UUID(),
+            networkID: netID,
+            name: query,
+            kind: "query",
+            joined: true,
+            showEmbeds: true,
+            showPresenceEvents: true,
+            collapsePresenceEvents: false,
+            pinned: false,
+            unread: 0,
+            mentions: 0,
+          )
+        )
+      }
     }
+
+    addNetwork(
+      "Libera",
+      sort: 0,
+      status: "connected",
+      channels: [
+        (name: "#general", unread: 0, mentions: 0, joined: true),
+        (name: "#dev", unread: 3, mentions: 0, joined: true),
+        (name: "#swift", unread: 0, mentions: 0, joined: true),
+      ],
+      queries: ["tove"],
+    )
+    addNetwork(
+      "OFTC",
+      sort: 1,
+      status: "connected",
+      channels: [
+        (name: "#tor", unread: 12, mentions: 2, joined: true),
+        (name: "#debian", unread: 0, mentions: 0, joined: true),
+      ],
+    )
+    addNetwork(
+      "Rizon",
+      sort: 2,
+      status: "connecting",
+      channels: [
+        (name: "#anime", unread: 99, mentions: 5, joined: true),
+        (name: "#help", unread: 0, mentions: 0, joined: false),
+      ],
+    )
+
+    let model = AppModel(transport: FixtureTransport(), runsConnectionLoop: false)
+    model.applySnapshot(
+      StateSnapshot(networks: networks, buffers: buffers, initialMessages: [:], members: nil)
+    )
+    model.serviceIdentity = FixtureTransport.identity
+    model.connectionState = .connected
+    model.hydrated = true
+    model.selectedBufferID = firstChannelID
+    return model
   }
+}
 #endif
 
 extension ProcessInfo {

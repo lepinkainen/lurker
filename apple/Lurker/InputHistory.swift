@@ -6,16 +6,27 @@ import Foundation
 /// past the newest entry. In-memory only — history does not persist across
 /// launches (web parity).
 struct InputHistory {
-  static let maxEntries = 100
+
+  // MARK: Internal
 
   struct BufferState {
-    var entries: [String] = []
-    var draft: String = ""
+    var entries = [String]()
+    var draft = ""
     /// Index into `entries` while browsing; nil when not browsing.
     var index: Int? = nil
   }
 
-  private var perBuffer: [UUID: BufferState] = [:]
+  static let maxEntries = 100
+
+  /// Space-pads `text` onto `base`, with a trailing space ready for typing
+  /// (web parity: `insertTextAtCursor`'s prefix/suffix spacing).
+  static func appending(_ text: String, to base: String) -> String {
+    if base.isEmpty {
+      return text + " "
+    }
+    let needsLeadingSpace = base.last.map { !$0.isWhitespace } ?? false
+    return base + (needsLeadingSpace ? " " : "") + text + " "
+  }
 
   /// Record a sent plain-message line. Slash commands are never recorded
   /// (web parity). Resets any in-progress browse.
@@ -70,14 +81,6 @@ struct InputHistory {
     perBuffer[buffer] = state
   }
 
-  /// Space-pads `text` onto `base`, with a trailing space ready for typing
-  /// (web parity: `insertTextAtCursor`'s prefix/suffix spacing).
-  static func appending(_ text: String, to base: String) -> String {
-    if base.isEmpty { return text + " " }
-    let needsLeadingSpace = base.last.map { !$0.isWhitespace } ?? false
-    return base + (needsLeadingSpace ? " " : "") + text + " "
-  }
-
   /// Appends text to a buffer's stored draft without selecting it — used when
   /// an upload finishes after the user has switched away from the buffer the
   /// image was dropped on.
@@ -94,4 +97,9 @@ struct InputHistory {
     perBuffer[buffer] = state
     return state.draft
   }
+
+  // MARK: Private
+
+  private var perBuffer = [UUID: BufferState]()
+
 }

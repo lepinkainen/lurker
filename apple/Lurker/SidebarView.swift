@@ -1,6 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - SidebarDrag
+
 /// Transient sidebar drag state. Network drags and channel drags are distinct
 /// species — a channel can never drop onto a network header and vice versa.
 struct SidebarDrag: Equatable {
@@ -33,6 +35,8 @@ struct SidebarDrag: Equatable {
   var over: Target?
 }
 
+// MARK: - SidebarBufferOccurrence
+
 /// A buffer can intentionally appear more than once in the sidebar (for
 /// example, pinned channels also remain under their network). Lazy stacks
 /// require each rendered occurrence to have a distinct identity, so namespace
@@ -55,6 +59,8 @@ struct SidebarBufferOccurrence: Identifiable {
     ID(placement: placement, bufferID: buffer.id)
   }
 }
+
+// MARK: - SidebarOrdering
 
 /// Pure ordering transformation shared by all sidebar drag species.
 ///
@@ -79,11 +85,11 @@ enum SidebarOrdering {
   }
 }
 
+// MARK: - SidebarView
+
 struct SidebarView: View {
-  @Environment(AppModel.self) private var model
-  @State private var pendingDelete: Buffer?
-  @State private var drag: SidebarDrag?
-  @State private var dragCleanupTask: Task<Void, Never>?
+
+  // MARK: Internal
 
   var body: some View {
     ScrollView {
@@ -102,37 +108,41 @@ struct SidebarView: View {
       dragCleanupTask = nil
       guard active else { return }
       #if os(macOS)
-        dragCleanupTask = Task { @MainActor in
-          var idleTicks = 0
-          while !Task.isCancelled, drag != nil {
-            try? await Task.sleep(for: .milliseconds(250))
-            if NSEvent.pressedMouseButtons == 0 {
-              // Two consecutive idle ticks so a legitimate drop's
-              // performDrop always wins the race.
-              idleTicks += 1
-              if idleTicks >= 2 {
-                drag = nil
-                break
-              }
-            } else {
-              idleTicks = 0
+      dragCleanupTask = Task { @MainActor in
+        var idleTicks = 0
+        while !Task.isCancelled, drag != nil {
+          try? await Task.sleep(for: .milliseconds(250))
+          if NSEvent.pressedMouseButtons == 0 {
+            // Two consecutive idle ticks so a legitimate drop's
+            // performDrop always wins the race.
+            idleTicks += 1
+            if idleTicks >= 2 {
+              drag = nil
+              break
             }
+          } else {
+            idleTicks = 0
           }
         }
+      }
       #endif
     }
     .alert(
       "Delete \(pendingDelete?.name ?? "buffer")?",
       isPresented: Binding(
         get: { pendingDelete != nil },
-        set: { if !$0 { pendingDelete = nil } }
+        set: {
+          if !$0 {
+            pendingDelete = nil
+          }
+        },
       ),
-      presenting: pendingDelete
+      presenting: pendingDelete,
     ) { buffer in
       Button("Delete Forever", role: .destructive) {
         model.deleteBuffer(buffer.id)
       }
-      Button("Cancel", role: .cancel) {}
+      Button("Cancel", role: .cancel) { }
     } message: { _ in
       Text("This permanently removes the buffer and all of its history. This cannot be undone.")
     }
@@ -143,23 +153,23 @@ struct SidebarView: View {
           Label(model.connectionState.label, systemImage: model.connectionState.symbol)
           Spacer()
           #if os(macOS)
-            // `SettingsLink` needs a `Settings` scene, which the Previews host lacks;
-            // in previews it joins the window key-view loop and crashes on refresh.
-            if !ProcessInfo.isPreviewOrUITest {
-              SettingsLink {
-                Image(systemName: "gearshape")
-              }
-              .buttonStyle(.plain)
-              .help("Settings")
-            }
-          #else
-            // iOS has no `Settings` scene; open settings as an in-app sheet.
-            Button {
-              model.showingSettings = true
-            } label: {
+          // `SettingsLink` needs a `Settings` scene, which the Previews host lacks;
+          // in previews it joins the window key-view loop and crashes on refresh.
+          if !ProcessInfo.isPreviewOrUITest {
+            SettingsLink {
               Image(systemName: "gearshape")
             }
             .buttonStyle(.plain)
+            .help("Settings")
+          }
+          #else
+          // iOS has no `Settings` scene; open settings as an in-app sheet.
+          Button {
+            model.showingSettings = true
+          } label: {
+            Image(systemName: "gearshape")
+          }
+          .buttonStyle(.plain)
           #endif
         }
         .font(.body)
@@ -171,7 +181,15 @@ struct SidebarView: View {
     }
   }
 
-  @ViewBuilder private var sidebarContent: some View {
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+  @State private var pendingDelete: Buffer?
+  @State private var drag: SidebarDrag?
+  @State private var dragCleanupTask: Task<Void, Never>?
+
+  @ViewBuilder
+  private var sidebarContent: some View {
     if !model.pinnedBuffers.isEmpty {
       SidebarSectionHeader("Pinned")
       ForEach(
@@ -193,7 +211,7 @@ struct SidebarView: View {
           target: .pinnedRow(buffer.id),
           accepts: isPinnedDrag,
           drag: $drag,
-          commit: { fromID in commitPinnedDrop(from: fromID, toRow: buffer.id) }
+          commit: { fromID in commitPinnedDrop(from: fromID, toRow: buffer.id) },
         )
       }
       if isPinnedDragActive {
@@ -204,8 +222,9 @@ struct SidebarView: View {
               target: .endOfPinned,
               accepts: isPinnedDrag,
               drag: $drag,
-              commit: { fromID in commitPinnedDrop(from: fromID, toRow: nil) }
-            ))
+              commit: { fromID in commitPinnedDrop(from: fromID, toRow: nil) },
+            ),
+          )
       }
     }
 
@@ -218,14 +237,14 @@ struct SidebarView: View {
       // headers keep showing only the status buffer's own counts.
       let headerCounts =
         isCollapsed
-        ? model.networkAggregateCounts(network.id)
-        : (unread: statusBuffer?.unread ?? 0, mentions: statusBuffer?.mentions ?? 0)
+          ? model.networkAggregateCounts(network.id)
+          : (unread: statusBuffer?.unread ?? 0, mentions: statusBuffer?.mentions ?? 0)
       NetworkHeaderRow(
         network: network,
         isSelected: statusBufferID != nil && model.selectedBufferID == statusBufferID,
         isCollapsed: isCollapsed,
         unread: headerCounts.unread,
-        mentions: headerCounts.mentions
+        mentions: headerCounts.mentions,
       ) {
         guard let statusBufferID else { return }
         model.selectBuffer(statusBufferID)
@@ -242,7 +261,7 @@ struct SidebarView: View {
         target: .row(network.id),
         accepts: isNetworkDrag,
         drag: $drag,
-        commit: { fromID in commitNetworkDrop(from: fromID, toRow: network.id) }
+        commit: { fromID in commitNetworkDrop(from: fromID, toRow: network.id) },
       )
       if !isCollapsed {
         // Status buffer is represented by the network header row above, so the
@@ -269,13 +288,13 @@ struct SidebarView: View {
             drag: $drag,
             commit: { fromID in
               commitChannelDrop(networkID: network.id, from: fromID, toRow: buffer.id)
-            }
+            },
           )
         }
         if isChannelDragActive(of: network.id) {
           EndDropZone(
             isActive: drag?.over == .endOfChannels(network.id),
-            indent: 14
+            indent: 14,
           )
           .onDrop(
             of: [.text],
@@ -285,8 +304,9 @@ struct SidebarView: View {
               drag: $drag,
               commit: { fromID in
                 commitChannelDrop(networkID: network.id, from: fromID, toRow: nil)
-              }
-            ))
+              },
+            ),
+          )
         }
         ForEach(
           groups.queries.map {
@@ -305,7 +325,7 @@ struct SidebarView: View {
         if !groups.archived.isEmpty {
           ArchivesToggleRow(
             count: groups.archived.count,
-            isOpen: model.archivesOpen.contains(network.id)
+            isOpen: model.archivesOpen.contains(network.id),
           ) {
             model.toggleArchives(network.id)
           }
@@ -337,8 +357,9 @@ struct SidebarView: View {
             target: .endOfNetworks,
             accepts: isNetworkDrag,
             drag: $drag,
-            commit: { fromID in commitNetworkDrop(from: fromID, toRow: nil) }
-          ))
+            commit: { fromID in commitNetworkDrop(from: fromID, toRow: nil) },
+          ),
+        )
     }
 
     let disabled = model.orderedNetworks.filter(\.disabled)
@@ -354,19 +375,9 @@ struct SidebarView: View {
     }
   }
 
-  private func isNetworkDrag(_ kind: SidebarDrag.Kind) -> Bool {
-    if case .network = kind { return true }
-    return false
-  }
-
   private var isNetworkDragActive: Bool {
     guard let kind = drag?.kind else { return false }
     return isNetworkDrag(kind)
-  }
-
-  private func isPinnedDrag(_ kind: SidebarDrag.Kind) -> Bool {
-    if case .pinned = kind { return true }
-    return false
   }
 
   private var isPinnedDragActive: Bool {
@@ -374,8 +385,24 @@ struct SidebarView: View {
     return isPinnedDrag(kind)
   }
 
+  private func isNetworkDrag(_ kind: SidebarDrag.Kind) -> Bool {
+    if case .network = kind {
+      return true
+    }
+    return false
+  }
+
+  private func isPinnedDrag(_ kind: SidebarDrag.Kind) -> Bool {
+    if case .pinned = kind {
+      return true
+    }
+    return false
+  }
+
   private func isChannelDrag(_ kind: SidebarDrag.Kind, of networkID: UUID) -> Bool {
-    if case .channel(let dragNetworkID, _) = kind { return dragNetworkID == networkID }
+    if case .channel(let dragNetworkID, _) = kind {
+      return dragNetworkID == networkID
+    }
     return false
   }
 
@@ -414,6 +441,7 @@ struct SidebarView: View {
     }
     model.reorderPinnedBuffers(reordered)
   }
+
 }
 
 extension View {
@@ -429,36 +457,39 @@ extension View {
     indicatorInset: CGFloat = 0,
     accepts: @escaping (SidebarDrag.Kind) -> Bool,
     drag: Binding<SidebarDrag?>,
-    commit: @escaping (UUID) -> Void
+    commit: @escaping (UUID) -> Void,
   ) -> some View {
     #if os(macOS)
-      self
-        .opacity(drag.wrappedValue?.kind == kind ? 0.5 : 1)
-        .overlay(alignment: .top) {
-          if let dragKind = drag.wrappedValue?.kind, drag.wrappedValue?.over == target,
-            accepts(dragKind)
-          {
-            DropIndicator()
-              .padding(.leading, indicatorInset)
-          }
+    opacity(drag.wrappedValue?.kind == kind ? 0.5 : 1)
+      .overlay(alignment: .top) {
+        if
+          let dragKind = drag.wrappedValue?.kind, drag.wrappedValue?.over == target,
+          accepts(dragKind)
+        {
+          DropIndicator()
+            .padding(.leading, indicatorInset)
         }
-        .onDrag {
-          drag.wrappedValue = SidebarDrag(kind: kind)
-          return NSItemProvider(object: kind.id.uuidString as NSString)
-        }
-        .onDrop(
-          of: [.text],
-          delegate: SidebarDropDelegate(
-            target: target,
-            accepts: accepts,
-            drag: drag,
-            commit: commit
-          ))
+      }
+      .onDrag {
+        drag.wrappedValue = SidebarDrag(kind: kind)
+        return NSItemProvider(object: kind.id.uuidString as NSString)
+      }
+      .onDrop(
+        of: [.text],
+        delegate: SidebarDropDelegate(
+          target: target,
+          accepts: accepts,
+          drag: drag,
+          commit: commit,
+        ),
+      )
     #else
-      self
+    self
     #endif
   }
 }
+
+// MARK: - DropIndicator
 
 /// Accent insertion line shown at the top edge of a drop target (web parity:
 /// the web sidebar draws a 2px accent bar above the hovered section).
@@ -471,25 +502,20 @@ private struct DropIndicator: View {
   }
 }
 
+// MARK: - SidebarDropDelegate
+
 /// Shared drop delegate for sidebar reordering. `accepts` filters by drag
 /// species (network vs channel-of-this-network); `commit` receives the
 /// dragged id once the drop lands on `target`.
 struct SidebarDropDelegate: DropDelegate {
+
+  // MARK: Internal
+
   let target: SidebarDrag.Target
   let accepts: (SidebarDrag.Kind) -> Bool
   @Binding var drag: SidebarDrag?
+
   let commit: (UUID) -> Void
-
-  private var draggedID: UUID? {
-    drag?.kind.id
-  }
-
-  private var isSelfTarget: Bool {
-    switch target {
-    case .row(let id), .pinnedRow(let id): id == draggedID
-    default: false
-    }
-  }
 
   func validateDrop(info _: DropInfo) -> Bool {
     guard let kind = drag?.kind else { return false }
@@ -526,7 +552,24 @@ struct SidebarDropDelegate: DropDelegate {
     commit(fromID)
     return true
   }
+
+  // MARK: Private
+
+  private var draggedID: UUID? {
+    drag?.kind.id
+  }
+
+  private var isSelfTarget: Bool {
+    switch target {
+    case .row(let id),
+         .pinnedRow(let id): id == draggedID
+    default: false
+    }
+  }
+
 }
+
+// MARK: - EndDropZone
 
 /// A drop target after the last row of a group, visible only while a matching
 /// drag is active — without it the final position would be unreachable.
@@ -547,13 +590,15 @@ private struct EndDropZone: View {
   }
 }
 
+// MARK: - SidebarSectionHeader
+
 /// A section label matching the muted, uppercase style `List` sections use by default.
 private struct SidebarSectionHeader: View {
-  let title: String
-
   init(_ title: String) {
     self.title = title
   }
+
+  let title: String
 
   var body: some View {
     Text(title)
@@ -564,6 +609,8 @@ private struct SidebarSectionHeader: View {
       .padding(.bottom, 2)
   }
 }
+
+// MARK: - ArchivesToggleRow
 
 /// The per-network "Archives (n)" fold row — folded by default, IRCCloud-style.
 private struct ArchivesToggleRow: View {
@@ -595,6 +642,8 @@ private struct ArchivesToggleRow: View {
   }
 }
 
+// MARK: - SidebarRow
+
 /// Wraps sidebar row content in a tappable, highlightable container shared by
 /// buffer rows and the network header row, so selection styling stays consistent
 /// across the custom `ScrollView`/`LazyVStack` sidebar (used instead of a
@@ -620,7 +669,12 @@ private struct SidebarRow<Content: View>: View {
   }
 }
 
+// MARK: - NetworkHeaderRow
+
 private struct NetworkHeaderRow: View {
+
+  // MARK: Internal
+
   let network: Network
   let isSelected: Bool
   let isCollapsed: Bool
@@ -629,12 +683,6 @@ private struct NetworkHeaderRow: View {
   let action: () -> Void
   let statusAction: () -> Void
   let collapseAction: () -> Void
-  // Reveals the overflow menu on hover (macOS only); the control stays in the
-  // tree at all times and only its opacity changes, so the row never
-  // re-lays-out. On iOS the menu is always visible — there is no hover.
-  #if os(macOS)
-    @State private var isHovered = false
-  #endif
 
   var body: some View {
     HStack(spacing: 4) {
@@ -684,8 +732,8 @@ private struct NetworkHeaderRow: View {
       .menuIndicator(.hidden)
       .fixedSize()
       #if os(macOS)
-        .menuStyle(.borderlessButton)
-        .opacity(isHovered ? 1 : 0)
+      .menuStyle(.borderlessButton)
+      .opacity(isHovered ? 1 : 0)
       #endif
     }
     .padding(.trailing, 6)
@@ -696,9 +744,18 @@ private struct NetworkHeaderRow: View {
     .padding(.horizontal, 4)
     .padding(.top, 4)
     #if os(macOS)
-      .onHover { isHovered = $0 }
+    .onHover { isHovered = $0 }
     #endif
   }
+
+  // MARK: Private
+
+  // Reveals the overflow menu on hover (macOS only); the control stays in the
+  // tree at all times and only its opacity changes, so the row never
+  // re-lays-out. On iOS the menu is always visible — there is no hover.
+  #if os(macOS)
+  @State private var isHovered = false
+  #endif
 
   private var statusColor: Color {
     switch network.status {
@@ -707,9 +764,15 @@ private struct NetworkHeaderRow: View {
     default: .secondary.opacity(0.6)
     }
   }
+
 }
 
+// MARK: - BufferRow
+
 private struct BufferRow: View {
+
+  // MARK: Internal
+
   let buffer: Buffer
   let network: Network?
 
@@ -735,6 +798,8 @@ private struct BufferRow: View {
     .help(network.map { "\(buffer.name) — \($0.name)" } ?? buffer.name)
   }
 
+  // MARK: Private
+
   private var label: String {
     buffer.kind == "status" ? "Status" : buffer.name
   }
@@ -756,7 +821,10 @@ private struct BufferRow: View {
     }
     return buffer.unread > 0 ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
   }
+
 }
+
+// MARK: - CountBadge
 
 private struct CountBadge: View {
   let count: Int
@@ -775,7 +843,9 @@ private struct CountBadge: View {
 
 extension View {
   fileprivate func bufferMenu(
-    _ buffer: Buffer, model: AppModel, requestDelete: @escaping (Buffer) -> Void
+    _ buffer: Buffer,
+    model: AppModel,
+    requestDelete: @escaping (Buffer) -> Void,
   ) -> some View {
     contextMenu {
       if buffer.kind == "channel" {
@@ -792,7 +862,8 @@ extension View {
         } else {
           Button("Unarchive") {
             model.command(
-              ClientCommand(type: "join", networkID: buffer.networkID, channel: buffer.name))
+              ClientCommand(type: "join", networkID: buffer.networkID, channel: buffer.name)
+            )
           }
         }
         Divider()
@@ -800,20 +871,23 @@ extension View {
           "Show Link Previews",
           isOn: Binding(
             get: { buffer.showEmbeds },
-            set: { model.updateBuffer(buffer.id, BufferSettingsPatch(showEmbeds: $0)) }
-          ))
+            set: { model.updateBuffer(buffer.id, BufferSettingsPatch(showEmbeds: $0)) },
+          ),
+        )
         Toggle(
           "Show Presence Events",
           isOn: Binding(
             get: { buffer.showPresenceEvents },
-            set: { model.updateBuffer(buffer.id, BufferSettingsPatch(showPresenceEvents: $0)) }
-          ))
+            set: { model.updateBuffer(buffer.id, BufferSettingsPatch(showPresenceEvents: $0)) },
+          ),
+        )
         Toggle(
           "Collapse Presence Events",
           isOn: Binding(
             get: { buffer.collapsePresenceEvents },
-            set: { model.updateBuffer(buffer.id, BufferSettingsPatch(collapsePresenceEvents: $0)) }
-          ))
+            set: { model.updateBuffer(buffer.id, BufferSettingsPatch(collapsePresenceEvents: $0)) },
+          ),
+        )
       }
       if buffer.kind == "query" {
         Button(buffer.archived ? "Unarchive" : "Archive") {
@@ -831,17 +905,17 @@ extension View {
 }
 
 #if DEBUG
-  #Preview("Multiple networks") {
-    SidebarView()
-      .environment(AppModel.previewSidebar())
-      .tint(.mint)
-      .frame(width: 260, height: 640)
-  }
+#Preview("Multiple networks") {
+  SidebarView()
+    .environment(AppModel.previewSidebar())
+    .tint(.mint)
+    .frame(width: 260, height: 640)
+}
 
-  #Preview("Fixture") {
-    SidebarView()
-      .environment(AppModel.preview())
-      .tint(.mint)
-      .frame(width: 260, height: 600)
-  }
+#Preview("Fixture") {
+  SidebarView()
+    .environment(AppModel.preview())
+    .tint(.mint)
+    .frame(width: 260, height: 600)
+}
 #endif

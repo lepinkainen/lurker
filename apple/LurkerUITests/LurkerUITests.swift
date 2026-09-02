@@ -3,7 +3,8 @@ import XCTest
 
 @MainActor
 final class LurkerUITests: XCTestCase {
-  private var app: XCUIApplication!
+
+  // MARK: Internal
 
   override func setUp() async throws {
     continueAfterFailure = false
@@ -18,7 +19,8 @@ final class LurkerUITests: XCTestCase {
     // blank row where the network copy should be. Rows are Buttons whose
     // label folds in the badge ("#lurker, 1 mentions").
     let lurkerRows = app.buttons.matching(
-      NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "#lurker", "#lurker,"))
+      NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "#lurker", "#lurker,")
+    )
     XCTAssertTrue(lurkerRows.firstMatch.waitForExistence(timeout: 5))
     XCTAssertEqual(lurkerRows.count, 2)
 
@@ -48,9 +50,9 @@ final class LurkerUITests: XCTestCase {
     XCTAssertTrue(composer.exists)
   }
 
-  // Archived fixtures (#old-project channel, driveby query) render behind a
-  // folded per-network Archives row instead of inline in the channel list.
-  func testArchivesFoldHidesAndRevealsArchivedBuffers() throws {
+  /// Archived fixtures (#old-project channel, driveby query) render behind a
+  /// folded per-network Archives row instead of inline in the channel list.
+  func testArchivesFoldHidesAndRevealsArchivedBuffers() {
     XCTAssertTrue(sidebarRow("#lurker").waitForExistence(timeout: 5))
 
     let archivesRow = app.buttons.matching(
@@ -101,13 +103,13 @@ final class LurkerUITests: XCTestCase {
     archivesRow.click()
   }
 
-  // Loading an older history page must keep the viewport anchored on the
-  // previously-oldest message; without that the scroll position stays at the
-  // top of the grown content and pagination runs away page after page.
-  // Message AX rows exist for every *loaded* message (the NSTextView exposes
-  // all blocks, rendered or not), so existence asserts loading and frames
-  // assert the viewport position.
-  func testHistoryLoadAnchorsScrollPosition() {
+  /// Loading an older history page must keep the viewport anchored on the
+  /// previously-oldest message; without that the scroll position stays at the
+  /// top of the grown content and pagination runs away page after page.
+  /// Message AX rows exist for every *loaded* message (the NSTextView exposes
+  /// all blocks, rendered or not), so existence asserts loading and frames
+  /// assert the viewport position.
+  func testHistoryLoadAnchorsScrollPosition() throws {
     // The sidebar row is a Button whose label folds in the unread badge
     // ("#lurker-full, 10 unread messages").
     let fullRow = app.buttons.matching(
@@ -119,7 +121,9 @@ final class LurkerUITests: XCTestCase {
     // Initial page is the newest 50 of 400 fixture messages (#350–#399).
     XCTAssertTrue(messageRow(containing: "backlog line #399:").waitForExistence(timeout: 5))
     XCTAssertFalse(
-      messageRow(containing: "backlog line #349:").exists, "older page loaded prematurely")
+      messageRow(containing: "backlog line #349:").exists,
+      "older page loaded prematurely",
+    )
 
     // Scroll to the top edge; crossing the threshold triggers the older-page
     // fetch (instant in fixtures) and merges #300–#349. Delta size matters:
@@ -128,7 +132,7 @@ final class LurkerUITests: XCTestCase {
     // and fails the frame assert, while a tiny one (5) never reaches the top.
     let olderRow = messageRow(containing: "backlog line #349:")
     var attempts = 0
-    while !olderRow.exists && attempts < 150 {
+    while !olderRow.exists, attempts < 150 {
       timeline.scroll(byDeltaX: 0, deltaY: 15)
       attempts += 1
     }
@@ -138,8 +142,8 @@ final class LurkerUITests: XCTestCase {
     // back to the top edge of the viewport.
     sleep(2)
     screenshot(named: "apple-history-anchor")
-    let scrollView = app.scrollViews.allElementsBoundByIndex
-      .max(by: { $0.frame.width < $1.frame.width })!
+    let scrollView = try XCTUnwrap(app.scrollViews.allElementsBoundByIndex
+      .max(by: { $0.frame.width < $1.frame.width }))
     let anchored = messageRow(containing: "backlog line #350:")
     XCTAssertTrue(anchored.exists, "anchored row missing")
     let offset = anchored.frame.minY - scrollView.frame.minY
@@ -149,17 +153,14 @@ final class LurkerUITests: XCTestCase {
     // Runaway pagination would keep fetching page after page all the way to
     // the very start of the backlog.
     XCTAssertFalse(
-      messageRow(containing: "backlog line #0:").exists, "pagination ran away to the start")
+      messageRow(containing: "backlog line #0:").exists,
+      "pagination ran away to the start",
+    )
   }
 
-  private func screenshot(named name: String) {
-    let shot = XCUIScreen.main.screenshot()
-    try? shot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/\(name).png"))
-  }
-
-  // Bare ↑ in the composer recalls the last sent message (per-buffer input
-  // history). Guards the key-event seam: the macOS field editor must not
-  // swallow the arrow before the history handler sees it.
+  /// Bare ↑ in the composer recalls the last sent message (per-buffer input
+  /// history). Guards the key-event seam: the macOS field editor must not
+  /// swallow the arrow before the history handler sees it.
   func testComposerArrowUpRecallsSentMessage() {
     selectBuffer("#lurker")
 
@@ -178,8 +179,10 @@ final class LurkerUITests: XCTestCase {
 
     app.typeKey(.upArrow, modifierFlags: [])
     XCTAssertEqual(
-      composer.value as? String, "hello history",
-      "arrow-up did not recall the sent message from input history")
+      composer.value as? String,
+      "hello history",
+      "arrow-up did not recall the sent message from input history",
+    )
   }
 
   func testChannelSwitcherOpens() {
@@ -188,29 +191,39 @@ final class LurkerUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Libera"].exists)
   }
 
-  // Inline links flip the cursor to the pointing hand (NSTextView
-  // linkTextAttributes). Link-run geometry is not exposed to accessibility,
-  // so the test sweeps the pointer across the timeline and samples the
-  // system cursor at each stop.
+  /// Inline links flip the cursor to the pointing hand (NSTextView
+  /// linkTextAttributes). Link-run geometry is not exposed to accessibility,
+  /// so the test sweeps the pointer across the timeline and samples the
+  /// system cursor at each stop.
   func testPointerBecomesHandOverInlineLink() {
     selectBuffer("#lurker")
     XCTAssertTrue(timeline.waitForExistence(timeout: 5))
     expectation(
       for: NSPredicate(format: "value CONTAINS %@", "with a preview card:"),
-      evaluatedWith: timeline)
+      evaluatedWith: timeline,
+    )
     waitForExpectations(timeout: 5)
     XCTAssertTrue(
       sweepFindsPointingHand(in: timeline),
-      "expected the pointing-hand cursor over an inline link; samples: \(sweepLog.joined(separator: " | "))"
+      "expected the pointing-hand cursor over an inline link; samples: \(sweepLog.joined(separator: " | "))",
     )
   }
 
-  private var sweepLog: [String] = []
+  // MARK: Private
+
+  private var app: XCUIApplication!
+
+  private var sweepLog = [String]()
 
   /// The macOS timeline NSTextView — the only text area in the window (the
   /// composer is a text field).
   private var timeline: XCUIElement {
     app.textViews.firstMatch
+  }
+
+  private func screenshot(named name: String) {
+    let shot = XCUIScreen.main.screenshot()
+    try? shot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/\(name).png"))
   }
 
   /// A message's AX row (label "sender, time, content"), exposed as an
@@ -252,7 +265,8 @@ final class LurkerUITests: XCTestCase {
           "(\(String(format: "%.2f", dx)),\(String(format: "%.2f", dy)))"
             + " cur=\(current == nil ? "nil" : NSStringFromSize(current!.image.size))"
             + " hot=\(current.map { NSStringFromPoint($0.hotSpot) } ?? "-")"
-            + (isHand ? " HAND" : ""))
+            + (isHand ? " HAND" : "")
+        )
         if isHand {
           found = true
         }
@@ -260,4 +274,5 @@ final class LurkerUITests: XCTestCase {
     }
     return found
   }
+
 }

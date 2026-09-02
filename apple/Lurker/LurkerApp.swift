@@ -1,15 +1,18 @@
 import SwiftUI
 
+// MARK: - LurkerApp
+
 @main
 struct LurkerApp: App {
-  @State private var model: AppModel
+
+  // MARK: Lifecycle
 
   init() {
     #if DEBUG
-      if ProcessInfo.isPreview {
-        _model = State(initialValue: AppModel.preview())
-        return
-      }
+    if ProcessInfo.isPreview {
+      _model = State(initialValue: AppModel.preview())
+      return
+    }
     #endif
     if ProcessInfo.isUITest {
       _model = State(initialValue: AppModel(transport: FixtureTransport()))
@@ -18,90 +21,97 @@ struct LurkerApp: App {
     }
   }
 
+  // MARK: Internal
+
   var body: some Scene {
     #if os(macOS)
-      Window("Lurker", id: "main") {
-        RootView()
-          .environment(model)
-          .tint(.mint)
-          .frame(minWidth: 760, minHeight: 520)
-          .onAppear { model.start() }
-      }
-      .defaultSize(width: 1180, height: 760)
-      .windowResizability(.contentMinSize)
-      .commands {
-        LurkerCommands(model: model)
-      }
+    Window("Lurker", id: "main") {
+      RootView()
+        .environment(model)
+        .tint(.mint)
+        .frame(minWidth: 760, minHeight: 520)
+        .onAppear { model.start() }
+    }
+    .defaultSize(width: 1180, height: 760)
+    .windowResizability(.contentMinSize)
+    .commands {
+      LurkerCommands(model: model)
+    }
 
-      Settings {
-        SettingsView()
-          .environment(model)
-          .frame(width: 500, height: 330)
-      }
+    Settings {
+      SettingsView()
+        .environment(model)
+        .frame(width: 500, height: 330)
+    }
     #else
-      WindowGroup {
-        RootView()
-          .environment(model)
-          .tint(.mint)
-          .onAppear { model.start() }
-      }
+    WindowGroup {
+      RootView()
+        .environment(model)
+        .tint(.mint)
+        .onAppear { model.start() }
+    }
     #endif
   }
+
+  // MARK: Private
+
+  @State private var model: AppModel
+
 }
 
 #if os(macOS)
-  private struct LurkerCommands: Commands {
-    let model: AppModel
+private struct LurkerCommands: Commands {
+  let model: AppModel
 
-    var body: some Commands {
-      SidebarCommands()
-      CommandMenu("Navigate") {
-        Button("Open Channel Switcher…") {
-          model.showingChannelSwitcher = true
-        }
-        .keyboardShortcut("k")
-
-        Button("Previous Buffer") {
-          model.nextBuffer(direction: -1)
-        }
-        .keyboardShortcut(.upArrow, modifiers: .option)
-
-        Button("Next Buffer") {
-          model.nextBuffer()
-        }
-        .keyboardShortcut(.downArrow, modifiers: .option)
-
-        Button("Previous Unread Buffer") {
-          model.nextBuffer(unreadOnly: true, direction: -1)
-        }
-        .keyboardShortcut(.upArrow, modifiers: [.option, .shift])
-
-        Button("Next Unread Buffer") {
-          model.nextBuffer(unreadOnly: true)
-        }
-        .keyboardShortcut(.downArrow, modifiers: [.option, .shift])
-
-        Button("Next Mention") {
-          model.nextBuffer(mentionsOnly: true)
-        }
-        .keyboardShortcut("m", modifiers: .option)
-
-        Button("Network Status") {
-          model.focusStatusBuffer()
-        }
-        .keyboardShortcut("s", modifiers: .option)
+  var body: some Commands {
+    SidebarCommands()
+    CommandMenu("Navigate") {
+      Button("Open Channel Switcher…") {
+        model.showingChannelSwitcher = true
       }
-      CommandMenu("Conversation") {
-        Button("Focus Message Field") {
-          model.focusComposer()
-        }
-        .keyboardShortcut("l")
+      .keyboardShortcut("k")
 
-        Button(model.inspectorVisible ? "Hide Members" : "Show Members") {
-          model.setInspectorVisible(!model.inspectorVisible)
-        }
-        .keyboardShortcut("i", modifiers: [.command, .option])
+      Button("Previous Buffer") {
+        model.nextBuffer(direction: -1)
       }
+      .keyboardShortcut(.upArrow, modifiers: .option)
+
+      Button("Next Buffer") {
+        model.nextBuffer()
+      }
+      .keyboardShortcut(.downArrow, modifiers: .option)
+
+      Button("Previous Unread Buffer") {
+        model.nextBuffer(unreadOnly: true, direction: -1)
+      }
+      .keyboardShortcut(.upArrow, modifiers: [.option, .shift])
+
+      Button("Next Unread Buffer") {
+        model.nextBuffer(unreadOnly: true)
+      }
+      .keyboardShortcut(.downArrow, modifiers: [.option, .shift])
+
+      Button("Next Mention") {
+        model.nextBuffer(mentionsOnly: true)
+      }
+      .keyboardShortcut("m", modifiers: .option)
+
+      Button("Network Status") {
+        model.focusStatusBuffer()
+      }
+      .keyboardShortcut("s", modifiers: .option)
+    }
+    CommandMenu("Conversation") {
+      Button("Focus Message Field") {
+        model.focusComposer()
+      }
+      .keyboardShortcut("l")
+
+      Button(model.inspectorVisible ? "Hide Members" : "Show Members") {
+        model.setInspectorVisible(!model.inspectorVisible)
+      }
+      .keyboardShortcut("i", modifiers: [.command, .option])
     }
   }
+}
 #endif

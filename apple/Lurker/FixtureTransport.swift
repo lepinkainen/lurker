@@ -1,6 +1,11 @@
 import Foundation
 
 actor FixtureTransport: LurkerTransport {
+
+  // MARK: Internal
+
+  struct FixtureError: Error { }
+
   static let networkID = UUID(uuidString: "0198F5F2-8F2A-7A8B-9B42-4D6E72C4D8F1")!
   static let statusID = UUID(uuidString: "0198F5F2-8F2A-7A8B-9B42-4D6E72C4D8F0")!
   static let channelID = UUID(uuidString: "0198F5F2-9348-7ED6-B3B4-CD8A1A6E8B20")!
@@ -15,6 +20,27 @@ actor FixtureTransport: LurkerTransport {
   static let fullUnread = 10
 
   static let fullMessages: [Message] = buildFullMessages()
+
+  /// Link-heavy bot channel (##hntop-style): every message carries a story URL
+  /// and an HN comments URL back to back, most rows wrapping across lines.
+  /// This is the repro shape for the SwiftUI wrong-link bug the NSTextView
+  /// timeline exists to fix — click targets must resolve to the exact URL.
+  static let hntopMessages: [Message] = buildHntopMessages()
+
+  nonisolated static let identity = ServiceIdentity(
+    name: "lurker",
+    version: "ui-test",
+    hash: "fixture",
+    buildTime: "2026-01-01T00:00:00Z",
+  )
+
+  private(set) var reorderedNetworkIDs: [UUID]?
+  private(set) var reorderedBufferIDs: [UUID]?
+  private(set) var reorderedPinnedIDs: [UUID]?
+  private(set) var pingCount = 0
+  private(set) var disconnectCount = 0
+  private(set) var uploadedFilename: String?
+  private(set) var uploadCount = 0
 
   nonisolated static func buildFullMessages() -> [Message] {
     let pool: [(String, Int)] = [
@@ -47,7 +73,7 @@ actor FixtureTransport: LurkerTransport {
       return []
     }
 
-    var messages: [Message] = []
+    var messages = [Message]()
     messages.reserveCapacity(fullTotal)
     for i in 0..<fullTotal {
       let (sender, color) = pool[i % pool.count]
@@ -67,43 +93,44 @@ actor FixtureTransport: LurkerTransport {
           displayKind: "message",
           mentionsMe: isMention,
           countsAsUnread: isMention,
-          senderColor: color
-        ))
+          senderColor: color,
+        )
+      )
     }
     return messages
   }
-
-  // Link-heavy bot channel (##hntop-style): every message carries a story URL
-  // and an HN comments URL back to back, most rows wrapping across lines.
-  // This is the repro shape for the SwiftUI wrong-link bug the NSTextView
-  // timeline exists to fix — click targets must resolve to the exact URL.
-  static let hntopMessages: [Message] = buildHntopMessages()
 
   nonisolated static func buildHntopMessages() -> [Message] {
     let stories: [(String, String, Int)] = [
       (
         "One Go binary, one YAML file, one SQLite database: I wrote my monitoring tool [2 brvier]",
-        "https://rvier.fr/posts/why-i-wrote-my-own-monitoring-tool-EN", 49_441_101
+        "https://rvier.fr/posts/why-i-wrote-my-own-monitoring-tool-EN",
+        49_441_101,
       ),
       (
         "Show HN: TeXbrain, a LaTeX editor that runs pdfTeX in the browser via WASM [3 swimmingbrain]",
-        "https://github.com/swimmingbrain/texbrain", 49_441_375
+        "https://github.com/swimmingbrain/texbrain",
+        49_441_375,
       ),
       (
         "Queryable Executables [4 rguiscard]",
-        "https://fzakaria.com/2026/08/24/actually-queryable-executables", 49_442_589
+        "https://fzakaria.com/2026/08/24/actually-queryable-executables",
+        49_442_589,
       ),
       (
         "Show HN: Lightweight system monitor for Linux VPS written in Go [46 ygagaga]",
-        "https://github.com/leodeim/vpsmon", 49_437_361
+        "https://github.com/leodeim/vpsmon",
+        49_437_361,
       ),
       (
         "Stalking the Wily Hacker: 40 years later — Cliff Stoll [video] [9 zoenolan]",
-        "https://www.youtube.com/watch?v=656058JxTM0", 49_395_802
+        "https://www.youtube.com/watch?v=656058JxTM0",
+        49_395_802,
       ),
       (
         "Secret Cold War IBM Supercomputer Was Built for One Job [3 jnord]",
-        "https://spectrum.ieee.org/cold-war-codebreaker-nsa-ibm", 49_444_232
+        "https://spectrum.ieee.org/cold-war-codebreaker-nsa-ibm",
+        49_444_232,
       ),
     ]
     let formatter = ISO8601DateFormatter()
@@ -118,20 +145,9 @@ actor FixtureTransport: LurkerTransport {
         kind: "privmsg",
         content: "\(story.0) \(story.1) https://news.ycombinator.com/item?id=\(story.2)",
         displayKind: "message",
-        senderColor: 13
+        senderColor: 13,
       )
     }
-  }
-
-  nonisolated static let identity = ServiceIdentity(
-    name: "lurker", version: "ui-test", hash: "fixture", buildTime: "2026-01-01T00:00:00Z")
-
-  func validateServer() async throws -> ServiceIdentity {
-    Self.identity
-  }
-
-  func fetchState() async throws -> StateSnapshot {
-    Self.snapshot()
   }
 
   nonisolated static func snapshot() -> StateSnapshot {
@@ -146,7 +162,7 @@ actor FixtureTransport: LurkerTransport {
       collapsePresenceEvents: false,
       pinned: false,
       unread: 0,
-      mentions: 0
+      mentions: 0,
     )
     let channel = Buffer(
       id: channelID,
@@ -165,7 +181,7 @@ actor FixtureTransport: LurkerTransport {
       collapsePresenceEvents: true,
       pinned: true,
       unread: 2,
-      mentions: 1
+      mentions: 1,
     )
     let query = Buffer(
       id: queryID,
@@ -180,7 +196,7 @@ actor FixtureTransport: LurkerTransport {
       collapsePresenceEvents: false,
       pinned: false,
       unread: 0,
-      mentions: 0
+      mentions: 0,
     )
     let fullChannel = Buffer(
       id: fullChannelID,
@@ -197,7 +213,7 @@ actor FixtureTransport: LurkerTransport {
       collapsePresenceEvents: true,
       pinned: false,
       unread: fullUnread,
-      mentions: 0
+      mentions: 0,
     )
     // Archived fixtures: a parted channel and an archived query so previews
     // and UI tests exercise the folded Archives section.
@@ -214,7 +230,7 @@ actor FixtureTransport: LurkerTransport {
       pinned: false,
       archived: true,
       unread: 0,
-      mentions: 0
+      mentions: 0,
     )
     let hntopChannel = Buffer(
       id: hntopChannelID,
@@ -228,7 +244,7 @@ actor FixtureTransport: LurkerTransport {
       collapsePresenceEvents: true,
       pinned: false,
       unread: 0,
-      mentions: 0
+      mentions: 0,
     )
     let archivedQuery = Buffer(
       id: archivedQueryID,
@@ -242,7 +258,7 @@ actor FixtureTransport: LurkerTransport {
       pinned: false,
       archived: true,
       unread: 0,
-      mentions: 0
+      mentions: 0,
     )
     // Presence rows are interleaved with privmsgs so they render as individual
     // system rows; adjacent presence events would collapse into a summary
@@ -257,7 +273,7 @@ actor FixtureTransport: LurkerTransport {
         kind: "join",
         content: "",
         displayKind: "sys",
-        senderColor: 7
+        senderColor: 7,
       ),
       Message(
         id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000001")!,
@@ -268,7 +284,7 @@ actor FixtureTransport: LurkerTransport {
         kind: "privmsg",
         content: "The native client is connected.",
         displayKind: "message",
-        senderColor: 4
+        senderColor: 4,
       ),
       Message(
         id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000002")!,
@@ -281,7 +297,7 @@ actor FixtureTransport: LurkerTransport {
         displayKind: "message",
         mentionsMe: true,
         countsAsUnread: true,
-        senderColor: 19
+        senderColor: 19,
       ),
       Message(
         id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000004")!,
@@ -292,7 +308,7 @@ actor FixtureTransport: LurkerTransport {
         kind: "part",
         content: "brb, coffee",
         displayKind: "sys",
-        senderColor: 7
+        senderColor: 7,
       ),
       Message(
         id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000005")!,
@@ -302,9 +318,9 @@ actor FixtureTransport: LurkerTransport {
         sender: "tove",
         kind: "privmsg",
         content:
-          "inline links: https://example.com/lurker and https://news.ycombinator.com/item?id=1",
+        "inline links: https://example.com/lurker and https://news.ycombinator.com/item?id=1",
         displayKind: "message",
-        senderColor: 4
+        senderColor: 4,
       ),
       Message(
         id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000006")!,
@@ -322,9 +338,9 @@ actor FixtureTransport: LurkerTransport {
             kind: "opengraph",
             title: "lepinkainen/lurker: single-user IRC bouncer and clients",
             description: "Go bouncer with web, TUI and native clients.",
-            siteName: "GitHub"
+            siteName: "GitHub",
           )
-        ]
+        ],
       ),
       Message(
         id: UUID(uuidString: "0198F5F2-A000-7000-8000-000000000007")!,
@@ -339,9 +355,9 @@ actor FixtureTransport: LurkerTransport {
         previews: [
           Preview(
             url: "https://example.com/screenshot.png",
-            kind: "image"
+            kind: "image",
           )
-        ]
+        ],
       ),
     ]
     return StateSnapshot(
@@ -356,7 +372,7 @@ actor FixtureTransport: LurkerTransport {
           nick: "shrike",
           status: "connected",
           sortOrder: 0,
-          disabled: false
+          disabled: false,
         )
       ],
       buffers: [status, channel, query, fullChannel, hntopChannel, archivedChannel, archivedQuery],
@@ -368,7 +384,13 @@ actor FixtureTransport: LurkerTransport {
       members: [
         channelID.uuidString: [
           Member(
-            nick: "shrike", prefix: "@", realname: "Shrike", away: false, self: true, color: 19),
+            nick: "shrike",
+            prefix: "@",
+            realname: "Shrike",
+            away: false,
+            self: true,
+            color: 19,
+          ),
           Member(nick: "tove", prefix: "+", realname: "Tove", away: false, self: false, color: 4),
           Member(nick: "ava", prefix: nil, realname: "Tove", away: false, self: false, color: 7),
           Member(nick: "anna", prefix: nil, realname: nil, away: false, self: false, color: 11),
@@ -378,7 +400,13 @@ actor FixtureTransport: LurkerTransport {
         ],
         fullChannelID.uuidString: [
           Member(
-            nick: "shrike", prefix: "@", realname: "Shrike", away: false, self: true, color: 19),
+            nick: "shrike",
+            prefix: "@",
+            realname: "Shrike",
+            away: false,
+            self: true,
+            color: 19,
+          ),
           Member(nick: "tove", prefix: "+", realname: "Tove", away: false, self: false, color: 4),
           Member(nick: "ava", prefix: nil, realname: "Tove", away: false, self: false, color: 7),
           Member(nick: "anna", prefix: nil, realname: nil, away: false, self: false, color: 11),
@@ -386,28 +414,31 @@ actor FixtureTransport: LurkerTransport {
           Member(nick: "alex", prefix: nil, realname: nil, away: true, self: false, color: 9),
           Member(nick: "ircfriend", prefix: nil, realname: nil, away: true, self: false, color: 31),
         ],
-      ]
+      ],
     )
+  }
+
+  func validateServer() async throws -> ServiceIdentity {
+    Self.identity
+  }
+
+  func fetchState() async throws -> StateSnapshot {
+    Self.snapshot()
   }
 
   func fetchHistory(bufferID: UUID, before: UUID?) async throws -> [Message] {
     guard bufferID == Self.fullChannelID else { return [] }
     let all = Self.fullMessages
-    let beforeIndex: Int
-    if let before, let idx = all.firstIndex(where: { $0.id == before }) {
-      beforeIndex = idx
-    } else {
-      beforeIndex = all.count
-    }
+    let beforeIndex: Int =
+      if let before, let idx = all.firstIndex(where: { $0.id == before }) {
+        idx
+      } else {
+        all.count
+      }
     let lower = max(0, beforeIndex - Self.fullPageSize)
     guard lower < beforeIndex else { return [] }
     return Array(all[lower..<beforeIndex])
   }
-
-  // Mirrors the backend's MAX(pinned)+1 append semantics: each unpinned->pinned
-  // transition gets the next counter value, so fixture pinning exercises the
-  // same "new pins append to the end" contract as the real server.
-  private var nextPinOrder = 1
 
   func updateBuffer(id: UUID, patch: BufferSettingsPatch) async throws -> BufferSettingsEvent {
     var pinOrder: Int?
@@ -422,17 +453,9 @@ actor FixtureTransport: LurkerTransport {
       collapsePresenceEvents: patch.collapsePresenceEvents ?? true,
       pinned: patch.pinned ?? true,
       archived: patch.archived ?? false,
-      pinOrder: pinOrder
+      pinOrder: pinOrder,
     )
   }
-
-  // Tests flip this to exercise the optimistic-reorder rollback paths.
-  private var failReorders = false
-  // Tests flip this to exercise the failed-send composer-restore path.
-  private var failSends = false
-  private(set) var reorderedNetworkIDs: [UUID]?
-  private(set) var reorderedBufferIDs: [UUID]?
-  private(set) var reorderedPinnedIDs: [UUID]?
 
   func setFailReorders(_ fail: Bool) {
     failReorders = fail
@@ -442,10 +465,10 @@ actor FixtureTransport: LurkerTransport {
     failSends = fail
   }
 
-  struct FixtureError: Error {}
-
   func reorderNetworks(ids: [UUID]) async throws -> [Network] {
-    if failReorders { throw FixtureError() }
+    if failReorders {
+      throw FixtureError()
+    }
     reorderedNetworkIDs = ids
     // Empty response: the caller's optimistic order stands (tests inject
     // their own networks, which the fixture snapshot knows nothing about).
@@ -453,18 +476,24 @@ actor FixtureTransport: LurkerTransport {
   }
 
   func reorderBuffers(networkID: UUID, ids: [UUID]) async throws -> BufferReorderEvent {
-    if failReorders { throw FixtureError() }
+    if failReorders {
+      throw FixtureError()
+    }
     reorderedBufferIDs = ids
     return BufferReorderEvent(
       networkID: networkID,
-      buffers: ids.enumerated().map { BufferSortEntry(id: $1, sortOrder: $0) })
+      buffers: ids.enumerated().map { BufferSortEntry(id: $1, sortOrder: $0) },
+    )
   }
 
   func reorderPinnedBuffers(ids: [UUID]) async throws -> PinnedReorderEvent {
-    if failReorders { throw FixtureError() }
+    if failReorders {
+      throw FixtureError()
+    }
     reorderedPinnedIDs = ids
     return PinnedReorderEvent(
-      buffers: ids.enumerated().map { PinnedSortEntry(id: $1, pinOrder: $0) })
+      buffers: ids.enumerated().map { PinnedSortEntry(id: $1, pinOrder: $0) }
+    )
   }
 
   func openEvents() async -> AsyncThrowingStream<ServerEvent, Error> {
@@ -472,11 +501,10 @@ actor FixtureTransport: LurkerTransport {
   }
 
   func send(_: ClientCommand) async throws {
-    if failSends { throw FixtureError() }
+    if failSends {
+      throw FixtureError()
+    }
   }
-  private var failPings = false
-  private(set) var pingCount = 0
-  private(set) var disconnectCount = 0
 
   func setFailPings(_ fail: Bool) {
     failPings = fail
@@ -484,19 +512,14 @@ actor FixtureTransport: LurkerTransport {
 
   func ping() async throws {
     pingCount += 1
-    if failPings { throw FixtureError() }
+    if failPings {
+      throw FixtureError()
+    }
   }
 
   func disconnect() async {
     disconnectCount += 1
   }
-
-  private(set) var uploadedFilename: String?
-  private(set) var uploadCount = 0
-  // Tests flip this to hold uploads in flight until released, so they can
-  // interleave model actions (buffer switches, second drops) mid-upload.
-  private var holdUploads = false
-  private var uploadGates: [CheckedContinuation<Void, Never>] = []
 
   func setHoldUploads(_ hold: Bool) {
     holdUploads = hold
@@ -509,7 +532,7 @@ actor FixtureTransport: LurkerTransport {
     uploadGates.removeAll()
   }
 
-  func upload(_ data: Data, filename: String, contentType: String) async throws -> URL {
+  func upload(_: Data, filename: String, contentType _: String) async throws -> URL {
     uploadCount += 1
     uploadedFilename = filename
     if holdUploads {
@@ -517,4 +540,24 @@ actor FixtureTransport: LurkerTransport {
     }
     return URL(string: "https://fixture.local/uploads/test.jpg")!
   }
+
+  // MARK: Private
+
+  /// Mirrors the backend's MAX(pinned)+1 append semantics: each unpinned->pinned
+  /// transition gets the next counter value, so fixture pinning exercises the
+  /// same "new pins append to the end" contract as the real server.
+  private var nextPinOrder = 1
+
+  /// Tests flip this to exercise the optimistic-reorder rollback paths.
+  private var failReorders = false
+  /// Tests flip this to exercise the failed-send composer-restore path.
+  private var failSends = false
+
+  private var failPings = false
+
+  // Tests flip this to hold uploads in flight until released, so they can
+  // interleave model actions (buffer switches, second drops) mid-upload.
+  private var holdUploads = false
+  private var uploadGates = [CheckedContinuation<Void, Never>]()
+
 }

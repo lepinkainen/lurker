@@ -3,9 +3,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 #if os(macOS)
-  import AppKit
+import AppKit
 #else
-  import UIKit
+import UIKit
 #endif
 
 // Cross-platform shims so the shared SwiftUI sources compile for both the macOS
@@ -17,36 +17,36 @@ extension Color {
   /// Background behind the message timeline (the document/content surface).
   static var lurkerTimelineBackground: Color {
     #if os(macOS)
-      Color(nsColor: .textBackgroundColor)
+    Color(nsColor: .textBackgroundColor)
     #else
-      Color(uiColor: .systemBackground)
+    Color(uiColor: .systemBackground)
     #endif
   }
 
   /// Hairline separator matching the platform's list/table separators.
   static var lurkerSeparator: Color {
     #if os(macOS)
-      Color(nsColor: .separatorColor)
+    Color(nsColor: .separatorColor)
     #else
-      Color(uiColor: .separator)
+    Color(uiColor: .separator)
     #endif
   }
 
   /// Field/control background used by the composer input.
   static var lurkerControlBackground: Color {
     #if os(macOS)
-      Color(nsColor: .controlBackgroundColor)
+    Color(nsColor: .controlBackgroundColor)
     #else
-      Color(uiColor: .secondarySystemBackground)
+    Color(uiColor: .secondarySystemBackground)
     #endif
   }
 
   /// Link tint for detected URLs in message bodies.
   static var lurkerLink: Color {
     #if os(macOS)
-      Color(nsColor: .linkColor)
+    Color(nsColor: .linkColor)
     #else
-      Color(uiColor: .link)
+    Color(uiColor: .link)
     #endif
   }
 }
@@ -55,9 +55,9 @@ extension Color {
 /// Lets shared code (e.g. the image cache) decode/store platform images
 /// without `#if os(...)` branching at every call site.
 #if os(macOS)
-  typealias PlatformImage = NSImage
+typealias PlatformImage = NSImage
 #else
-  typealias PlatformImage = UIImage
+typealias PlatformImage = UIImage
 #endif
 
 extension Image {
@@ -65,24 +65,28 @@ extension Image {
   /// / `Image(uiImage:)` behind the single cross-platform name.
   init(platformImage: PlatformImage) {
     #if os(macOS)
-      self.init(nsImage: platformImage)
+    self.init(nsImage: platformImage)
     #else
-      self.init(uiImage: platformImage)
+    self.init(uiImage: platformImage)
     #endif
   }
 }
+
+// MARK: - Clipboard
 
 /// Cross-platform clipboard write.
 enum Clipboard {
   static func copy(_ string: String) {
     #if os(macOS)
-      NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(string, forType: .string)
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(string, forType: .string)
     #else
-      UIPasteboard.general.string = string
+    UIPasteboard.general.string = string
     #endif
   }
 }
+
+// MARK: - ImageEncoding
 
 /// Composer attachment support: normalizes arbitrary picked/dropped image
 /// data into something the backend accepts. The backend does not decode
@@ -90,6 +94,9 @@ enum Clipboard {
 /// GIF passes through untouched (see `normalize`) to preserve animation.
 /// Uses ImageIO so the same code path runs on both macOS and iOS.
 enum ImageEncoding {
+
+  // MARK: Internal
+
   /// Re-encodes arbitrary image data as JPEG, or nil if it can't be decoded
   /// as an image.
   static func toJPEG(_ data: Data, quality: CGFloat = 0.82) -> Data? {
@@ -102,7 +109,8 @@ enum ImageEncoding {
       kCGImageSourceCreateThumbnailFromImageAlways: true,
       kCGImageSourceCreateThumbnailWithTransform: true,
     ]
-    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+    guard
+      let source = CGImageSourceCreateWithData(data as CFData, nil),
       let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     else {
       return nil
@@ -110,7 +118,11 @@ enum ImageEncoding {
     let output = NSMutableData()
     guard
       let destination = CGImageDestinationCreateWithData(
-        output, UTType.jpeg.identifier as CFString, 1, nil)
+        output,
+        UTType.jpeg.identifier as CFString,
+        1,
+        nil,
+      )
     else {
       return nil
     }
@@ -125,7 +137,8 @@ enum ImageEncoding {
   /// flatten to a single frame); anything else decodable (e.g. HEIC) is
   /// transcoded to JPEG; undecodable data returns nil.
   static func normalize(
-    _ data: Data, sourceUTType: UTType? = nil
+    _ data: Data,
+    sourceUTType: UTType? = nil,
   ) -> (data: Data, filename: String, contentType: String)? {
     let detectedType = sourceUTType ?? detectUTType(data)
     if let detectedType, detectedType.conforms(to: .jpeg) {
@@ -144,12 +157,16 @@ enum ImageEncoding {
     return (jpeg, "image.jpg", "image/jpeg")
   }
 
+  // MARK: Private
+
   private static func detectUTType(_ data: Data) -> UTType? {
-    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+    guard
+      let source = CGImageSourceCreateWithData(data as CFData, nil),
       let typeIdentifier = CGImageSourceGetType(source)
     else {
       return nil
     }
     return UTType(typeIdentifier as String)
   }
+
 }
