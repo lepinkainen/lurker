@@ -94,7 +94,10 @@ jobs:
           version: 3.x
 
       - name: Install SwiftFormat
-        run: brew install swiftformat
+        run: |
+          brew install swiftformat
+          swiftformat --version
+          swift --version
 
       - name: Lint Swift
         run: task lint-apple

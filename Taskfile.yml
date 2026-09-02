@@ -2,6 +2,7 @@ version: '3'
 
 vars:
   APP_NAME: lurker
+  SWIFTFORMAT_ARGS: --config apple/airbnb.swiftformat apple/Lurker apple/LurkerTests apple/LurkerUITests
   BUILD_DIR: build
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
@@ -186,13 +187,13 @@ tasks:
     desc: Check native Swift formatting (Airbnb style guide via SwiftFormat)
     platforms: [darwin]
     cmds:
-      - swiftformat --lint --config apple/airbnb.swiftformat apple/Lurker apple/LurkerTests apple/LurkerUITests
+      - swiftformat --lint {{.SWIFTFORMAT_ARGS}}
 
   format-apple:
     desc: Apply Airbnb SwiftFormat style to native Swift sources
     platforms: [darwin]
     cmds:
-      - swiftformat --config apple/airbnb.swiftformat apple/Lurker apple/LurkerTests apple/LurkerUITests
+      - swiftformat {{.SWIFTFORMAT_ARGS}}
 
   package-apple:
     desc: Build, Developer ID sign, notarize, and staple a macOS DMG

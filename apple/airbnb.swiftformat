@@ -2,8 +2,9 @@
 --exclude Carthage,Pods,.build
 
 # options
+--minversion 0.63.0 # keep CI/local formatter output in sync
 --swift-version 6.3
---language-mode 5
+--language-mode 6 # project builds with SWIFT_VERSION 6.0 (upstream: 5)
 --self remove # redundantSelf
 --import-grouping testable-bottom # sortedImports
 --trailing-commas multi-element-lists # trailingCommas

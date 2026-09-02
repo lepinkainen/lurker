@@ -462,6 +462,9 @@ struct UnreadBar: View {
 // MARK: - PresenceSummary
 
 private struct PresenceSummary: View {
+
+  // MARK: Internal
+
   let messages: [Message]
 
   var body: some View {
@@ -478,11 +481,14 @@ private struct PresenceSummary: View {
     .padding(.horizontal, Theme.rowHorizontalInset)
   }
 
+  // MARK: Private
+
   @State private var expanded = false
 
   private var summary: String {
     presenceSummaryText(messages)
   }
+
 }
 
 /// Label for a collapsed presence run ("3 join • 1 part", or the netsplit
