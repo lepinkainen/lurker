@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Lurker architecture</title>
+  <style>
+    :root { --paper: #f6f7f8; --ink: #202830; --muted: #58636e; --line: #d5dbe0; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font: 14px/1.5 system-ui, sans-serif; }
+    a { color: inherit; text-underline-offset: 5px; }
+    button, summary, a { -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 3px solid #b26b28; outline-offset: 4px; }
+    .page { margin: auto; padding: 16px 24px 24px; }
+    .masthead { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 20px; }
+    .caption, .status, .zoom-label, footer { font: 12px/1.5 "SFMono-Regular", Consolas, monospace; }
+    nav { display: flex; gap: 20px; font-size: 13px; }
+    h1 { font-size: 20px; font-weight: 600; margin: 0; }
+    section { margin-bottom: 24px; }
+    .section-head { margin-bottom: 10px; }
+    h2 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+    .section-head p { margin: 0; color: var(--muted); font-size: 13px; }
+    .panel { border: 1px solid var(--line); background: white; border-radius: 4px; overflow: hidden; }
+    .toolbar { padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+    .status { color: var(--muted); }
+    .controls { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+    button { border: 1px solid var(--line); border-radius: 3px; background: white; color: var(--ink); padding: 5px 11px; font: inherit; font-size: 13px; cursor: pointer; min-height: 34px; }
+    button:hover:enabled { background: #edf1f4; border-color: #8795a2; }
+    button:disabled { opacity: .4; cursor: default; }
+    .zoom-label { min-width: 47px; text-align: center; }
+    .viewport { height: 680px; overflow: auto; padding: 24px; }
+    .diagram { width: max-content; min-width: 100%; display: flex; justify-content: center; align-items: flex-start; }
+    .diagram svg { display: block; max-width: none !important; flex-shrink: 0; }
+    .loading { color: var(--muted); margin: 40px 0; }
+    .caption { padding: 8px 12px; color: var(--muted); border-top: 1px solid var(--line); display: flex; gap: 8px 24px; flex-wrap: wrap; }
+    .key { display: inline-flex; gap: 8px; align-items: center; }
+    .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; background: #e4eee4; border: 1px solid #73967a; }
+    .swatch.storage { background: #f7e8cc; border-color: #b79456; }
+    .swatch.external { background: #e5edf2; border-color: #819aaa; }
+    details { border-top: 1px solid var(--line); }
+    summary { cursor: pointer; padding: 8px 12px; color: var(--muted); font-size: 13px; }
+    pre { margin: 0; padding: 16px; overflow: auto; border-top: 1px solid var(--line); background: #f6f7f8; font: 12px/1.65 "SFMono-Regular", Consolas, monospace; max-height: 420px; }
+    footer { border-top: 1px solid var(--line); padding-top: 12px; color: var(--muted); }
+    noscript { display: block; padding: 20px; }
+    @media (max-width: 700px) {
+      .page { padding: 12px; }
+      nav { gap: 16px; }
+      .toolbar { flex-wrap: wrap; padding: 10px 12px; }
+      .viewport { height: 560px; padding: 16px; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    @media print {
+      body { background: white; }
+      .page { padding: 0; }
+      nav, .controls, details, .status { display: none; }
+      section + section { break-before: page; }
+      .viewport { height: auto; overflow: visible; padding: 8px; background: none; }
+      .diagram { width: 100%; }
+      .diagram svg { width: 100% !important; height: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="masthead">
+      <h1>Lurker architecture</h1>
+      <nav aria-label="Diagrams"><a href="#data-flow">Data flow</a><a href="#class-structure">Class structure</a></nav>
+    </header>
+    <noscript>Enable JavaScript to render these diagrams. Mermaid loads from jsDelivr and requires an internet connection.</noscript>
+
+    <section id="data-flow" aria-labelledby="flow-title" data-chart="flow">
+      <div class="section-head"><h2 id="flow-title">Data flow</h2><p>IRC and Bluesky ingestion, SQLite persistence, and REST/WebSocket clients. Message inserts precede event publication.</p></div>
+      <div class="panel">
+        <div class="toolbar"><span class="status" role="status">Loading diagram…</span><div class="controls" role="group" aria-label="Data flow zoom"><button data-action="out" aria-label="Zoom out data flow" disabled>−</button><output class="zoom-label" aria-label="Data flow zoom level">—</output><button data-action="in" aria-label="Zoom in data flow" disabled>+</button><button data-action="fit" disabled>Fit</button><button data-action="actual" disabled>100%</button></div></div>
+        <div class="viewport" tabindex="0" role="region" aria-label="Data flow diagram; scroll to explore"><div class="diagram"><p class="loading">Preparing the data flow diagram…</p></div></div>
+        <div class="caption"><span class="key"><i class="swatch"></i>Backend services</span><span class="key"><i class="swatch storage"></i>Persistent storage</span><span class="key"><i class="swatch external"></i>Clients &amp; external systems</span></div>
+        <details><summary>View Mermaid source</summary><pre><code></code></pre></details>
+      </div>
+    </section>
+
+    <section id="class-structure" aria-labelledby="structure-title" data-chart="structure">
+      <div class="section-head"><h2 id="structure-title">Class structure</h2><p>Go structs and interfaces, Swift types, and TypeScript modules and factory objects. Helper types and generated queries omitted.</p></div>
+      <div class="panel">
+        <div class="toolbar"><span class="status" role="status">Loading diagram…</span><div class="controls" role="group" aria-label="Class structure zoom"><button data-action="out" aria-label="Zoom out class structure" disabled>−</button><output class="zoom-label" aria-label="Class structure zoom level">—</output><button data-action="in" aria-label="Zoom in class structure" disabled>+</button><button data-action="fit" disabled>Fit</button><button data-action="actual" disabled>100%</button></div></div>
+        <div class="viewport" tabindex="0" role="region" aria-label="Class structure diagram; scroll to explore"><div class="diagram"><p class="loading">Preparing the class structure diagram…</p></div></div>
+        <div class="caption"><span>→ Dependency</span><span>◆ Composition / ◇ Aggregation</span><span>⇢ Dashed triangle: interface implementation</span></div>
+        <details><summary>View Mermaid source</summary><pre><code></code></pre></details>
+      </div>
+    </section>
+    <footer><a href="https://mermaid.js.org/intro/getting-started.html">Mermaid.js</a> 11.17.2 · Loaded from jsDelivr; internet connection required.</footer>
+  </div>
+
+  <script type="text/plain" id="source-flow">
+flowchart TD
+    accTitle: Lurker project data flow
+    accDescr: IRC messages and Bluesky posts are persisted in SQLite before publication through the event hub and shared REST and WebSocket API to web, terminal, and Apple clients.
+    TUI["TUI<br/>Go · cmd/tui"]
+    Web["Web<br/>TypeScript · web"]
+    Swift["Swift<br/>macOS / iOS · apple"]
+    subgraph Backend["Lurker backend"]
+        API["api.Server<br/>REST + WebSocket /api/stream"]
+        IRC["irc.Manager + handlers<br/>Persistent connections and IRC state"]
+        DS["Bluesky source<br/>Polling → datasource.IngestPost"]
+        Stores["db.MultiStore<br/>Network and buffer resolution"]
+        Hub["hub.Hub<br/>Live event fan-out"]
+        Preview["preview.Service<br/>Async URL preview workers"]
+        Media["media.Service<br/>Uploads and media browsing"]
+    end
+    subgraph Storage["Persistent storage"]
+        Control[("control.db<br/>Networks, buffer registry, settings")]
+        Logs[("Per-network SQLite databases<br/>Buffers, messages, read state")]
+        PreviewDB[("previews.db<br/>Shared URL preview cache")]
+        MediaDB[("media.db<br/>Media metadata")]
+        Blobs[("Disk or S3<br/>Media files")]
+    end
+    IRCNet["IRC networks"]
+    Bluesky["Bluesky API"]
+    Websites["Linked websites"]
+    TUI -->|REST requests + WS commands| API
+    Web -->|REST requests + WS commands| API
+    Swift -->|REST requests + WS commands| API
+    API -->|Snapshots, history, replies + live events| TUI
+    API -->|Snapshots, history, replies + live events| Web
+    API -->|Snapshots, history, replies + live events| Swift
+    API <-->|Read and update persisted state| Stores
+    API -->|Send, join, part, connect| IRC
+    IRC -->|Live connection and member state| API
+    IRC <-->|IRC protocol| IRCNet
+    Bluesky -->|Polled posts| DS
+    IRC -->|Persist messages| Stores
+    DS -->|Persist and deduplicate posts| Stores
+    Stores <--> Control
+    Stores <--> Logs
+    IRC -->|Publish after message insert| Hub
+    DS -->|Publish after post insert| Hub
+    API -->|Settings and read-state events| Hub
+    Hub -->|Subscriber events| API
+    IRC -->|Queue message URLs| Preview
+    DS -->|Queue post URLs| Preview
+    Preview <-->|Fetch metadata and images| Websites
+    Preview <-->|Cache through MultiStore| PreviewDB
+    Preview -->|Link previews to messages| Logs
+    Preview -->|Preview-ready events| Hub
+    API -->|Media requests| Media
+    Media <--> MediaDB
+    Media <--> Blobs
+    classDef service fill:#e4eee4,stroke:#73967a,color:#20352e
+    classDef storage fill:#f7e8cc,stroke:#b79456,color:#463719
+    classDef external fill:#e5edf2,stroke:#819aaa,color:#253e50
+    class API,IRC,DS,Stores,Hub,Preview,Media service
+    class Control,Logs,PreviewDB,MediaDB,Blobs storage
+    class TUI,Web,Swift,IRCNet,Bluesky,Websites external
+  </script>
+  <script type="text/plain" id="source-structure">
+classDiagram
+    direction LR
+    accTitle: Lurker principal types and dependencies
+    accDescr: API server dependencies, IRC runtime, data sources, storage, media interfaces, and the three client implementations. Diamonds indicate ownership; dashed triangles indicate interface implementation.
+    namespace Backend {
+        class Server {
+            <<api.Server>>
+            +Handler()
+        }
+        class APIManager {
+            <<interface>>
+            wsManager
+            stateManager
+            networkManager
+        }
+        class IRCManager {
+            <<irc.Manager>>
+            +StartNetwork()
+            +StopNetwork()
+            +Wait()
+        }
+        class IRCHandler {
+            <<irc.handler>>
+            networkID
+        }
+        class IRCClient {
+            <<girc.Client>>
+        }
+        class Hub {
+            <<hub.Hub>>
+            +Publish()
+            +Subscribe()
+        }
+        class PreviewEnqueuer {
+            <<interface>>
+            +Enqueue()
+        }
+        class PreviewService {
+            <<preview.Service>>
+            +Start()
+            +Enqueue()
+            +Close()
+        }
+        class Fetcher {
+            <<preview.Fetcher>>
+        }
+    }
+    namespace DataSources {
+        class DataSourceManager {
+            <<datasource.Manager>>
+            +Register()
+            +Start()
+            +Wait()
+        }
+        class Source {
+            <<interface>>
+            +Name()
+            +Kind()
+            +Start()
+            +NetworkID()
+            +Wait()
+        }
+        class BlueskySource {
+            <<bluesky.Source>>
+        }
+        class BlueskyClient {
+            <<bluesky.Client>>
+        }
+    }
+    namespace Persistence {
+        class MultiStore {
+            <<db.MultiStore>>
+            Control sql.DB
+            +EnsureBuffer()
+            +LogStore()
+            +Close()
+        }
+        class LogStore {
+            <<db.LogStore>>
+            NetworkID UUID
+            DB sql.DB
+        }
+        class PreviewStore {
+            <<db.PreviewStore>>
+        }
+        class MediaStore {
+            <<db.MediaStore>>
+        }
+    }
+    namespace Media {
+        class MediaService {
+            <<media.Service>>
+            +RegisterRoutes()
+        }
+        class Store {
+            <<media.Store interface>>
+        }
+        class Blobs {
+            <<media.Blobs interface>>
+            +Put()
+            +Exists()
+            +Delete()
+        }
+        class DiskBlobs {
+            <<media.DiskBlobs>>
+        }
+        class ObjectStoreClient {
+            <<objstore.Client>>
+        }
+    }
+    namespace Web {
+        class WebCore {
+            <<web app-core module>>
+            +start()
+        }
+        class AppState {
+            <<TypeScript type>>
+            networks
+            buffers
+            messages
+            members
+        }
+        class AppView {
+            <<factory-created object>>
+        }
+        class Connection {
+            <<factory-created object>>
+        }
+    }
+    namespace Swift {
+        class AppModel {
+            <<Swift observable class>>
+        }
+        class LurkerTransport {
+            <<Swift protocol>>
+        }
+        class LurkerAPI {
+            <<Swift actor>>
+        }
+    }
+    namespace TUI {
+        class TUIModel {
+            <<cmd/tui.model>>
+        }
+        class TUIClient {
+            <<cmd/tui.apiClient>>
+        }
+    }
+    Server --> APIManager
+    IRCManager ..|> APIManager
+    Server --> MultiStore
+    Server --> Hub
+    Server --> MediaService
+    Server --> Fetcher
+    IRCManager "1" *-- "0..*" IRCClient : manages
+    IRCManager ..> IRCHandler : creates per connection
+    IRCHandler --> IRCClient
+    IRCManager --> MultiStore
+    IRCManager --> Hub
+    IRCHandler --> MultiStore
+    IRCHandler --> Hub
+    IRCManager --> PreviewEnqueuer
+    IRCHandler --> PreviewEnqueuer
+    PreviewService ..|> PreviewEnqueuer
+    PreviewService *-- Fetcher
+    PreviewService --> MultiStore
+    PreviewService --> Hub
+    DataSourceManager "1" o-- "0..*" Source
+    BlueskySource ..|> Source
+    BlueskySource *-- BlueskyClient
+    DataSourceManager --> MultiStore : injected dependencies
+    DataSourceManager --> Hub : injected dependencies
+    DataSourceManager --> PreviewEnqueuer : injected dependencies
+    MultiStore "1" *-- "0..*" LogStore
+    MultiStore *-- PreviewStore
+    MultiStore *-- MediaStore
+    MediaService --> Store
+    MediaStore ..|> Store
+    MediaService --> Blobs
+    DiskBlobs ..|> Blobs
+    ObjectStoreClient ..|> Blobs
+    WebCore --> AppState
+    WebCore --> AppView
+    WebCore --> Connection
+    Connection ..> Server : REST and WebSocket
+    AppModel --> LurkerTransport
+    LurkerAPI ..|> LurkerTransport
+    LurkerAPI ..> Server : REST and WebSocket
+    TUIModel --> TUIClient
+    TUIClient ..> Server : REST and WebSocket
+  </script>
+  <script type="module">
+    const sections = [...document.querySelectorAll('[data-chart]')];
+    for (const section of sections) {
+      section.querySelector('code').textContent = document.getElementById(`source-${section.dataset.chart}`).textContent.trim();
+    }
+
+    function showError(section, message) {
+      section.querySelector('.status').textContent = 'Diagram unavailable';
+      section.querySelector('.diagram').textContent = message;
+    }
+
+    function setupZoom(section, svg) {
+      const viewport = section.querySelector('.viewport');
+      const { width, height } = svg.viewBox.baseVal;
+      let scale = 1;
+      let fitMode = true;
+      const fitScale = () => Math.min(1, (viewport.clientWidth - 48) / width, (viewport.clientHeight - 48) / height);
+      const update = () => {
+        svg.style.width = `${width * scale}px`;
+        svg.style.height = `${height * scale}px`;
+        section.querySelector('output').textContent = `${Math.round(scale * 100)}%`;
+        section.querySelector('[data-action="out"]').disabled = scale <= 0.05;
+        section.querySelector('[data-action="in"]').disabled = scale >= 3;
+      };
+      for (const button of section.querySelectorAll('button')) {
+        button.disabled = false;
+        button.addEventListener('click', () => {
+          const action = button.dataset.action;
+          fitMode = action === 'fit';
+          scale = fitMode ? fitScale() : action === 'actual' ? 1 : Math.max(0.05, Math.min(3, scale * (action === 'in' ? 1.25 : 0.8)));
+          update();
+          if (fitMode) viewport.scrollTo(0, 0);
+        });
+      }
+      new ResizeObserver(() => {
+        if (fitMode) { scale = fitScale(); update(); }
+      }).observe(viewport);
+      scale = fitScale();
+      update();
+    }
+
+    try {
+      const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.esm.min.mjs');
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: 'base',
+        themeVariables: {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: '14px',
+          primaryColor: '#e4eee4', primaryTextColor: '#20352e', primaryBorderColor: '#73967a',
+          secondaryColor: '#f7e8cc', tertiaryColor: '#f4f5ed',
+          lineColor: '#6c7f70', textColor: '#20352e',
+          mainBkg: '#e4eee4', nodeBorder: '#73967a',
+          clusterBkg: '#f4f5ed', clusterBorder: '#c4ccbf',
+          edgeLabelBackground: '#fffef9', background: '#fffef9'
+        },
+        flowchart: { curve: 'basis', padding: 18, nodeSpacing: 30, rankSpacing: 65 },
+        class: { useMaxWidth: false }
+      });
+      for (const section of sections) {
+        try {
+          const { svg } = await mermaid.render(`chart-${section.dataset.chart}`, section.querySelector('code').textContent);
+          section.querySelector('.diagram').innerHTML = svg;
+          setupZoom(section, section.querySelector('svg'));
+          section.querySelector('.status').textContent = 'Scroll to explore · Zoom for detail';
+        } catch (error) {
+          showError(section, 'This diagram could not render. Its Mermaid source is available below.');
+          console.error(error);
+        }
+      }
+    } catch (error) {
+      for (const section of sections) showError(section, 'Mermaid could not load from jsDelivr. Check your internet connection and reload. You can still view the diagram source below.');
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

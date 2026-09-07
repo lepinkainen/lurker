@@ -76,6 +76,9 @@ jobs:
       - name: Run frontend lint/typecheck
         run: task lint-web
 
+      - name: Validate Mermaid documentation
+        run: task lint-mermaid
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:

@@ -304,7 +304,7 @@ tasks:
 
   lint:
     desc: Run formatting and lint checks (excluding llm-shared)
-    deps: [lint-web]
+    deps: [lint-web, lint-mermaid]
     cmds:
       - go fix {{.GO_PACKAGES}}
       - goimports -w $(find . -path ./llm-shared -prune -o -name '*.go' -print)
@@ -323,6 +323,11 @@ tasks:
     desc: Report unreachable Go functions (advisory; interface-compliance assertions can be false positives)
     cmds:
       - deadcode {{.GO_PACKAGES}}
+
+  lint-mermaid:
+    desc: Validate Mermaid syntax in documentation (no browser or rendering)
+    cmds:
+      - node web/scripts/lint-mermaid.mjs {{.CLI_ARGS}}
 
   lint-web:
     desc: Type-check and lint the frontend

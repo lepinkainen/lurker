@@ -4,6 +4,8 @@ This document is for AI agents and other technical readers. It gives the system 
 
 ## Document index
 
+- [architecture.html](architecture.html) — visual architecture overview
+
 - [storage.md](storage.md) — control DB, per-network log DBs, preview cache DB, network + buffer models
 - [rest-api.md](rest-api.md) — HTTP endpoints under `/api/*` plus `/whoami` and health checks
 - [websocket-protocol.md](websocket-protocol.md) — `/api/stream` commands, acks, event shapes

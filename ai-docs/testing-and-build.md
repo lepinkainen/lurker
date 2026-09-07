@@ -75,12 +75,15 @@ Preferred commands come from `Taskfile.yml`:
 - `task package-apple` — sign, notarize, and staple a release DMG (macOS only)
 - `task test`
 - `task lint`
+- `task lint-mermaid` — parse Mermaid diagrams in root-level documentation and `ai-docs/`; included in `task lint`
 - `task build`
 - `task generate` — regenerate sqlc Go code from `db/{control,log,preview}_queries/*.sql`
 - `task up`
 - `task down`
 
 On macOS, `task build` includes Swift lint, native unit tests, and the native app build. CI runs those checks in a separate `apple` job on a `macos-26` runner. The UI smoke test is kept as an explicit local check because it launches an application and takes control of the desktop session.
+
+Mermaid lint validates Markdown `mermaid` fences, HTML `pre.mermaid` elements and `script[type="text/plain"]` elements whose IDs start with `source-`, and `.mmd` files. It uses `mermaid.parse()` in Node with jsdom for label sanitization; it does not launch a browser or render diagrams. Invalid syntax fails lint with the file and diagram line number. Dependencies are installed by `task web-install`. Keep the pinned Mermaid dependency in `web/package.json` and the HTML CDN import at the same version; lint checks for mismatches. To validate specific files, use `task lint-mermaid -- path/to/document.md`.
 
 ## SQL codegen (sqlc)
 
