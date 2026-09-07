@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -116,19 +117,45 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		out.Networks = append(out.Networks, s.toNetworkDTO(n, states[n.ID]))
 	}
 
-	// Group buffers by network so we can issue one log-DB query per network.
 	byNetwork := make(map[uuid.UUID][]ircdb.Buffer, len(nets))
 	for _, b := range bufs {
 		byNetwork[b.NetworkID] = append(byNetwork[b.NetworkID], b)
 	}
-
-	// Pre-fetch recent messages and unread candidates per network.
-	recentByBuf, unreadByBuf := s.prefetchNetworkState(ctx, byNetwork, len(bufs))
+	recentByBuf, unreadByBuf, err := s.prefetchNetworkState(ctx, byNetwork, len(bufs))
+	if err != nil {
+		slog.Error("state snapshot", "err", err)
+		http.Error(w, "State snapshot unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	// A queued acknowledgement may have been tallied before messages in
+	// this snapshot. Reject changed cutoffs rather than replaying that older
+	// tally over newer counts. The client owns retrying the whole snapshot.
+	again, err := s.Stores.ListAllBuffers(ctx)
+	if err != nil || !sameReadPositions(bufs, again) {
+		http.Error(w, "Read positions changed; retry state snapshot", http.StatusServiceUnavailable)
+		return
+	}
 
 	for _, b := range bufs {
 		s.appendBufferToState(ctx, &out, b, kinds, recentByBuf, unreadByBuf)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func sameReadPositions(a, b []ircdb.Buffer) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	positions := make(map[uuid.UUID]uuid.UUID, len(a))
+	for _, buffer := range a {
+		positions[buffer.ID] = buffer.LastSeenID
+	}
+	for _, buffer := range b {
+		if pos, ok := positions[buffer.ID]; !ok || pos != buffer.LastSeenID {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb.Buffer, kinds map[uuid.UUID]string, recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID]unreadTally) {
@@ -153,9 +180,11 @@ func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb
 	out.InitialMessages[b.ID.String()] = s.toMessageDTOs(ctx, recentByBuf[b.ID])
 }
 
-// prefetchNetworkState issues one batch recent-messages query and one batch
-// unread-candidates query per network, returning maps keyed by buffer ID.
-func (s *Server) prefetchNetworkState(ctx context.Context, byNetwork map[uuid.UUID][]ircdb.Buffer, totalBufs int) (recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID]unreadTally) {
+// prefetchNetworkState reads each network's recent-message windows and unread
+// candidates in one log-DB transaction (ircdb.SnapshotNetwork), so the two
+// agree on which messages exist; clients use the window's newest id as the
+// boundary for replaying live events after a reconnect.
+func (s *Server) prefetchNetworkState(ctx context.Context, byNetwork map[uuid.UUID][]ircdb.Buffer, totalBufs int) (recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID]unreadTally, err error) {
 	recentByBuf = make(map[uuid.UUID][]ircdb.StoredMessage, totalBufs)
 	unreadByBuf = make(map[uuid.UUID]unreadTally, totalBufs)
 	for netID, netBufs := range byNetwork {
@@ -163,39 +192,21 @@ func (s *Server) prefetchNetworkState(ctx context.Context, byNetwork map[uuid.UU
 		if s.Manager != nil {
 			nick = s.Manager.Nick(netID)
 		}
-		bufIDs := make([]uuid.UUID, len(netBufs))
-		for i, b := range netBufs {
-			bufIDs[i] = b.ID
+		cutoffs := make(map[uuid.UUID]uuid.UUID, len(netBufs))
+		for _, b := range netBufs {
+			cutoffs[b.ID] = b.LastSeenID
 		}
-		s.prefetchRecentMessages(ctx, netID, bufIDs, recentByBuf)
-		s.prefetchUnreadCounts(ctx, netID, netBufs, nick, unreadByBuf)
+		snap, err := s.Stores.SnapshotNetwork(ctx, netID, cutoffs, 100, unreadCountsCap)
+		if err != nil {
+			return nil, nil, fmt.Errorf("network %s snapshot: %w", netID, err)
+		}
+		maps.Copy(recentByBuf, snap.Recent)
+		muted := s.mutedMatcher(ctx, netID)
+		for bufID, cands := range snap.Unread {
+			unreadByBuf[bufID] = tallyUnread(cands, nick, muted)
+		}
 	}
-	return recentByBuf, unreadByBuf
-}
-
-func (s *Server) prefetchRecentMessages(ctx context.Context, netID uuid.UUID, bufIDs []uuid.UUID, out map[uuid.UUID][]ircdb.StoredMessage) {
-	batchMsgs, err := s.Stores.BatchRecentMessages(ctx, netID, bufIDs, 100)
-	if err != nil {
-		slog.Error("batch recent messages", "err", err, "network_id", netID)
-		return
-	}
-	maps.Copy(out, batchMsgs)
-}
-
-func (s *Server) prefetchUnreadCounts(ctx context.Context, netID uuid.UUID, netBufs []ircdb.Buffer, nick string, out map[uuid.UUID]unreadTally) {
-	cutoffs := make(map[uuid.UUID]uuid.UUID, len(netBufs))
-	for _, b := range netBufs {
-		cutoffs[b.ID] = b.LastSeenID
-	}
-	batchUnread, err := s.Stores.BatchUnreadCandidates(ctx, netID, cutoffs, unreadCountsCap)
-	if err != nil {
-		slog.Error("batch unread candidates", "err", err, "network_id", netID)
-		return
-	}
-	muted := s.mutedMatcher(ctx, netID)
-	for bufID, cands := range batchUnread {
-		out[bufID] = tallyUnread(cands, nick, muted)
-	}
+	return recentByBuf, unreadByBuf, nil
 }
 
 // mutedMatcher loads a network's ignore entries once and returns a

@@ -267,7 +267,7 @@ func resolveLocalBuffer(ctx context.Context, stores *ircdb.MultiStore, _ *ircdb.
 func insertLines(ctx context.Context, log *ircdb.LogStore, bufferID uuid.UUID, lines []seedLine, base time.Time) error {
 	for i, l := range lines {
 		ts := base.Add(l.Offset + time.Duration(i)*time.Millisecond)
-		_, _, _, err := ircdb.InsertLogMessage(ctx, log.DB, ircdb.LogMessageInput{
+		_, _, _, err := ircdb.InsertLogMessage(ctx, log, ircdb.LogMessageInput{
 			BufferID:  bufferID,
 			Timestamp: ts,
 			Sender:    l.Sender,

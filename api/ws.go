@@ -136,6 +136,11 @@ type wsManager interface {
 // forwards every published event as JSON; it also reads client commands
 // and dispatches them to the IRC manager or the SQLite store.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
+	// Subscribe before accepting: once the handshake completes, clients can
+	// fetch a snapshot knowing subsequent publications will reach the socket.
+	events, overflow, unsub := s.Hub.Subscribe(256)
+	defer unsub()
+
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
 	})
@@ -149,9 +154,6 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-
-	events, overflow, unsub := s.Hub.Subscribe(256)
-	defer unsub()
 
 	done := make(chan struct{})
 	go runStreamWriter(ctx, c, cancel, events, overflow, done)

@@ -11,6 +11,8 @@ The stream serves two roles:
 
 See [rest-api.md](rest-api.md) for the REST surface and [irc-runtime.md](irc-runtime.md) for how server events are produced.
 
+The server subscribes to the event hub before completing the WebSocket handshake. Clients can open the socket before fetching `/api/state` and queue events during the fetch. This ordering needs the updated backend; older backends open the socket before subscribing, leaving a small gap. No ready frame or client protocol change is required. `/api/state` may answer 503 when a snapshot could not be taken consistently (see [rest-api.md](rest-api.md)); clients keep their current state and retry (web: 2s while the socket stays open; TUI: 5s; Apple: full reconnect with backoff).
+
 ## Client commands
 
 Current client command envelope fields:

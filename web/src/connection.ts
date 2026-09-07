@@ -13,6 +13,9 @@ import { registerMemberNickColors, registerMessageNickColors, registerNetworkNic
 export const RECONNECT_BASE_MS = 1000;
 export const RECONNECT_MAX_MS = 30_000;
 export const WS_STALE_MS = 60_000;
+// /api/state can 503 transiently (a mark_read raced the snapshot, a log DB
+// was busy). The socket stays healthy, so nothing else would trigger a retry.
+export const STATE_SYNC_RETRY_MS = 2000;
 export const WS_HEALTHCHECK_MS = 10_000;
 
 // Grouped collaborator interfaces. Rendering, navigation, and transport are
@@ -213,6 +216,24 @@ export function checkWebSocketHealth(deps: HealthCheckDeps) {
   deps.scheduleReconnect(0);
 }
 
+function syncStateWithRetry(ws: WebSocket, deps: WebSocketRuntimeDeps) {
+  deps.transport
+    .syncState()
+    .then(() => {
+      state.needsStateSyncOnConnect = false;
+    })
+    .catch((err) => {
+      console.error("reconnect state sync failed", err);
+      window.setTimeout(() => {
+        // Still the live socket and still unsynced: try again. A closed
+        // socket's reconnect handler will sync on its own open.
+        if (state.ws === ws && ws.readyState === WebSocket.OPEN && state.needsStateSyncOnConnect) {
+          syncStateWithRetry(ws, deps);
+        }
+      }, STATE_SYNC_RETRY_MS);
+    });
+}
+
 function connectWS(deps: WebSocketRuntimeDeps) {
   if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
   state.backendStatus = "connecting";
@@ -229,14 +250,7 @@ function connectWS(deps: WebSocketRuntimeDeps) {
     deps.renderer.renderStatus();
     deps.renderer.updateInputEnabled();
     deps.renderer.renderSidebar();
-    if (state.needsStateSyncOnConnect) {
-      deps.transport
-        .syncState()
-        .then(() => {
-          state.needsStateSyncOnConnect = false;
-        })
-        .catch((err) => console.error("reconnect state sync failed", err));
-    }
+    if (state.needsStateSyncOnConnect) syncStateWithRetry(ws, deps);
   });
   ws.addEventListener("message", (ev) => {
     state.lastWSActivityAt = Date.now();

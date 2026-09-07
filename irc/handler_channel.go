@@ -311,7 +311,7 @@ func (h *handler) updateChannelTopicState(channel string, topic, setBy, setAt *s
 		slog.Error("ensure topic buffer", "err", err, "network", h.networkName, "buffer", channel)
 		return
 	}
-	if err := ircdb.UpdateLogBufferTopicState(ctx, h.db, channel, topic, setBy, setAt); err != nil {
+	if err := ircdb.UpdateLogBufferTopicState(ctx, h.db.DB, channel, topic, setBy, setAt); err != nil {
 		// No publish on failure: clients must never render state that a
 		// reload (which reads from the DB) can't reproduce.
 		slog.Error("update channel topic state", "err", err, "network", h.networkName, "buffer", channel)

@@ -4,6 +4,7 @@ import {
   type ConnectionDeps,
   checkWebSocketHealth,
   createConnection,
+  STATE_SYNC_RETRY_MS,
   type StateSyncDeps,
   syncStateFromServer,
 } from "../src/connection";
@@ -245,9 +246,9 @@ describe("connection recovery", () => {
     expect(state.needsStateSyncOnConnect).toBe(false);
   });
 
-  it("keeps reconnect sync pending when state refresh fails", async () => {
+  it("retries a failed state refresh while the socket stays open", async () => {
     const d = deps();
-    const error = new Error("state down");
+    const error = new Error("503 read positions changed");
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     d.transport.syncState.mockRejectedValueOnce(error);
     state.needsStateSyncOnConnect = true;
@@ -259,6 +260,13 @@ describe("connection recovery", () => {
       expect(consoleError).toHaveBeenCalledWith("reconnect state sync failed", error);
     });
     expect(state.needsStateSyncOnConnect).toBe(true);
+
+    // Second attempt uses the default (successful) implementation.
+    vi.advanceTimersByTime(STATE_SYNC_RETRY_MS);
+    await vi.waitFor(() => {
+      expect(state.needsStateSyncOnConnect).toBe(false);
+    });
+    expect(d.transport.syncState).toHaveBeenCalledTimes(2);
 
     consoleError.mockRestore();
   });

@@ -68,8 +68,8 @@ func TestHistoryRoutingByGlobalBufferID(t *testing.T) {
 	global2, _, _, _ := ms.EnsureBuffer(ctx, n2.ID, "#go", BufferChannel)
 	log1, _ := ms.LogStore(n1.ID)
 	log2, _ := ms.LogStore(n2.ID)
-	_, _, _, _ = InsertLogMessage(ctx, log1.DB, LogMessageInput{BufferID: global1, Sender: "alice", Kind: "privmsg", Content: "hello libera"})
-	_, _, _, _ = InsertLogMessage(ctx, log2.DB, LogMessageInput{BufferID: global2, Sender: "bob", Kind: "privmsg", Content: "hello oftc"})
+	_, _, _, _ = InsertLogMessage(ctx, log1, LogMessageInput{BufferID: global1, Sender: "alice", Kind: "privmsg", Content: "hello libera"})
+	_, _, _, _ = InsertLogMessage(ctx, log2, LogMessageInput{BufferID: global2, Sender: "bob", Kind: "privmsg", Content: "hello oftc"})
 
 	msgs1, err := ms.RecentMessages(ctx, global1, 50)
 	if err != nil {
@@ -101,7 +101,7 @@ func TestWritesStayInPerNetworkDB(t *testing.T) {
 	log1, _ := ms.LogStore(n1.ID)
 	log2, _ := ms.LogStore(n2.ID)
 	local1, _, _, _ := ms.EnsureBuffer(ctx, n1.ID, "#go", BufferChannel)
-	_, _, _, _ = InsertLogMessage(ctx, log1.DB, LogMessageInput{BufferID: local1, Sender: "alice", Kind: "privmsg", Content: "only in libera"})
+	_, _, _, _ = InsertLogMessage(ctx, log1, LogMessageInput{BufferID: local1, Sender: "alice", Kind: "privmsg", Content: "only in libera"})
 
 	var count1, count2 int
 	if err := log1.DB.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&count1); err != nil {
@@ -210,7 +210,7 @@ func TestEnsureBufferAdoptsSurvivingLogUUIDOnNetworkRecreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := InsertLogMessage(ctx, logStore.DB, LogMessageInput{
+	if _, _, _, err := InsertLogMessage(ctx, logStore, LogMessageInput{
 		BufferID: adoptedID, Sender: "alice", Kind: "privmsg", Content: "back again",
 	}); err != nil {
 		t.Fatalf("insert into adopted buffer: %v", err)

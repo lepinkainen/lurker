@@ -157,7 +157,15 @@ type channelListEntry struct {
 
 // tea messages
 
-type stateLoadedMsg struct{ state *stateResponse }
+type stateLoadedMsg struct {
+	gen   int
+	state *stateResponse
+}
+
+type stateFailedMsg struct {
+	gen int
+	err error
+}
 
 type wsConnectedMsg struct {
 	conn   *websocket.Conn

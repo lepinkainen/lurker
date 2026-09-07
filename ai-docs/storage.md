@@ -68,6 +68,10 @@ Important properties:
 - the `buffers.joined` column was dropped (migration `0003_drop_buffer_joined.sql`); joined state is now tracked in the IRC runtime only
 - each log DB has a `messages_fts` FTS5 virtual table for full-text search, kept in sync via triggers
 
+`InsertLogMessage` takes the shared `LogStore` and serializes live ID allocation and commit with that store's mutex. ID order therefore matches live commit order within a network, without making another network wait on its SQLite writes. Backfill skips this mutex: its IDs derive from historical timestamps and clients refresh it separately.
+
+`MultiStore.SnapshotNetwork` reads recent message windows and unread candidates in one read transaction per log DB. Both queries see the same committed rows. Read positions originate in the control DB and are checked once after the log reads. A failed network snapshot or changed read positions makes `/api/state` return 503, preserving clients' existing state until a successful retry. The response is not an atomic snapshot across all databases.
+
 ### Preview cache DB
 
 Path:

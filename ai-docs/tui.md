@@ -108,14 +108,18 @@ Timestamps are displayed in local time as `[HH:MM]`.
 Startup flow:
 
 1. load TUI config
-2. fetch `/api/state`
-3. populate networks, buffers, topics, and `initial_messages`
-4. connect to `/api/stream`
+2. connect to `/api/stream`
+3. fetch `/api/state` (subscribe-then-snapshot, so nothing published in between is missed)
+4. populate networks, buffers, topics, and `initial_messages`
 5. consume WebSocket events until disconnect or quit
+
+Every reconnect repeats steps 3–4: the snapshot replaces local networks, buffers, unread counts, members and each buffer's recent message window, so state missed while the socket was down is recovered. Live events arriving between connect and snapshot are queued and replayed after the snapshot is applied. The guards against double-applying live in the event handlers themselves, so they also cover events still in flight when the snapshot lands: message events at/below the per-buffer newest snapshot id are dropped (in the window, or older and already in its unread totals — the server reads both in one transaction so they agree), mark_read echoes whose `last_seen_id` does not advance past the current one are ignored (max-wins), and `buffer_created` for a known buffer is a no-op. Snapshot results are tagged with a per-connection generation; a result or retry from a superseded connection is ignored. If the pending queue overflows (1000 events) the in-flight snapshot is superseded and a fresh one is fetched. A failed snapshot fetch retries every 5s and shows "State sync failed" in the status line (also on the initial loading screen). Until the snapshot lands the status line reads "Syncing state…".
+
+An equal-position `mark_read` response is accepted while a local optimistic acknowledgement awaits confirmation, so server-provided residual unread counts and the marker can be restored. Applying a snapshot clears that pending acknowledgement and resets history-loading flags, including requests lost on disconnect or queue overflow. Pagination is available again after synchronization finishes. A disconnect invalidates outstanding snapshot results and retries immediately.
 
 Consumed WebSocket events:
 
-- `message`: append to the buffer's message list and refresh the active viewport
+- `message`: insert in ID order, skip rows already loaded through history, and refresh the active viewport
 - `buffer_update`: update joined state and topic
 - `buffer_reorder`: apply live per-network channel ordering updates
 - `network_state`: update displayed network state

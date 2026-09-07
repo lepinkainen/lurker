@@ -57,6 +57,9 @@ type model struct {
 	sidebarSel          int
 	activeBuffer        *bufferDTO
 	lastPersistedBuffer uuid.UUID
+	// optimisticRead records acknowledgements whose counts and marker still
+	// need confirmation, even if the server returns the same read position.
+	optimisticRead map[uuid.UUID]bool
 	// archivesOpen tracks per-network Archives fold state. In-memory only:
 	// folds reset to closed on restart (matching the folded-by-default UX).
 	archivesOpen map[uuid.UUID]bool
@@ -109,6 +112,22 @@ type model struct {
 
 	status  string
 	loading bool
+	// syncing is true from WS connect until the /api/state snapshot lands.
+	// Live events arriving meanwhile are queued in pendingEvents and replayed
+	// after applyState, so they can neither be overwritten by the snapshot
+	// nor double-applied (snapshotBoundary excludes messages in the snapshot).
+	syncing       bool
+	pendingEvents []wsEvent
+	// snapshotBoundary is, per buffer, the newest message id in the last
+	// applied snapshot window. Live message events at/below it are already
+	// reflected by that snapshot (in the window, or older and folded into its
+	// unread totals) and are dropped — whether they arrive via the pending
+	// queue or later through wsChan.
+	snapshotBoundary map[uuid.UUID]uuid.UUID
+	// syncGen increments per WS connect; snapshot results/retries carry the
+	// generation they were issued for and are ignored if a newer connection
+	// has since started its own sync.
+	syncGen int
 }
 
 func newModel(cfg *Config) model {
@@ -140,21 +159,32 @@ func newModel(cfg *Config) model {
 	}
 }
 
-// Init fetches initial state from the backend.
+// Init opens the WebSocket first; the /api/state snapshot is fetched once
+// the socket is subscribed (see wsConnectedMsg), so events published between
+// snapshot and subscribe can't be missed. Same ordering applies to reconnects.
 func (m model) Init() tea.Cmd {
-	return fetchStateCmd(m.client)
+	return connectWSCmd(m.client)
 }
 
 // ── commands ──────────────────────────────────────────────────────────────────
 
-func fetchStateCmd(c *apiClient) tea.Cmd {
+func fetchStateCmd(c *apiClient, gen int) tea.Cmd {
 	return func() tea.Msg {
 		state, err := c.fetchState(context.Background())
 		if err != nil {
-			return errMsg{err}
+			return stateFailedMsg{gen: gen, err: err}
 		}
-		return stateLoadedMsg{state}
+		return stateLoadedMsg{gen: gen, state: state}
 	}
+}
+
+// retryFetchStateCmd re-fetches the snapshot after delay. Used when the WS
+// is up but /api/state failed; without a retry the TUI would sit on stale
+// state while reporting "connected".
+func retryFetchStateCmd(c *apiClient, gen int, delay time.Duration) tea.Cmd {
+	return tea.Tick(delay, func(time.Time) tea.Msg {
+		return fetchStateCmd(c, gen)()
+	})
 }
 
 func reconnectWSCmd(c *apiClient, delay time.Duration) tea.Cmd {
@@ -208,12 +238,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 
 	case stateLoadedMsg:
+		if msg.gen != m.syncGen {
+			return m, nil // result from a superseded connection
+		}
 		m.applyState(msg.state)
+		m.snapshotBoundary = snapshotMessageBoundary(msg.state)
 		m.loading = false
-		m.backendOK = false
-		m.wsStatus = "connecting"
-		m.status = "Loaded — connecting WS…"
-		return m, connectWSCmd(m.client)
+		m.syncing = false
+		m.status = ""
+		for _, ev := range m.pendingEvents {
+			m.handleWSEvent(ev)
+		}
+		m.pendingEvents = nil
+		return m, nil
+
+	case stateFailedMsg:
+		if msg.gen != m.syncGen {
+			return m, nil
+		}
+		m.status = fmt.Sprintf("State sync failed: %v — retrying in 5s…", msg.err)
+		return m, retryFetchStateCmd(m.client, msg.gen, 5*time.Second)
 
 	case wsConnectedMsg:
 		m.wsConn = msg.conn
@@ -226,14 +270,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		go wsWriter(msg.conn, m.wsSendChan)
 		m.backendOK = true
 		m.wsStatus = "connected"
-		m.status = ""
-		return m, waitForWSEvent(m.wsChan)
+		m.status = "Syncing state…"
+		m.syncing = true
+		m.pendingEvents = nil
+		m.syncGen++
+		// Every (re)connect re-fetches the snapshot: anything missed while the
+		// socket was down (messages, membership, markers, buffer changes)
+		// comes back with it.
+		return m, tea.Batch(waitForWSEvent(m.wsChan), fetchStateCmd(m.client, m.syncGen))
 
 	case wsEventMsg:
-		m.handleWSEvent(wsEvent(msg))
+		if m.syncing {
+			if m.queuePendingEvent(wsEvent(msg)) {
+				// Queue overflowed: the in-flight snapshot can't contain what
+				// was dropped, so supersede it and fetch a fresh one.
+				m.syncGen++
+				return m, tea.Batch(waitForWSEvent(m.wsChan), fetchStateCmd(m.client, m.syncGen))
+			}
+		} else {
+			m.handleWSEvent(wsEvent(msg))
+		}
 		return m, waitForWSEvent(m.wsChan)
 
 	case wsErrorMsg:
+		m.syncGen++ // ignore outstanding snapshot results and retries
 		m.backendOK = false
 		m.wsStatus = "reconnecting"
 		m.status = fmt.Sprintf("WS error: %v — reconnecting in 5s…", msg.err)
@@ -737,7 +797,7 @@ type historyFailedMsg struct {
 }
 
 func (m *model) requestHistory() tea.Cmd {
-	if m.activeBuffer == nil || m.wsConn == nil {
+	if m.activeBuffer == nil || m.wsConn == nil || m.syncing {
 		return nil
 	}
 	bufID := m.activeBuffer.ID
@@ -829,7 +889,13 @@ func (m *model) ackActiveRead() {
 	if !m.sendCmdAsync(wsCmd{"type": "mark_read", "buffer_id": b.ID, "message_id": last}) {
 		return
 	}
-	b.LastSeenID = last
+	if !uuidLTE(last, b.LastSeenID) {
+		b.LastSeenID = last
+	}
+	if m.optimisticRead == nil {
+		m.optimisticRead = make(map[uuid.UUID]bool)
+	}
+	m.optimisticRead[b.ID] = true
 	b.MarkerID = uuid.Nil
 	b.MarkerTS = ""
 	m.unread[b.ID] = 0
@@ -873,7 +939,13 @@ func (m *model) refreshActiveBuffer() {
 	m.activeBuffer = m.findBuffer(m.activeBuffer.ID)
 }
 
+// applyState replaces local state with a fresh /api/state snapshot. Runs on
+// every (re)connect, so it must be safe to call repeatedly: per-buffer
+// message lists are replaced by the snapshot's recent window (older pages
+// the user scrolled to are dropped and can be re-fetched), and the
+// history-exhausted flags are cleared accordingly.
 func (m *model) applyState(s *stateResponse) {
+	m.optimisticRead = nil
 	m.networks = s.Networks
 	m.buffers = s.Buffers
 	m.refreshActiveBuffer()
@@ -881,6 +953,8 @@ func (m *model) applyState(s *stateResponse) {
 		m.unread[b.ID] = b.Unread
 		m.mentions[b.ID] = b.Mentions
 	}
+	m.historyExhaust = make(map[uuid.UUID]bool)
+	m.historyLoading = make(map[uuid.UUID]bool)
 	for key, msgs := range s.InitialMessages {
 		id, err := uuid.Parse(key)
 		if err != nil {
@@ -1106,6 +1180,9 @@ func (m *model) handleWSEvent(ev wsEvent) {
 	case "error":
 		m.status = "Server error: " + ev.Message
 	case "buffer_created":
+		if m.findBuffer(ev.ID) != nil {
+			return // already known (e.g. replayed after a snapshot that has it)
+		}
 		// Match backend defaults (db/buffer_settings.go newBufferSettings):
 		// ShowPresenceEvents=true, CollapsePresenceEvents=false. Without
 		// these defaults, presenceMode would treat the freshly created
@@ -1164,16 +1241,75 @@ func (m *model) applyChannelList(ev wsEvent) {
 	m.status = fmt.Sprintf("/list %s: %d channels", netName, len(entries))
 }
 
+// maxPendingEvents bounds the sync-time queue. On overflow the queue is
+// discarded and the caller must start a new snapshot fetch: the
+// dropped state is persisted server-side and lands in that fresh snapshot.
+// History responses cannot be recovered from a snapshot; applyState releases
+// their loading flags so pagination can resume after synchronization.
+// ponytail: a sustained >1000-events-per-snapshot-latency flood would loop
+// on resync; raise the cap if that ever happens in practice.
+const maxPendingEvents = 1000
+
+// queuePendingEvent appends ev; returns true if the queue overflowed and was
+// reset, meaning the in-flight snapshot is no longer sufficient.
+func (m *model) queuePendingEvent(ev wsEvent) bool {
+	if len(m.pendingEvents) >= maxPendingEvents {
+		m.pendingEvents = nil
+		return true
+	}
+	m.pendingEvents = append(m.pendingEvents, ev)
+	return false
+}
+
+// snapshotMessageBoundary returns, per buffer, the newest message id in the
+// snapshot window. Queued message events at or below it are already
+// accounted for by the snapshot (in the window, or older than it and folded
+// into its unread totals) and must not be replayed.
+func snapshotMessageBoundary(s *stateResponse) map[uuid.UUID]uuid.UUID {
+	out := map[uuid.UUID]uuid.UUID{}
+	for key, msgs := range s.InitialMessages {
+		id, err := uuid.Parse(key)
+		if err != nil {
+			continue
+		}
+		var maxID uuid.UUID
+		for _, msg := range msgs {
+			if !uuidLTE(msg.ID, maxID) {
+				maxID = msg.ID
+			}
+		}
+		if maxID != uuid.Nil {
+			out[id] = maxID
+		}
+	}
+	return out
+}
+
 func (m *model) applyMessageEvent(ev wsEvent) {
+	// Already reflected by the last snapshot (see snapshotBoundary). Live ids
+	// are time-ordered and always newer than any snapshot, so this only ever
+	// drops events that raced the snapshot fetch.
+	if maxID, ok := m.snapshotBoundary[ev.BufferID]; ok && uuidLTE(ev.ID, maxID) {
+		return
+	}
+	// Publications may arrive out of ID order, or after a history response
+	// already loaded the row. Keep the list ordered with a logarithmic lookup.
+	pos, found := slices.BinarySearchFunc(m.messages[ev.BufferID], ev.ID, func(msg messageDTO, id uuid.UUID) int {
+		return bytes.Compare(msg.ID[:], id[:])
+	})
+	if found {
+		return
+	}
 	parsed, _ := time.Parse(time.RFC3339Nano, ev.TS)
 	msg := messageDTO{
 		ID: ev.ID, NetworkID: ev.NetworkID, BufferID: ev.BufferID,
 		TS: ev.TS, Sender: ev.Sender, Kind: ev.Kind, Target: ev.Target, Content: ev.Content,
 		MentionsMe: ev.MentionsMe, Highlight: ev.Highlight, CountsAsUnread: ev.CountsAsUnread,
+		IsSelf:   ev.IsSelf,
 		TSParsed: parsed,
 	}
 	atBottom := m.viewport.AtBottom()
-	m.messages[ev.BufferID] = append(m.messages[ev.BufferID], msg)
+	m.messages[ev.BufferID] = slices.Insert(m.messages[ev.BufferID], pos, msg)
 
 	// Unread accounting applies to every buffer, active included — there is
 	// no "actively watching" suppression and no auto-ack. Self-authored
@@ -1185,7 +1321,7 @@ func (m *model) applyMessageEvent(ev wsEvent) {
 		if ev.MentionsMe || ev.Highlight {
 			m.mentions[ev.BufferID]++
 		}
-		if b.MarkerID == uuid.Nil {
+		if b.MarkerID == uuid.Nil || !uuidLTE(b.MarkerID, ev.ID) {
 			b.MarkerID = ev.ID
 			b.MarkerTS = ev.TS
 		}
@@ -1220,7 +1356,12 @@ func (m *model) applyBufferUpdate(ev wsEvent) {
 	// mark_read variant (discriminated by last_seen_id): counts and marker
 	// are taken verbatim — a nil MarkerID means caught up and clears the
 	// marker even on the active buffer (a remote ack dismisses everywhere).
-	if ev.LastSeenID != uuid.Nil {
+	// Equal-position echoes are stale unless a local optimistic ack still
+	// needs its authoritative residual counts and marker. Older positions
+	// must never roll back a newer acknowledgement.
+	if ev.LastSeenID != uuid.Nil && (!uuidLTE(ev.LastSeenID, b.LastSeenID) ||
+		(m.optimisticRead[bufID] && ev.LastSeenID == b.LastSeenID)) {
+		delete(m.optimisticRead, bufID)
 		b.LastSeenID = ev.LastSeenID
 		m.unread[bufID] = ev.Unread
 		m.mentions[bufID] = ev.Mentions
@@ -1285,6 +1426,7 @@ func (m *model) removeBuffer(id uuid.UUID) {
 	delete(m.members, id)
 	delete(m.unread, id)
 	delete(m.mentions, id)
+	delete(m.optimisticRead, id)
 	delete(m.historyLoading, id)
 	delete(m.historyExhaust, id)
 	if wasActive {
@@ -1764,7 +1906,11 @@ func (m model) View() string {
 		return "Initialising…\n"
 	}
 	if m.loading {
-		return fmt.Sprintf("Loading from %s…\n", m.cfg.BackendURL)
+		out := fmt.Sprintf("Loading from %s…\n", m.cfg.BackendURL)
+		if m.status != "" {
+			out += m.status + "\n"
+		}
+		return out
 	}
 
 	sidebarH := m.height

@@ -20,10 +20,10 @@ func TestBatchRecentLogMessages(t *testing.T) {
 	logStore, _ := ms.LogStore(n.ID)
 
 	for range 5 {
-		InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: buf1, Sender: "alice", Kind: "privmsg", Content: "msg"})
+		InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: buf1, Sender: "alice", Kind: "privmsg", Content: "msg"})
 	}
 	for range 3 {
-		InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: buf2, Sender: "bob", Kind: "privmsg", Content: "msg"})
+		InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: buf2, Sender: "bob", Kind: "privmsg", Content: "msg"})
 	}
 
 	got, err := BatchRecentLogMessages(ctx, logStore.DB, []uuid.UUID{buf1, buf2}, 4)
@@ -76,10 +76,10 @@ func TestBatchUnreadCandidates(t *testing.T) {
 	buf2, _, _, _ := ms.EnsureBuffer(ctx, n.ID, "#rust", BufferChannel)
 	logStore, _ := ms.LogStore(n.ID)
 
-	id1, _, _, _ := InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: buf1, Sender: "alice", Kind: "privmsg", Content: "first"})
-	InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: buf1, Sender: "alice", Kind: "privmsg", Content: "second"})
-	InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: buf2, Sender: "alice", Kind: "privmsg", Content: "one"})
-	InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: buf2, Sender: "alice", Kind: "join", Content: ""})
+	id1, _, _, _ := InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: buf1, Sender: "alice", Kind: "privmsg", Content: "first"})
+	InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: buf1, Sender: "alice", Kind: "privmsg", Content: "second"})
+	InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: buf2, Sender: "alice", Kind: "privmsg", Content: "one"})
+	InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: buf2, Sender: "alice", Kind: "join", Content: ""})
 
 	// buf1 last-seen at id1 → only "second" unread; buf2 has no cutoff → all 2
 	cutoffs := map[uuid.UUID]uuid.UUID{
@@ -114,7 +114,7 @@ func TestBatchUnreadCandidates_PerBufferLimit(t *testing.T) {
 	logStore, _ := ms.LogStore(n.ID)
 
 	for range 5 {
-		InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: buf1, Sender: "alice", Kind: "privmsg", Content: "msg"})
+		InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: buf1, Sender: "alice", Kind: "privmsg", Content: "msg"})
 	}
 	got, err := BatchUnreadCandidates(ctx, logStore.DB, map[uuid.UUID]uuid.UUID{buf1: uuid.Nil}, 3)
 	if err != nil {
@@ -125,7 +125,7 @@ func TestBatchUnreadCandidates_PerBufferLimit(t *testing.T) {
 	}
 }
 
-func TestMultiStoreBatchRecentMessages(t *testing.T) {
+func TestSnapshotNetworkMultipleBuffers(t *testing.T) {
 	ctx := t.Context()
 	ms, err := OpenMultiStore(t.TempDir())
 	if err != nil {
@@ -139,14 +139,15 @@ func TestMultiStoreBatchRecentMessages(t *testing.T) {
 	logStore, _ := ms.LogStore(n.ID)
 
 	for range 3 {
-		InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: buf1, Sender: "a", Kind: "privmsg", Content: "x"})
+		InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: buf1, Sender: "a", Kind: "privmsg", Content: "x"})
 	}
-	InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: buf2, Sender: "b", Kind: "privmsg", Content: "y"})
+	InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: buf2, Sender: "b", Kind: "privmsg", Content: "y"})
 
-	got, err := ms.BatchRecentMessages(ctx, n.ID, []uuid.UUID{buf1, buf2}, 10)
+	snap, err := ms.SnapshotNetwork(ctx, n.ID, map[uuid.UUID]uuid.UUID{buf1: uuid.Nil, buf2: uuid.Nil}, 10, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
+	got := snap.Recent
 	if len(got[buf1]) != 3 {
 		t.Fatalf("#go: want 3 StoredMessages, got %d", len(got[buf1]))
 	}

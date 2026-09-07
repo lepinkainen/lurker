@@ -1,9 +1,12 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
+	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -19,6 +22,44 @@ import (
 	"github.com/lepinkainen/lurker/hub"
 	"github.com/lepinkainen/lurker/irc"
 )
+
+type publishOnHijack struct {
+	http.ResponseWriter
+	hub *hub.Hub
+}
+
+func (w publishOnHijack) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	w.hub.Publish(map[string]string{"type": "during_handshake"})
+	return w.ResponseWriter.(http.Hijacker).Hijack()
+}
+
+func TestStreamSubscribesBeforeHandshake(t *testing.T) {
+	h := hub.New()
+	s := &Server{Hub: h}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.stream(publishOnHijack{ResponseWriter: w, hub: h}, r)
+	}))
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	c, resp, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http"), nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.CloseNow() }()
+	var event struct {
+		Type string `json:"type"`
+	}
+	if err := wsjson.Read(ctx, c, &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Type != "during_handshake" {
+		t.Fatalf("event=%q, want publication during handshake", event.Type)
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Test doubles for the api.manager surface
@@ -467,7 +508,7 @@ func TestMarkReadBroadcastsBufferUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lastSeenID, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	lastSeenID, _, _, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
 		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "hi",
 	})
 	if err != nil {
@@ -520,19 +561,19 @@ func TestMarkReadComputesResidualUnread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	first, _, _, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
 		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "hi",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	second, _, _, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
 		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "ping tester",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	if _, _, _, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
 		BufferID: bufID, Sender: "alice", Kind: "join", Content: "",
 	}); err != nil {
 		t.Fatal(err)
@@ -584,13 +625,13 @@ func TestMarkReadStaleAckDoesNotRegress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	older, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	older, _, _, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
 		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "one",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	newer, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	newer, _, _, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
 		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "two",
 	})
 	if err != nil {
@@ -643,7 +684,7 @@ func TestWSCmdMarkRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msgID, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	msgID, _, _, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
 		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "hi",
 	})
 	if err != nil {

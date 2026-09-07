@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,7 @@ import (
 type LogStore struct {
 	NetworkID uuid.UUID
 	DB        *sql.DB
+	insertMu  sync.Mutex // serializes live ID allocation and commit within this network
 }
 
 // OpenLogStore opens the per-network log DB for a validated network name.
@@ -62,13 +64,19 @@ type LogMessageInput struct {
 }
 
 // InsertLogMessage inserts an IRC event into the per-network log.
-func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id uuid.UUID, ts string, inserted bool, err error) {
+func InsertLogMessage(ctx context.Context, store *LogStore, m LogMessageInput) (id uuid.UUID, ts string, inserted bool, err error) {
+	// Live ID order must match commit order for snapshot replay boundaries.
+	// Backfill uses historical IDs and is refreshed separately.
+	if !m.Backfill {
+		store.insertMu.Lock()
+		defer store.insertMu.Unlock()
+	}
 	ts = FormatTime(m.Timestamp)
 	newId := newID()
 	if m.Backfill && !m.Timestamp.IsZero() {
 		newId = newIDAt(m.Timestamp)
 	}
-	affected, err := logdb.New(d).InsertLogMessage(ctx, logdb.InsertLogMessageParams{
+	affected, err := logdb.New(store.DB).InsertLogMessage(ctx, logdb.InsertLogMessageParams{
 		ID:       newId[:],
 		BufferID: m.BufferID[:],
 		Msgid:    nullableString(m.MsgID),
@@ -263,7 +271,7 @@ func LogBufferLastSeen(ctx context.Context, d *sql.DB, name string) (uuid.UUID, 
 // bufferIDs in a single round-trip. Each buffer's subquery uses ORDER BY id
 // DESC LIMIT so the index stops early rather than scanning full history.
 // Results are keyed by buffer ID in ascending message order. limit must be > 0.
-func BatchRecentLogMessages(ctx context.Context, d *sql.DB, bufferIDs []uuid.UUID, limit int) (map[uuid.UUID][]LogMessageRow, error) {
+func BatchRecentLogMessages(ctx context.Context, d logdb.DBTX, bufferIDs []uuid.UUID, limit int) (map[uuid.UUID][]LogMessageRow, error) {
 	if len(bufferIDs) == 0 {
 		return map[uuid.UUID][]LogMessageRow{}, nil
 	}

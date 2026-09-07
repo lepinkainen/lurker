@@ -47,7 +47,7 @@ func newServiceTestEnv(t *testing.T) serviceTestEnv {
 	if err != nil {
 		t.Fatalf("log store: %v", err)
 	}
-	messageID, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	messageID, _, _, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
 		BufferID:  bufferID,
 		Timestamp: time.Now(),
 		Sender:    "alice",

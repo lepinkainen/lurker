@@ -114,7 +114,7 @@ func TestUnreadCountsIncludeHighlights(t *testing.T) {
 	}
 	// One nick mention, one highlight-pattern match, one plain message.
 	for _, content := range []string{"hi bob", "deploy is done", "nothing special"} {
-		if _, _, _, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: content}); err != nil {
+		if _, _, _, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: content}); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -1,7 +1,6 @@
 package irc
 
 import (
-	"database/sql"
 	"sync"
 
 	"github.com/google/uuid"
@@ -14,7 +13,7 @@ import (
 // instance per network connection.
 type handler struct {
 	stores              *ircdb.MultiStore
-	db                  *sql.DB
+	db                  *ircdb.LogStore
 	hub                 *hub.Hub
 	previews            PreviewEnqueuer
 	networkID           uuid.UUID

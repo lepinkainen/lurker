@@ -19,11 +19,11 @@ func TestUnreadCandidates(t *testing.T) {
 	logStore, _ := ms.LogStore(n.ID)
 
 	// Five messages: privmsg (mention), privmsg, join (sys), privmsg, action.
-	id1, _, _, _ := InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "hi bob"})
-	_, _, _, _ = InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "second"})
-	_, _, _, _ = InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: bufID, Sender: "carol", Kind: "join", Content: ""})
-	_, _, _, _ = InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "third"})
-	_, _, _, _ = InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: bufID, Sender: "alice", Kind: "action", Content: "waves at bob"})
+	id1, _, _, _ := InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "hi bob"})
+	_, _, _, _ = InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "second"})
+	_, _, _, _ = InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: bufID, Sender: "carol", Kind: "join", Content: ""})
+	_, _, _, _ = InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "third"})
+	_, _, _, _ = InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: bufID, Sender: "alice", Kind: "action", Content: "waves at bob"})
 
 	// All candidates from beginning
 	all, err := UnreadCandidates(ctx, logStore.DB, bufID, uuid.Nil, 0)
