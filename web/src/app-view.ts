@@ -2,7 +2,10 @@ import { activeBuffer, type Member, type Message, type Network, state } from "./
 import { getStartupFallbackBufferIds } from "./buffers";
 import { tryRenderActiveChannelList } from "./channel-list";
 import type { DomRefs } from "./dom";
+import type { PendingSend } from "./input";
 import { updateInputEnabled } from "./input";
+import { saveInputDraft } from "./input-history";
+import { showNote } from "./input-upload";
 import { renderMembers } from "./members";
 import {
   onBufferUpdate,
@@ -135,6 +138,21 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
         view.renderActiveView();
       }
       view.renderSidebar();
+    },
+    // showCommandError surfaces a WS `error` envelope in the composer note
+    // (same slot as upload failures). failed is the rejected "send"; its text
+    // goes back to the originating buffer only — into the live composer if
+    // that buffer is still active and the composer is empty, otherwise into
+    // that buffer's saved draft so it reappears on switch-back. Never into
+    // whatever buffer happens to be active now.
+    showCommandError: (message: string, failed?: PendingSend) => {
+      showNote(d.inputForm, message, "error");
+      if (!failed) return;
+      if (failed.bufferId === state.activeId) {
+        if (d.inputEl.value === "") d.inputEl.value = failed.text;
+        return;
+      }
+      if (!(state.inputHistory.get(failed.bufferId)?.draft ?? "")) saveInputDraft(failed.bufferId, failed.text);
     },
   };
   return view;

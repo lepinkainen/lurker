@@ -82,6 +82,8 @@ type stateResponse struct {
 // Fields not relevant to a given type are zero-valued.
 type wsEvent struct {
 	Type string `json:"type"`
+	// error envelope
+	Message string `json:"message"`
 	// message
 	ID             uuid.UUID `json:"id"`
 	NetworkID      uuid.UUID `json:"network_id"`

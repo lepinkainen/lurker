@@ -313,3 +313,32 @@ describe("ws-router channel_list", () => {
     expect(view.renderActiveView).not.toHaveBeenCalled();
   });
 });
+
+describe("ws-router command outcomes", () => {
+  beforeEach(() => resetAppState());
+  afterEach(() => resetAppState());
+
+  it("error envelope surfaces the message and hands back the pending send text", async () => {
+    const { recordPendingSend } = await import("../src/input");
+    const view = fakeView();
+    view.showCommandError = vi.fn();
+    recordPendingSend("r7", "b1", "hello there");
+    createWSRouter(view)({ type: "error", req_id: "r7", message: "not joined" });
+    expect(view.showCommandError).toHaveBeenCalledWith("not joined", { bufferId: "b1", text: "hello there" });
+  });
+
+  it("ack drops the pending send so a later unrelated error does not restore it", async () => {
+    const { recordPendingSend } = await import("../src/input");
+    const view = fakeView();
+    view.showCommandError = vi.fn();
+    recordPendingSend("r8", "b1", "acked text");
+    createWSRouter(view)({ type: "ack", req_id: "r8" });
+    createWSRouter(view)({ type: "error", req_id: "r8", message: "late" });
+    expect(view.showCommandError).toHaveBeenCalledWith("late", undefined);
+  });
+
+  it("ping is ignored", () => {
+    const view = fakeView();
+    expect(() => createWSRouter(view)({ type: "ping" })).not.toThrow();
+  });
+});

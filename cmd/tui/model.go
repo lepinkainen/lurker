@@ -1103,6 +1103,8 @@ func (m *model) handleWSEvent(ev wsEvent) {
 		m.removeBuffer(ev.ID)
 	case "network_state":
 		m.networkStates[ev.NetworkID] = ev.State
+	case "error":
+		m.status = "Server error: " + ev.Message
 	case "buffer_created":
 		// Match backend defaults (db/buffer_settings.go newBufferSettings):
 		// ShowPresenceEvents=true, CollapsePresenceEvents=false. Without

@@ -103,6 +103,8 @@ Error envelope:
 { "type": "error", "req_id": "r1", "message": "..." }
 ```
 
+Client handling: web shows `message` in the composer note (`.upload-note`, same slot as upload failures) and, if the failed command was a `send`, puts the rejected text back into the *originating* buffer — the live composer if that buffer is still active and empty, else that buffer's saved draft — never into a different buffer the user switched to meanwhile; `ack` drops the pending entry. TUI shows `Server error: <message>` in the status line. Apple shows errors inline. Acks are otherwise not tracked — there is no pending/succeeded state machine.
+
 ## Command-specific response types
 
 `history_result` — response to `history` command:

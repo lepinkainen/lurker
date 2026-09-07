@@ -1,6 +1,7 @@
 import { activeBuffer, type Member, type Message, type NetsplitInfo, state } from "./app-state";
 import type { AppView } from "./app-view";
 import { applyChannelListUpdate, type ChannelListUpdate } from "./channel-list";
+import { takePendingSend } from "./input";
 import { registerAvatar, registerMemberNickColors, registerMessageNickColors } from "./nick-colors";
 
 type WSMessage =
@@ -50,7 +51,10 @@ type WSMessage =
       network_id: string;
       entries: { mask: string; level: "hide" | "mute" }[];
     }
-  | { type: "highlights"; patterns?: string[] };
+  | { type: "highlights"; patterns?: string[] }
+  | { type: "ack"; req_id?: string }
+  | { type: "error"; req_id?: string; message?: string }
+  | { type: "ping" };
 
 export function createWSRouter(view: AppView, sendCmd: (cmd: Record<string, unknown>) => void): (msg: unknown) => void {
   return (msg: unknown) => {
@@ -59,6 +63,14 @@ export function createWSRouter(view: AppView, sendCmd: (cmd: Record<string, unkn
       case "message":
         registerMessageNickColors(m);
         view.appendMessage(m);
+        break;
+      case "ack":
+        takePendingSend(m.req_id);
+        break;
+      case "error":
+        view.showCommandError(m.message || "command failed", takePendingSend(m.req_id));
+        break;
+      case "ping":
         break;
       case "buffer_created": {
         const net = state.networks.get(m.network_id);

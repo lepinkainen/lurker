@@ -829,3 +829,17 @@ func TestHistoryBackfillEventRequestsRefetch(t *testing.T) {
 		t.Fatalf("history_backfill for an unloaded buffer must not refetch, sent: %+v", *sent)
 	}
 }
+
+// A WS error envelope must reach the user via the status line instead of
+// being dropped on the floor.
+func TestWSErrorEnvelopeSetsStatus(t *testing.T) {
+	m := testModel()
+	var ev wsEvent
+	if err := json.Unmarshal([]byte(`{"type":"error","req_id":"r1","message":"not joined"}`), &ev); err != nil {
+		t.Fatal(err)
+	}
+	m.handleWSEvent(ev)
+	if m.status != "Server error: not joined" {
+		t.Fatalf("status = %q", m.status)
+	}
+}

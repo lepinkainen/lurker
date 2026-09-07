@@ -96,7 +96,7 @@ const NOTE_ERROR_MS = 8000;
 
 let noteTimer: ReturnType<typeof setTimeout> | undefined;
 
-function showNote(form: HTMLFormElement, text: string, kind: "info" | "error") {
+export function showNote(form: HTMLFormElement, text: string, kind: "info" | "error") {
   clearTimeout(noteTimer);
   let el = form.querySelector<HTMLElement>(`.${NOTE_CLASS}`);
   if (!el) {
