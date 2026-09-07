@@ -154,8 +154,41 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	defer unsub()
 
 	done := make(chan struct{})
-	go runStreamWriter(ctx, c, events, overflow, done)
+	go runStreamWriter(ctx, c, cancel, events, overflow, done)
+	go runStreamPinger(ctx, c, cancel)
 	s.runStreamReader(ctx, c, cancel, done)
+}
+
+// wsPingInterval is the server-side heartbeat period. The web client treats
+// a socket with no application message for 60s as dead, so pinging well
+// inside that keeps idle-but-healthy sessions from reconnecting and
+// reloading state.
+var wsPingInterval = 25 * time.Second // var so tests can shorten it
+
+// runStreamPinger sends a {"type":"ping"} event every wsPingInterval. It is
+// an application-level message (not a WebSocket control frame) because
+// browsers do not expose protocol pings to JS. Write failures cancel ctx,
+// which unblocks the reader and tears the connection down. Concurrent with
+// runStreamWriter is fine: coder/websocket Write is goroutine-safe.
+func runStreamPinger(ctx context.Context, c *websocket.Conn, cancel context.CancelFunc) {
+	t := time.NewTicker(wsPingInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			pctx, pcancel := context.WithTimeout(ctx, 10*time.Second)
+			err := wsjson.Write(pctx, c, struct {
+				Type string `json:"type"`
+			}{Type: "ping"})
+			pcancel()
+			if err != nil {
+				cancel()
+				return
+			}
+		}
+	}
 }
 
 // runStreamWriter forwards every event published on the hub channel to the
@@ -163,9 +196,12 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 // down the connection rather than backing up the hub. If the hub signals
 // overflow (this subscriber fell behind and an event was dropped) the
 // writer returns, tearing down the connection so the client reconnects and
-// resyncs from a fresh snapshot.
-func runStreamWriter(ctx context.Context, c *websocket.Conn, events <-chan any, overflow <-chan struct{}, done chan<- struct{}) {
+// resyncs from a fresh snapshot. Returning also cancels ctx so the reader,
+// blocked in wsjson.Read, unblocks and closes the socket instead of leaving
+// a silent half-dead connection open.
+func runStreamWriter(ctx context.Context, c *websocket.Conn, cancel context.CancelFunc, events <-chan any, overflow <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
+	defer cancel()
 	for {
 		select {
 		case <-ctx.Done():

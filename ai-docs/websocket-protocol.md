@@ -149,6 +149,7 @@ Currently published events:
 - `channel_list` — streaming /LIST results
 - `netsplit` — retroactive netsplit annotation for already-published messages
 - `highlights` — global highlight pattern list changed (`{patterns: [...]}`); matching itself stays server-side, the event only lets open settings UIs refresh
+- `ping` — `{type: "ping"}` server heartbeat every 25s, no payload. Exists so clients that use inactivity as a liveness signal (web: 60s) don't reconnect on quiet sessions. Clients ignore it beyond refreshing their last-activity timestamp
 - `history_backfill` — `{network_id, buffer_id, count}`: a CHATHISTORY replay inserted `count` older messages into the buffer (no per-message `message` events are sent for replays). Clients with the buffer loaded refetch its recent window (`history` command without `before`) and merge by id; the recovered rows also feed unread/marker bookkeeping. Buffers not yet loaded see the rows on their normal first load
 
 Important event shapes:
