@@ -30,11 +30,11 @@ tmux -L lurker-verify capture-pane -t tui -p     # evidence
 
 - **`-state-dir` is mandatory.** Without it the TUI reads and rewrites `<user config dir>/lurker/tui-state.json` (`cmd/tui/state.go`) — clobbering the user's real last-viewed buffer, and inheriting it on the next run so startup-buffer assertions become non-deterministic.
 - `-url` beats config discovery, which otherwise probes `./tui-config.yaml` then `~/.config/lurker/tui.yaml` (`cmd/tui/config.go`); default backend is already `http://localhost:8080`. There is no debug flag, no log file, and no env-var overrides.
-- 200x50 gives sidebar + viewport room. The sidebar is a fixed 26 cols and there is **no "terminal too small" guard** (`cmd/tui/model.go` `resizeComponents`): below ~28 cols (~51 with the members pane open) the right pane collapses to 1 column and rendering overflows instead of degrading.
+- 200x50 gives sidebar + viewport room. The sidebar is a fixed 26 cols and there is **no "terminal too small" guard** (`cmd/tui/model_render.go` `resizeComponents`): below ~28 cols (~51 with the members pane open) the right pane collapses to 1 column and rendering overflows instead of degrading.
 
 ## Drive it
 
-Keys, from `handleKey` in `cmd/tui/model.go`. Only two focus states (input, sidebar) plus the switcher overlay — **there is no help overlay and no `?` binding**.
+Keys, from `handleKey` in `cmd/tui/model_input.go`. Only two focus states (input, sidebar) plus the switcher overlay — **there is no help overlay and no `?` binding**.
 
 | Key | Effect |
 |---|---|
@@ -49,7 +49,7 @@ Keys, from `handleKey` in `cmd/tui/model.go`. Only two focus states (input, side
 
 Slash commands live in `cmd/tui/slash.go` (~35, each mapping to one WS command). Useful ones: `/join`, `/query`, `/me`, `/topic`, `/archive`, `/unarchive`, `/delete`, `/raw`. `/archives` is client-only (toggles the Archives fold, never hits the server) and is the only keyboard route into the fold. A bad command sets status `Unknown command: /foo` — grep for that as the failure signal.
 
-Mouse is on (`tea.WithMouseCellMotion`), so terminal-native scroll and link-clicking are replaced by hit-testing (`handleMouse`, `cmd/tui/model.go`). Geometry matters when sending clicks:
+Mouse is on (`tea.WithMouseCellMotion`), so terminal-native scroll and link-clicking are replaced by hit-testing (`handleMouse`, `cmd/tui/model_input.go`). Geometry matters when sending clicks:
 
 - Sidebar rows: `x < 26`, row index `y - 2`. Archive-toggle rows **are** clickable (only headers are rejected).
 - Unread-bar ack: exactly `y == 2`, `x > 26`.
@@ -66,7 +66,7 @@ Mouse is on (`tea.WithMouseCellMotion`), so terminal-native scroll and link-clic
 - Startup/status: `Initialising…`, `Loading from <url>…`, `Press Ctrl+D again to quit`, `WS error: … — reconnecting in 5s…`, `Error: fetch state: …`.
 - Messages: `[15:04] <nick> text`, notices `[15:04] -nick- text`, actions `* nick text`, events `→ joined`, `← left`, `⇠ quit`, `⛔ kicked`, `⚙ set mode`, `📌 set topic`, collapsed runs `+ N presence events: …`.
 
-**Badge trap:** unread badges render as `" (N)"` / `" (99+)"`, and pinned rows appear twice (Pinned section **and** their network section) so every badge shows up twice. Rows styled as **archived/dim or as the Archives fold render the bare label — never a badge** (`renderSidebar`, `cmd/tui/model.go`), and mentions get no badge at all, only gold color. Timestamps are local (`TZ`-dependent), so pin `TZ` if you assert on them.
+**Badge trap:** unread badges render as `" (N)"` / `" (99+)"`, and pinned rows appear twice (Pinned section **and** their network section) so every badge shows up twice. Rows styled as **archived/dim or as the Archives fold render the bare label — never a badge** (`renderSidebar`, `cmd/tui/model_render.go`), and mentions get no badge at all, only gold color. Timestamps are local (`TZ`-dependent), so pin `TZ` if you assert on them.
 
 ## Fakes & fixtures
 

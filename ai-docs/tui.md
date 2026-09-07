@@ -73,7 +73,7 @@ A template is available at `tui-config.yaml.example`.
 
 ## UI layout
 
-The Bubble Tea model in `cmd/tui/model.go` renders an alternate-screen terminal UI:
+The Bubble Tea model in `cmd/tui/model*.go` renders an alternate-screen terminal UI:
 
 - left sidebar: enabled networks and their buffers
 - active channel rows honor the backend's manual `(sort_order, name)` order; queries and archived buffers remain alphabetical
@@ -143,5 +143,9 @@ The client currently ignores ack responses except as generic WebSocket events wi
 - `cmd/tui/main.go` — CLI flag parsing, config load, Bubble Tea program startup
 - `cmd/tui/config.go` — YAML config lookup and defaults
 - `cmd/tui/client.go` — `/api/state`, WebSocket connection, event reader, send command
-- `cmd/tui/model.go` — Bubble Tea model, layout, key handling, rendering, event application
+- `cmd/tui/model.go` — Bubble Tea model struct, `Init`/`Update`, fetch/WS commands, state application, read tracking
+- `cmd/tui/model_input.go` — key and mouse handling, switcher keys, input submit, history, nick autocomplete
+- `cmd/tui/model_events.go` — WebSocket event application (messages, buffers, networks, history results, pending-event replay)
+- `cmd/tui/model_render.go` — viewport, unread bar, message formatting, `View` and pane rendering
+- `cmd/tui/sidebar.go` — sidebar item construction, navigation, archive fold, selection
 - `cmd/tui/types.go` — API DTOs, WebSocket event union, Bubble Tea messages

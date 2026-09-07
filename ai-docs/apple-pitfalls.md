@@ -64,7 +64,7 @@ feeding a `PreferenceKey`, then position with `.offset(y: -(height + gap))`,
 gated by `.opacity(height > 0 ? 1 : 0)` to hide the pre-measurement frame
 (otherwise there's a one-frame flash at the wrong position before the height
 is known). See `ComposerPopupHeightKey` and its consumer in
-`apple/Lurker/ConversationView.swift`.
+`apple/Lurker/ComposerView.swift`.
 
 **Verify.** XCUITest: log the popup element's `.frame` against the composer's
 and the window's frames and assert the popup's `maxY` is at or above the
@@ -228,7 +228,7 @@ press, not just chorded ones.
 **Fix.** Guard on intersection with the actual chord modifiers instead of
 emptiness: `press.modifiers.intersection([.command, .option, .control,
 .shift]).isEmpty`. See the `.onKeyPress(keys: [.upArrow, .downArrow])`
-handler in `apple/Lurker/ConversationView.swift` — modified arrows (⌥↑ etc.)
+handler in `apple/Lurker/ComposerView.swift` — modified arrows (⌥↑ etc.)
 are reserved for menu-bar shortcuts and still correctly fall through when
 this guard is non-empty.
 

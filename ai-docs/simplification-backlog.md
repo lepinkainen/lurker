@@ -13,7 +13,7 @@ Tags: `delete` dead code / speculative feature · `stdlib` hand-rolled stdlib ·
 ## Structural
 
 - [x] `delete` `scripts/migrate_int_ids_to_uuidv7.py` — done 2026-08-06. 576 lines.
-- [ ] `delete` Netsplit clustering exists twice: batch `GroupPresence`/`nsCluster`/`PresenceGroup`/`NetsplitGroup` vs live incremental `netsplitTracker`, hand-kept-in-sync and pinned by a contract test. Keep the live tracker (already stamps `MessageCore.Netsplit`), persist/serve that annotation, drop the batch path. `irc/netsplit.go:63-250`, `api/state.go:314-348`, `cmd/tui/model.go:1585`. ~450 lines incl tests.
+- [ ] `delete` Netsplit clustering exists twice: batch `GroupPresence`/`nsCluster`/`PresenceGroup`/`NetsplitGroup` vs live incremental `netsplitTracker`, hand-kept-in-sync and pinned by a contract test. Keep the live tracker (already stamps `MessageCore.Netsplit`), persist/serve that annotation, drop the batch path. `irc/netsplit.go:63-250`, `api/state.go:314-348`, `cmd/tui/model_render.go` (`groupAndFormatMessages`). ~450 lines incl tests.
 - [ ] `native` Apple sidebar drag-and-drop stack — `SidebarDropDelegate`, drag-cancel detection polling `NSEvent.pressedMouseButtons` every 250ms, hand-rolled `SidebarOrdering.moving`, six near-identical drag predicates, three near-identical `commitXDrop`. Replace with `List` + `.onMove`, or `.draggable`/`.dropDestination` + `Transferable`; `Array.move(fromOffsets:toOffset:)` is stdlib. `apple/Lurker/SidebarView.swift:6-548`. ~400 lines incl 16 test cases.
 - [ ] `yagni` api: 7 interfaces, 1 implementation (`*irc.Manager`) — `manager` = `wsManager`(=`messageSender`+`channelOps`+`presenceOps`+`modeOps`) + `stateManager` + `networkManager`; sub-interfaces exist only for per-slice test mocks. Collapse to one interface, one mock struct. `api/server.go:23-27`, `api/ws.go:82-126`, `api/state.go:80-85`, `api/networks.go:36-40`. ~245 lines incl tests.
 - [ ] `yagni` `datasource.Source` interface + `datasource.Manager` — one implementation (bluesky); Manager is Register/Start/Wait/Names over a one-element slice; `Post.Target` always `""`. Construct `bluesky.Source` directly in `main.go:171-200`. ~130 lines.
@@ -54,7 +54,7 @@ Tags: `delete` dead code / speculative feature · `stdlib` hand-rolled stdlib ·
 - [ ] `yagni` web small files: `main.ts`/`bootstrap.ts` re-export chain (3 files, 2 ≤6 lines), `navigation.ts` 9-line wrapper, `alias()` one caller (`slash-commands.ts:23-37`), `handleBufferLifecycleCmd` reachable only from identical switch's default (`api/ws.go:294-311`). ~45
 - [ ] `delete` web dead: `closeAllDrawers` (`ui-shell.ts:27`), `applyThemeDefaults` re-setting hardcoded density, `data-density="balanced|comfortable"` CSS never set, `.flash` class, `ignorelist_result` console.log-only case + union member + `/ignorelist` command (surface or cut), 20 needless `export` keywords. ~33
 - [ ] `delete` web devDeps: `stylelint` + `stylelint-config-standard` (Biome 2.4 lints CSS, already installed), `@vitest/browser` (never imported; transitive of `@vitest/browser-playwright`). −3 deps. Borderline: `@vitest/coverage-v8` if `test:coverage` unused.
-- [ ] `shrink` duplicate URL regex byte-identical in `preview/extract.go:9` and `cmd/tui/model.go:395` — export one.
+- [ ] `shrink` duplicate URL regex byte-identical in `preview/extract.go:9` and `cmd/tui/model_input.go` (`urlRe`) — export one.
 - [ ] fix stale comment: `media/store.go:40-41` claims Q/Kind unimplemented; `db/media_store.go:144` implements both.
 
 ## Noted, low yield / judgment calls
