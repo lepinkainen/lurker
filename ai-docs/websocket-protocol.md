@@ -11,7 +11,7 @@ The stream serves two roles:
 
 See [rest-api.md](rest-api.md) for the REST surface and [irc-runtime.md](irc-runtime.md) for how server events are produced.
 
-The server subscribes to the event hub before completing the WebSocket handshake. Clients can open the socket before fetching `/api/state` and queue events during the fetch. This ordering needs the updated backend; older backends open the socket before subscribing, leaving a small gap. No ready frame or client protocol change is required. `/api/state` may answer 503 when a snapshot could not be taken consistently (see [rest-api.md](rest-api.md)); clients keep their current state and retry (web: 2s while the socket stays open; TUI: 5s; Apple: full reconnect with backoff).
+The server subscribes to the event hub before completing the WebSocket handshake. Clients can open the socket before fetching `/api/state` and queue events during the fetch. This ordering needs the updated backend; older backends open the socket before subscribing, leaving a small gap. No ready frame or client protocol change is required. The web client applies live events while its `/api/state` fetch is in flight and then prunes networks/buffers the snapshot lacks; ids that arrived via `buffer_created` / `network_created` while the fetch was pending are recorded and spared, so a buffer created mid-fetch survives while a buffer deleted offline (even the newest one) is pruned. `/api/state` may answer 503 when a snapshot could not be taken consistently (see [rest-api.md](rest-api.md)); clients keep their current state and retry (web: 2s while the socket stays open; TUI: 5s; Apple: full reconnect with backoff).
 
 ## Client commands
 
@@ -143,6 +143,9 @@ Currently published events:
 - `buffer_deleted` — buffer and its history permanently deleted
 - `buffer_update` — topic, topic setter/set-time, joined/archived state, or last-seen-ID changes
 - `network_state` — connection state transitions
+- `network_created` / `network_updated` — `{network: networkDTO}` after a REST create/patch (see rest-api.md); clients upsert the record so open UIs converge without reload
+- `network_deleted` — `{id}`; clients drop the network and every buffer under it (same cleanup as `buffer_deleted`)
+- `network_reorder` — `{networks: [{id, sort_order}]}` after `POST /api/networks/reorder`
 - `member_list` — full channel member list snapshot
 - `preview` — URL previews ready for a message
 - `presence` — lightweight join/part/quit/kick/nick-change events
@@ -170,7 +173,8 @@ Important event shapes:
 - `kind`
 - `target`
 - `content`
-- `display_kind`, `is_self`, `mentions_me`, `counts_as_unread` — server-computed semantics (`irc.ComputeMessageSemantics`); clients consume verbatim. Server-originated messages (`sender` containing `.` or `:`, e.g. a server hostname on numerics like the 001 welcome) never set `mentions_me`, even if the content embeds the user's nick
+- `display_kind`, `is_self`, `mentions_me`, `counts_as_unread` — server-computed semantics (`irc.ComputeMessageSemantics`); clients consume verbatim.
+- `muted` (omitted when false) — sender is on the mute tier of the ignore list. Set identically on live events, history pages and `initial_messages`. Clients: count mentions/highlights normally, but never increment unread or place the marker for a muted message. `counts_as_unread` stays the pure kind-based flag (true for a muted privmsg); the server's own `/api/state` tally applies the same rule. Server-originated messages (`sender` containing `.` or `:`, e.g. a server hostname on numerics like the 001 welcome) never set `mentions_me`, even if the content embeds the user's nick
 - `highlight`, `highlight_pattern` — set when `content` matches a user-defined highlight pattern (`irc/highlights.go`, configured via `PUT /api/settings/highlights`); word-boundary case-insensitive matching, self-authored messages never highlight, nor do server-originated messages (see `mentions_me` above). Clients treat `highlight` like `mentions_me` for badges/styling but can distinguish the two
 - `sender_color` — nick-color palette index for `sender` (Go `nickcolor` package; omitted when no sender)
 - `target_color` — palette index for `target` when it is a nick (`kick`/`nick` kinds only)

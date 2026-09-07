@@ -135,9 +135,7 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 		Target:    target,
 		Content:   content,
 	}).WithSemantics(nick)
-	if muted {
-		ev.CountsAsUnread = false
-	}
+	ev.Muted = muted
 	ev.Netsplit = nsMeta
 	h.hub.Publish(ev)
 	h.enqueuePreviews(id, bufID, bufKind, kind, content)

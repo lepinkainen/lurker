@@ -1,8 +1,13 @@
-import { activeBuffer, type Member, type Message, type NetsplitInfo, state } from "./app-state";
+import { activeBuffer, type Member, type Message, type NetsplitInfo, type Network, state } from "./app-state";
 import type { AppView } from "./app-view";
 import { applyChannelListUpdate, type ChannelListUpdate } from "./channel-list";
 import { takePendingSend } from "./input";
-import { registerAvatar, registerMemberNickColors, registerMessageNickColors } from "./nick-colors";
+import {
+  registerAvatar,
+  registerMemberNickColors,
+  registerMessageNickColors,
+  registerNetworkNickColor,
+} from "./nick-colors";
 
 type WSMessage =
   | ({ type: "message" } & Message)
@@ -38,6 +43,9 @@ type WSMessage =
   | { type: "buffer_reorder"; network_id: string; buffers?: { id: string; sort_order: number }[] }
   | { type: "buffer_deleted"; id: string; network_id: string }
   | { type: "network_state"; network_id: string; state: string }
+  | { type: "network_created" | "network_updated"; network: Network }
+  | { type: "network_deleted"; id: string }
+  | { type: "network_reorder"; networks?: { id: string; sort_order: number }[] }
   | { type: "history_result"; buffer_id: string; messages?: Message[] }
   | { type: "history_backfill"; network_id: string; buffer_id: string; count: number }
   | { type: "preview"; buffer_id: string; message_id: string; previews?: Message["previews"] }
@@ -73,6 +81,7 @@ export function createWSRouter(view: AppView, sendCmd: (cmd: Record<string, unkn
       case "ping":
         break;
       case "buffer_created": {
+        if (state.needsStateSyncOnConnect) state.createdDuringSync.add(m.id);
         const net = state.networks.get(m.network_id);
         const isDatasource = net?.kind !== undefined && net.kind !== "irc";
         state.buffers.set(m.id, {
@@ -115,6 +124,29 @@ export function createWSRouter(view: AppView, sendCmd: (cmd: Record<string, unkn
         for (const entry of m.buffers || []) {
           const buffer = state.buffers.get(entry.id);
           if (buffer) buffer.sort_order = entry.sort_order;
+        }
+        view.renderSidebar();
+        break;
+      case "network_created":
+      case "network_updated":
+        if (state.needsStateSyncOnConnect) state.createdDuringSync.add(m.network.id);
+        state.networks.set(m.network.id, m.network);
+        registerNetworkNickColor(m.network);
+        view.renderSidebar();
+        view.renderHeader();
+        break;
+      case "network_deleted":
+        for (const b of [...state.buffers.values()]) {
+          if (b.network_id === m.id) view.removeBuffer(b.id);
+        }
+        state.networks.delete(m.id);
+        view.renderSidebar();
+        view.renderHeader();
+        break;
+      case "network_reorder":
+        for (const entry of m.networks || []) {
+          const n = state.networks.get(entry.id);
+          if (n) n.sort_order = entry.sort_order;
         }
         view.renderSidebar();
         break;

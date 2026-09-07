@@ -123,6 +123,7 @@ Consumed WebSocket events:
 - `buffer_update`: update joined state and topic
 - `buffer_reorder`: apply live per-network channel ordering updates
 - `network_state`: update displayed network state
+- `network_created` / `network_updated` / `network_deleted` / `network_reorder`: upsert, drop (with its buffers) or reorder networks in the sidebar
 - `buffer_created`: append a new buffer with its server-assigned channel order and rebuild the sidebar
 
 Sent WebSocket commands:

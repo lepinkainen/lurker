@@ -688,6 +688,21 @@ final class AppModel {
       network.status = event.state
       networks[event.networkID] = network
 
+    case .networkCreated(let event),
+         .networkUpdated(let event):
+      networks[event.network.id] = event.network
+
+    case .networkDeleted(let event):
+      networks.removeValue(forKey: event.id)
+      for id in buffers.values.filter({ $0.networkID == event.id }).map(\.id) {
+        removeBuffer(id)
+      }
+
+    case .networkReorder(let event):
+      for entry in event.networks {
+        networks[entry.id]?.sortOrder = entry.sortOrder
+      }
+
     case .history(let event):
       mergeMessages(event.messages, into: event.bufferID)
       if event.messages.isEmpty {
@@ -1037,11 +1052,15 @@ final class AppModel {
     let isUnseen = buffer.lastSeenID.map { message.id.uuidString > $0.uuidString } ?? true
     guard isUnseen else { return }
 
-    if buffer.markerID == nil {
-      buffer.markerID = message.id
-      buffer.markerTS = message.ts
+    // Muted senders still badge mentions but never count as unread or
+    // anchor the marker (same rule as the server's tallyUnread).
+    if message.muted != true {
+      if buffer.markerID == nil {
+        buffer.markerID = message.id
+        buffer.markerTS = message.ts
+      }
+      buffer.unread += 1
     }
-    buffer.unread += 1
     if message.mentionsMe == true || message.highlight == true {
       buffer.mentions += 1
       if !applicationActive, notificationsEnabled {
@@ -1074,10 +1093,12 @@ final class AppModel {
         guard message.countsAsUnread == true, message.isSelf != true else { continue }
         let isUnseen = buffer.lastSeenID.map { message.id.uuidString > $0.uuidString } ?? true
         guard isUnseen else { continue }
-        buffer.unread += 1
+        changed = true
         if message.mentionsMe == true || message.highlight == true {
           buffer.mentions += 1
         }
+        guard message.muted != true else { continue }
+        buffer.unread += 1
         // Recovered messages predate any live arrivals, so the marker moves
         // back to the earliest of them.
         if buffer.markerID.map({ message.id.uuidString < $0.uuidString }) ?? true {

@@ -327,6 +327,7 @@ func (s *Server) loadHistory(ctx context.Context, bufferID, before uuid.UUID, li
 func (s *Server) toMessageDTOs(ctx context.Context, in []ircdb.StoredMessage) []messageDTO {
 	out := make([]messageDTO, 0, len(in))
 	nicks := map[uuid.UUID]string{}
+	muted := map[uuid.UUID]func(string) bool{}
 	for _, m := range in {
 		nick, ok := nicks[m.NetworkID]
 		if !ok {
@@ -334,9 +335,13 @@ func (s *Server) toMessageDTOs(ctx context.Context, in []ircdb.StoredMessage) []
 				nick = s.Manager.Nick(m.NetworkID)
 			}
 			nicks[m.NetworkID] = nick
+			muted[m.NetworkID] = s.mutedMatcher(ctx, m.NetworkID)
 		}
 		core := irc.CoreFromStored(m)
 		core.ApplySemantics(nick)
+		// Same mute decision the live path makes, so history-derived counts
+		// agree with live ones (see tallyUnread for the snapshot side).
+		core.Muted = muted[m.NetworkID](core.Sender)
 		out = append(out, messageDTO{MessageCore: core})
 	}
 	s.attachPreviews(ctx, out)

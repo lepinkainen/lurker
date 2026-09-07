@@ -91,6 +91,32 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
   if (!stateRes.ok) throw new Error(`state ${stateRes.status}`);
   const s: StateResponse = await stateRes.json();
   state.me.nick = s.current_nick || s.nick || s.user?.nick || s.networks?.[0]?.nick || "you";
+  // The snapshot is authoritative: networks/buffers deleted while this tab
+  // was offline (their buffer_deleted / network events never reached us)
+  // must go, along with everything hanging off them. Live deletions are
+  // handled by the ws-router; this only covers what happened while offline.
+  // Live events keep applying while this fetch is in flight, so a buffer or
+  // network created after the snapshot was taken is already in local state
+  // but not in the response. The ws-router records those ids in
+  // createdDuringSync; spare them, prune everything else that's missing.
+  const created = state.createdDuringSync;
+  state.createdDuringSync = new Set();
+  const liveNetworks = new Set((s.networks || []).map((n) => n.id));
+  for (const id of [...state.networks.keys()]) {
+    if (!(liveNetworks.has(id) || created.has(id))) state.networks.delete(id);
+  }
+  const liveBuffers = new Set((s.buffers || []).map((b) => b.id));
+  for (const id of [...state.buffers.keys()]) {
+    if (liveBuffers.has(id) || created.has(id)) continue;
+    state.buffers.delete(id);
+    state.messages.delete(id);
+    state.members.delete(id);
+    state.inputHistory.delete(id);
+    state.loadingHistory.delete(id);
+    state.historyExhausted.delete(id);
+    // Fallback selection below picks a replacement when the active one went.
+    if (state.activeId === id) state.activeId = null;
+  }
   for (const network of s.networks || []) {
     state.networks.set(network.id, network);
     registerNetworkNickColor(network);

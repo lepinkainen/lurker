@@ -907,6 +907,49 @@ func (m *model) ackActiveRead() {
 
 // findNetwork resolves a network by ID. Returns nil if unknown.
 // Linear scan is fine — typical session has a handful of networks.
+// applyNetworkEvent handles the network configuration broadcasts another
+// client's REST mutation produced (create/update/delete/reorder).
+func (m *model) applyNetworkEvent(ev wsEvent) {
+	switch ev.Type {
+	case "network_created", "network_updated":
+		if ev.Network == nil {
+			return
+		}
+		if n := m.findNetwork(ev.Network.ID); n != nil {
+			*n = *ev.Network
+		} else {
+			m.networks = append(m.networks, *ev.Network)
+		}
+	case "network_deleted":
+		var gone []uuid.UUID
+		for _, b := range m.buffers {
+			if b.NetworkID == ev.ID {
+				gone = append(gone, b.ID)
+			}
+		}
+		for _, id := range gone {
+			m.removeBuffer(id)
+		}
+		m.networks = slices.DeleteFunc(m.networks, func(n networkDTO) bool { return n.ID == ev.ID })
+		delete(m.networkStates, ev.ID)
+		m.refreshActiveBuffer()
+	case "network_reorder":
+		for _, entry := range ev.Networks {
+			if n := m.findNetwork(entry.ID); n != nil {
+				n.SortOrder = entry.SortOrder
+			}
+		}
+	}
+	m.sortNetworks()
+	m.rebuildSidebar()
+}
+
+// sortNetworks restores server sidebar order after a live network event;
+// /api/state already arrives sorted.
+func (m *model) sortNetworks() {
+	sort.SliceStable(m.networks, func(i, j int) bool { return m.networks[i].SortOrder < m.networks[j].SortOrder })
+}
+
 func (m *model) findNetwork(id uuid.UUID) *networkDTO {
 	for i := range m.networks {
 		if m.networks[i].ID == id {
@@ -1031,7 +1074,16 @@ func (m *model) pinnedSidebarItems() []sidebarItem {
 	return items
 }
 
+// rebuildSidebar regenerates the row list from networks/buffers. The
+// selection follows the row's identity (buffer id, or network id for a
+// header), not its index, so a reorder or insert elsewhere doesn't move the
+// highlight onto a different row.
 func (m *model) rebuildSidebar() {
+	var selBuf, selNet uuid.UUID
+	if m.sidebarSel >= 0 && m.sidebarSel < len(m.sidebarItems) {
+		sel := m.sidebarItems[m.sidebarSel]
+		selBuf, selNet = sel.bufferID, sel.networkID
+	}
 	bufsByNet := make(map[uuid.UUID][]bufferDTO)
 	for _, b := range m.buffers {
 		bufsByNet[b.NetworkID] = append(bufsByNet[b.NetworkID], b)
@@ -1051,6 +1103,13 @@ func (m *model) rebuildSidebar() {
 		items = append(items, m.networkSidebarItems(n.ID, bufsByNet[n.ID])...)
 	}
 	m.sidebarItems = items
+	for i, item := range items {
+		if (selBuf != uuid.Nil && item.bufferID == selBuf) ||
+			(selBuf == uuid.Nil && item.isHeader && selNet != uuid.Nil && item.networkID == selNet) {
+			m.sidebarSel = i
+			return
+		}
+	}
 	if m.sidebarSel >= len(items) {
 		m.sidebarSel = 0
 	}
@@ -1177,6 +1236,8 @@ func (m *model) handleWSEvent(ev wsEvent) {
 		m.removeBuffer(ev.ID)
 	case "network_state":
 		m.networkStates[ev.NetworkID] = ev.State
+	case "network_created", "network_updated", "network_deleted", "network_reorder":
+		m.applyNetworkEvent(ev)
 	case "error":
 		m.status = "Server error: " + ev.Message
 	case "buffer_created":
@@ -1305,6 +1366,7 @@ func (m *model) applyMessageEvent(ev wsEvent) {
 		ID: ev.ID, NetworkID: ev.NetworkID, BufferID: ev.BufferID,
 		TS: ev.TS, Sender: ev.Sender, Kind: ev.Kind, Target: ev.Target, Content: ev.Content,
 		MentionsMe: ev.MentionsMe, Highlight: ev.Highlight, CountsAsUnread: ev.CountsAsUnread,
+		Muted:    ev.Muted,
 		IsSelf:   ev.IsSelf,
 		TSParsed: parsed,
 	}
@@ -1316,14 +1378,18 @@ func (m *model) applyMessageEvent(ev wsEvent) {
 	// messages never count and never anchor; the id > LastSeenID guard keeps
 	// history replays from spawning a marker.
 	b := m.findBuffer(ev.BufferID)
+	// Muted senders still badge mentions but never count as unread or anchor
+	// the marker (same rule as the server's tallyUnread).
 	if b != nil && ev.CountsAsUnread && !ev.IsSelf && !uuidLTE(ev.ID, b.LastSeenID) {
-		m.unread[ev.BufferID]++
 		if ev.MentionsMe || ev.Highlight {
 			m.mentions[ev.BufferID]++
 		}
-		if b.MarkerID == uuid.Nil || !uuidLTE(b.MarkerID, ev.ID) {
-			b.MarkerID = ev.ID
-			b.MarkerTS = ev.TS
+		if !ev.Muted {
+			m.unread[ev.BufferID]++
+			if b.MarkerID == uuid.Nil || !uuidLTE(b.MarkerID, ev.ID) {
+				b.MarkerID = ev.ID
+				b.MarkerTS = ev.TS
+			}
 		}
 	}
 	if m.activeBuffer != nil && ev.BufferID == m.activeBuffer.ID {

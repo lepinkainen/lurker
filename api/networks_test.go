@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
@@ -577,5 +578,56 @@ func TestNetworkInConfigFlag(t *testing.T) {
 	ephemeral := createNetworkViaAPI(t, h, `{"name":"Adhoc","host":"irc.example.org","port":6697,"tls":true,"nick":"tester"}`)
 	if ephemeral.InConfig {
 		t.Fatal("expected Adhoc to report in_config=false")
+	}
+}
+
+// Network mutations must broadcast so other open clients converge.
+func TestNetworkMutationsBroadcast(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stores.Close() })
+	h := hub.New()
+	srv := &Server{Stores: stores, Hub: h, Manager: irc.NewManager(t.Context(), stores, hub.New())}
+	events, _, unsub := h.Subscribe(16)
+	defer unsub()
+	next := func() any {
+		select {
+		case ev := <-events:
+			return ev
+		case <-time.After(time.Second):
+			t.Fatal("no event published")
+			return nil
+		}
+	}
+
+	created := createNetworkViaAPI(t, srv.Handler(), `{"name":"Libera","host":"irc.libera.chat","port":6697,"tls":true,"nick":"tester"}`)
+	if ev, ok := next().(networkEvent); !ok || ev.Type != "network_created" || ev.Network.ID != created.ID {
+		t.Fatalf("create published %#v", ev)
+	}
+
+	rec := doNetworkRequest(srv.Handler(), http.MethodPatch, "/api/networks/"+created.ID.String(), `{"nick":"other"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
+	}
+	if ev, ok := next().(networkEvent); !ok || ev.Type != "network_updated" || ev.Network.Nick != "other" {
+		t.Fatalf("patch published %#v", ev)
+	}
+
+	rec = doNetworkRequest(srv.Handler(), http.MethodPost, "/api/networks/reorder", `{"ids":["`+created.ID.String()+`"]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reorder: %d %s", rec.Code, rec.Body.String())
+	}
+	if ev, ok := next().(networkReorderEvent); !ok || len(ev.Networks) != 1 || ev.Networks[0].ID != created.ID {
+		t.Fatalf("reorder published %#v", ev)
+	}
+
+	rec = doNetworkRequest(srv.Handler(), http.MethodDelete, "/api/networks/"+created.ID.String(), "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+	if ev, ok := next().(networkDeletedEvent); !ok || ev.ID != created.ID {
+		t.Fatalf("delete published %#v", ev)
 	}
 }

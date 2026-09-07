@@ -21,6 +21,12 @@ export function msgCountsAsUnread(message: Message): boolean {
   return message.counts_as_unread === true;
 }
 
+// Mute-tier ignore: shown, never counts as unread or anchors the marker, but
+// mentions/highlights still badge. Mirrors the server's tallyUnread.
+export function msgMuted(message: Message): boolean {
+  return message.muted === true;
+}
+
 export function msgMentionsMe(message: Message): boolean {
   return message.mentions_me === true;
 }
@@ -139,11 +145,13 @@ export function onMessage(msg: Message, handlers: { renderActiveView: () => void
   // explicit ack (spec: ai-docs/behaviors/new-messages-marker.md). Re-delivered
   // messages (isNew false) never double-count.
   if (buffer && isNew && msgCountsAsUnread(msg) && !msgIsSelf(msg) && msg.id > (buffer.last_seen_id || "")) {
-    buffer.unread = (buffer.unread || 0) + 1;
     if (msgMentionsMe(msg) || msgHighlight(msg)) buffer.mentions = (buffer.mentions || 0) + 1;
-    if (buffer.marker_id === undefined) {
-      buffer.marker_id = msg.id;
-      buffer.marker_ts = msg.ts;
+    if (!msgMuted(msg)) {
+      buffer.unread = (buffer.unread || 0) + 1;
+      if (buffer.marker_id === undefined) {
+        buffer.marker_id = msg.id;
+        buffer.marker_ts = msg.ts;
+      }
     }
   }
   if (msg.buffer_id === state.activeId) handlers.renderActiveView();
@@ -250,11 +258,13 @@ export function onHistoryResult(
     // last_seen and never match.
     for (const message of fresh) {
       if (msgCountsAsUnread(message) && !msgIsSelf(message) && message.id > (buffer.last_seen_id || "")) {
-        buffer.unread = (buffer.unread || 0) + 1;
         if (msgMentionsMe(message) || msgHighlight(message)) buffer.mentions = (buffer.mentions || 0) + 1;
-        if (buffer.marker_id === undefined || message.id < buffer.marker_id) {
-          buffer.marker_id = message.id;
-          buffer.marker_ts = message.ts;
+        if (!msgMuted(message)) {
+          buffer.unread = (buffer.unread || 0) + 1;
+          if (buffer.marker_id === undefined || message.id < buffer.marker_id) {
+            buffer.marker_id = message.id;
+            buffer.marker_ts = message.ts;
+          }
         }
         unreadChanged = true;
       }

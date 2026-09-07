@@ -21,6 +21,7 @@ export function resetAppState() {
   }
   state.lastWSActivityAt = 0;
   state.needsStateSyncOnConnect = false;
+  state.createdDuringSync.clear();
   state.loadingHistory.clear();
   state.historyExhausted.clear();
   state.me.nick = "you";

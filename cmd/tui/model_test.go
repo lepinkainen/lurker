@@ -1225,3 +1225,65 @@ func TestLiveMessagesStayOrderedAndDedupeHistory(t *testing.T) {
 		t.Fatal("delayed live event duplicated history row or unread count")
 	}
 }
+
+// Muted senders badge mentions but never count as unread or anchor the marker.
+func TestMutedMessageBadgesMentionOnly(t *testing.T) {
+	m := testModel()
+	netID, bufID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	m.buffers = []bufferDTO{{ID: bufID, NetworkID: netID, Name: "#a", Kind: "channel"}}
+	m.handleWSEvent(wsEvent{Type: "message", ID: uuid.Must(uuid.NewV7()), BufferID: bufID, Kind: "privmsg", Sender: "bot", CountsAsUnread: true, Muted: true})
+	m.handleWSEvent(wsEvent{Type: "message", ID: uuid.Must(uuid.NewV7()), BufferID: bufID, Kind: "privmsg", Sender: "bot", CountsAsUnread: true, Muted: true, MentionsMe: true})
+	if m.unread[bufID] != 0 || m.mentions[bufID] != 1 || m.buffers[0].MarkerID != uuid.Nil {
+		t.Fatalf("unread=%d mentions=%d marker=%v", m.unread[bufID], m.mentions[bufID], m.buffers[0].MarkerID)
+	}
+}
+
+// network_deleted drops the network and every buffer under it; created/
+// updated upsert; reorder re-sorts.
+func TestNetworkConfigEvents(t *testing.T) {
+	m := testModel()
+	n1, n2 := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	b1, b2 := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	m.networks = []networkDTO{{ID: n1, Name: "one", SortOrder: 0}}
+	m.buffers = []bufferDTO{{ID: b1, NetworkID: n1, Name: "#a", Kind: "channel"}}
+	m.handleWSEvent(wsEvent{Type: "network_created", Network: &networkDTO{ID: n2, Name: "two", SortOrder: 1}})
+	m.buffers = append(m.buffers, bufferDTO{ID: b2, NetworkID: n2, Name: "#b", Kind: "channel"})
+	m.handleWSEvent(wsEvent{Type: "network_updated", Network: &networkDTO{ID: n2, Name: "two-renamed", SortOrder: 1}})
+	if len(m.networks) != 2 || m.networks[1].Name != "two-renamed" {
+		t.Fatalf("networks = %+v", m.networks)
+	}
+	m.handleWSEvent(wsEvent{Type: "network_reorder", Networks: []struct {
+		ID        uuid.UUID `json:"id"`
+		SortOrder int       `json:"sort_order"`
+	}{{ID: n2, SortOrder: 0}, {ID: n1, SortOrder: 1}}})
+	if m.networks[0].ID != n2 {
+		t.Fatalf("reorder not applied: %+v", m.networks)
+	}
+	m.handleWSEvent(wsEvent{Type: "network_deleted", ID: n1})
+	if len(m.networks) != 1 || m.networks[0].ID != n2 || m.findBuffer(b1) != nil || m.findBuffer(b2) == nil {
+		t.Fatalf("delete: networks=%+v buffers=%+v", m.networks, m.buffers)
+	}
+}
+
+// A network reorder from another client must not move the sidebar highlight
+// onto whichever row now sits at the old index.
+func TestRebuildSidebarKeepsSelectedRow(t *testing.T) {
+	m := testModel()
+	n1, n2 := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	b1, b2 := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	m.networks = []networkDTO{{ID: n1, Name: "one", SortOrder: 0}, {ID: n2, Name: "two", SortOrder: 1}}
+	m.buffers = []bufferDTO{{ID: b1, NetworkID: n1, Name: "#a", Kind: "channel"}, {ID: b2, NetworkID: n2, Name: "#b", Kind: "channel"}}
+	m.rebuildSidebar()
+	for i, it := range m.sidebarItems {
+		if it.bufferID == b2 {
+			m.sidebarSel = i
+		}
+	}
+	m.handleWSEvent(wsEvent{Type: "network_reorder", Networks: []struct {
+		ID        uuid.UUID `json:"id"`
+		SortOrder int       `json:"sort_order"`
+	}{{ID: n2, SortOrder: 0}, {ID: n1, SortOrder: 1}}})
+	if got := m.sidebarItems[m.sidebarSel].bufferID; got != b2 {
+		t.Fatalf("selection moved to %v, want %v", got, b2)
+	}
+}

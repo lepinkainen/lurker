@@ -139,8 +139,10 @@ func TestMutedNickIsStoredButFlaggedNotCountingUnread(t *testing.T) {
 			continue
 		}
 		found = true
-		if me.CountsAsUnread {
-			t.Fatalf("CountsAsUnread = true, want false for muted sender")
+		// counts_as_unread stays the pure kind-based flag; the mute decision
+		// rides separately so clients can still badge mentions from the sender.
+		if !me.CountsAsUnread || !me.Muted {
+			t.Fatalf("CountsAsUnread=%v Muted=%v, want true/true for muted sender", me.CountsAsUnread, me.Muted)
 		}
 	}
 	if !found {

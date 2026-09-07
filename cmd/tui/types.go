@@ -56,6 +56,7 @@ type messageDTO struct {
 	Content        string    `json:"content"`
 	MentionsMe     bool      `json:"mentions_me"`
 	Highlight      bool      `json:"highlight"`
+	Muted          bool      `json:"muted"`
 	CountsAsUnread bool      `json:"counts_as_unread"`
 	IsSelf         bool      `json:"is_self"`
 	// parsed-once cache: TS is RFC3339Nano. Parsing it on every viewport
@@ -96,7 +97,15 @@ type wsEvent struct {
 	MentionsMe     bool      `json:"mentions_me"`
 	Highlight      bool      `json:"highlight"`
 	CountsAsUnread bool      `json:"counts_as_unread"`
+	Muted          bool      `json:"muted"`
 	IsSelf         bool      `json:"is_self"`
+	// network_created / network_updated
+	Network *networkDTO `json:"network"`
+	// network_reorder
+	Networks []struct {
+		ID        uuid.UUID `json:"id"`
+		SortOrder int       `json:"sort_order"`
+	} `json:"networks"`
 	// buffer_update — pointers: fields absent from the wire mean "unchanged"
 	// (e.g. the mark_read echo carries none of these), while a present empty
 	// string means "set to empty" (cleared topic).

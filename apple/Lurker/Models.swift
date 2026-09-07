@@ -277,6 +277,7 @@ struct Message: Codable, Identifiable, Sendable, Hashable {
   var isSelf: Bool? = nil
   var mentionsMe: Bool? = nil
   var countsAsUnread: Bool? = nil
+  var muted: Bool? = nil
   var senderColor: Int? = nil
   var highlight: Bool? = nil
   var highlightPattern: String? = nil
@@ -518,6 +519,33 @@ struct NetworkStateEvent: Codable, Sendable {
   let state: String
 }
 
+// MARK: - NetworkEvent
+
+/// `network_created` / `network_updated`: full network record after a REST
+/// mutation in some client, so every other client converges.
+struct NetworkEvent: Codable, Sendable {
+  let network: Network
+}
+
+// MARK: - NetworkDeletedEvent
+
+struct NetworkDeletedEvent: Codable, Sendable {
+  let id: UUID
+}
+
+// MARK: - NetworkSortEntry
+
+struct NetworkSortEntry: Codable, Sendable, Hashable {
+  let id: UUID
+  let sortOrder: Int
+}
+
+// MARK: - NetworkReorderEvent
+
+struct NetworkReorderEvent: Codable, Sendable {
+  let networks: [NetworkSortEntry]
+}
+
 // MARK: - NetsplitEvent
 
 struct NetsplitEvent: Codable, Sendable {
@@ -566,6 +594,10 @@ enum ServerEvent: Sendable {
   case bufferReorder(BufferReorderEvent)
   case pinnedReorder(PinnedReorderEvent)
   case networkState(NetworkStateEvent)
+  case networkCreated(NetworkEvent)
+  case networkUpdated(NetworkEvent)
+  case networkDeleted(NetworkDeletedEvent)
+  case networkReorder(NetworkReorderEvent)
   case history(HistoryResult)
   case historyBackfill(HistoryBackfillEvent)
   case preview(PreviewEvent)
@@ -595,6 +627,10 @@ extension ServerEvent: Decodable {
     case "buffer_reorder": self = .bufferReorder(try BufferReorderEvent(from: decoder))
     case "pinned_reorder": self = .pinnedReorder(try PinnedReorderEvent(from: decoder))
     case "network_state": self = .networkState(try NetworkStateEvent(from: decoder))
+    case "network_created": self = .networkCreated(try NetworkEvent(from: decoder))
+    case "network_updated": self = .networkUpdated(try NetworkEvent(from: decoder))
+    case "network_deleted": self = .networkDeleted(try NetworkDeletedEvent(from: decoder))
+    case "network_reorder": self = .networkReorder(try NetworkReorderEvent(from: decoder))
     case "history_result": self = .history(try HistoryResult(from: decoder))
     case "history_backfill": self = .historyBackfill(try HistoryBackfillEvent(from: decoder))
     case "preview": self = .preview(try PreviewEvent(from: decoder))

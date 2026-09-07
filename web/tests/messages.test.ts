@@ -473,6 +473,19 @@ describe("onMessage", () => {
     expect(handlers.renderActiveView).not.toHaveBeenCalled();
   });
 
+  it("muted sender: badges the mention but never counts unread or places the marker", () => {
+    state.activeId = "99";
+    state.buffers.set("1", buf({ id: "1" }));
+    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
+    onMessage(line({ id: "10", buffer_id: "1", sender: "bot", muted: true }), handlers);
+    onMessage(line({ id: "11", buffer_id: "1", sender: "bot", muted: true, mentions_me: true }), handlers);
+    const b = state.buffers.get("1");
+    expect(b?.unread ?? 0).toBe(0);
+    expect(b?.mentions).toBe(1);
+    expect(b?.marker_id).toBeUndefined();
+    expect(state.messages.get("1")?.length).toBe(2);
+  });
+
   it("bumps mentions for highlight-only message on inactive buffer", () => {
     state.activeId = "99";
     state.me.nick = "you";

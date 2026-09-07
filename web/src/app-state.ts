@@ -97,6 +97,7 @@ export type Message = {
   is_self?: boolean;
   mentions_me?: boolean;
   counts_as_unread?: boolean;
+  muted?: boolean;
   sender_color?: number;
   target_color?: number;
   highlight?: boolean;
@@ -174,6 +175,10 @@ export type AppState = {
   lastWSActivityAt: number;
   wsHealthTimer: number | null;
   needsStateSyncOnConnect: boolean;
+  // Network/buffer ids created by live events while a /api/state fetch is
+  // pending. The snapshot may predate them; the prune in syncStateFromServer
+  // must not treat their absence as "deleted while offline".
+  createdDuringSync: Set<string>;
   loadingHistory: Set<string>;
   historyExhausted: Set<string>;
   me: { nick: string };
@@ -246,6 +251,7 @@ export const state: AppState = {
   lastWSActivityAt: 0,
   wsHealthTimer: null,
   needsStateSyncOnConnect: false,
+  createdDuringSync: new Set(),
   loadingHistory: new Set(),
   historyExhausted: new Set(),
   me: { nick: "you" },
