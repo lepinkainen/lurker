@@ -164,6 +164,9 @@ final class TimelineCoordinator: NSObject {
   struct RenderedBlock {
     let item: TimelineItem
     var length: Int
+    /// The builder's attributed newline, omitted while this is the last
+    /// block. Restore it on append without replacing any existing content.
+    let separator: NSAttributedString
     /// What the row's avatar slot rendered as (bot glyph / cached image /
     /// identicon). Depends on AppModel state outside the item, so a diff of
     /// items alone can't see it change; compared on every sync instead.
@@ -425,10 +428,10 @@ final class TimelineCoordinator: NSObject {
       return
     }
     let document = NSMutableAttributedString()
-    blocks = items.map { item in
-      let block = timelineBlockText(item, context: context)
-      document.append(block)
-      return RenderedBlock(item: item, length: block.length, avatarKey: avatarKey(for: item))
+    blocks = items.enumerated().map { index, item in
+      let rendered = renderBlock(item, context: context, isLast: index == items.count - 1)
+      document.append(rendered.text)
+      return rendered.block
     }
     storage.setAttributedString(document)
   }
@@ -437,33 +440,60 @@ final class TimelineCoordinator: NSObject {
     guard let textView, let storage = textView.textStorage, let context = renderContext else {
       return
     }
-    let block = timelineBlockText(item, context: context)
+    let rendered = renderBlock(
+      item,
+      context: context,
+      isLast: index == blocks.count - 1,
+    )
     let range = NSRange(location: offset(of: index), length: blocks[index].length)
     textView.textContentStorage?.performEditingTransaction {
-      storage.replaceCharacters(in: range, with: block)
+      storage.replaceCharacters(in: range, with: rendered.text)
     }
-    blocks[index] = RenderedBlock(
-      item: item,
-      length: block.length,
-      avatarKey: avatarKey(for: item),
-    )
+    blocks[index] = rendered.block
   }
 
   private func appendBlocks(_ items: ArraySlice<TimelineItem>) {
     guard let textView, let storage = textView.textStorage, let context = renderContext else {
       return
     }
+    // Load-bearing: an empty append would still restore the tail separator
+    // and reintroduce the trailing empty line.
+    guard !items.isEmpty else { return }
     let appended = NSMutableAttributedString()
-    for item in items {
-      let block = timelineBlockText(item, context: context)
-      appended.append(block)
-      blocks.append(
-        RenderedBlock(item: item, length: block.length, avatarKey: avatarKey(for: item))
-      )
+    if let last = blocks.last {
+      appended.append(last.separator)
     }
+    let newBlocks = items.enumerated().map { index, item in
+      let rendered = renderBlock(item, context: context, isLast: index == items.count - 1)
+      appended.append(rendered.text)
+      return rendered.block
+    }
+    // One suffix insertion preserves selection and hosted preview identity
+    // in the old tail. Its omitted separator belongs to that block's range.
     textView.textContentStorage?.performEditingTransaction {
+      if let last = blocks.last {
+        blocks[blocks.count - 1].length += last.separator.length
+      }
+      blocks.append(contentsOf: newBlocks)
       storage.append(appended)
     }
+  }
+
+  /// Block builders include a paragraph separator for concatenation. At
+  /// the document end it creates an empty TextKit line, so omit only that
+  /// final separator (preserving any newlines in the message itself).
+  private func renderBlock(
+    _ item: TimelineItem,
+    context: TimelineRenderContext,
+    isLast: Bool,
+  ) -> (text: NSAttributedString, block: RenderedBlock) {
+    let text = timelineBlockText(item, context: context)
+    let separator = text.attributedSubstring(from: NSRange(location: text.length - 1, length: 1))
+    let length = text.length - (isLast ? 1 : 0)
+    return (
+      isLast ? text.attributedSubstring(from: NSRange(location: 0, length: length)) : text,
+      RenderedBlock(item: item, length: length, separator: separator, avatarKey: avatarKey(for: item)),
+    )
   }
 
   /// Fires cache-filling fetches for avatars the block builder had to

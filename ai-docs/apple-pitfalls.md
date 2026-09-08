@@ -6,6 +6,29 @@ here, how to verify. For general SwiftUI guidance that isn't Lurker-specific,
 see `llm-shared/languages/swiftui.md`. See `apple.md` for the client's
 architecture and product scope.
 
+## TextKit 2 leaves a blank row after the last message
+
+**Symptom.** The macOS timeline shows a row of blank space above the composer
+even when scrolled fully to the bottom.
+
+**Why.** Block builders append a paragraph separator to every block. Keeping
+the final separator in the document creates an empty terminal line, which
+the text view includes in its scrollable height.
+
+**Fix.** The coordinator omits only the last block's builder-added newline
+and retains its attributed separator in `RenderedBlock`. On append it inserts
+that separator together with the new blocks in one transaction. Do not
+replace the old tail just to restore its newline: that collapses selection
+inside the row and recreates hosted preview attachments. Keep the explicit
+presence-summary redraw on expansion; a separator insertion does not update
+its arrow.
+
+**Verify.** `TimelineCoordinatorTests` checks bottom geometry, selection and
+preview identity across append, separator attributes, combined tail updates
+and appends, and presence expansion/collapse. The context-menu tests exercise
+the end-of-document insertion position, which must map to the last character
+for nonempty timelines.
+
 ## Sidebar `List` crashes Xcode Previews
 
 **Symptom.** A `List(selection:)` with `.listStyle(.sidebar)` and `Section`s

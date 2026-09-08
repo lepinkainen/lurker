@@ -312,6 +312,7 @@ private struct CoordinatorHarness {
 
     textView = TimelineNSTextView(usingTextLayoutManager: true)
     textView.isEditable = false
+    textView.textContainerInset = NSSize(width: 0, height: 5)
     textView.textContainer?.widthTracksTextView = true
     textView.textContainer?.lineFragmentPadding = 0
     textView.isVerticallyResizable = true
@@ -374,7 +375,187 @@ private struct CoordinatorHarness {
 
 }
 
+@MainActor
+private final class TimelineStorageEditRecorder: NSObject, @preconcurrency NSTextStorageDelegate {
+  var characterEdits = [NSRange]()
+
+  func textStorage(
+    _: NSTextStorage,
+    willProcessEditing editedMask: NSTextStorageEditActions,
+    range editedRange: NSRange,
+    changeInLength _: Int,
+  ) {
+    if editedMask.contains(.editedCharacters) {
+      characterEdits.append(editedRange)
+    }
+  }
+}
+
 struct TimelineCoordinatorTests {
+  @Test @MainActor
+  func `append preserves selection and existing preview attachments`() throws {
+    let buffer = makeBuffer()
+    let message = makeMessage(
+      content: "select this message 👋 https://example.com",
+      previews: [Lurker.Preview(url: "https://example.com", kind: "opengraph", title: "Example")],
+    )
+    let harness = CoordinatorHarness(buffer: buffer, messages: [message])
+    harness.sync()
+    let storage = try #require(harness.textView.textStorage)
+    let selection = (storage.string as NSString).range(of: "this message 👋")
+    harness.textView.setSelectedRange(selection)
+    var previewRange = NSRange()
+    var preview: PreviewTextAttachment?
+    storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) {
+      value, range, _ in
+      if let attachment = value as? PreviewTextAttachment {
+        preview = attachment
+        previewRange = range
+      }
+    }
+    let originalPreview = try #require(preview)
+    let originalText = try #require(storage.copy() as? NSAttributedString)
+    let oldLength = storage.length
+    let edits = TimelineStorageEditRecorder()
+    storage.delegate = edits
+
+    harness.model.messages[buffer.id] = [message, makeMessage(content: "next message")]
+    harness.sync()
+
+    #expect(harness.textView.selectedRange() == selection)
+    #expect(edits.characterEdits == [NSRange(location: oldLength, length: storage.length - oldLength)])
+    #expect(storage.attributedSubstring(from: NSRange(location: 0, length: oldLength)) == originalText)
+    #expect(storage.attribute(.attachment, at: previewRange.location, effectiveRange: nil)
+      as? PreviewTextAttachment === originalPreview)
+    #expect((storage.string as NSString).substring(with: NSRange(location: oldLength, length: 1)) == "\n")
+    #expect(storage.attribute(.lurkerCopyExclude, at: oldLength, effectiveRange: nil) as? Bool == true)
+    #expect(storage.attribute(.lurkerMessageID, at: oldLength, effectiveRange: nil) as? String
+      == message.id.uuidString)
+    #expect(harness.renderedText.hasSuffix("next message"))
+  }
+
+  @Test @MainActor
+  func `tail replacement and append keep the updated content and offsets`() {
+    let buffer = makeBuffer()
+    var tail = makeMessage(content: "original tail")
+    let harness = CoordinatorHarness(buffer: buffer, messages: [tail])
+    harness.sync()
+    let edits = TimelineStorageEditRecorder()
+    harness.textView.textStorage?.delegate = edits
+    tail.content = "updated tail 👋"
+    let next = makeMessage(content: "new message")
+    harness.model.messages[buffer.id] = [tail, next]
+    harness.sync()
+
+    #expect(edits.characterEdits.count == 2) // One tail replacement, then one suffix insertion.
+    #expect(!harness.renderedText.contains("original tail"))
+    #expect(harness.renderedText.contains("updated tail 👋\n"))
+    #expect(harness.renderedText.hasSuffix("new message"))
+    for message in [tail, next] {
+      let range = (harness.renderedText as NSString).range(of: message.content)
+      #expect(harness.coordinator.message(atCharacterIndex: range.location) == message)
+    }
+  }
+
+  @Test(arguments: [false, true]) @MainActor
+  func `context menu handles the document end and empty timelines`(hasMessage: Bool) throws {
+    let message = makeMessage(content: "newest message")
+    let harness = CoordinatorHarness(buffer: makeBuffer(), messages: hasMessage ? [message] : [])
+    let window = NSWindow(
+      contentRect: harness.scrollView.frame,
+      styleMask: [.borderless],
+      backing: .buffered,
+      defer: false,
+    )
+    window.isReleasedWhenClosed = false
+    defer { window.close() }
+    window.contentView = harness.scrollView
+    harness.sync()
+    let point = NSPoint(x: harness.textView.bounds.maxX - 1, y: harness.textView.bounds.maxY - 1)
+    #expect(harness.textView.characterIndexForInsertion(at: point) == (harness.renderedText as NSString).length)
+    let event = try #require(NSEvent.mouseEvent(
+      with: .rightMouseDown,
+      location: harness.textView.convert(point, to: nil),
+      modifierFlags: [],
+      timestamp: 0,
+      windowNumber: window.windowNumber,
+      context: nil,
+      eventNumber: 0,
+      clickCount: 1,
+      pressure: 1,
+    ))
+    let menu = harness.textView.menu(for: event)
+    let copy = menu?.items.first { $0.title == "Copy Message" }
+    #expect((copy != nil) == hasMessage)
+    #expect(copy?.representedObject as? Message == (hasMessage ? message : nil))
+    #expect((menu?.items.contains { $0.title == "Mute tove" } ?? false) == hasMessage)
+  }
+
+  @Test @MainActor
+  func `document ends at the last message through incremental edits`() {
+    let buffer = makeBuffer()
+    var messages = [makeMessage(content: "first 👋")]
+    let harness = CoordinatorHarness(buffer: buffer, messages: [])
+    harness.sync()
+    #expect(harness.renderedText.isEmpty)
+
+    harness.model.messages[buffer.id] = messages
+    harness.sync()
+    #expect(harness.renderedText.hasSuffix("first 👋"))
+
+    messages.append(contentsOf: [makeMessage(content: "second"), makeMessage(content: "third")])
+    harness.model.messages[buffer.id] = messages
+    harness.sync()
+    #expect(harness.renderedText.hasSuffix("third"))
+    #expect(harness.renderedText.contains("first 👋\n"))
+    #expect(harness.renderedText.contains("second\n"))
+
+    messages[0].content = "updated first"
+    messages[2].content = "updated last"
+    harness.model.messages[buffer.id] = messages
+    harness.sync()
+    #expect(harness.renderedText.hasSuffix("updated last"))
+    #expect(harness.renderedText.contains("updated first\n"))
+    for message in messages {
+      let range = (harness.renderedText as NSString).range(of: message.content)
+      #expect(harness.coordinator.message(atCharacterIndex: range.location)?.id == message.id)
+    }
+
+    messages.insert(makeMessage(content: "older"), at: 0)
+    harness.model.messages[buffer.id] = messages
+    harness.sync()
+    #expect(harness.renderedText.hasSuffix("updated last"))
+    #expect(harness.renderedText.contains("older\n"))
+  }
+
+  @Test @MainActor
+  func `bottom spacing contains only paragraph spacing and text inset`() throws {
+    let harness = CoordinatorHarness(
+      buffer: makeBuffer(),
+      messages: [makeMessage(content: "first"), makeMessage(content: "last")],
+    )
+    harness.sync()
+    let layout = try #require(harness.textView.textLayoutManager)
+    var lastLineBottom: CGFloat = 0
+    layout.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
+      for line in fragment.textLineFragments where line.characterRange.length > 0 {
+        lastLineBottom = fragment.layoutFragmentFrame.minY + line.typographicBounds.maxY
+      }
+      return true
+    }
+    let gap = harness.textView.frame.height
+      - harness.textView.textContainerInset.height - lastLineBottom
+    #expect(gap >= 0)
+    let storage = try #require(harness.textView.textStorage)
+    let style = try #require(storage.attribute(
+      .paragraphStyle,
+      at: storage.length - 1,
+      effectiveRange: nil,
+    ) as? NSParagraphStyle)
+    let expectedGap = style.paragraphSpacing + harness.textView.textContainerInset.height
+    #expect(gap <= expectedGap + 0.5) // Allow subpixel layout rounding.
+  }
+
   @Test @MainActor
   func `bot flag arriving after render refreshes rows`() {
     let buffer = makeBuffer()
@@ -442,6 +623,12 @@ struct TimelineCoordinatorTests {
     _ = harness.coordinator.textView(harness.textView, clickedOnLink: toggle, at: 0)
     #expect(harness.renderedText.contains("▾"))
     #expect(!harness.renderedText.contains("▸"))
+    #expect(!harness.renderedText.hasSuffix("\n"))
+
+    _ = harness.coordinator.textView(harness.textView, clickedOnLink: toggle, at: 0)
+    #expect(harness.renderedText.contains("▸"))
+    #expect(!harness.renderedText.contains("▾"))
+    #expect(!harness.renderedText.hasSuffix("\n"))
   }
 }
 

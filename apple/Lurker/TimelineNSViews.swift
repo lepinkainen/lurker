@@ -12,8 +12,13 @@ final class TimelineNSTextView: NSTextView {
   weak var coordinator: TimelineCoordinator?
 
   override func menu(for event: NSEvent) -> NSMenu? {
+    guard let storage = textStorage, storage.length > 0 else {
+      return super.menu(for: event)
+    }
     let point = convert(event.locationInWindow, from: nil)
-    let index = characterIndexForInsertion(at: point)
+    // Hit-testing returns insertion positions, including one past the last
+    // character when clicking to the right of the terminal message.
+    let index = min(characterIndexForInsertion(at: point), storage.length - 1)
     guard let message = coordinator?.message(atCharacterIndex: index) else {
       return super.menu(for: event)
     }
