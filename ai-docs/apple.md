@@ -16,7 +16,7 @@ The app is intended to be useful as the everyday desktop client (with the same s
 - link previews and presence-event display settings
 - mention notifications and an app-icon badge count (Dock tile on macOS, notification badge on iOS)
 - native menus and keyboard shortcuts on macOS, including the Command-K channel switcher
-- image attachment: composer paperclip (macOS `.fileImporter` / iOS `PhotosPicker`) plus cross-platform drag&drop, gated on `canSend`. The image uploads to `POST /api/upload` and the returned URL is inserted into the composer. HEIC and other non-web formats are converted to JPEG client-side (ImageIO, EXIF orientation baked into pixels); JPEG/PNG/GIF pass through untouched. Requires the `files.user-selected.read-only` sandbox entitlement for the macOS picker (drag&drop does not).
+- image attachment: composer paperclip (macOS `.fileImporter` / iOS `PhotosPicker`) plus cross-platform drag&drop, gated on `canSend`. On macOS, paste a copied image or screenshot into the composer with Command-V or Edit → Paste. Pasting uploads one image at a time and is disabled while an upload is in progress. The image uploads to `POST /api/upload` and the returned URL is inserted into the draft, ready to send. HEIC, clipboard TIFF, and other non-web formats are converted to JPEG client-side (ImageIO, EXIF orientation baked into pixels); JPEG/PNG/GIF pass through untouched. Requires the `files.user-selected.read-only` sandbox entitlement for the macOS picker (drag&drop and clipboard image data do not).
 
 Network administration, global history search, and theme selection remain web-only for now.
 
@@ -36,13 +36,14 @@ Source organization:
 
 - `AppModel.swift` owns observable state, initialization, selection, and composer/history actions. Extensions in `AppModel+Connection.swift`, `AppModel+Events.swift`, `AppModel+Sidebar.swift`, and `AppModel+Fixtures.swift` hold connection handling, server-event application, sidebar ordering/navigation, and preview fixtures. Stored properties stay in the core class; helpers shared across files have internal access.
 - `ConversationView.swift` composes the conversation and derives timeline items. `ComposerView.swift`, `MessageRow.swift`, and `TimelineSeparators.swift` contain the corresponding views; `TimelineFormatting.swift` holds shared formatting helpers.
+- `MacComposerTextField.swift` wraps a macOS `NSTextField` with its own field editor to intercept image Paste, including menu validation. Text paste and Undo remain AppKit operations; history, autocomplete, submission, and draft state stay in `ComposerView`/`AppModel`. iOS retains the SwiftUI text field. `Clipboard` in `Platform.swift` selects the original GIF/PNG/JPEG representation ahead of clipboard TIFF alternatives.
 - `TimelineTextView.swift` owns the macOS container, representable, and coordinator. `TimelineNSViews.swift` contains the native text/scroll/accessibility views; `TimelineDiff.swift`, `TimelineBlockRendering.swift`, `TimelineAvatarImages.swift`, and `PreviewTextAttachment.swift` hold diffing, attributed rows, bitmap caching, and preview attachments.
 
 ## Cross-platform structure
 
 SwiftUI sources are shared; platform differences are isolated:
 
-- `Platform.swift` holds the shim layer: semantic `Color` helpers (`.lurkerTimelineBackground`, `.lurkerSeparator`, `.lurkerControlBackground`, `.lurkerLink`) resolving to `NSColor` on macOS / `UIColor` on iOS, and `Clipboard.copy(_:)` wrapping `NSPasteboard` / `UIPasteboard`. Keep color/clipboard `#if os(...)` branching confined to this file so views stay platform-agnostic; do not reintroduce unguarded AppKit or UIKit usage in shared views. The sanctioned exception is the macOS timeline: `TimelineTextView.swift` and its native support files listed above use AppKit by design (see "macOS timeline architecture" below), and each is wholly `#if os(macOS)`.
+- `Platform.swift` holds the shim layer: semantic `Color` helpers (`.lurkerTimelineBackground`, `.lurkerSeparator`, `.lurkerControlBackground`, `.lurkerLink`) resolving to `NSColor` on macOS / `UIColor` on iOS, and `Clipboard` wrapping clipboard writes and macOS image reads. Keep color/clipboard `#if os(...)` branching confined to this file so shared views stay platform-agnostic; do not reintroduce unguarded AppKit or UIKit usage in shared views. The macOS composer (`MacComposerTextField.swift`) and timeline (`TimelineTextView.swift` and its native support files listed above) use AppKit by design and are wholly `#if os(macOS)`.
 - `LurkerApp.swift` splits scenes: macOS keeps `Window` + `Settings` scene + menu-bar `LurkerCommands`; iOS uses a `WindowGroup`, and settings is an in-app sheet (`AppModel.showingSettings`) because iOS has no `Settings` scene.
 - `RootView.swift` picks the layout: `NavigationSplitView` on macOS and iPad regular width; on iPhone (compact width) a `NavigationStack` where selecting a buffer pushes the conversation (`AppModel.compactConversationVisible`, set in `selectBuffer` so the channel switcher and notification taps also push). Compact width puts the connection-status and channel-switcher buttons in the sidebar navigation bar and the Members toggle on the conversation screen; the members list presents as a sheet there, and the inspector default is hidden on iOS.
 - The members-inspector visibility binding routes through `setInspectorVisible` so interactive dismissal persists to `UserDefaults`.
@@ -105,6 +106,9 @@ task lint-apple
 task test-apple
 task test-apple-ui
 ```
+
+To run just the paste regression, use
+`task test-apple-ui TEST_FILTER=LurkerUITests/LurkerUITests/testComposerPastesImagesAndText`.
 
 Swift formatting follows the [Airbnb Swift style guide](https://github.com/airbnb/swift), enforced deterministically by SwiftFormat (`brew install swiftformat`) with the config vendored at `apple/airbnb.swiftformat`. `task lint-apple` checks (CI runs this); `task format-apple` rewrites sources in place — run it instead of hand-fixing style complaints. Notable rules: 2-space indent, un-indented `#if` bodies, member ordering with `// MARK:` sections (`organizeDeclarations`), `@Test` display names derived from function names, `try #require(...)` instead of force unwraps in tests, 130-column hard wrap (upstream recommends 100 but does not enforce it). Formatter version is pinned: `--minversion` in the config and a pinned release download in the CI apple job (bump both together); CI prints `swiftformat --version` and `swift --version` so a rule-output mismatch is diagnosable at a glance.
 

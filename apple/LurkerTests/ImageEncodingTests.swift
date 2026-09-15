@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ImageIO
 import Testing
@@ -63,6 +64,79 @@ struct ImageEncodingTests {
     let outputSize = try #require(pixelSize(of: outputData))
     #expect(outputSize.width == 4)
     #expect(outputSize.height == 4)
+  }
+
+  @Test
+  func `clipboard with only text or no content has no image`() {
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+    #expect(Clipboard.image(from: pasteboard) == nil)
+    #expect(!Clipboard.hasImage(from: pasteboard))
+    pasteboard.setString("https://example.com/image.png", forType: .string)
+    #expect(Clipboard.image(from: pasteboard) == nil)
+    #expect(!Clipboard.hasImage(from: pasteboard))
+  }
+
+  @Test(arguments: [UTType.png, .jpeg, .gif, .tiff])
+  func `clipboard image reaches upload normalization`(type: UTType) throws {
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+    let data = try #require(encodedImage(width: 4, height: 4, as: type))
+    pasteboard.setData(data, forType: NSPasteboard.PasteboardType(type.identifier))
+    #expect(Clipboard.hasImage(from: pasteboard))
+    let image = try #require(Clipboard.image(from: pasteboard))
+    #expect(image.data == data)
+    #expect(image.type == type)
+    let normalized = try #require(ImageEncoding.normalize(image.data, sourceUTType: image.type))
+    #expect(normalized.contentType == (type == .tiff ? "image/jpeg" : type.preferredMIMEType))
+    #expect(type == .tiff || normalized.data == data)
+  }
+
+  @Test
+  func `clipboard prefers original gif and png to alternate representations`() throws {
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+    for type in [UTType.tiff, .png, .gif] {
+      let data = try #require(encodedImage(width: 4, height: 4, as: type))
+      pasteboard.setData(data, forType: NSPasteboard.PasteboardType(type.identifier))
+      let image = try #require(Clipboard.image(from: pasteboard))
+      #expect(image.type == type)
+      #expect(image.data == data)
+    }
+  }
+
+  @MainActor
+  @Test
+  func `field editor routes image paste and disables it while unavailable`() throws {
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+    let data = try #require(encodedImage(width: 4, height: 4, as: .png))
+    pasteboard.setData(data, forType: .png)
+    let editor = ComposerFieldEditor()
+    editor.pasteboard = pasteboard
+    editor.string = "existing draft"
+    var uploads = 0
+    editor.onPasteImage = { pasted, type in
+      #expect(pasted == data)
+      #expect(type == .png)
+      uploads += 1
+    }
+    let paste = NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+
+    #expect(!editor.validateUserInterfaceItem(paste))
+    editor.paste(nil)
+    #expect(uploads == 0)
+
+    editor.canPasteImage = true
+    #expect(editor.validateUserInterfaceItem(paste))
+    editor.paste(nil)
+    #expect(uploads == 1)
+    #expect(editor.string == "existing draft")
+
+    editor.canPasteImage = false
+    #expect(!editor.validateUserInterfaceItem(paste))
+    editor.paste(nil)
+    #expect(uploads == 1)
   }
 
   // MARK: Private

@@ -290,10 +290,10 @@ final class AppModel {
     }
   }
 
-  /// Normalizes and uploads a picked/dropped image (HEIC etc. are transcoded
+  /// Normalizes and uploads a picked/dropped/pasted image (HEIC etc. are transcoded
   /// to JPEG client-side; the backend does not decode HEIC), then appends the
   /// returned URL to the initiating buffer's composer text, ready to send.
-  /// One upload at a time: picks/drops while one is in flight are ignored.
+  /// One upload at a time: picks/drops/pastes while one is in flight are ignored.
   func attachImage(_ rawData: Data, sourceType: UTType?) async {
     guard let transport, let bufferID = selectedBufferID, !isUploading else { return }
     isUploading = true
@@ -560,8 +560,7 @@ final class AppModel {
   @ObservationIgnored private var selectionGeneration = 0
 
   /// Appends text to the visible composer, space-padded from any existing
-  /// content, but always at the end since the SwiftUI TextField here has no
-  /// caret tracking.
+  /// content, always at the end; the model does not track the editor's caret.
   private func appendToComposer(_ text: String) {
     composerText = InputHistory.appending(text, to: composerText)
   }

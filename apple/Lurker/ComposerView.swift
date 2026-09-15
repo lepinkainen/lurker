@@ -40,6 +40,49 @@ struct ComposerView: View {
           .font(Theme.Fonts.nick.weight(.semibold))
           .foregroundStyle(.white)
         //          .padding(.bottom, 6)
+        #if os(macOS)
+        MacComposerTextField(
+          text: $model.composerText,
+          focused: $focused,
+          placeholder: placeholder,
+          isEnabled: canSend,
+          canPasteImage: canSend && !model.isUploading,
+          onPasteImage: { data, type in
+            guard canSend, !model.isUploading else { return }
+            Task {
+              await model.attachImage(data, sourceType: type)
+            }
+          },
+          onKey: { key in
+            switch key {
+            case .tab: return acceptSelection()
+
+            case .return:
+              if !acceptSelection() {
+                model.sendComposer()
+              }
+              return true
+
+            case .upArrow: return handleArrow(up: true) == .handled
+
+            case .downArrow: return handleArrow(up: false) == .handled
+
+            case .escape:
+              if self.popup != .none {
+                popupDismissed = true
+                return true
+              }
+              // Native focus does not participate in SwiftUI's ancestor
+              // key handlers; mirror ConversationView's Esc-to-ack action.
+              guard buffer.markerID != nil || buffer.unread > 0 else { return false }
+              model.ackRead(buffer.id)
+              return true
+
+            default: return false
+            }
+          },
+        )
+        #else
         TextField(placeholder, text: $model.composerText, axis: .vertical)
           .textFieldStyle(.plain)
           .font(Theme.Fonts.message)
@@ -68,6 +111,7 @@ struct ComposerView: View {
             popupDismissed = true
             return .handled
           }
+        #endif
         attachButton
         Button(action: { model.sendComposer() }) {
           Image(systemName: "arrow.up.circle.fill")
@@ -141,7 +185,11 @@ struct ComposerView: View {
   // MARK: Private
 
   @Environment(AppModel.self) private var model
+  #if os(macOS)
+  @State private var focused = false
+  #else
   @FocusState private var focused: Bool
+  #endif
   @State private var popupSelection = 0
   /// The popup derives from the text, so Esc-dismissal needs an explicit flag;
   /// any text change re-arms it.

@@ -74,8 +74,27 @@ extension Image {
 
 // MARK: - Clipboard
 
-/// Cross-platform clipboard write.
+/// Cross-platform clipboard write and macOS image paste support.
 enum Clipboard {
+  #if os(macOS)
+  static func hasImage(from pasteboard: NSPasteboard = .general) -> Bool {
+    (pasteboard.types ?? []).contains { UTType($0.rawValue)?.conforms(to: .image) == true }
+  }
+
+  /// Prefer the original web format over alternate TIFF representations so
+  /// pasted PNGs keep transparency and GIFs keep animation.
+  static func image(from pasteboard: NSPasteboard = .general) -> (data: Data, type: UTType)? {
+    let preferred: [UTType] = [.gif, .png, .jpeg, .tiff]
+    let types = preferred + (pasteboard.types ?? []).compactMap { UTType($0.rawValue) }
+    for type in types where type.conforms(to: .image) {
+      if let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type.identifier)) {
+        return (data, type)
+      }
+    }
+    return nil
+  }
+  #endif
+
   static func copy(_ string: String) {
     #if os(macOS)
     NSPasteboard.general.clearContents()

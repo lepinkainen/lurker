@@ -191,6 +191,107 @@ final class LurkerUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Libera"].exists)
   }
 
+  func testComposerCompletionAndMultilineEditing() {
+    selectBuffer("#lurker")
+    let unreadBar = app.buttons.matching(
+      NSPredicate(format: "label CONTAINS %@ OR label BEGINSWITH %@", "new message", "new since")
+    ).firstMatch
+    XCTAssertTrue(unreadBar.waitForExistence(timeout: 5))
+    let composer = app.textFields.matching(
+      NSPredicate(format: "placeholderValue == %@", "#lurker")
+    ).firstMatch
+    XCTAssertTrue(composer.waitForExistence(timeout: 5))
+    app.typeKey("l", modifierFlags: .command)
+    composer.typeText("tov")
+    app.typeKey(.tab, modifierFlags: [])
+    composer.typeText("hello")
+    XCTAssertEqual(composer.value as? String, "tove: hello")
+
+    let singleLineHeight = composer.frame.height
+    app.typeKey(.return, modifierFlags: .option)
+    composer.typeText("second line")
+    XCTAssertEqual(composer.value as? String, "tove: hello\nsecond line")
+    XCTAssertGreaterThan(composer.frame.height, singleLineHeight)
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertFalse(unreadBar.exists)
+    composer.typeText(".")
+    XCTAssertEqual(composer.value as? String, "tove: hello\nsecond line.")
+  }
+
+  func testComposerPastesImagesAndText() throws {
+    selectBuffer("#lurker")
+    let composer = app.textFields.matching(
+      NSPredicate(format: "placeholderValue == %@", "#lurker")
+    ).firstMatch
+    XCTAssertTrue(composer.waitForExistence(timeout: 5))
+    composer.click()
+    composer.typeText("draft")
+    XCTAssertEqual(composer.value as? String, "draft")
+
+    let pasteboard = NSPasteboard.general
+    let savedItems = pasteboard.pasteboardItems?.map { item in
+      item.types.compactMap { type in item.data(forType: type).map { (type, $0) } }
+    } ?? []
+    defer {
+      pasteboard.clearContents()
+      pasteboard.writeObjects(savedItems.map { values in
+        let item = NSPasteboardItem()
+        for (type, data) in values { item.setData(data, forType: type) }
+        return item
+      })
+    }
+
+    let bitmap = try XCTUnwrap(NSBitmapImageRep(
+      bitmapDataPlanes: nil,
+      pixelsWide: 2,
+      pixelsHigh: 2,
+      bitsPerSample: 8,
+      samplesPerPixel: 4,
+      hasAlpha: true,
+      isPlanar: false,
+      colorSpaceName: .deviceRGB,
+      bytesPerRow: 0,
+      bitsPerPixel: 0,
+    ))
+    let url = "https://fixture.local/uploads/test.jpg"
+    for (index, format) in [NSBitmapImageRep.FileType.png, .tiff].enumerated() {
+      pasteboard.clearContents()
+      pasteboard.setData(
+        try XCTUnwrap(bitmap.representation(using: format, properties: [:])),
+        forType: index == 0 ? .png : .tiff,
+      )
+      if index == 0 {
+        app.typeKey("v", modifierFlags: .command)
+      } else {
+        app.menuBars.menuBarItems["Edit"].click()
+        let paste = app.menuItems["Paste"]
+        XCTAssertTrue(paste.isEnabled)
+        paste.click()
+      }
+      let expected = "draft " + String(repeating: url + " ", count: index + 1)
+      expectation(for: NSPredicate(format: "value == %@", expected), evaluatedWith: composer)
+      waitForExpectations(timeout: 5)
+    }
+
+    // Native text paste must still replace the selection and support Undo.
+    pasteboard.clearContents()
+    pasteboard.setString("ordinary text", forType: .string)
+    composer.click()
+    app.typeKey("a", modifierFlags: .command)
+    app.typeKey("v", modifierFlags: .command)
+    XCTAssertEqual(composer.value as? String, "ordinary text")
+    app.typeKey("z", modifierFlags: .command)
+    XCTAssertEqual(composer.value as? String, "draft " + url + " " + url + " ")
+
+    // Paste in another field must not attach anything to the composer.
+    app.typeKey("k", modifierFlags: .command)
+    let search = app.textFields["Jump to a channel or conversation"]
+    XCTAssertTrue(search.waitForExistence(timeout: 2))
+    search.click()
+    app.typeKey("v", modifierFlags: .command)
+    XCTAssertEqual(search.value as? String, "ordinary text")
+  }
+
   /// Inline links flip the cursor to the pointing hand (NSTextView
   /// linkTextAttributes). Link-run geometry is not exposed to accessibility,
   /// so the test sweeps the pointer across the timeline and samples the

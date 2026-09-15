@@ -180,7 +180,8 @@ tasks:
         CODE_SIGN_IDENTITY=-
         CODE_SIGNING_REQUIRED=YES
         AD_HOC_CODE_SIGNING_ALLOWED=YES
-        -only-testing:LurkerUITests
+        -only-testing:{{.TEST_FILTER | default "LurkerUITests"}}
+        {{.CLI_ARGS}}
         test
 
   lint-apple:

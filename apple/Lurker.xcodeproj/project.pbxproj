@@ -53,6 +53,7 @@
 		A10000000000000000000024 /* AppModel+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000026 /* AppModel+Connection.swift */; };
 		A10000000000000000000025 /* TimelineDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000027 /* TimelineDiff.swift */; };
 		A10000000000000000000026 /* TimelineAvatarImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000028 /* TimelineAvatarImages.swift */; };
+		A10000000000000000000027 /* MacComposerTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000029 /* MacComposerTextField.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -125,6 +126,7 @@
 		B10000000000000000000026 /* AppModel+Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Connection.swift"; sourceTree = "<group>"; };
 		B10000000000000000000027 /* TimelineDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TimelineDiff.swift"; sourceTree = "<group>"; };
 		B10000000000000000000028 /* TimelineAvatarImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TimelineAvatarImages.swift"; sourceTree = "<group>"; };
+		B10000000000000000000029 /* MacComposerTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacComposerTextField.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -175,6 +177,7 @@
 				B10000000000000000000026 /* AppModel+Connection.swift */,
 				B10000000000000000000027 /* TimelineDiff.swift */,
 				B10000000000000000000028 /* TimelineAvatarImages.swift */,
+				B10000000000000000000029 /* MacComposerTextField.swift */,
 				B10000000000000000000023 /* AppModel+Fixtures.swift */,
 				B10000000000000000000022 /* PreviewTextAttachment.swift */,
 				B10000000000000000000021 /* TimelineBlockRendering.swift */,
@@ -325,6 +328,7 @@
 				A10000000000000000000024,
 				A10000000000000000000025,
 				A10000000000000000000026,
+				A10000000000000000000027,
 				A10000000000000000000018, A10000000000000000000019, A1000000000000000000001A, A1000000000000000000001B, A1000000000000000000001C, A1000000000000000000001D, A1000000000000000000001E, A1000000000000000000001F, A10000000000000000000020, A10000000000000000000021,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -94,6 +94,23 @@ and the window's frames and assert the popup's `maxY` is at or above the
 composer's `minY`. Coordinates are objective; a screenshot alone can miss a
 panel that rendered off-window.
 
+## SwiftUI `TextField` consumes image Paste before `onPasteCommand`
+
+**Symptom.** Adding `.onPasteCommand(of: [.image])` to the focused composer
+does not upload clipboard images with Command-V.
+
+**Fix.** `MacComposerTextField` uses an `NSTextFieldCell` with its own
+`ComposerFieldEditor`. The editor overrides `paste` and menu validation for
+image content, delegating ordinary text paste to AppKit. The composer uses
+an ordinary state binding for native focus; the editor updates it from
+`becomeFirstResponder`/`resignFirstResponder`. Text-change notifications are
+too late to track focus when the user clicks into an empty field.
+
+**Verify.** `testComposerPastesImagesAndText` exercises PNG with Command-V,
+TIFF with Edit → Paste, existing draft preservation, text selection/Undo,
+and pasting in the channel switcher. Expected upload URLs include a trailing
+space, matching `InputHistory.appending`.
+
 ## Sandboxed `.fileImporter` needs the read-only entitlement
 
 **Symptom.** The macOS Lurker app runs sandboxed
