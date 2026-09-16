@@ -17,12 +17,14 @@ Always use `task` (Taskfile.yml), not direct `go`/`pnpm`.
 - `task dev` — run backend (`go run .`), API only, no web UI at `/`
 - `task dev-web` — build frontend, run backend serving `./web/dist`
 - `task web-install` / `task web-dev` — pnpm install / Vite dev server (:5173)
-- `task web-build` — build frontend to `web/dist` (depends on `gen-palette`)
+- `task web-build` — build frontend to `web/dist` (depends on `gen-palette`, `icons-web`)
+- `task icons` — regenerate every raster icon from `web/public/favicon.svg` (the single source of truth); `icons-web`/`icons-desktop`/`apple-icon` run automatically from the builds that consume them
 - `task test` — Go tests, excludes `llm-shared/`
 - `task test-web` — frontend tests (Vitest)
 - `task lint` — goimports + golangci-lint + frontend type-check + eslint fix (depends on `lint-web`)
 - `task lint-web` — `tsc --noEmit` + `pnpm lint:fix`
 - `task lint-mermaid` — parse Mermaid diagrams in root docs + `ai-docs/` (part of `task lint`; needs `task web-install`)
+- `task lint-shell` — shellcheck every shell script (part of `task lint`); scripts are selected by shebang, so `scripts/push-and-watch.sh` (a uv/Python script named `.sh`) is skipped
 - `task build` — lint + test + web-build + Go binary → `build/lurker`
 - `task build-linux` — `build/lurker-linux-amd64`
 - `task test-ergo` — IRCv3 protocol integration tests against a real Ergo server in docker (`testdata/ergo/`); not part of `task test`

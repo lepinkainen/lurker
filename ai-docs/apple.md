@@ -97,7 +97,10 @@ open build/DerivedData/Build/Products/Debug/Lurker.app
 
 For iOS, open `apple/Lurker.xcodeproj` in Xcode, pick the **Lurker** scheme with an iPhone/iPad Simulator destination, and build (a free Apple ID team is fine for the simulator). Point Settings at your bouncer URL — localhost for the simulator, your Tailnet MagicDNS name on a real device.
 
-The app icon PNGs in `apple/Lurker/Assets.xcassets/AppIcon.appiconset/` are committed and used as-is by the build. They are generated from `web/public/favicon.svg`; regenerate them with `task apple-icon` only when that source changes (requires `rsvg-convert` — `brew install librsvg`).
+The app icon PNGs in `apple/Lurker/Assets.xcassets/AppIcon.appiconset/` are committed and used as-is by the build. They are generated from `web/public/favicon.svg` — see
+[Icons come from one SVG](frontend.md#icons-come-from-one-svg). `task build-apple` depends on
+`task apple-icon`, so a change to the SVG regenerates them on the next build; run `task apple-icon`
+directly to refresh them without building (requires `rsvg-convert` — `brew install librsvg`).
 
 Run checks:
 

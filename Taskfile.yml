@@ -93,17 +93,20 @@ tasks:
 
   desktop-dev:
     desc: Run the Tauri desktop shell in dev mode (reads LURKER_URL or ~/.config/lurker/desktop.yaml)
+    deps: [icons-desktop]
     cmds:
       - cd desktop && cargo tauri dev
 
   build-desktop:
     desc: Build the Tauri desktop shell release bundle
+    deps: [icons-desktop]
     cmds:
       - cd desktop && cargo tauri build
 
   build-apple:
     desc: Build the native macOS app (Apple silicon)
     platforms: [darwin]
+    deps: [apple-icon]
     cmds:
       - >-
         xcodebuild -quiet
@@ -147,6 +150,42 @@ tasks:
     cmds:
       - rm -rf /Applications/Lurker.app
       - ditto {{.BUILD_DIR}}/DerivedData/Build/Products/Release/Lurker.app /Applications/Lurker.app
+
+  icons:
+    desc: Regenerate every raster icon from web/public/favicon.svg
+    cmds:
+      - task: icons-web
+      - task: icons-desktop
+      - task: apple-icon
+
+  icons-web:
+    desc: Regenerate the web/PWA icons from web/public/favicon.svg
+    sources:
+      - web/public/favicon.svg
+      - scripts/gen-icons.sh
+    generates:
+      - web/public/icon-192.png
+      - web/public/icon-512.png
+      - web/public/icon-maskable-512.png
+      - web/public/apple-touch-icon.png
+    cmds:
+      - ./scripts/gen-icons.sh web
+
+  icons-desktop:
+    desc: Regenerate the Tauri desktop icon set from web/public/favicon.svg
+    sources:
+      - web/public/favicon.svg
+      - scripts/gen-icons.sh
+    generates:
+      - desktop/icons/icon.png
+      - desktop/icons/32x32.png
+      - desktop/icons/64x64.png
+      - desktop/icons/128x128.png
+      - desktop/icons/128x128@2x.png
+      - desktop/icons/icon.ico
+      - desktop/icons/icon.icns
+    cmds:
+      - ./scripts/gen-icons.sh desktop
 
   apple-icon:
     desc: Generate the native app icon from the project icon
@@ -268,7 +307,7 @@ tasks:
 
   web-build:
     desc: Build the frontend into web/dist
-    deps: [gen-palette]
+    deps: [gen-palette, icons-web]
     cmds:
       - cd web && pnpm build
 
@@ -313,9 +352,23 @@ tasks:
         exit 1
       - ERGO_ADDR=127.0.0.1:16667 go test -tags=ergo ./irc/ -run TestErgo -count=1 -v -timeout 120s
 
+  lint-shell:
+    desc: shellcheck every shell script
+    cmds:
+      - |
+        # Selected by shebang, not extension: scripts/push-and-watch.sh is a
+        # uv/Python script that happens to be named .sh, and shellcheck would
+        # try to parse it as shell.
+        files=$(grep -lE '^#!.*\b(sh|bash|dash)\b' scripts/*.sh 2>/dev/null || true)
+        if [ -z "$files" ]; then
+          echo "no shell scripts to check"
+          exit 0
+        fi
+        echo "$files" | xargs shellcheck
+
   lint:
     desc: Run formatting and lint checks (excluding llm-shared)
-    deps: [lint-web, lint-mermaid]
+    deps: [lint-web, lint-mermaid, lint-shell]
     cmds:
       - go fix {{.GO_PACKAGES}}
       - goimports -w $(find . -path ./llm-shared -prune -o -name '*.go' -print)

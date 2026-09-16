@@ -151,7 +151,12 @@ size matters, copy the file rather than the image.
 
 ## Icons
 
-The Tauri icon set under `desktop/icons/` is generated from `web/public/icon-512.png` via `cargo tauri icon ../web/public/icon-512.png` (run from `desktop/`) and committed, so it doesn't need regenerating unless the source icon changes.
+The Tauri icon set under `desktop/icons/` is generated from `web/public/favicon.svg` by
+`task icons-desktop`, and committed. `build-desktop` and `desktop-dev` depend on that task, so
+editing the SVG regenerates the set on the next build — see
+[Icons come from one SVG](frontend.md#icons-come-from-one-svg). `icon.ico` and `icon.icns` are
+regenerated too even though only Windows and macOS bundles read them, so no format drifts
+behind the others.
 
 ## Linux/WebKitGTK: verified, with one hard requirement
 
