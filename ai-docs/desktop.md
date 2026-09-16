@@ -62,7 +62,9 @@ On WebKitGTK that is not an option: a dropped file reaches the page as
 handler disabled the webview falls through to its own widget-level default and
 **navigates the window to `file:///…`**, replacing the chat UI with the dropped
 image and no way back but restarting. Keeping Tauri's handler on fixes both at
-once: it consumes the drop before WebKitGTK sees it.
+once: it consumes the drop before WebKitGTK sees it. Because that handler fires
+for the whole window rather than the composer, a drop is gated — see
+[Which drops are accepted](#which-drops-are-accepted).
 
 **Paste.** `PASTE_INIT_SCRIPT` watches for a paste the page cannot handle and
 hands it to Rust through a sentinel URL (`/__paste_upload`), the same trick
@@ -94,9 +96,44 @@ Both paths meet at `upload_bytes`, which mirrors `uploadFile` in
 `/api/media/exists`, then POSTs multipart to `/api/upload`. The returned URL is
 inserted at the composer caret by `insert_script`, which reproduces
 `insertTextAtCursor`'s leading/trailing space rules and dispatches a real `input`
-event so the command popup bound in `web/src/input.ts` stays in step. Progress and
-errors drive the composer's existing `.upload-note` element rather than inventing
-any styling.
+event so the command popup bound in `web/src/input.ts` stays in step.
+
+Progress and errors reuse the composer's existing `.upload-note` element rather
+than inventing any styling, but `note_script` chooses where to parent it. That
+element is `position: absolute` inside `.inputbar` at `z-index: 11`, so it cannot
+be raised above a dialog from its own stacking context. When something is
+covering the composer the same element is parented to `<body>` and pinned to the
+viewport instead, so a refusal is legible rather than hidden behind the very
+thing that caused it. Same element id either way, so a note never appears twice.
+Errors clear themselves after 8s, matching the frontend's `NOTE_ERROR_MS`.
+
+### Which drops are accepted
+
+Tauri's native handler reports drops anywhere in the window, and Rust cannot see
+the page's state, so the page is asked before anything is uploaded. Rust parks
+the dropped path, evaluates `DROP_GATE_SCRIPT`, and the page answers with a
+sentinel navigation: `/__drop_accept`, or `/__drop_reject?why=…` carrying a
+reason for the note. The parked path is single-use — taken on either reply — so a
+stale path can never be picked up by a later navigation.
+
+The gate tests **state, not the drop's coordinates**. A drop anywhere in the
+window is accepted, which matches how other chat clients behave and keeps the
+target larger than the composer strip; what it refuses is a drop whose result
+would land somewhere the user cannot see. Two details are easy to get wrong:
+
+- **The settings view is not a `<dialog>`.** `openSettingsView`
+  (`web/src/settings-dialog.ts`) builds a modeless `div[role="dialog"]`, unlike the
+  channel switcher, shortcuts help, network form and sidebar dialogs, which are
+  real `<dialog>`s opened with `showModal()`. A `dialog[open]` test therefore
+  misses the one overlay most likely to be open when someone drops an image. The
+  gate keys off `dialog[open], [role="dialog"]` so it catches both.
+- **A disabled composer does not refuse a drop**, even though
+  `PASTE_INIT_SCRIPT` refuses a paste then. That asymmetry is inherited rather
+  than chosen: the frontend's own paste handler bails on `inputEl.disabled`
+  (`web/src/input-upload.ts`), while its upload button never does — the paperclip
+  uploads fine on a channel you have not joined. A drop is the same gesture as
+  that button, so it follows the button. Gating it made drag-and-drop stricter
+  than the control sitting next to it.
 
 ### Paste is Wayland-only, and costs more bytes than dropping
 
