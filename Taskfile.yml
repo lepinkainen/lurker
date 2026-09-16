@@ -103,6 +103,22 @@ tasks:
     cmds:
       - cd desktop && cargo tauri build
 
+  install-linux:
+    desc: Install the desktop shell for the current user under ~/.local (no root, no reboot)
+    platforms: [linux]
+    deps: [icons-desktop]
+    cmds:
+      # Not build-desktop: that bundles deb/rpm/AppImage, and the AppImage step
+      # needs NO_STRIP=1 on Fedora 44. The binary is all an install needs.
+      - cd desktop && cargo build --release
+      - ./scripts/install-linux.sh
+
+  uninstall-linux:
+    desc: Remove the user-level desktop shell install
+    platforms: [linux]
+    cmds:
+      - ./scripts/install-linux.sh --uninstall
+
   build-apple:
     desc: Build the native macOS app (Apple silicon)
     platforms: [darwin]
@@ -183,7 +199,6 @@ tasks:
       - desktop/icons/128x128.png
       - desktop/icons/128x128@2x.png
       - desktop/icons/icon.ico
-      - desktop/icons/icon.icns
     cmds:
       - ./scripts/gen-icons.sh desktop
 

@@ -75,14 +75,17 @@ gen_desktop() {
   render 128 "$desk_dir/128x128.png"
   render 256 "$desk_dir/128x128@2x.png"
   render 512 "$desk_dir/icon.png"
-  # Windows and macOS bundle icons. Tauri only reads these when bundling for
-  # those targets, which this repo does not ship -- macOS has the native Swift
-  # app -- but they are listed in tauri.conf.json, so keep them in step rather
-  # than leaving a stale icon behind a format nobody looks at.
+  # Windows bundle icon. Tauri only reads it when bundling for Windows, which
+  # this repo does not ship, but it is listed in tauri.conf.json so keep it in
+  # step rather than leaving a stale icon behind a format nobody looks at.
   render 1024 "$tmpdir/master.png"
   "$magick_cmd" "$tmpdir/master.png" \
     -define icon:auto-resize=256,128,64,48,32,16 "$desk_dir/icon.ico"
-  "$magick_cmd" "$tmpdir/master.png" "$desk_dir/icon.icns"
+  # icon.icns is deliberately NOT generated: ImageMagick's ICNS writer is
+  # non-deterministic and emits different bytes every run, so regenerating it
+  # would dirty the worktree on every build. It is only read when bundling for
+  # macOS, which this repo does not do -- macOS has the native Swift client.
+  # Regenerate it by hand with `cargo tauri icon` if that ever changes.
   printf 'desktop icons -> %s\n' "${desk_dir#"$project_root"/}"
 }
 

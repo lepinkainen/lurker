@@ -149,14 +149,44 @@ because applications put a decoded PNG on the clipboard. The same 1000x1093 phot
 measured 1.32 MB pasted as a bitmap and 139 KB dropped as its original JPEG. When
 size matters, copy the file rather than the image.
 
+## Installing on Linux
+
+`task install-linux` puts the shell in the launcher for the current user; `task uninstall-linux`
+removes it. Everything lands under `$HOME`, so there is no root, no `rpm-ostree` layering and no
+reboot — which is the point on an immutable host like Bazzite or Silverblue.
+
+| Path | What |
+|---|---|
+| `~/.local/lib/lurker/lurker-desktop` | the binary |
+| `~/.local/bin/lurker-desktop` | wrapper that sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` |
+| `~/.local/share/icons/hicolor/*/apps/lurker-desktop.*` | icons, copied from `desktop/icons` |
+| `~/.local/share/applications/lurker-desktop.desktop` | launcher entry |
+
+Three things are deliberate:
+
+- **A wrapper, not a symlink.** Putting the env var in the `.desktop` `Exec` line alone would
+  leave the binary crashing on launch from a terminal. The wrapper respects an existing value, so
+  the workaround can be switched off once WebKitGTK no longer needs it.
+- **`StartupWMClass=lurker-desktop`** matches the window's app id, taken from the entry Tauri
+  generates for its own deb/rpm bundles. Without it the taskbar shows a second, generic icon next
+  to the launcher's correct one.
+- **Icons are copied from `desktop/icons`, not re-rendered.** That directory is generated from
+  `favicon.svg` by `task icons-desktop`, which `install-linux` depends on, so an installed copy
+  follows the source rather than being a snapshot taken at install time.
+
+It builds with `cargo build --release` rather than `task build-desktop`: an install only needs the
+binary, and the bundling step wants `NO_STRIP=1` on Fedora 44 (see below).
+
+This is a user-level install, not distribution. There is no release pipeline for the Linux shell.
+
 ## Icons
 
 The Tauri icon set under `desktop/icons/` is generated from `web/public/favicon.svg` by
 `task icons-desktop`, and committed. `build-desktop` and `desktop-dev` depend on that task, so
 editing the SVG regenerates the set on the next build — see
-[Icons come from one SVG](frontend.md#icons-come-from-one-svg). `icon.ico` and `icon.icns` are
-regenerated too even though only Windows and macOS bundles read them, so no format drifts
-behind the others.
+[Icons come from one SVG](frontend.md#icons-come-from-one-svg). `icon.ico` is regenerated too, even
+though only a Windows bundle reads it; `icon.icns` is committed but not generated, because
+ImageMagick's ICNS writer is non-deterministic and would dirty the worktree on every build.
 
 ## Linux/WebKitGTK: verified, with one hard requirement
 
