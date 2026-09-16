@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use tauri::{DragDropEvent, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
@@ -15,6 +16,13 @@ const SENTINEL_PATH: &str = "/__open_external";
 /// it cannot turn into a `File` itself. Same trick as `SENTINEL_PATH`: init
 /// scripts can't call Rust directly.
 const PASTE_SENTINEL_PATH: &str = "/__paste_upload";
+
+/// Sentinels the drop gate navigates to once the page has decided whether it
+/// can accept a dropped file right now. Tauri's native drag-drop handler fires
+/// for the whole window and Rust cannot see the page's state, so the page is
+/// asked before anything is uploaded.
+const DROP_ACCEPT_PATH: &str = "/__drop_accept";
+const DROP_REJECT_PATH: &str = "/__drop_reject";
 
 /// Injected before the page's own scripts run. WKWebView/WebKitGTK have no
 /// default handler for `target="_blank"` (or cross-origin) link clicks, so
@@ -158,6 +166,65 @@ fn sentinel_target(url: &Url) -> Option<String> {
     url.query_pairs()
         .find(|(key, _)| key == "url")
         .map(|(_, value)| value.into_owned())
+}
+
+/// Evaluated in the page after every native drop. Rust holds the dropped path
+/// but cannot see whether the composer is usable, so the page answers with a
+/// sentinel navigation.
+///
+/// The test is deliberately about *state*, not the drop's coordinates: a drop
+/// anywhere in the window is accepted, matching how other chat clients behave
+/// and keeping the target something larger than the composer strip. What must
+/// not happen is uploading into a composer the user cannot reach: behind an
+/// open `<dialog>`, or under the settings view, which covers the message pane
+/// while leaving the composer in the DOM.
+///
+/// Note this does *not* refuse a drop when the composer is disabled, even
+/// though `PASTE_INIT_SCRIPT` does refuse a paste then. That asymmetry is
+/// inherited, not invented: the frontend's own paste handler bails on
+/// `inputEl.disabled` (`web/src/input-upload.ts`), while its upload button
+/// never does -- the paperclip uploads fine on a channel you have not joined.
+/// A drop is the same gesture as that button, so it follows the button.
+const DROP_GATE_SCRIPT: &str = r##"
+(function () {
+  function go(path, why) {
+    window.location.href =
+      window.location.origin + path + (why ? "?why=" + encodeURIComponent(why) : "");
+  }
+  // Real <dialog>s (channel switcher, shortcuts help, network form) plus the
+  // settings view, which is a modeless div[role=dialog] rather than a <dialog>
+  // and so is not matched by dialog[open].
+  if (document.querySelector('dialog[open], [role="dialog"]')) {
+    go("/__drop_reject", "a dialog is open");
+    return;
+  }
+  if (!document.getElementById("input")) {
+    go("/__drop_reject", "the composer is not available");
+    return;
+  }
+  go("/__drop_accept");
+})();
+"##;
+
+/// The page's answer to a dropped file.
+#[derive(Debug, PartialEq, Eq)]
+enum DropGate {
+    Accept,
+    Reject(String),
+}
+
+/// Recognise the drop gate's reply, or `None` for any other navigation.
+fn drop_gate(url: &Url) -> Option<DropGate> {
+    match url.path() {
+        DROP_ACCEPT_PATH => Some(DropGate::Accept),
+        DROP_REJECT_PATH => Some(DropGate::Reject(
+            url.query_pairs()
+                .find(|(key, _)| key == "why")
+                .map(|(_, value)| value.into_owned())
+                .unwrap_or_else(|| "the composer is not ready".to_string()),
+        )),
+        _ => None,
+    }
 }
 
 /// Recognise the paste sentinel. Returns the `uri` query param when the page
@@ -495,36 +562,70 @@ async fn handle_paste(window: &tauri::WebviewWindow, backend: &Url, uri: Option<
     ));
 }
 
-/// Drive the composer's existing `.upload-note` element. An upload is the one
-/// composer action with no immediate visible result, and the styling already
-/// exists in `web/src/styles/input.css` — this only reuses it.
+/// Show, or clear, the composer's upload note.
+///
+/// The note normally lives inside the composer as `.upload-note`, matching what
+/// the web UI does for the same events. But that element is `position:absolute`
+/// inside `.inputbar` at `z-index: 11`, so it cannot be lifted above a dialog or
+/// the settings view -- raising its z-index is useless from inside a lower
+/// stacking context. When something is covering the composer the note is therefore
+/// parented to `<body>` and pinned to the viewport instead. Same element id either
+/// way, so a note never appears twice.
+///
+/// Errors clear themselves after the same 8s the frontend's `showNote` uses;
+/// progress notes stay until the caller clears them.
 fn note_script(text: Option<&str>, error: bool, uploading: bool) -> String {
     let body = match text {
         Some(t) => format!(
-            r#"  var note = form.querySelector(".upload-note");
+            r#"  var covered = !!document.querySelector('dialog[open], [role="dialog"]');
+  var host = covered ? document.body : form;
+  if (note && note.parentNode !== host) {{
+    note.parentNode.removeChild(note);
+    note = null;
+  }}
   if (!note) {{
     note = document.createElement("div");
-    form.appendChild(note);
+    note.id = NOTE_ID;
+    host.appendChild(note);
   }}
   note.className = {};
   note.hidden = false;
-  note.textContent = {};"#,
+  note.textContent = {};
+  note.style.cssText = covered
+    ? "position:fixed;left:50%;right:auto;bottom:24px;transform:translateX(-50%);" +
+      "max-width:min(90vw,32rem);margin:0;z-index:2147483647;"
+    : "";
+  if (note.dismissTimer) {{
+    clearTimeout(note.dismissTimer);
+    note.dismissTimer = null;
+  }}
+  if ({}) {{
+    note.dismissTimer = setTimeout(function () {{
+      if (note.parentNode) {{
+        note.parentNode.removeChild(note);
+      }}
+    }}, 8000);
+  }}"#,
             js_string(if error {
                 "upload-note err"
             } else {
                 "upload-note"
             }),
-            js_string(t)
+            js_string(t),
+            error
         ),
-        None => r#"  var note = form.querySelector(".upload-note");
-  if (note) { note.hidden = true; note.textContent = ""; }"#
-            .to_string(),
+        None => r#"  if (note && note.parentNode) {
+    note.parentNode.removeChild(note);
+  }"#
+        .to_string(),
     };
     format!(
         r#"(function () {{
+  var NOTE_ID = "lurker-upload-note";
   var el = document.getElementById("input");
   var form = el && el.closest ? el.closest("form") : null;
   if (!form) return;
+  var note = document.getElementById(NOTE_ID);
 {body}
   form.classList.toggle("uploading", {uploading});
 }})();"#
@@ -570,6 +671,11 @@ fn main() {
             // through the app handle rather than capturing it.
             let handle = app.handle().clone();
             let nav_backend = backend.clone();
+            // Holds the path from the most recent native drop until the page
+            // says whether it can accept it. Single-use: taken on either reply,
+            // so a stale path can never be uploaded by a later navigation.
+            let pending_drop: Arc<Mutex<Option<PathBuf>>> = Arc::new(Mutex::new(None));
+            let nav_pending = Arc::clone(&pending_drop);
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("Lurker")
                 .inner_size(1200.0, 800.0)
@@ -587,6 +693,30 @@ fn main() {
                 .initialization_script(EXTERNAL_LINK_INIT_SCRIPT)
                 .initialization_script(PASTE_INIT_SCRIPT)
                 .on_navigation(move |url| {
+                    if let Some(gate) = drop_gate(url) {
+                        let path = nav_pending.lock().ok().and_then(|mut slot| slot.take());
+                        let handle = handle.clone();
+                        let backend = nav_backend.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let Some(window) = handle.get_webview_window("main") else {
+                                return;
+                            };
+                            match (gate, path) {
+                                (DropGate::Accept, Some(path)) => {
+                                    upload_path(&window, &backend, &path).await;
+                                }
+                                (DropGate::Reject(why), _) => {
+                                    let _ = window.eval(note_script(
+                                        Some(&format!("Can't upload here — {why}")),
+                                        true,
+                                        false,
+                                    ));
+                                }
+                                (DropGate::Accept, None) => {}
+                            }
+                        });
+                        return false;
+                    }
                     if let Some(uri) = paste_sentinel(url) {
                         let handle = handle.clone();
                         let backend = nav_backend.clone();
@@ -611,7 +741,7 @@ fn main() {
 
             let window = app.get_webview_window("main").expect("main window exists");
             let upload_window = window.clone();
-            let drop_backend = backend.clone();
+            let drop_pending = Arc::clone(&pending_drop);
             window.on_window_event(move |event| {
                 let WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) = event else {
                     return;
@@ -621,11 +751,11 @@ fn main() {
                 let Some(path) = paths.first().cloned() else {
                     return;
                 };
-                let window = upload_window.clone();
-                let backend = drop_backend.clone();
-                tauri::async_runtime::spawn(async move {
-                    upload_path(&window, &backend, &path).await;
-                });
+                // Park the path and let the page decide; see DROP_GATE_SCRIPT.
+                if let Ok(mut slot) = drop_pending.lock() {
+                    *slot = Some(path);
+                }
+                let _ = upload_window.eval(DROP_GATE_SCRIPT);
             });
             Ok(())
         })
@@ -636,8 +766,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        endpoint, file_path_from_uri, is_openable_scheme, js_string, parse_backend_url,
-        paste_sentinel, pasted_filename, pick_image_mime, sentinel_target,
+        drop_gate, endpoint, file_path_from_uri, is_openable_scheme, js_string, parse_backend_url,
+        paste_sentinel, pasted_filename, pick_image_mime, sentinel_target, DropGate,
     };
     use tauri::Url;
 
@@ -688,6 +818,37 @@ mod tests {
     fn paste_sentinel_ignores_other_paths() {
         let url = Url::parse("http://localhost:8080/api/state").unwrap();
         assert_eq!(paste_sentinel(&url), None);
+    }
+
+    #[test]
+    fn drop_gate_recognises_acceptance() {
+        let url = Url::parse("http://localhost:8080/__drop_accept").unwrap();
+        assert_eq!(drop_gate(&url), Some(DropGate::Accept));
+    }
+
+    #[test]
+    fn drop_gate_carries_the_rejection_reason() {
+        let url =
+            Url::parse("http://localhost:8080/__drop_reject?why=a%20dialog%20is%20open").unwrap();
+        assert_eq!(
+            drop_gate(&url),
+            Some(DropGate::Reject("a dialog is open".to_string()))
+        );
+    }
+
+    #[test]
+    fn drop_gate_rejection_without_a_reason_still_explains_itself() {
+        let url = Url::parse("http://localhost:8080/__drop_reject").unwrap();
+        assert_eq!(
+            drop_gate(&url),
+            Some(DropGate::Reject("the composer is not ready".to_string()))
+        );
+    }
+
+    #[test]
+    fn drop_gate_ignores_ordinary_navigation() {
+        let url = Url::parse("http://localhost:8080/api/state").unwrap();
+        assert_eq!(drop_gate(&url), None);
     }
 
     #[test]
