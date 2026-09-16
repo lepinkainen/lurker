@@ -2,4 +2,5 @@
 # apple/airbnb.swiftformat and the pinned download in .github/workflows/ci.yml —
 # bump all three together or lint output drifts between local and CI.
 [tools]
+rust = "latest"
 swiftformat = "0.63.0"

@@ -91,6 +91,16 @@ tasks:
       - mkdir -p {{.BUILD_DIR}}
       - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/lurker-tui-linux-amd64 ./cmd/tui
 
+  desktop-dev:
+    desc: Run the Tauri desktop shell in dev mode (reads LURKER_URL or ~/.config/lurker/desktop.yaml)
+    cmds:
+      - cd desktop && cargo tauri dev
+
+  build-desktop:
+    desc: Build the Tauri desktop shell release bundle
+    cmds:
+      - cd desktop && cargo tauri build
+
   build-apple:
     desc: Build the native macOS app (Apple silicon)
     platforms: [darwin]

@@ -1,0 +1,16 @@
+[package]
+name = "lurker-desktop"
+version = "0.1.0"
+description = "Minimal Tauri desktop shell for the Lurker IRC bouncer web UI"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[[bin]]
+name = "lurker-desktop"
+path = "src/main.rs"
