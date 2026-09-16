@@ -1,0 +1,385 @@
+classDiagram
+    %% Exported/public types of the Go backend, grouped by package.
+    %% Member lists capped at ~12 per class.
+    direction LR
+
+    namespace api {
+        class Server {
+            +MultiStore Stores
+            +Hub Hub
+            +manager Manager
+            +fs.FS Web
+            +theme.Loader Themes
+            +media.Service Media
+            +preview.Fetcher PreviewFetcher
+            +Checker UpdateChecker
+            +[]string ConfigNetworkNames
+            +func ConfigPreview
+            +func ConfigSave
+            +Handler() http.Handler
+            +...12 more
+        }
+        class manager {
+            <<interface>>
+            wsManager + stateManager + networkManager
+        }
+        class wsManager {
+            <<interface>>
+            messageSender + channelOps + presenceOps + modeOps
+        }
+        class stateManager {
+            <<interface>>
+            +StateSnapshot() map
+            +IsJoined(networkID, channel) bool
+            +ChannelMembers(networkID, channel) []ChannelUser
+            +Nick(networkID) string
+        }
+        class networkManager {
+            <<interface>>
+            +StateSnapshot() map
+            +StartNetwork(networkID, NetworkConfig) error
+            +StopNetwork(networkID) error
+        }
+    }
+
+    namespace irc {
+        class Manager {
+            -context.Context baseCtx
+            -MultiStore stores
+            -Hub hub
+            -PreviewEnqueuer previews
+            -map~UUID,girc.Client~ conn
+            -map~UUID,string~ state
+            -map~UUID,networkRuntime~ runtime
+            -map~UUID,botTracker~ bots
+            -map~UUID,avatarTracker~ avatars
+            -connectorFunc connector
+            +Start(ctx, nets) error
+            +StartNetwork(networkID, nc) error
+            +StopNetwork(networkID) error
+            +Send(networkID, target, content) error
+            +LogOutbound(ctx, networkID, target, kind, content) error
+            +StateSnapshot() map
+            +...30 more
+        }
+        class NetworkConfig {
+            +string Name
+            +[]ServerConfig Servers
+            +string Nick
+            +string Realname
+            +string SASLUser
+            +string SASLPass
+            +[]string Channels
+            +[]string ConnectCommands
+            +PrimaryServer() ServerConfig
+        }
+        class ServerConfig {
+            +string Host
+            +int Port
+            +bool TLS
+            +uint16 TLSMaxVersion
+        }
+        class NetworkState {
+            <<enumeration>>
+            connecting
+            connected
+            disconnected
+        }
+        class MessageCore {
+            +UUID ID
+            +UUID NetworkID
+            +UUID BufferID
+            +string MsgID
+            +string TS
+            +string Sender
+            +string Kind
+            +string Content
+            +string DisplayKind
+            +bool MentionsMe
+            +bool CountsAsUnread
+            +NetsplitMeta Netsplit
+            +[]mirc.Segment Segments
+            +ApplySemantics(nick)
+            +...8 more
+        }
+        class MessageEvent {
+            +string Type
+            +WithSemantics(nick) MessageEvent
+        }
+        class PreviewEnqueuer {
+            <<interface>>
+            +Enqueue(networkID, bufferID, messageID, content)
+        }
+        class MessageSemantics {
+            +string DisplayKind
+            +bool IsSelf
+            +bool MentionsMe
+            +bool CountsAsUnread
+            +bool Highlight
+            +string HighlightPattern
+        }
+        class NetsplitMeta {
+            +netsplit group annotation
+        }
+        class ChannelUser {
+            +string Nick
+            +string Prefix
+            +bool Bot
+            +string AvatarURL
+        }
+    }
+
+    namespace db {
+        class MultiStore {
+            +sql.DB Control
+            +PreviewStore Previews
+            +MediaStore Media
+            +string DataDir
+            -map~UUID,LogStore~ logs
+            +LogStore(networkID) LogStore
+            +UpsertNetwork(ctx, Network) Network
+            +ListAllBuffers(ctx) []Buffer
+            +Close() error
+            +...20 more
+        }
+        class LogStore {
+            +UUID NetworkID
+            +sql.DB DB
+            -sync.Mutex insertMu
+            +Close() error
+        }
+        class Network {
+            +UUID ID
+            +string Name
+            +string Kind
+            +string Host
+            +int Port
+            +bool TLS
+            +string Nick
+            +string SASLUser
+            +string ServerPass
+            +[]string ConnectCommands
+            +int SortOrder
+            +bool Disabled
+        }
+        class Buffer {
+            +UUID ID
+            +UUID NetworkID
+            +string Name
+            +string Kind
+            +string Topic
+            +UUID LastSeenID
+            +int64 SortOrder
+            +bool ShowEmbeds
+            +bool Pinned
+            +bool Archived
+            +int64 PinOrder
+            +...3 more
+        }
+        class StoredMessage {
+            +UUID ID
+            +UUID NetworkID
+            +UUID BufferID
+            +string MsgID
+            +string TS
+            +string Sender
+            +string Kind
+            +string Content
+        }
+        class PreviewStore {
+            +Get(ctx, url, ttl) URLPreview
+            +Put(ctx, URLPreview) error
+        }
+        class MediaStore {
+            +GetBySourceHash(ctx, hash) Media
+            +Insert(ctx, Media) error
+            +List(ctx, filter, limit, offset) []Media
+            +Delete(ctx, id) bool
+        }
+        class URLPreview {
+            +string URL
+            +string Kind
+            +string Title
+            +string Description
+            +string ImageURL
+            +string SiteName
+            +Displayable() bool
+        }
+    }
+
+    namespace hub {
+        class Hub {
+            -map~subscriber,struct~ subs
+            +Subscribe(buf) (chan, chan, func)
+            +Publish(e any)
+        }
+    }
+
+    namespace preview {
+        class Service {
+            -Config cfg
+            -MultiStore stores
+            -Hub hub
+            -Fetcher fetcher
+            -chan~job~ queue
+            +Start(ctx)
+            +Enqueue(networkID, bufferID, messageID, content)
+            +Fetcher() Fetcher
+            +Close() error
+        }
+        class Fetcher {
+            -http.Client client
+            -FetcherConfig cfg
+            +Fetch(ctx, target) URLPreview
+        }
+        class Resolver {
+            <<interface>>
+            +SSRF guard hook
+        }
+        class Event {
+            +string Type
+            +UUID MessageID
+            +UUID BufferID
+            +[]ResolvedPreview Previews
+        }
+    }
+
+    namespace media {
+        class MediaService {
+            +Store Store
+            +Blobs Blobs
+            +Config Cfg
+            +RegisterRoutes(mux)
+            +Handler() http.Handler
+        }
+        class Store {
+            <<interface>>
+            +GetBySourceHash(ctx, hash) Media
+            +Get(ctx, id) Media
+            +Insert(ctx, m) error
+            +List(ctx, f, limit, offset) []Media
+            +Delete(ctx, id) bool
+        }
+        class Blobs {
+            <<interface>>
+            +Put(ctx, key, data, contentType) error
+            +Exists(ctx, key) bool
+            +Delete(ctx, key) error
+        }
+        class DiskBlobs {
+            +string Dir
+        }
+        class Media {
+            +string ID
+            +string Kind
+            +string Mime
+            +string SourceHash
+            +[]Variant Variants
+            +int Size
+            +int Width
+            +int Height
+        }
+    }
+
+    namespace datasource {
+        class DataSourceManager {
+            -Deps deps
+            -[]Source sources
+            +Register(s Source)
+            +Start(ctx) error
+            +Wait()
+            +Names() []string
+        }
+        class Source {
+            <<interface>>
+            +Name() string
+            +Kind() string
+            +Start(ctx, deps) error
+            +NetworkID() UUID
+            +Wait()
+        }
+        class Deps {
+            +MultiStore Stores
+            +Hub Hub
+            +PreviewEnqueuer Previews
+        }
+        class Post {
+            +string MsgID
+            +time.Time Timestamp
+            +string Sender
+            +string Kind
+            +string Content
+        }
+    }
+
+    namespace updates {
+        class Checker {
+            -Config cfg
+            -httpjson.Client hjc
+            +Start(ctx)
+            +Status() Status
+        }
+    }
+
+    namespace objstore {
+        class ObjstoreClient {
+            -string bucket
+            +Put(ctx, key, data, contentType) error
+            +Exists(ctx, key) bool
+            +Delete(ctx, key) error
+            +Probe(ctx) error
+        }
+    }
+
+    manager --|> wsManager
+    manager --|> stateManager
+    manager --|> networkManager
+    Manager ..|> manager
+    Service ..|> PreviewEnqueuer
+
+    Server *-- MultiStore
+    Server *-- Hub
+    Server --> manager
+    Server --> MediaService
+    Server --> Fetcher
+    Server --> Checker
+
+    Manager *-- MultiStore
+    Manager *-- Hub
+    Manager --> PreviewEnqueuer
+    MessageEvent --|> MessageCore
+    MessageCore --> MessageSemantics : ApplySemantics
+    MessageCore --> NetsplitMeta
+    Manager --> ChannelUser
+    Manager --> NetworkConfig
+    NetworkConfig *-- ServerConfig
+    Manager --> NetworkState
+
+    MultiStore *-- LogStore
+    MultiStore *-- PreviewStore
+    MultiStore *-- MediaStore
+    MultiStore --> Network
+    MultiStore --> Buffer
+    MultiStore --> StoredMessage
+    PreviewStore --> URLPreview
+    MediaStore ..|> Store
+
+    Service *-- Fetcher
+    Service --> MultiStore
+    Service --> Hub
+    Service --> Event
+    Fetcher --> Resolver
+    Fetcher --> URLPreview
+
+    MediaService --> Store
+    MediaService --> Blobs
+    DiskBlobs ..|> Blobs
+    ObjstoreClient ..|> Blobs
+    Store --> Media
+
+    DataSourceManager *-- Deps
+    DataSourceManager --> Source
+    Deps --> MultiStore
+    Deps --> Hub
+    Deps --> PreviewEnqueuer
+    Source --> Post

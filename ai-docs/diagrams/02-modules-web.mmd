@@ -1,0 +1,209 @@
+flowchart TD
+    %% web/src TypeScript module graph. One edge per distinct relative import.
+    %% Excludes *.css, *.test.ts, and web/node_modules/.
+    active_buffer["active-buffer<br/>in:1 out:8"]
+    app_core["app-core<br/>in:1 out:18"]
+    app_state["app-state<br/>in:29 out:1"]
+    app_view["app-view<br/>in:4 out:13"]
+    bootstrap["bootstrap<br/>in:0 out:1"]
+    buffer_settings_api["buffer-settings-api<br/>in:1 out:1"]
+    buffers["buffers<br/>in:7 out:1"]
+    channel_list["channel-list<br/>in:2 out:1"]
+    channel_switcher["channel-switcher<br/>in:2 out:3"]
+    connection["connection<br/>in:1 out:3"]
+    dialog["dialog<br/>in:1 out:0"]
+    dom["dom<br/>in:4 out:0"]
+    emoji_autocomplete["emoji-autocomplete<br/>in:1 out:0"]
+    format["format<br/>in:6 out:1"]
+    highlights_api["highlights-api<br/>in:1 out:1"]
+    http["http<br/>in:5 out:0"]
+    input["input<br/>in:4 out:7"]
+    input_command_popup["input-command-popup<br/>in:3 out:2"]
+    input_history["input-history<br/>in:3 out:2"]
+    input_upload["input-upload<br/>in:2 out:1"]
+    keyboard_dialogs["keyboard-dialogs<br/>in:2 out:0"]
+    keyboard_navigation["keyboard-navigation<br/>in:1 out:2"]
+    keyboard_routing["keyboard-routing<br/>in:2 out:6"]
+    main["main<br/>in:1 out:1"]
+    media_browser["media-browser<br/>in:1 out:1"]
+    members["members<br/>in:2 out:3"]
+    messages["messages<br/>in:1 out:6"]
+    mirc["mirc<br/>in:1 out:2"]
+    navigation["navigation<br/>in:1 out:2"]
+    network_api["network-api<br/>in:1 out:2"]
+    network_form["network-form<br/>in:1 out:3"]
+    nick["nick<br/>in:4 out:3"]
+    nick_autocomplete["nick-autocomplete<br/>in:1 out:1"]
+    nick_colors["nick-colors<br/>in:5 out:1"]
+    nick_palette["nick-palette<br/>in:2 out:0"]
+    preview["preview<br/>in:2 out:0"]
+    read_tracker["read-tracker<br/>in:1 out:2"]
+    reset["reset<br/>in:1 out:2"]
+    router["router<br/>in:3 out:1"]
+    scroll_stick["scroll-stick<br/>in:3 out:0"]
+    settings_dialog["settings-dialog<br/>in:1 out:5"]
+    shortcuts_help["shortcuts-help<br/>in:2 out:2"]
+    sidebar["sidebar<br/>in:1 out:8"]
+    sidebar_dnd["sidebar-dnd<br/>in:1 out:1"]
+    sidebar_model["sidebar-model<br/>in:1 out:2"]
+    slash_commands["slash-commands<br/>in:2 out:1"]
+    status["status<br/>in:1 out:2"]
+    theme["theme<br/>in:2 out:0"]
+    theme_ui["theme-ui<br/>in:1 out:1"]
+    touch_gestures["touch-gestures<br/>in:1 out:1"]
+    ui_shell["ui-shell<br/>in:5 out:0"]
+    user_popup["user-popup<br/>in:1 out:4"]
+    ws_router["ws-router<br/>in:1 out:5"]
+    active_buffer --> app_state
+    active_buffer --> app_view
+    active_buffer --> dom
+    active_buffer --> input
+    active_buffer --> input_history
+    active_buffer --> members
+    active_buffer --> router
+    active_buffer --> ui_shell
+    app_core --> active_buffer
+    app_core --> app_state
+    app_core --> app_view
+    app_core --> connection
+    app_core --> dom
+    app_core --> input
+    app_core --> keyboard_routing
+    app_core --> navigation
+    app_core --> read_tracker
+    app_core --> reset
+    app_core --> router
+    app_core --> scroll_stick
+    app_core --> settings_dialog
+    app_core --> shortcuts_help
+    app_core --> theme_ui
+    app_core --> touch_gestures
+    app_core --> ui_shell
+    app_core --> ws_router
+    app_state --> preview
+    app_view --> app_state
+    app_view --> buffers
+    app_view --> channel_list
+    app_view --> dom
+    app_view --> input
+    app_view --> input_history
+    app_view --> input_upload
+    app_view --> members
+    app_view --> messages
+    app_view --> nick
+    app_view --> scroll_stick
+    app_view --> sidebar
+    app_view --> status
+    bootstrap --> main
+    buffer_settings_api --> app_state
+    buffers --> app_state
+    channel_list --> app_state
+    channel_switcher --> buffers
+    channel_switcher --> keyboard_dialogs
+    channel_switcher --> keyboard_routing
+    connection --> app_state
+    connection --> buffers
+    connection --> nick_colors
+    format --> nick_palette
+    highlights_api --> http
+    input --> app_state
+    input --> emoji_autocomplete
+    input --> input_command_popup
+    input --> input_history
+    input --> input_upload
+    input --> nick_autocomplete
+    input --> slash_commands
+    input_command_popup --> format
+    input_command_popup --> slash_commands
+    input_history --> app_state
+    input_history --> input_command_popup
+    input_upload --> input_command_popup
+    keyboard_navigation --> app_state
+    keyboard_navigation --> buffers
+    keyboard_routing --> app_state
+    keyboard_routing --> buffers
+    keyboard_routing --> channel_switcher
+    keyboard_routing --> keyboard_navigation
+    keyboard_routing --> shortcuts_help
+    keyboard_routing --> ui_shell
+    main --> app_core
+    media_browser --> http
+    members --> app_state
+    members --> nick
+    members --> user_popup
+    messages --> app_state
+    messages --> format
+    messages --> mirc
+    messages --> nick
+    messages --> preview
+    messages --> scroll_stick
+    mirc --> app_state
+    mirc --> format
+    navigation --> app_state
+    navigation --> router
+    network_api --> app_state
+    network_api --> http
+    network_form --> app_state
+    network_form --> dialog
+    network_form --> http
+    nick --> format
+    nick --> nick_colors
+    nick --> nick_palette
+    nick_autocomplete --> app_state
+    nick_colors --> app_state
+    read_tracker --> app_state
+    read_tracker --> app_view
+    reset --> app_state
+    reset --> nick_colors
+    router --> app_state
+    settings_dialog --> highlights_api
+    settings_dialog --> http
+    settings_dialog --> media_browser
+    settings_dialog --> theme
+    settings_dialog --> ui_shell
+    shortcuts_help --> channel_switcher
+    shortcuts_help --> keyboard_dialogs
+    sidebar --> app_state
+    sidebar --> buffer_settings_api
+    sidebar --> buffers
+    sidebar --> format
+    sidebar --> network_api
+    sidebar --> network_form
+    sidebar --> sidebar_dnd
+    sidebar --> sidebar_model
+    sidebar_dnd --> app_state
+    sidebar_model --> app_state
+    sidebar_model --> buffers
+    slash_commands --> app_state
+    status --> app_state
+    status --> dom
+    theme_ui --> theme
+    touch_gestures --> ui_shell
+    user_popup --> app_state
+    user_popup --> format
+    user_popup --> nick
+    user_popup --> nick_colors
+    ws_router --> app_state
+    ws_router --> app_view
+    ws_router --> channel_list
+    ws_router --> input
+    ws_router --> nick_colors
+
+    active_buffer:::hot
+    app_core:::hot
+    app_state:::hot
+    app_view:::hot
+    bootstrap:::entry
+    input:::hot
+    main:::entry
+    sidebar:::hot
+
+    %% import cycle: channel-switcher <-> keyboard-routing <-> shortcuts-help
+    linkStyle 46 stroke:#e0a020,stroke-width:3px
+    linkStyle 68 stroke:#e0a020,stroke-width:3px
+    linkStyle 70 stroke:#e0a020,stroke-width:3px
+    linkStyle 107 stroke:#e0a020,stroke-width:3px
+
+    classDef hot fill:#b23a3a,stroke:#7a1f1f,color:#ffffff
+    classDef orphan fill:#6b6b6b,stroke:#3f3f3f,color:#ffffff
+    classDef entry fill:#2f6f4f,stroke:#1c4530,color:#ffffff

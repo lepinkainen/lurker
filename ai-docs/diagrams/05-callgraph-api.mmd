@@ -1,0 +1,344 @@
+flowchart LR
+    %% api/ package: cross-file call graph, plus the calls it makes into irc/ and hub/.
+    %% db/ calls omitted (large query surface) - see 05-callgraph-db.mmd.
+    %% One node per function, one subgraph per file. Intra-file calls omitted by design.
+    subgraph api_avatar_go["api/avatar.go"]
+        api_avatar_go_avatar["avatar<br/>in:0 out:2"]
+        api_avatar_go_newavatarcache["newAvatarCache<br/>in:1 out:0"]
+    end
+    subgraph api_buffer_delete_go["api/buffer_delete.go"]
+        api_buffer_delete_go_cmdarchivebuffer["cmdArchiveBuffer<br/>in:1 out:4"]
+        api_buffer_delete_go_cmddeletebuffer["cmdDeleteBuffer<br/>in:1 out:3"]
+    end
+    subgraph api_buffer_reorder_go["api/buffer_reorder.go"]
+        api_buffer_reorder_go_reordernetworkbuffers["reorderNetworkBuffers<br/>in:0 out:3"]
+    end
+    subgraph api_buffer_settings_go["api/buffer_settings.go"]
+        api_buffer_settings_go_buffersettingseventfrom["bufferSettingsEventFrom<br/>in:1 out:0"]
+        api_buffer_settings_go_patchbuffersettings["patchBufferSettings<br/>in:0 out:2"]
+        api_buffer_settings_go_reorderpinnedbuffers["reorderPinnedBuffers<br/>in:0 out:1"]
+    end
+    subgraph api_helpers_go["api/helpers.go"]
+        api_helpers_go_clamplimit["clampLimit<br/>in:1 out:0"]
+        api_helpers_go_clamplimitint["clampLimitInt<br/>in:1 out:0"]
+        api_helpers_go_isnonircnetwork["isNonIRCNetwork<br/>in:6 out:0"]
+        api_helpers_go_parsenetworkid["parseNetworkID<br/>in:7 out:0"]
+        api_helpers_go_parseoptionalqueryuuid["parseOptionalQueryUUID<br/>in:2 out:0"]
+        api_helpers_go_parsepathuuid["parsePathUUID<br/>in:2 out:0"]
+        api_helpers_go_statestring["stateString<br/>in:3 out:1"]
+        api_helpers_go_tonetworkdto["toNetworkDTO<br/>in:4 out:0"]
+        api_helpers_go_writenetworkdberror["writeNetworkDBError<br/>in:9 out:0"]
+    end
+    subgraph api_highlights_go["api/highlights.go"]
+        api_highlights_go_puthighlights["putHighlights<br/>in:0 out:2"]
+    end
+    subgraph api_input_go["api/input.go"]
+        api_input_go_parseinput["parseInput<br/>in:1 out:1"]
+    end
+    subgraph api_network_events_go["api/network_events.go"]
+        api_network_events_go_publish["publish<br/>in:4 out:1"]
+    end
+    subgraph api_networks_go["api/networks.go"]
+        api_networks_go_applydisabledtoggle["applyDisabledToggle<br/>in:0 out:2"]
+        api_networks_go_applynetworkupdate["applyNetworkUpdate<br/>in:0 out:1"]
+        api_networks_go_connectnetwork["connectNetwork<br/>in:0 out:5"]
+        api_networks_go_createnetwork["createNetwork<br/>in:0 out:3"]
+        api_networks_go_deletenetwork["deleteNetwork<br/>in:0 out:4"]
+        api_networks_go_disconnectnetwork["disconnectNetwork<br/>in:0 out:4"]
+        api_networks_go_getnetworkconnectcommands["getNetworkConnectCommands<br/>in:0 out:2"]
+        api_networks_go_patchnetwork["patchNetwork<br/>in:0 out:6"]
+        api_networks_go_putnetworkconnectcommands["putNetworkConnectCommands<br/>in:0 out:2"]
+        api_networks_go_reopenrenamednetworklog["reopenRenamedNetworkLog<br/>in:0 out:1"]
+        api_networks_go_reordernetworks["reorderNetworks<br/>in:0 out:4"]
+    end
+    subgraph api_search_go["api/search.go"]
+        api_search_go_search["search<br/>in:0 out:2"]
+    end
+    subgraph api_server_go["api/server.go"]
+        api_server_go_handler["Handler<br/>in:0 out:1"]
+    end
+    subgraph api_state_go["api/state.go"]
+        api_state_go_annotatenetsplits["annotateNetsplits<br/>in:0 out:3"]
+        api_state_go_appendbuffertostate["appendBufferToState<br/>in:0 out:2"]
+        api_state_go_bufferjoined["bufferJoined<br/>in:0 out:2"]
+        api_state_go_computeunreadcounts["computeUnreadCounts<br/>in:1 out:0"]
+        api_state_go_history["history<br/>in:0 out:2"]
+        api_state_go_loadhistory["loadHistory<br/>in:1 out:0"]
+        api_state_go_markerts["markerTS<br/>in:1 out:0"]
+        api_state_go_prefetchnetworkstate["prefetchNetworkState<br/>in:0 out:1"]
+        api_state_go_state["state<br/>in:0 out:2"]
+        api_state_go_tallyunread["tallyUnread<br/>in:0 out:1"]
+        api_state_go_tomessagedtos["toMessageDTOs<br/>in:1 out:3"]
+    end
+    subgraph api_tailscale_go["api/tailscale.go"]
+        api_tailscale_go_classifyremoteaddr["classifyRemoteAddr<br/>in:0 out:1"]
+    end
+    subgraph api_ws_go["api/ws.go"]
+        api_ws_go_cmdaway["cmdAway<br/>in:0 out:1"]
+        api_ws_go_cmdback["cmdBack<br/>in:0 out:1"]
+        api_ws_go_cmdbanlist["cmdBanlist<br/>in:0 out:1"]
+        api_ws_go_cmdctcp["cmdCTCP<br/>in:0 out:1"]
+        api_ws_go_cmdchannelmode["cmdChannelMode<br/>in:0 out:1"]
+        api_ws_go_cmdhistory["cmdHistory<br/>in:0 out:2"]
+        api_ws_go_cmdinput["cmdInput<br/>in:0 out:2"]
+        api_ws_go_cmdinvite["cmdInvite<br/>in:0 out:1"]
+        api_ws_go_cmdjoin["cmdJoin<br/>in:0 out:1"]
+        api_ws_go_cmdkick["cmdKick<br/>in:0 out:1"]
+        api_ws_go_cmdkickban["cmdKickban<br/>in:0 out:2"]
+        api_ws_go_cmdlist["cmdList<br/>in:0 out:1"]
+        api_ws_go_cmdmarkread["cmdMarkRead<br/>in:0 out:4"]
+        api_ws_go_cmdme["cmdMe<br/>in:0 out:2"]
+        api_ws_go_cmdmode["cmdMode<br/>in:0 out:1"]
+        api_ws_go_cmdmsg["cmdMsg<br/>in:0 out:2"]
+        api_ws_go_cmdnick["cmdNick<br/>in:0 out:1"]
+        api_ws_go_cmdnotice["cmdNotice<br/>in:0 out:2"]
+        api_ws_go_cmdpart["cmdPart<br/>in:0 out:1"]
+        api_ws_go_cmdquit["cmdQuit<br/>in:0 out:1"]
+        api_ws_go_cmdraw["cmdRaw<br/>in:0 out:1"]
+        api_ws_go_cmdrejoin["cmdRejoin<br/>in:0 out:1"]
+        api_ws_go_cmdsend["cmdSend<br/>in:0 out:2"]
+        api_ws_go_cmdtopic["cmdTopic<br/>in:0 out:1"]
+        api_ws_go_cmdwhois["cmdWhois<br/>in:0 out:1"]
+        api_ws_go_handlebufferlifecyclecmd["handleBufferLifecycleCmd<br/>in:0 out:2"]
+        api_ws_go_handlecmd["handleCmd<br/>in:0 out:1"]
+        api_ws_go_stream["stream<br/>in:0 out:1"]
+        api_ws_go_writewsack["writeWSAck<br/>in:2 out:0"]
+        api_ws_go_writewserr["writeWSErr<br/>in:2 out:0"]
+    end
+    subgraph hub_hub_go["hub/hub.go"]
+        hub_hub_go_publish["Publish<br/>in:8 out:0"]
+        hub_hub_go_subscribe["Subscribe<br/>in:1 out:0"]
+    end
+    subgraph irc_events_go["irc/events.go"]
+        irc_events_go_applysemantics["ApplySemantics<br/>in:1 out:0"]
+        irc_events_go_corefromstored["CoreFromStored<br/>in:1 out:0"]
+    end
+    subgraph irc_highlights_go["irc/highlights.go"]
+        irc_highlights_go_sethighlightpatterns["SetHighlightPatterns<br/>in:1 out:0"]
+    end
+    subgraph irc_manager_go["irc/manager.go"]
+        irc_manager_go_avatarurl["AvatarURL<br/>in:1 out:0"]
+        irc_manager_go_away["Away<br/>in:1 out:0"]
+        irc_manager_go_back["Back<br/>in:1 out:0"]
+        irc_manager_go_ctcp["CTCP<br/>in:1 out:0"]
+        irc_manager_go_changenick["ChangeNick<br/>in:1 out:0"]
+        irc_manager_go_channelmembers["ChannelMembers<br/>in:1 out:0"]
+        irc_manager_go_invite["Invite<br/>in:1 out:0"]
+        irc_manager_go_isjoined["IsJoined<br/>in:1 out:0"]
+        irc_manager_go_join["Join<br/>in:2 out:0"]
+        irc_manager_go_kick["Kick<br/>in:2 out:0"]
+        irc_manager_go_listchannels["ListChannels<br/>in:1 out:0"]
+        irc_manager_go_logoutbound["LogOutbound<br/>in:4 out:0"]
+        irc_manager_go_me["Me<br/>in:1 out:0"]
+        irc_manager_go_mode["Mode<br/>in:4 out:0"]
+        irc_manager_go_nick["Nick<br/>in:3 out:0"]
+        irc_manager_go_notice["Notice<br/>in:1 out:0"]
+        irc_manager_go_part["Part<br/>in:1 out:0"]
+        irc_manager_go_quit["Quit<br/>in:1 out:0"]
+        irc_manager_go_raw["Raw<br/>in:1 out:0"]
+        irc_manager_go_rejoin["Rejoin<br/>in:1 out:0"]
+        irc_manager_go_send["Send<br/>in:2 out:0"]
+        irc_manager_go_startnetwork["StartNetwork<br/>in:1 out:0"]
+        irc_manager_go_statesnapshot["StateSnapshot<br/>in:3 out:0"]
+        irc_manager_go_stopnetwork["StopNetwork<br/>in:4 out:0"]
+        irc_manager_go_topic["Topic<br/>in:1 out:0"]
+        irc_manager_go_whois["Whois<br/>in:1 out:0"]
+    end
+    subgraph irc_netsplit_go["irc/netsplit.go"]
+        irc_netsplit_go_grouppresence["GroupPresence<br/>in:1 out:0"]
+    end
+    subgraph irc_netsplit_tracker_go["irc/netsplit_tracker.go"]
+        irc_netsplit_tracker_go_metafornetsplit["MetaForNetsplit<br/>in:1 out:0"]
+    end
+    subgraph irc_semantics_go["irc/semantics.go"]
+        irc_semantics_go_computemessagesemantics["ComputeMessageSemantics<br/>in:1 out:0"]
+    end
+    subgraph irc_state_go["irc/state.go"]
+        irc_state_go_string["String<br/>in:4 out:0"]
+    end
+    api_avatar_go_avatar --> api_helpers_go_parseoptionalqueryuuid
+    api_avatar_go_avatar --> irc_manager_go_avatarurl
+    api_buffer_delete_go_cmdarchivebuffer --> api_buffer_settings_go_buffersettingseventfrom
+    api_buffer_delete_go_cmdarchivebuffer --> api_ws_go_writewsack
+    api_buffer_delete_go_cmdarchivebuffer --> api_ws_go_writewserr
+    api_buffer_delete_go_cmdarchivebuffer --> hub_hub_go_publish
+    api_buffer_delete_go_cmddeletebuffer --> api_ws_go_writewsack
+    api_buffer_delete_go_cmddeletebuffer --> api_ws_go_writewserr
+    api_buffer_delete_go_cmddeletebuffer --> hub_hub_go_publish
+    api_buffer_reorder_go_reordernetworkbuffers --> api_helpers_go_parsenetworkid
+    api_buffer_reorder_go_reordernetworkbuffers --> api_helpers_go_writenetworkdberror
+    api_buffer_reorder_go_reordernetworkbuffers --> hub_hub_go_publish
+    api_buffer_settings_go_patchbuffersettings --> api_helpers_go_parsepathuuid
+    api_buffer_settings_go_patchbuffersettings --> hub_hub_go_publish
+    api_buffer_settings_go_reorderpinnedbuffers --> hub_hub_go_publish
+    api_helpers_go_statestring --> irc_state_go_string
+    api_highlights_go_puthighlights --> hub_hub_go_publish
+    api_highlights_go_puthighlights --> irc_highlights_go_sethighlightpatterns
+    api_input_go_parseinput --> irc_manager_go_join
+    api_network_events_go_publish --> hub_hub_go_publish
+    api_networks_go_applydisabledtoggle --> api_helpers_go_writenetworkdberror
+    api_networks_go_applydisabledtoggle --> irc_manager_go_stopnetwork
+    api_networks_go_applynetworkupdate --> api_helpers_go_writenetworkdberror
+    api_networks_go_connectnetwork --> api_helpers_go_isnonircnetwork
+    api_networks_go_connectnetwork --> api_helpers_go_parsenetworkid
+    api_networks_go_connectnetwork --> api_helpers_go_statestring
+    api_networks_go_connectnetwork --> api_helpers_go_writenetworkdberror
+    api_networks_go_connectnetwork --> irc_manager_go_startnetwork
+    api_networks_go_createnetwork --> api_helpers_go_statestring
+    api_networks_go_createnetwork --> api_helpers_go_tonetworkdto
+    api_networks_go_createnetwork --> api_network_events_go_publish
+    api_networks_go_deletenetwork --> api_helpers_go_parsenetworkid
+    api_networks_go_deletenetwork --> api_helpers_go_writenetworkdberror
+    api_networks_go_deletenetwork --> api_network_events_go_publish
+    api_networks_go_deletenetwork --> irc_manager_go_stopnetwork
+    api_networks_go_disconnectnetwork --> api_helpers_go_isnonircnetwork
+    api_networks_go_disconnectnetwork --> api_helpers_go_parsenetworkid
+    api_networks_go_disconnectnetwork --> api_helpers_go_statestring
+    api_networks_go_disconnectnetwork --> irc_manager_go_stopnetwork
+    api_networks_go_getnetworkconnectcommands --> api_helpers_go_parsenetworkid
+    api_networks_go_getnetworkconnectcommands --> api_helpers_go_writenetworkdberror
+    api_networks_go_patchnetwork --> api_helpers_go_isnonircnetwork
+    api_networks_go_patchnetwork --> api_helpers_go_parsenetworkid
+    api_networks_go_patchnetwork --> api_helpers_go_tonetworkdto
+    api_networks_go_patchnetwork --> api_helpers_go_writenetworkdberror
+    api_networks_go_patchnetwork --> api_network_events_go_publish
+    api_networks_go_patchnetwork --> irc_manager_go_statesnapshot
+    api_networks_go_putnetworkconnectcommands --> api_helpers_go_parsenetworkid
+    api_networks_go_putnetworkconnectcommands --> api_helpers_go_writenetworkdberror
+    api_networks_go_reopenrenamednetworklog --> irc_manager_go_stopnetwork
+    api_networks_go_reordernetworks --> api_helpers_go_tonetworkdto
+    api_networks_go_reordernetworks --> api_helpers_go_writenetworkdberror
+    api_networks_go_reordernetworks --> api_network_events_go_publish
+    api_networks_go_reordernetworks --> irc_manager_go_statesnapshot
+    api_search_go_search --> api_helpers_go_parseoptionalqueryuuid
+    api_search_go_search --> api_state_go_tomessagedtos
+    api_server_go_handler --> api_avatar_go_newavatarcache
+    api_state_go_annotatenetsplits --> irc_netsplit_go_grouppresence
+    api_state_go_annotatenetsplits --> irc_netsplit_tracker_go_metafornetsplit
+    api_state_go_annotatenetsplits --> irc_state_go_string
+    api_state_go_appendbuffertostate --> irc_manager_go_channelmembers
+    api_state_go_appendbuffertostate --> irc_state_go_string
+    api_state_go_bufferjoined --> api_helpers_go_isnonircnetwork
+    api_state_go_bufferjoined --> irc_manager_go_isjoined
+    api_state_go_history --> api_helpers_go_clamplimit
+    api_state_go_history --> api_helpers_go_parsepathuuid
+    api_state_go_prefetchnetworkstate --> irc_manager_go_nick
+    api_state_go_state --> api_helpers_go_tonetworkdto
+    api_state_go_state --> irc_manager_go_statesnapshot
+    api_state_go_tallyunread --> irc_semantics_go_computemessagesemantics
+    api_state_go_tomessagedtos --> irc_events_go_applysemantics
+    api_state_go_tomessagedtos --> irc_events_go_corefromstored
+    api_state_go_tomessagedtos --> irc_manager_go_nick
+    api_tailscale_go_classifyremoteaddr --> irc_state_go_string
+    api_ws_go_cmdaway --> irc_manager_go_away
+    api_ws_go_cmdback --> irc_manager_go_back
+    api_ws_go_cmdbanlist --> irc_manager_go_mode
+    api_ws_go_cmdctcp --> irc_manager_go_ctcp
+    api_ws_go_cmdchannelmode --> irc_manager_go_mode
+    api_ws_go_cmdhistory --> api_helpers_go_clamplimitint
+    api_ws_go_cmdhistory --> api_state_go_loadhistory
+    api_ws_go_cmdinput --> api_helpers_go_isnonircnetwork
+    api_ws_go_cmdinput --> api_input_go_parseinput
+    api_ws_go_cmdinvite --> irc_manager_go_invite
+    api_ws_go_cmdjoin --> irc_manager_go_join
+    api_ws_go_cmdkick --> irc_manager_go_kick
+    api_ws_go_cmdkickban --> irc_manager_go_kick
+    api_ws_go_cmdkickban --> irc_manager_go_mode
+    api_ws_go_cmdlist --> irc_manager_go_listchannels
+    api_ws_go_cmdmarkread --> api_state_go_computeunreadcounts
+    api_ws_go_cmdmarkread --> api_state_go_markerts
+    api_ws_go_cmdmarkread --> hub_hub_go_publish
+    api_ws_go_cmdmarkread --> irc_manager_go_nick
+    api_ws_go_cmdme --> irc_manager_go_logoutbound
+    api_ws_go_cmdme --> irc_manager_go_me
+    api_ws_go_cmdmode --> irc_manager_go_mode
+    api_ws_go_cmdmsg --> irc_manager_go_logoutbound
+    api_ws_go_cmdmsg --> irc_manager_go_send
+    api_ws_go_cmdnick --> irc_manager_go_changenick
+    api_ws_go_cmdnotice --> irc_manager_go_logoutbound
+    api_ws_go_cmdnotice --> irc_manager_go_notice
+    api_ws_go_cmdpart --> irc_manager_go_part
+    api_ws_go_cmdquit --> irc_manager_go_quit
+    api_ws_go_cmdraw --> irc_manager_go_raw
+    api_ws_go_cmdrejoin --> irc_manager_go_rejoin
+    api_ws_go_cmdsend --> irc_manager_go_logoutbound
+    api_ws_go_cmdsend --> irc_manager_go_send
+    api_ws_go_cmdtopic --> irc_manager_go_topic
+    api_ws_go_cmdwhois --> irc_manager_go_whois
+    api_ws_go_handlebufferlifecyclecmd --> api_buffer_delete_go_cmdarchivebuffer
+    api_ws_go_handlebufferlifecyclecmd --> api_buffer_delete_go_cmddeletebuffer
+    api_ws_go_handlecmd --> api_helpers_go_isnonircnetwork
+    api_ws_go_stream --> hub_hub_go_subscribe
+
+    api_avatar_go_avatar:::orphan
+    api_buffer_delete_go_cmdarchivebuffer:::hot
+    api_buffer_delete_go_cmddeletebuffer:::hot
+    api_buffer_reorder_go_reordernetworkbuffers:::orphan
+    api_buffer_settings_go_patchbuffersettings:::orphan
+    api_buffer_settings_go_reorderpinnedbuffers:::orphan
+    api_helpers_go_isnonircnetwork:::hot
+    api_helpers_go_parsenetworkid:::hot
+    api_helpers_go_statestring:::hot
+    api_helpers_go_tonetworkdto:::hot
+    api_helpers_go_writenetworkdberror:::hot
+    api_highlights_go_puthighlights:::orphan
+    api_network_events_go_publish:::hot
+    api_networks_go_applydisabledtoggle:::orphan
+    api_networks_go_applynetworkupdate:::orphan
+    api_networks_go_connectnetwork:::orphan
+    api_networks_go_createnetwork:::orphan
+    api_networks_go_deletenetwork:::orphan
+    api_networks_go_disconnectnetwork:::orphan
+    api_networks_go_getnetworkconnectcommands:::orphan
+    api_networks_go_patchnetwork:::orphan
+    api_networks_go_putnetworkconnectcommands:::orphan
+    api_networks_go_reopenrenamednetworklog:::orphan
+    api_networks_go_reordernetworks:::orphan
+    api_search_go_search:::orphan
+    api_server_go_handler:::entry
+    api_state_go_annotatenetsplits:::orphan
+    api_state_go_appendbuffertostate:::orphan
+    api_state_go_bufferjoined:::orphan
+    api_state_go_history:::orphan
+    api_state_go_prefetchnetworkstate:::orphan
+    api_state_go_state:::entry
+    api_state_go_tallyunread:::orphan
+    api_state_go_tomessagedtos:::hot
+    api_tailscale_go_classifyremoteaddr:::orphan
+    api_ws_go_cmdaway:::orphan
+    api_ws_go_cmdback:::orphan
+    api_ws_go_cmdbanlist:::orphan
+    api_ws_go_cmdctcp:::orphan
+    api_ws_go_cmdchannelmode:::orphan
+    api_ws_go_cmdhistory:::orphan
+    api_ws_go_cmdinput:::orphan
+    api_ws_go_cmdinvite:::orphan
+    api_ws_go_cmdjoin:::orphan
+    api_ws_go_cmdkick:::orphan
+    api_ws_go_cmdkickban:::orphan
+    api_ws_go_cmdlist:::orphan
+    api_ws_go_cmdmarkread:::orphan
+    api_ws_go_cmdme:::orphan
+    api_ws_go_cmdmode:::orphan
+    api_ws_go_cmdmsg:::orphan
+    api_ws_go_cmdnick:::orphan
+    api_ws_go_cmdnotice:::orphan
+    api_ws_go_cmdpart:::orphan
+    api_ws_go_cmdquit:::orphan
+    api_ws_go_cmdraw:::orphan
+    api_ws_go_cmdrejoin:::orphan
+    api_ws_go_cmdsend:::orphan
+    api_ws_go_cmdtopic:::orphan
+    api_ws_go_cmdwhois:::orphan
+    api_ws_go_handlebufferlifecyclecmd:::orphan
+    api_ws_go_handlecmd:::orphan
+    api_ws_go_stream:::entry
+    hub_hub_go_publish:::hot
+    irc_manager_go_logoutbound:::hot
+    irc_manager_go_mode:::hot
+    irc_manager_go_stopnetwork:::hot
+    irc_state_go_string:::hot
+
+    classDef hot fill:#b23a3a,stroke:#7a1f1f,color:#ffffff
+    classDef orphan fill:#6b6b6b,stroke:#3f3f3f,color:#ffffff
+    classDef entry fill:#2f6f4f,stroke:#1c4530,color:#ffffff

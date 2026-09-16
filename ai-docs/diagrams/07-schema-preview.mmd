@@ -1,0 +1,17 @@
+erDiagram
+    %% previews.db - shared URL preview cache, keyed by URL, TTL-checked on read.
+    %% Derived from db/preview_migrations/0001_init.sql.
+
+    url_previews {
+        TEXT url PK
+        TEXT kind "link | image | video | error"
+        TEXT title "nullable"
+        TEXT description "nullable"
+        TEXT image_url "nullable"
+        TEXT site_name "nullable"
+        INTEGER width "nullable"
+        INTEGER height "nullable"
+        TEXT mime "nullable"
+        TEXT fetched_at "indexed; compared against CacheTTL"
+        TEXT error "nullable; negative results are cached too"
+    }

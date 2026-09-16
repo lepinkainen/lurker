@@ -1,0 +1,108 @@
+flowchart LR
+    %% datasource/ and datasource/bluesky: cross-file call graph.
+    %% Includes the db/, hub/, irc/ functions the adapters reach into.
+    %% One node per function, one subgraph per file. Intra-file calls omitted by design.
+    subgraph datasource_bluesky_channel_go["datasource/bluesky/channel.go"]
+        datasource_bluesky_channel_go_defaultinterval["defaultInterval<br/>in:1 out:0"]
+        datasource_bluesky_channel_go_fetchpage["fetchPage<br/>in:1 out:1"]
+    end
+    subgraph datasource_bluesky_client_go["datasource/bluesky/client.go"]
+        datasource_bluesky_client_go_getposts["GetPosts<br/>in:1 out:0"]
+        datasource_bluesky_client_go_gettimeline["GetTimeline<br/>in:1 out:0"]
+        datasource_bluesky_client_go_handle["Handle<br/>in:1 out:0"]
+        datasource_bluesky_client_go_login["Login<br/>in:1 out:0"]
+        datasource_bluesky_client_go_newclient["NewClient<br/>in:1 out:0"]
+        datasource_bluesky_client_go_pds["PDS<br/>in:1 out:0"]
+        datasource_bluesky_client_go_dojson["doJSON<br/>in:0 out:1"]
+    end
+    subgraph datasource_bluesky_source_go["datasource/bluesky/source.go"]
+        datasource_bluesky_source_go_kind["Kind<br/>in:1 out:0"]
+        datasource_bluesky_source_go_name["Name<br/>in:2 out:0"]
+        datasource_bluesky_source_go_newsource["NewSource<br/>in:0 out:1"]
+        datasource_bluesky_source_go_start["Start<br/>in:0 out:5"]
+        datasource_bluesky_source_go_emitstatus["emitStatus<br/>in:0 out:2"]
+        datasource_bluesky_source_go_mapfeeditem["mapFeedItem<br/>in:0 out:1"]
+        datasource_bluesky_source_go_oneline["oneLine<br/>in:0 out:1"]
+        datasource_bluesky_source_go_parseattimestamp["parseATTimestamp<br/>in:0 out:1"]
+        datasource_bluesky_source_go_pollonce["pollOnce<br/>in:0 out:2"]
+        datasource_bluesky_source_go_resolvechannels["resolveChannels<br/>in:0 out:3"]
+        datasource_bluesky_source_go_resolveparents["resolveParents<br/>in:0 out:1"]
+    end
+    subgraph datasource_ingest_go["datasource/ingest.go"]
+        datasource_ingest_go_ingestpost["IngestPost<br/>in:2 out:4"]
+    end
+    subgraph datasource_manager_go["datasource/manager.go"]
+        datasource_manager_go_names["Names<br/>in:0 out:1"]
+        datasource_manager_go_start["Start<br/>in:0 out:2"]
+    end
+    subgraph db_logstore_go["db/logstore.go"]
+        db_logstore_go_ensurestatusbuffer["EnsureStatusBuffer<br/>in:1 out:0"]
+        db_logstore_go_insertlogmessage["InsertLogMessage<br/>in:1 out:0"]
+    end
+    subgraph db_multistore_go["db/multistore.go"]
+        db_multistore_go_ensurebuffer["EnsureBuffer<br/>in:1 out:0"]
+        db_multistore_go_logstore["LogStore<br/>in:1 out:0"]
+    end
+    subgraph db_time_go["db/time.go"]
+        db_time_go_now["Now<br/>in:2 out:0"]
+    end
+    subgraph hub_hub_go["hub/hub.go"]
+        hub_hub_go_publish["Publish<br/>in:1 out:0"]
+    end
+    subgraph internal_httpjson_httpjson_go["internal/httpjson/httpjson.go"]
+        internal_httpjson_httpjson_go_dojson["DoJSON<br/>in:1 out:0"]
+    end
+    subgraph irc_events_go["irc/events.go"]
+        irc_events_go_withsemantics["WithSemantics<br/>in:1 out:0"]
+    end
+    subgraph irc_handler_helpers_go["irc/handler_helpers.go"]
+        irc_handler_helpers_go_publishbuffercreated["PublishBufferCreated<br/>in:1 out:0"]
+        irc_handler_helpers_go_publishnetworkstate["PublishNetworkState<br/>in:1 out:0"]
+    end
+    subgraph irc_manager_go["irc/manager.go"]
+        irc_manager_go_join["Join<br/>in:2 out:0"]
+    end
+    datasource_bluesky_channel_go_fetchpage --> datasource_bluesky_client_go_gettimeline
+    datasource_bluesky_client_go_dojson --> internal_httpjson_httpjson_go_dojson
+    datasource_bluesky_source_go_newsource --> datasource_bluesky_client_go_newclient
+    datasource_bluesky_source_go_start --> datasource_bluesky_client_go_handle
+    datasource_bluesky_source_go_start --> datasource_bluesky_client_go_login
+    datasource_bluesky_source_go_start --> datasource_bluesky_client_go_pds
+    datasource_bluesky_source_go_start --> db_logstore_go_ensurestatusbuffer
+    datasource_bluesky_source_go_start --> irc_handler_helpers_go_publishnetworkstate
+    datasource_bluesky_source_go_emitstatus --> datasource_ingest_go_ingestpost
+    datasource_bluesky_source_go_emitstatus --> db_time_go_now
+    datasource_bluesky_source_go_mapfeeditem --> irc_manager_go_join
+    datasource_bluesky_source_go_oneline --> irc_manager_go_join
+    datasource_bluesky_source_go_parseattimestamp --> db_time_go_now
+    datasource_bluesky_source_go_pollonce --> datasource_bluesky_channel_go_fetchpage
+    datasource_bluesky_source_go_pollonce --> datasource_ingest_go_ingestpost
+    datasource_bluesky_source_go_resolvechannels --> datasource_bluesky_channel_go_defaultinterval
+    datasource_bluesky_source_go_resolvechannels --> db_multistore_go_ensurebuffer
+    datasource_bluesky_source_go_resolvechannels --> irc_handler_helpers_go_publishbuffercreated
+    datasource_bluesky_source_go_resolveparents --> datasource_bluesky_client_go_getposts
+    datasource_ingest_go_ingestpost --> db_logstore_go_insertlogmessage
+    datasource_ingest_go_ingestpost --> db_multistore_go_logstore
+    datasource_ingest_go_ingestpost --> hub_hub_go_publish
+    datasource_ingest_go_ingestpost --> irc_events_go_withsemantics
+    datasource_manager_go_names --> datasource_bluesky_source_go_name
+    datasource_manager_go_start --> datasource_bluesky_source_go_kind
+    datasource_manager_go_start --> datasource_bluesky_source_go_name
+
+    datasource_bluesky_client_go_dojson:::orphan
+    datasource_bluesky_source_go_newsource:::entry
+    datasource_bluesky_source_go_start:::orphan
+    datasource_bluesky_source_go_emitstatus:::orphan
+    datasource_bluesky_source_go_mapfeeditem:::orphan
+    datasource_bluesky_source_go_oneline:::orphan
+    datasource_bluesky_source_go_parseattimestamp:::orphan
+    datasource_bluesky_source_go_pollonce:::orphan
+    datasource_bluesky_source_go_resolvechannels:::orphan
+    datasource_bluesky_source_go_resolveparents:::orphan
+    datasource_ingest_go_ingestpost:::hot
+    datasource_manager_go_names:::orphan
+    datasource_manager_go_start:::orphan
+
+    classDef hot fill:#b23a3a,stroke:#7a1f1f,color:#ffffff
+    classDef orphan fill:#6b6b6b,stroke:#3f3f3f,color:#ffffff
+    classDef entry fill:#2f6f4f,stroke:#1c4530,color:#ffffff

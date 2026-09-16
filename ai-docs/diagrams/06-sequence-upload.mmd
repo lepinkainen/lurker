@@ -1,0 +1,45 @@
+sequenceDiagram
+    %% Image upload: dedupe by content hash, write blob, record metadata.
+    autonumber
+    participant C as Client
+    participant Mux as api.Server mux
+    participant Up as media/upload.go
+    participant St as media.Store (db.MediaStore)
+    participant MDB as media.db
+    participant B as media.Blobs
+    participant Dst as S3 bucket / uploads dir
+
+    C->>Mux: POST /api/upload (multipart image)
+    Mux->>Up: media.Service.upload
+    alt Blobs is nil (no backend configured)
+        Up-->>C: 404 - uploads disabled, never a silent disk fallback
+    end
+    Up->>Up: enforce Cfg.MaxBytes, decode image, derive mime + dimensions
+    Up->>Up: source_hash = content hash
+    Up->>St: GetBySourceHash(hash)
+    St->>MDB: SELECT ... WHERE source_hash = ?
+    alt already stored
+        St-->>Up: existing Media
+        Up-->>C: 200 {id, url, width, height} (dedupe hit, no new blob)
+    else new upload
+        Up->>Up: build variants (currently one "main" rendition)
+        Up->>B: Put(key, bytes, contentType)
+        B->>Dst: S3 PUT / os.Root-scoped file write
+        Note over B,Dst: Put never overwrites: an existing key errors with<br/>os.ErrExist so the caller draws a fresh media id.
+        Up->>St: Insert(Media{id, kind, mime, source_hash, variants, size, w, h})
+        St->>MDB: INSERT INTO media
+        Up-->>C: 200 {id, url, ...} built from Cfg.BaseURL
+    end
+
+    C->>Mux: GET /uploads/{name}
+    Mux->>Up: serveUpload
+    alt Cfg.ServeDir empty (s3 backend)
+        Up-->>C: 404 - blobs are served by the CDN, not by lurker
+    else disk backend
+        Up->>Dst: read file under ServeDir
+        Up-->>C: 200 image bytes
+    end
+
+    C->>Mux: GET /api/media, GET /api/media/exists, DELETE /api/media/{id}
+    Mux->>St: List / Get / Delete
+    Note over St,MDB: media.db is its own database and the media package<br/>never imports db - media.Store is the only coupling.

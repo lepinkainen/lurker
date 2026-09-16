@@ -1,0 +1,41 @@
+stateDiagram-v2
+    %% One WebSocket client's lifecycle on /api/stream, and the hub
+    %% backpressure contract that governs it (api/ws.go, hub/hub.go).
+
+    [*] --> Subscribing
+
+    Subscribing --> Accepting : Hub.Subscribe(256) BEFORE the handshake
+    note right of Subscribing
+        Subscribing first is deliberate: once the
+        handshake completes the client can fetch
+        GET /api/state knowing every subsequent
+        publication already reaches this socket.
+    end note
+
+    Accepting --> Live : websocket.Accept ok
+    Accepting --> Closed : handshake failed -> unsubscribe
+
+    state Live {
+        [*] --> Idle
+        Idle --> Writing : event received on the subscriber chan
+        Writing --> Idle : JSON frame written
+        Idle --> Reading : client frame received
+        Reading --> Dispatching : clientCmd decoded
+        Dispatching --> Idle : ack / error / history_result written
+        Idle --> Pinging : ping ticker fires
+        Pinging --> Idle : pong received
+    }
+
+    Live --> Overflowed : Publish found this subscriber's<br/>256-slot buffer full
+    note right of Overflowed
+        The event is dropped for this subscriber only
+        and its overflow chan is closed exactly once.
+        A dropped event means the client can no longer
+        be trusted to hold a consistent view.
+    end note
+
+    Overflowed --> Closed : writer cancels the conn ctx,<br/>socket torn down
+    Live --> Closed : client close, ping timeout,<br/>read error, or server shutdown
+    Closed --> Resync : client reconnects
+    Resync --> Subscribing : fresh Subscribe + GET /api/state snapshot
+    Closed --> [*] : unsubscribe, chan closed

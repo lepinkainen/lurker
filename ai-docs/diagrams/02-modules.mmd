@@ -1,0 +1,82 @@
+flowchart TD
+    %% Go package dependency graph. One edge per distinct import relationship.
+    %% Excludes _test.go files, llm-shared/ submodule, and sqlc-generated db/internal/* internals.
+    root_main["main (root)<br/>in:0 out:12"]
+    api["api<br/>in:1 out:10"]
+    cmd_fakeircd["cmd/fakeircd<br/>in:0 out:0"]
+    cmd_seedtest["cmd/seedtest<br/>in:0 out:1"]
+    cmd_tui["cmd/tui<br/>in:0 out:4"]
+    datasource["datasource<br/>in:2 out:3"]
+    datasource_bluesky["datasource/bluesky<br/>in:1 out:4"]
+    db["db<br/>in:7 out:5"]
+    db_internal_controldb["db/internal/controldb<br/>in:1 out:0"]
+    db_internal_logdb["db/internal/logdb<br/>in:1 out:0"]
+    db_internal_mediadb["db/internal/mediadb<br/>in:1 out:0"]
+    db_internal_previewdb["db/internal/previewdb<br/>in:1 out:0"]
+    hub["hub<br/>in:5 out:0"]
+    internal_closeutil["internal/closeutil<br/>in:2 out:0"]
+    internal_httpjson["internal/httpjson<br/>in:3 out:0"]
+    internal_objstore["internal/objstore<br/>in:1 out:0"]
+    irc["irc<br/>in:5 out:4"]
+    media["media<br/>in:3 out:0"]
+    mirc["mirc<br/>in:3 out:0"]
+    nickcolor["nickcolor<br/>in:3 out:0"]
+    preview["preview<br/>in:2 out:2"]
+    theme["theme<br/>in:2 out:0"]
+    updates["updates<br/>in:2 out:1"]
+    root_main --> api
+    root_main --> datasource
+    root_main --> datasource_bluesky
+    root_main --> db
+    root_main --> hub
+    root_main --> internal_closeutil
+    root_main --> internal_objstore
+    root_main --> irc
+    root_main --> media
+    root_main --> preview
+    root_main --> theme
+    root_main --> updates
+    api --> db
+    api --> hub
+    api --> internal_closeutil
+    api --> irc
+    api --> media
+    api --> mirc
+    api --> nickcolor
+    api --> preview
+    api --> theme
+    api --> updates
+    cmd_seedtest --> db
+    cmd_tui --> internal_httpjson
+    cmd_tui --> irc
+    cmd_tui --> mirc
+    cmd_tui --> nickcolor
+    datasource --> db
+    datasource --> hub
+    datasource --> irc
+    datasource_bluesky --> datasource
+    datasource_bluesky --> db
+    datasource_bluesky --> internal_httpjson
+    datasource_bluesky --> irc
+    db --> db_internal_controldb
+    db --> db_internal_logdb
+    db --> db_internal_mediadb
+    db --> db_internal_previewdb
+    db --> media
+    irc --> db
+    irc --> hub
+    irc --> mirc
+    irc --> nickcolor
+    preview --> db
+    preview --> hub
+    updates --> internal_httpjson
+
+    root_main:::hot
+    cmd_fakeircd:::entry
+    cmd_seedtest:::entry
+    cmd_tui:::entry
+    db:::hot
+
+    classDef hot fill:#b23a3a,stroke:#7a1f1f,color:#ffffff
+    classDef orphan fill:#6b6b6b,stroke:#3f3f3f,color:#ffffff
+    classDef entry fill:#2f6f4f,stroke:#1c4530,color:#ffffff
