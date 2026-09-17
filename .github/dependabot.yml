@@ -51,3 +51,16 @@ updates:
         update-types:
           - minor
           - patch
+
+  - package-ecosystem: cargo
+    directory: /desktop
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      cargo-minor:
+        update-types:
+          - minor
+          - patch
