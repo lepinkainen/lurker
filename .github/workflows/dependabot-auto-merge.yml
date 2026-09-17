@@ -17,8 +17,16 @@ jobs:
 
       # Minor and patch bumps: enable auto-merge (still gated on CI passing).
       # Major bumps get no action here, so a human must review and merge them.
+      #
+      # Cargo is excluded regardless of update type. Below 1.0 the minor digit
+      # is the breaking one, but Dependabot still reports semver-minor, so a
+      # breaking bump reads as safe here -- that is how sha2 0.10 -> 0.11 landed
+      # and broke the desktop build. Rust bumps get a human.
       - name: Enable auto-merge for minor/patch
-        if: steps.meta.outputs.update-type == 'version-update:semver-minor' || steps.meta.outputs.update-type == 'version-update:semver-patch'
+        if: |
+          steps.meta.outputs.package-ecosystem != 'cargo' &&
+          (steps.meta.outputs.update-type == 'version-update:semver-minor' ||
+           steps.meta.outputs.update-type == 'version-update:semver-patch')
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

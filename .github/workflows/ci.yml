@@ -140,9 +140,42 @@ jobs:
       - name: Build native client
         run: task build-apple
 
+  desktop:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Tauri's Linux prerequisites. wry 0.55 links webkit2gtk-4.1, and the
+      # tray pulls libayatana-appindicator3. desktop/dist is committed, so the
+      # frontend does not need building to satisfy frontendDist.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      - name: Check Rust formatting
+        run: cd desktop && cargo fmt --check
+
+      - name: Clippy
+        run: cd desktop && cargo clippy --all-targets -- -D warnings
+
+      - name: Test desktop shell
+        run: cd desktop && cargo test
+
   build:
     runs-on: ubuntu-latest
-    needs: [test, lint, apple]
+    needs: [test, lint, apple, desktop]
 
     steps:
       - uses: actions/checkout@v7
