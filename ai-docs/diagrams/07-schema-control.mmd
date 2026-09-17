@@ -1,0 +1,66 @@
+erDiagram
+    %% control.db - one per deployment. Source of global buffer IDs and all
+    %% cross-network settings. Derived from db/control_migrations/*.sql.
+
+    networks {
+        BLOB id PK "UUIDv7, 16 bytes"
+        TEXT name
+        TEXT name_ci UK "case-insensitive uniqueness"
+        TEXT host
+        INTEGER port
+        INTEGER tls "default 1"
+        TEXT nick
+        TEXT realname "nullable"
+        TEXT sasl_user "nullable"
+        TEXT sasl_pass "nullable"
+        TEXT server_pass "nullable"
+        TEXT kind "default 'irc'; also 'bluesky'"
+        INTEGER sort_order "sidebar order, survives boot reconciliation"
+        INTEGER disabled "set when absent from config.yaml"
+        TEXT created_at
+    }
+
+    buffer_registry {
+        BLOB id PK "global buffer id, UUIDv7"
+        BLOB network_id FK "-> networks.id, ON DELETE CASCADE"
+        TEXT name
+        TEXT kind "channel | query | status"
+        INTEGER sort_order
+        TEXT created_at
+    }
+
+    buffer_settings {
+        BLOB buffer_id PK "also FK -> buffer_registry.id, ON DELETE CASCADE"
+        INTEGER show_embeds "default 1"
+        INTEGER show_presence_events "default 1"
+        INTEGER collapse_presence_events "default 0"
+        INTEGER pinned "default 0"
+        INTEGER pin_order "default 0"
+        INTEGER archived "default 0"
+        TEXT updated_at
+    }
+
+    network_connect_commands {
+        BLOB network_id PK "FK -> networks.id, ON DELETE CASCADE"
+        INTEGER position PK "composite PK with network_id"
+        TEXT command
+    }
+
+    ignores {
+        BLOB id PK
+        BLOB network_id FK "-> networks.id, ON DELETE CASCADE"
+        TEXT mask "unique per network"
+        TEXT level "hide | mute, default 'hide'"
+        TEXT created_at
+    }
+
+    highlights {
+        BLOB id PK
+        TEXT pattern UK "COLLATE NOCASE"
+        TEXT created_at
+    }
+
+    networks ||--o{ buffer_registry : "owns"
+    networks ||--o{ network_connect_commands : "runs on connect"
+    networks ||--o{ ignores : "scopes"
+    buffer_registry ||--o| buffer_settings : "UI-only settings, DB-owned"

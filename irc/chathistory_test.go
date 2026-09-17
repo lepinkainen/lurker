@@ -212,7 +212,7 @@ func TestMaybeRequestChathistoryAnchorsOnNewestStoredTS(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 8, 5, 9, 30, 0, 0, time.UTC)
-	if _, _, _, err := ircdb.InsertLogMessage(ctx, f.LogStore.DB, ircdb.LogMessageInput{
+	if _, _, _, err := ircdb.InsertLogMessage(ctx, f.LogStore, ircdb.LogMessageInput{
 		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "old", Timestamp: at,
 	}); err != nil {
 		t.Fatal(err)
@@ -257,7 +257,7 @@ func TestMaybeRequestChathistorySkipsWithoutCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := ircdb.InsertLogMessage(ctx, f.LogStore.DB, ircdb.LogMessageInput{
+	if _, _, _, err := ircdb.InsertLogMessage(ctx, f.LogStore, ircdb.LogMessageInput{
 		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "old", Timestamp: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
@@ -285,7 +285,7 @@ func TestRequestQueryBackfillsTargetsQueriesOnly(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, _, _, err := ircdb.InsertLogMessage(ctx, f.LogStore.DB, ircdb.LogMessageInput{
+		if _, _, _, err := ircdb.InsertLogMessage(ctx, f.LogStore, ircdb.LogMessageInput{
 			BufferID: bufID, Sender: "x", Kind: "privmsg", Content: "m", Timestamp: at,
 		}); err != nil {
 			t.Fatal(err)

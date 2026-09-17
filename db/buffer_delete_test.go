@@ -30,10 +30,10 @@ func TestDeleteBufferRemovesEverything(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: doomed, Sender: "spammer", Kind: "privmsg", Content: "buy crypto now"}); err != nil {
+	if _, _, _, err := InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: doomed, Sender: "spammer", Kind: "privmsg", Content: "buy crypto now"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: sibling, Sender: "alice", Kind: "privmsg", Content: "legit chatter"}); err != nil {
+	if _, _, _, err := InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: sibling, Sender: "alice", Kind: "privmsg", Content: "legit chatter"}); err != nil {
 		t.Fatal(err)
 	}
 	archived := true

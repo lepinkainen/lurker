@@ -61,6 +61,39 @@ the nav becomes a horizontal tab strip (`mobile.css`).
 - The file input's `accept` lists the stored image types explicitly rather than `image/*`, which makes iOS Safari transcode HEIC photos to JPEG on pick; the backend has no HEIC decoder.
 - The button is disabled and the form gets a `.uploading` class during the request; drag hover toggles `.upload-dragover`. Progress and failures also show in a `.upload-note` above the composer (errors clear after 8s) — an upload has no other visible result until the URL lands, and on a phone the console is out of reach. Server-side optimization/validation and the URL shape are documented in [rest-api.md](rest-api.md#post-apiupload).
 
+## Icons come from one SVG
+
+`web/public/favicon.svg` is the single source of truth for every app icon in the repo. Nothing
+else is drawn by hand, and no raster is a source for another raster.
+
+`scripts/gen-icons.sh` renders it with `rsvg-convert`, and the build regenerates whatever a given
+target needs, so editing the SVG is enough:
+
+| Task | Produces | Runs from |
+|---|---|---|
+| `icons-web` | `web/public/` PWA icons (192, 512, maskable, apple-touch) | `web-build` |
+| `icons-desktop` | `desktop/icons/` Tauri set incl. `.ico`/`.icns` | `build-desktop`, `desktop-dev` |
+| `apple-icon` | `apple/…/AppIcon.appiconset/` | `build-apple` (macOS only) |
+
+`task icons` runs all three. Each is fingerprinted on the SVG, so it is a no-op when nothing
+changed — a normal build never invokes the renderers. CI installs `librsvg2-bin` and `imagemagick`
+precisely so that a change to the SVG that was not committed alongside its rasters fails the build
+instead of shipping a stale icon.
+
+Two of the outputs are not plain renders, because they cannot be transparent: the maskable icon is
+cropped to an arbitrary shape by the launcher, and iOS composites the home screen icon onto white.
+Both put the artwork on an opaque `#0f1923` (the eye-shape fill), inset to leave the safe-zone
+padding the maskable spec wants — 384px of a 512px canvas, and 148 of 180 for apple-touch.
+
+Regenerating is deterministic: the same SVG produces byte-identical output. A diff in these files
+therefore means the SVG changed, not that someone re-ran the script.
+
+The one exception is `desktop/icons/icon.icns`, which is committed but **not** generated.
+ImageMagick's ICNS writer emits different bytes on every run, so regenerating it would dirty the
+worktree on every build. It is only read when bundling Tauri for macOS, which this repo does not do
+— macOS has the native Swift client — so it is left alone; regenerate it by hand with
+`cargo tauri icon` if that ever changes.
+
 ## Hydration model
 
 On load:

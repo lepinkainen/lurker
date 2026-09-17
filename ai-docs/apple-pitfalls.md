@@ -6,6 +6,29 @@ here, how to verify. For general SwiftUI guidance that isn't Lurker-specific,
 see `llm-shared/languages/swiftui.md`. See `apple.md` for the client's
 architecture and product scope.
 
+## TextKit 2 leaves a blank row after the last message
+
+**Symptom.** The macOS timeline shows a row of blank space above the composer
+even when scrolled fully to the bottom.
+
+**Why.** Block builders append a paragraph separator to every block. Keeping
+the final separator in the document creates an empty terminal line, which
+the text view includes in its scrollable height.
+
+**Fix.** The coordinator omits only the last block's builder-added newline
+and retains its attributed separator in `RenderedBlock`. On append it inserts
+that separator together with the new blocks in one transaction. Do not
+replace the old tail just to restore its newline: that collapses selection
+inside the row and recreates hosted preview attachments. Keep the explicit
+presence-summary redraw on expansion; a separator insertion does not update
+its arrow.
+
+**Verify.** `TimelineCoordinatorTests` checks bottom geometry, selection and
+preview identity across append, separator attributes, combined tail updates
+and appends, and presence expansion/collapse. The context-menu tests exercise
+the end-of-document insertion position, which must map to the last character
+for nonempty timelines.
+
 ## Sidebar `List` crashes Xcode Previews
 
 **Symptom.** A `List(selection:)` with `.listStyle(.sidebar)` and `Section`s
@@ -64,12 +87,29 @@ feeding a `PreferenceKey`, then position with `.offset(y: -(height + gap))`,
 gated by `.opacity(height > 0 ? 1 : 0)` to hide the pre-measurement frame
 (otherwise there's a one-frame flash at the wrong position before the height
 is known). See `ComposerPopupHeightKey` and its consumer in
-`apple/Lurker/ConversationView.swift`.
+`apple/Lurker/ComposerView.swift`.
 
 **Verify.** XCUITest: log the popup element's `.frame` against the composer's
 and the window's frames and assert the popup's `maxY` is at or above the
 composer's `minY`. Coordinates are objective; a screenshot alone can miss a
 panel that rendered off-window.
+
+## SwiftUI `TextField` consumes image Paste before `onPasteCommand`
+
+**Symptom.** Adding `.onPasteCommand(of: [.image])` to the focused composer
+does not upload clipboard images with Command-V.
+
+**Fix.** `MacComposerTextField` uses an `NSTextFieldCell` with its own
+`ComposerFieldEditor`. The editor overrides `paste` and menu validation for
+image content, delegating ordinary text paste to AppKit. The composer uses
+an ordinary state binding for native focus; the editor updates it from
+`becomeFirstResponder`/`resignFirstResponder`. Text-change notifications are
+too late to track focus when the user clicks into an empty field.
+
+**Verify.** `testComposerPastesImagesAndText` exercises PNG with Command-V,
+TIFF with Edit → Paste, existing draft preservation, text selection/Undo,
+and pasting in the channel switcher. Expected upload URLs include a trailing
+space, matching `InputHistory.appending`.
 
 ## Sandboxed `.fileImporter` needs the read-only entitlement
 
@@ -228,7 +268,7 @@ press, not just chorded ones.
 **Fix.** Guard on intersection with the actual chord modifiers instead of
 emptiness: `press.modifiers.intersection([.command, .option, .control,
 .shift]).isEmpty`. See the `.onKeyPress(keys: [.upArrow, .downArrow])`
-handler in `apple/Lurker/ConversationView.swift` — modified arrows (⌥↑ etc.)
+handler in `apple/Lurker/ComposerView.swift` — modified arrows (⌥↑ etc.)
 are reserved for menu-bar shortcuts and still correctly fall through when
 this guard is non-empty.
 

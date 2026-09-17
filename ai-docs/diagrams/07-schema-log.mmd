@@ -1,0 +1,45 @@
+erDiagram
+    %% One log DB per network, file named after the network under data/.
+    %% Message rows live here; global buffer ids come from control.db.
+    %% Derived from db/log_migrations/*.sql. Deleting a network never deletes this file.
+
+    buffers {
+        BLOB id PK "same id as control.db buffer_registry.id"
+        TEXT name UK
+        TEXT kind "channel | query | status"
+        TEXT topic "nullable"
+        TEXT topic_set_by "nullable"
+        TEXT topic_set_at "nullable"
+        BLOB last_seen_id "read marker, UUIDv7 compared by byte order"
+        TEXT created_at
+    }
+
+    messages {
+        INTEGER rowid PK "AUTOINCREMENT, FTS5 external-content rowid"
+        BLOB id UK "UUIDv7; byte order == time order"
+        BLOB buffer_id FK "-> buffers.id, ON DELETE CASCADE"
+        TEXT msgid "nullable; UNIQUE(buffer_id, msgid) when not null"
+        TEXT ts
+        TEXT sender
+        TEXT userhost "default ''"
+        TEXT account "nullable"
+        TEXT kind "privmsg | notice | action | join | part | quit | topic | ..."
+        TEXT target "nullable"
+        TEXT content "default ''"
+        TEXT raw "original IRC line"
+    }
+
+    messages_fts {
+        TEXT content "fts5 external content = messages"
+        TEXT sender "tokenize unicode61 remove_diacritics 2"
+    }
+
+    message_previews {
+        BLOB message_id PK "FK -> messages.id, ON DELETE CASCADE"
+        TEXT url PK "composite PK with message_id"
+        INTEGER position "order within the message"
+    }
+
+    buffers ||--o{ messages : "contains"
+    messages ||--o{ message_previews : "links to previewed URLs"
+    messages ||--|| messages_fts : "kept in sync by AFTER INSERT/UPDATE/DELETE triggers"

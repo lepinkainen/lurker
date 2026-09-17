@@ -78,6 +78,9 @@ Returns:
 Current behavior:
 
 - includes recent messages for each buffer
+- per network, recent-message windows and unread candidates are read in one log-DB transaction. Read positions come from the earlier control-DB listing; this is not an atomic snapshot across databases. Concurrent acknowledgements are delivered separately as `buffer_update` events. Live message IDs are allocated and committed under a per-network lock, allowing clients to use each buffer's newest `initial_messages` ID as a boundary for replaying live events. Backfill uses historical IDs and a separate refresh event.
+- if any network's message snapshot fails, the endpoint returns HTTP 503 instead of a partial snapshot with empty messages and zero unread counts; clients can retain their current state and retry
+- read positions and the buffer set are checked once after the log reads. If they changed, the endpoint also returns 503; there is no internal retry loop or replacement buffer listing in the response.
 - includes network `sort_order`
 - network list order is the server-side canonical order
 
@@ -252,7 +255,7 @@ Expected fields include:
 - optional SASL fields
 - optional `connect_commands` array of raw IRC lines — sent verbatim after registration, before autojoin, with no inter-command delay (no `WAIT` pseudo-command). QuakeNet login works via snircd's server-side `AUTH <user> <pass>` (plaintext on the wire; use a TLS port). Secure challenge-response auth is tracked in issue #128.
 
-New networks are appended to the end of sidebar order by assigning the next `sort_order`.
+New networks are appended to the end of sidebar order by assigning the next `sort_order`. Broadcasts `network_created` on the WebSocket stream; `PATCH /api/networks/{id}` broadcasts `network_updated`, `DELETE` broadcasts `network_deleted`, so other open clients converge without a reload.
 
 ## `POST /api/networks/reorder`
 
@@ -272,6 +275,7 @@ Behavior:
 - expects a complete ordered list of all network IDs
 - updates `sort_order` transactionally
 - returns the reordered `networks` list
+- broadcasts `network_reorder` with `[{id, sort_order}]`
 
 ## `POST /api/networks/{id}/buffers/reorder`
 

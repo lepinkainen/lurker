@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/lepinkainen/lurker/db/internal/logdb"
 )
 
 // UnreadCandidate is a minimal projection of a message used to compute
@@ -55,7 +56,7 @@ func UnreadCandidates(ctx context.Context, d *sql.DB, bufferID uuid.UUID, lastSe
 // single round-trip. Each buffer's subquery uses ORDER BY id ASC LIMIT so the
 // index stops early rather than ranking full unread history. cutoffs maps
 // buffer ID to last-seen message ID (uuid.Nil = no cutoff). limit must be > 0.
-func BatchUnreadCandidates(ctx context.Context, d *sql.DB, cutoffs map[uuid.UUID]uuid.UUID, limit int) (map[uuid.UUID][]UnreadCandidate, error) {
+func BatchUnreadCandidates(ctx context.Context, d logdb.DBTX, cutoffs map[uuid.UUID]uuid.UUID, limit int) (map[uuid.UUID][]UnreadCandidate, error) {
 	if len(cutoffs) == 0 {
 		return map[uuid.UUID][]UnreadCandidate{}, nil
 	}

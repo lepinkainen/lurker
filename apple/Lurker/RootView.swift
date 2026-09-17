@@ -1,11 +1,10 @@
 import SwiftUI
 
+// MARK: - RootView
+
 struct RootView: View {
-  @Environment(AppModel.self) private var model
-  @Environment(\.scenePhase) private var scenePhase
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
+
+  // MARK: Internal
 
   var body: some View {
     @Bindable var model = model
@@ -21,7 +20,11 @@ struct RootView: View {
       .sheet(
         isPresented: Binding(
           get: { model.channelList != nil },
-          set: { if !$0 { model.channelList = nil } }
+          set: {
+            if !$0 {
+              model.channelList = nil
+            }
+          },
         )
       ) {
         if let result = model.channelList {
@@ -30,9 +33,9 @@ struct RootView: View {
         }
       }
       #if os(iOS)
-        .sheet(isPresented: $model.showingSettings) {
-          NavigationStack {
-            SettingsView()
+      .sheet(isPresented: $model.showingSettings) {
+        NavigationStack {
+          SettingsView()
             .environment(model)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -41,8 +44,8 @@ struct RootView: View {
                 Button("Done") { model.showingSettings = false }
               }
             }
-          }
         }
+      }
       #endif
       .onChange(of: scenePhase) { _, phase in
         model.setApplicationActive(phase == .active)
@@ -51,63 +54,72 @@ struct RootView: View {
       // alt-tabbing back rarely fires it. Observe activation and sleep/wake
       // directly so a dead socket is probed the moment the user returns.
       #if os(macOS)
-        .onReceive(
-          NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
-        ) { _ in
-          model.setApplicationActive(true)
-        }
-        .onReceive(
-          NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)
-        ) { _ in
-          model.setApplicationActive(false)
-        }
-        .onReceive(
-          NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
-        ) { _ in
-          model.setApplicationActive(true)
-        }
+      .onReceive(
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+      ) { _ in
+        model.setApplicationActive(true)
+      }
+      .onReceive(
+        NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)
+      ) { _ in
+        model.setApplicationActive(false)
+      }
+      .onReceive(
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
+      ) { _ in
+        model.setApplicationActive(true)
+      }
       #endif
   }
+
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+  @Environment(\.scenePhase) private var scenePhase
+  #if os(iOS)
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
 
   // iPhone (compact width) gets a NavigationStack that pushes the conversation:
   // NavigationSplitView only auto-pushes its detail column when the sidebar is a
   // `List(selection:)`, which the custom sidebar is not.
-  @ViewBuilder private var layout: some View {
+  @ViewBuilder
+  private var layout: some View {
     #if os(iOS)
-      if horizontalSizeClass == .compact {
-        CompactRootView()
-      } else {
-        splitView
-      }
-    #else
+    if horizontalSizeClass == .compact {
+      CompactRootView()
+    } else {
       splitView
+    }
+    #else
+    splitView
     #endif
   }
 
-  // macOS renders the toolbar attached to the split view itself in the unified
-  // window toolbar; iOS drops toolbars attached outside a navigation container,
-  // so on iPad the buttons live inside the columns' navigation bars instead.
+  /// macOS renders the toolbar attached to the split view itself in the unified
+  /// window toolbar; iOS drops toolbars attached outside a navigation container,
+  /// so on iPad the buttons live inside the columns' navigation bars instead.
   private var splitView: some View {
     @Bindable var model = model
     return NavigationSplitView(columnVisibility: $model.columnVisibility) {
       SidebarView()
         .navigationSplitViewColumnWidth(min: 190, ideal: 230, max: 320)
         #if os(iOS)
-          .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-              ConnectionStatusButton()
-            }
+        .toolbar {
+          ToolbarItem(placement: .topBarTrailing) {
+            ConnectionStatusButton()
           }
+        }
         #endif
     } detail: {
       ConversationView()
         #if os(iOS)
-          .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-              ChannelSwitcherButton()
-              MembersToggleButton()
-            }
+        .toolbar {
+          ToolbarItemGroup(placement: .topBarTrailing) {
+            ChannelSwitcherButton()
+            MembersToggleButton()
           }
+        }
         #endif
     }
     .navigationSplitViewStyle(.balanced)
@@ -116,53 +128,60 @@ struct RootView: View {
         .inspectorColumnWidth(min: 170, ideal: 210, max: 300)
     }
     #if os(macOS)
-      .toolbar {
-        ToolbarItem(placement: .navigation) {
-          ConnectionStatusButton()
-        }
-        ToolbarItemGroup(placement: .primaryAction) {
-          ChannelSwitcherButton()
-          MembersToggleButton()
-        }
+    .toolbar {
+      ToolbarItem(placement: .navigation) {
+        ConnectionStatusButton()
       }
+      ToolbarItemGroup(placement: .primaryAction) {
+        ChannelSwitcherButton()
+        MembersToggleButton()
+      }
+    }
     #endif
   }
+
 }
 
 #if os(iOS)
-  private struct CompactRootView: View {
-    @Environment(AppModel.self) private var model
+private struct CompactRootView: View {
 
-    var body: some View {
-      @Bindable var model = model
-      NavigationStack {
-        SidebarView()
-          .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-              ConnectionStatusButton()
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-              ChannelSwitcherButton()
-            }
+  // MARK: Internal
+
+  var body: some View {
+    @Bindable var model = model
+    NavigationStack {
+      SidebarView()
+        .toolbar {
+          ToolbarItem(placement: .topBarLeading) {
+            ConnectionStatusButton()
           }
-          .navigationDestination(isPresented: $model.compactConversationVisible) {
-            ConversationView()
-              .navigationTitle(model.selectedBuffer?.name ?? "")
-              .navigationBarTitleDisplayMode(.inline)
-              .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                  MembersToggleButton()
-                }
+          ToolbarItem(placement: .topBarTrailing) {
+            ChannelSwitcherButton()
+          }
+        }
+        .navigationDestination(isPresented: $model.compactConversationVisible) {
+          ConversationView()
+            .navigationTitle(model.selectedBuffer?.name ?? "")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+              ToolbarItem(placement: .topBarTrailing) {
+                MembersToggleButton()
               }
-          }
-      }
-      .sheet(isPresented: model.membersPresented) {
-        MembersInspector()
-          .environment(model)
-          .presentationDetents([.medium, .large])
-      }
+            }
+        }
+    }
+    .sheet(isPresented: model.membersPresented) {
+      MembersInspector()
+        .environment(model)
+        .presentationDetents([.medium, .large])
     }
   }
+
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+
+}
 #endif
 
 extension AppModel {
@@ -171,14 +190,14 @@ extension AppModel {
   fileprivate var membersPresented: Binding<Bool> {
     Binding(
       get: { self.inspectorVisible },
-      set: { self.setInspectorVisible($0) }
+      set: { self.setInspectorVisible($0) },
     )
   }
 }
 
-private struct ChannelSwitcherButton: View {
-  @Environment(AppModel.self) private var model
+// MARK: - ChannelSwitcherButton
 
+private struct ChannelSwitcherButton: View {
   var body: some View {
     Button {
       model.showingChannelSwitcher = true
@@ -187,11 +206,13 @@ private struct ChannelSwitcherButton: View {
     }
     .help("Switch channel (⌘K)")
   }
+
+  @Environment(AppModel.self) private var model
 }
 
-private struct MembersToggleButton: View {
-  @Environment(AppModel.self) private var model
+// MARK: - MembersToggleButton
 
+private struct MembersToggleButton: View {
   var body: some View {
     Button {
       model.setInspectorVisible(!model.inspectorVisible)
@@ -201,10 +222,15 @@ private struct MembersToggleButton: View {
     .help("Show or hide channel members")
     .disabled(model.selectedBuffer?.kind != "channel")
   }
+
+  @Environment(AppModel.self) private var model
 }
 
+// MARK: - ConnectionStatusButton
+
 private struct ConnectionStatusButton: View {
-  @Environment(AppModel.self) private var model
+
+  // MARK: Internal
 
   var body: some View {
     Button {
@@ -216,10 +242,17 @@ private struct ConnectionStatusButton: View {
     .help(connectionHelp)
   }
 
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+
   private var isAnimating: Bool {
-    if model.syncing { return true }
+    if model.syncing {
+      return true
+    }
     switch model.connectionState {
-    case .connecting, .reconnecting: return true
+    case .connecting,
+         .reconnecting: return true
     default: return false
     }
   }
@@ -231,17 +264,18 @@ private struct ConnectionStatusButton: View {
     return model.serviceIdentity.map { "Lurker \($0.version) • \($0.hash)" }
       ?? model.connectionState.label
   }
+
 }
 
 #if DEBUG
-  #Preview {
-    RootView()
-      .environment(AppModel.preview())
-      .tint(.mint)
-      // Desktop window sizing only: a fixed frame wider than the device breaks
-      // the iOS preview canvas (content lays out past the screen edges).
-      #if os(macOS)
-        .frame(minWidth: 1180, minHeight: 760)
-      #endif
-  }
+#Preview {
+  RootView()
+    .environment(AppModel.preview())
+    .tint(.mint)
+    // Desktop window sizing only: a fixed frame wider than the device breaks
+    // the iOS preview canvas (content lays out past the screen edges).
+    #if os(macOS)
+    .frame(minWidth: 1180, minHeight: 760)
+    #endif
+}
 #endif

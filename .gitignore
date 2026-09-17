@@ -30,3 +30,5 @@ web/tests/__screenshots__/
 /mockups/
 __pycache__/
 .playwright-mcp/
+.pnpm-store/
+output/

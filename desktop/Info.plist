@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Lurker is a private-network-only client (Tailscale/LAN/loopback, no
+	app-layer auth — see AGENTS.md). `backend_url` is arbitrary user config
+	and commonly a cleartext http:// Tailnet hostname (e.g.
+	`http://box.tailnet.ts.net`), which resolves to a CGNAT 100.x address
+	and is NOT covered by NSAllowsLocalNetworking (.local/link-local only).
+	Since the possible hosts can't be enumerated as NSExceptionDomains,
+	arbitrary cleartext loads are allowed outright rather than left unset,
+	which would leave WKWebView refusing non-HTTPS origins and the window
+	coming up blank.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

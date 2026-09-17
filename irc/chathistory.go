@@ -101,11 +101,11 @@ func (h *handler) maybeRequestChathistory(target string) {
 	}
 	ctx, cancel := h.eventContext()
 	defer cancel()
-	bufID, found, err := ircdb.LookupLogBufferIDByName(ctx, h.db, target)
+	bufID, found, err := ircdb.LookupLogBufferIDByName(ctx, h.db.DB, target)
 	if err != nil || !found {
 		return
 	}
-	lastTS, err := ircdb.LatestLogMessageTS(ctx, h.db, bufID)
+	lastTS, err := ircdb.LatestLogMessageTS(ctx, h.db.DB, bufID)
 	if err != nil || lastTS == "" {
 		return
 	}
@@ -123,7 +123,7 @@ func (h *handler) requestQueryBackfills() {
 	}
 	ctx, cancel := h.eventContext()
 	defer cancel()
-	bufs, err := ircdb.ListLogBuffers(ctx, h.db)
+	bufs, err := ircdb.ListLogBuffers(ctx, h.db.DB)
 	if err != nil {
 		slog.Warn("list buffers for chathistory", "err", err, "network", h.networkName)
 		return

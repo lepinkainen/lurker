@@ -39,7 +39,7 @@ func insertHistoryMessages(t *testing.T, stores *ircdb.MultiStore, networkID, bu
 	}
 	ids := make([]uuid.UUID, 0, count)
 	for range count {
-		id, _, _, err := ircdb.InsertLogMessage(t.Context(), ls.DB, ircdb.LogMessageInput{
+		id, _, _, err := ircdb.InsertLogMessage(t.Context(), ls, ircdb.LogMessageInput{
 			BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "hi",
 		})
 		if err != nil {
@@ -48,6 +48,79 @@ func insertHistoryMessages(t *testing.T, stores *ircdb.MultiStore, networkID, bu
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+func TestStateRejectsIncompleteNetworkSnapshot(t *testing.T) {
+	stores, server, network, _ := newHistoryTestServer(t)
+	store, err := stores.LogStore(network.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Buffer enumeration still works, but the message snapshot query fails.
+	if _, err := store.DB.ExecContext(t.Context(), "ALTER TABLE messages RENAME TO unavailable_messages"); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/api/state", nil)
+	w := httptest.NewRecorder()
+	server.state(w, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s, want 503", w.Code, w.Body.String())
+	}
+	if _, err := store.DB.ExecContext(t.Context(), "ALTER TABLE unavailable_messages RENAME TO messages"); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	server.state(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("retry status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+type stateReadRaceManager struct {
+	*mockManager
+	onNick func()
+}
+
+func (m *stateReadRaceManager) Nick(id uuid.UUID) string {
+	if m.onNick != nil {
+		fn := m.onNick
+		m.onNick = nil
+		fn()
+	}
+	return m.mockManager.Nick(id)
+}
+
+func TestStateRejectsReadPositionRaceWithoutInternalRetry(t *testing.T) {
+	stores, server, network, buffer := newHistoryTestServer(t)
+	ids := insertHistoryMessages(t, stores, network.ID, buffer, 1)
+	server.Manager = &stateReadRaceManager{mockManager: newMockManager(), onNick: func() {
+		// The ack would publish unread=0. A later insertion belongs in the
+		// snapshot, but not in that queued acknowledgement's counts.
+		if _, err := stores.MarkBufferLastSeen(t.Context(), buffer, ids[0]); err != nil {
+			t.Fatal(err)
+		}
+		insertHistoryMessages(t, stores, network.ID, buffer, 1)
+	}}
+	r := httptest.NewRequest(http.MethodGet, "/api/state", nil)
+	w := httptest.NewRecorder()
+	server.state(w, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("raced snapshot status=%d, want 503", w.Code)
+	}
+	w = httptest.NewRecorder()
+	server.state(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("retry status=%d body=%s", w.Code, w.Body.String())
+	}
+	var state stateDTO
+	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range state.Buffers {
+		if b.ID == buffer && (b.LastSeenID != ids[0] || b.Unread != 1) {
+			t.Fatalf("retry read state=%+v", b)
+		}
+	}
 }
 
 func TestTallyUnreadSkipsSelfAndAnchorsMarker(t *testing.T) {

@@ -23,8 +23,8 @@ func TestSearchRoutesAcrossNetworksAndBuffers(t *testing.T) {
 	b2, _, _, _ := stores.EnsureBuffer(ctx, n2.ID, "#go", ircdb.BufferChannel)
 	ls1, _ := stores.LogStore(n1.ID)
 	ls2, _ := stores.LogStore(n2.ID)
-	_, _, _, _ = ircdb.InsertLogMessage(ctx, ls1.DB, ircdb.LogMessageInput{BufferID: b1, Sender: "alice", Kind: "privmsg", Content: "shared needle libera"})
-	_, _, _, _ = ircdb.InsertLogMessage(ctx, ls2.DB, ircdb.LogMessageInput{BufferID: b2, Sender: "bob", Kind: "privmsg", Content: "shared needle oftc"})
+	_, _, _, _ = ircdb.InsertLogMessage(ctx, ls1, ircdb.LogMessageInput{BufferID: b1, Sender: "alice", Kind: "privmsg", Content: "shared needle libera"})
+	_, _, _, _ = ircdb.InsertLogMessage(ctx, ls2, ircdb.LogMessageInput{BufferID: b2, Sender: "bob", Kind: "privmsg", Content: "shared needle oftc"})
 
 	s := &Server{Stores: stores}
 

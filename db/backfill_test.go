@@ -53,13 +53,13 @@ func TestBackfillInsertKeepsIDOrderChronological(t *testing.T) {
 
 	// Live message arrives now; a backfilled one from an hour ago is
 	// inserted afterwards but must sort before it by id.
-	liveID, _, _, err := InsertLogMessage(ctx, logStore.DB, LogMessageInput{
+	liveID, _, _, err := InsertLogMessage(ctx, logStore, LogMessageInput{
 		BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "live", Timestamp: time.Now(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	backfillID, _, inserted, err := InsertLogMessage(ctx, logStore.DB, LogMessageInput{
+	backfillID, _, inserted, err := InsertLogMessage(ctx, logStore, LogMessageInput{
 		BufferID: bufID, MsgID: "abc1", Sender: "bob", Kind: "privmsg", Content: "old",
 		Timestamp: time.Now().Add(-time.Hour), Backfill: true,
 	})
@@ -95,10 +95,10 @@ func TestBackfillInsertDedupesByMsgID(t *testing.T) {
 		BufferID: bufID, MsgID: "dupe1", Sender: "bob", Kind: "privmsg", Content: "hello",
 		Timestamp: time.Now().Add(-time.Minute), Backfill: true,
 	}
-	if _, _, inserted, err := InsertLogMessage(ctx, logStore.DB, in); err != nil || !inserted {
+	if _, _, inserted, err := InsertLogMessage(ctx, logStore, in); err != nil || !inserted {
 		t.Fatalf("first insert: inserted=%v err=%v", inserted, err)
 	}
-	if _, _, inserted, err := InsertLogMessage(ctx, logStore.DB, in); err != nil || inserted {
+	if _, _, inserted, err := InsertLogMessage(ctx, logStore, in); err != nil || inserted {
 		t.Fatalf("second insert should dedupe: inserted=%v err=%v", inserted, err)
 	}
 }
@@ -129,7 +129,7 @@ func TestLatestLogMessageTS(t *testing.T) {
 		{BufferID: bufID, Sender: "a", Kind: "privmsg", Content: "1", Timestamp: newer},
 		{BufferID: bufID, Sender: "a", Kind: "privmsg", Content: "2", Timestamp: older},
 	} {
-		if _, _, _, err := InsertLogMessage(ctx, logStore.DB, in); err != nil {
+		if _, _, _, err := InsertLogMessage(ctx, logStore, in); err != nil {
 			t.Fatal(err)
 		}
 	}

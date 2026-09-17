@@ -27,8 +27,13 @@ type MessageCore struct {
 	IsSelf         bool   `json:"is_self,omitzero"`
 	MentionsMe     bool   `json:"mentions_me,omitzero"`
 	CountsAsUnread bool   `json:"counts_as_unread,omitzero"`
-	SenderColor    *int   `json:"sender_color,omitempty"`
-	TargetColor    *int   `json:"target_color,omitempty"`
+	// Muted marks a sender on the mute tier of the ignore list: the message
+	// is stored and shown, never counts toward unread or anchors the marker,
+	// but mentions/highlights from it still badge. Set on live events and
+	// history alike so clients derive identical counts from either.
+	Muted       bool `json:"muted,omitzero"`
+	SenderColor *int `json:"sender_color,omitempty"`
+	TargetColor *int `json:"target_color,omitempty"`
 	// Highlight/HighlightPattern are set when content matches a
 	// user-defined highlight pattern (custom hilight words).
 	Highlight        bool   `json:"highlight,omitzero"`

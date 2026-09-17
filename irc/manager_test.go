@@ -143,7 +143,7 @@ func TestSyntheticClientEventsDoNotPersistToStatusBuffer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+	h := &handler{stores: stores, db: logStore, networkID: netrow.ID, networkName: "fake"}
 
 	h.onUnhandledEvent(girc.Event{Command: girc.UPDATE_GENERAL})
 	h.onUnhandledEvent(girc.Event{Command: girc.UPDATE_STATE})
@@ -176,7 +176,7 @@ func TestTopicWhoTimeAndCreationTimeSuppressed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+	h := &handler{stores: stores, db: logStore, networkID: netrow.ID, networkName: "fake"}
 
 	// 333 has a registered handler, 329 is suppressed outright — both must be
 	// in isExplicitlyHandledEvent so onAllEvent never writes a status notice
@@ -238,7 +238,7 @@ func TestUnhandledServerReplyPersistsToStatusBuffer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+	h := &handler{stores: stores, db: logStore, networkID: netrow.ID, networkName: "fake"}
 
 	h.onUnhandledEvent(mustEvent(t, ":irc.example 251 tester :There are 42 users and 10 servers"))
 
@@ -276,7 +276,7 @@ func TestUnhandledChannelErrorPersistsToChannelBuffer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+	h := &handler{stores: stores, db: logStore, networkID: netrow.ID, networkName: "fake"}
 
 	h.onUnhandledEvent(mustEvent(t, ":irc.example 482 tester #test :You're not channel operator"))
 
@@ -325,7 +325,7 @@ func TestBanlistRepliesPersistToStatusBuffer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+	h := &handler{stores: stores, db: logStore, networkID: netrow.ID, networkName: "fake"}
 
 	h.onUnhandledEvent(mustEvent(t, ":irc.example 367 tester #test bad!*@* oper 1714410000"))
 	h.onUnhandledEvent(mustEvent(t, ":irc.example 368 tester #test :End of Channel Ban List"))
@@ -383,7 +383,7 @@ func TestMOTDLinesRenderAsBox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &handler{stores: stores, db: logStore.DB, networkID: netrow.ID, networkName: "fake"}
+	h := &handler{stores: stores, db: logStore, networkID: netrow.ID, networkName: "fake"}
 
 	h.onUnhandledEvent(mustEvent(t, ":irc.example 375 tester :- irc.example Message of the Day -"))
 	h.onUnhandledEvent(mustEvent(t, ":irc.example 372 tester :- Open to all users on 6667"))

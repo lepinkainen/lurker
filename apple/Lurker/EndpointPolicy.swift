@@ -1,5 +1,7 @@
 import Foundation
 
+// MARK: - EndpointPolicyError
+
 enum EndpointPolicyError: LocalizedError, Equatable {
   case invalidURL
   case insecureLocation
@@ -15,10 +17,16 @@ enum EndpointPolicyError: LocalizedError, Equatable {
   }
 }
 
+// MARK: - EndpointPolicy
+
 enum EndpointPolicy {
+
+  // MARK: Internal
+
   static func normalize(_ value: String) throws -> URL {
     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard var components = URLComponents(string: trimmed),
+    guard
+      var components = URLComponents(string: trimmed),
       components.scheme?.lowercased() == "http",
       let rawHost = components.host?.lowercased(),
       !rawHost.isEmpty
@@ -27,8 +35,10 @@ enum EndpointPolicy {
     }
     let host =
       rawHost.hasPrefix("[") && rawHost.hasSuffix("]")
-      ? String(rawHost.dropFirst().dropLast()) : rawHost
-    guard components.user == nil,
+        ? String(rawHost.dropFirst().dropLast())
+        : rawHost
+    guard
+      components.user == nil,
       components.password == nil,
       components.query == nil,
       components.fragment == nil,
@@ -71,8 +81,11 @@ enum EndpointPolicy {
     return octets[0] == 100 && (64...127).contains(octets[1])
   }
 
+  // MARK: Private
+
   private static func isValidSingleLabel(_ host: String) -> Bool {
-    guard !host.isEmpty, host.count <= 63,
+    guard
+      !host.isEmpty, host.count <= 63,
       host.first != "-", host.last != "-"
     else {
       return false
@@ -91,4 +104,5 @@ enum EndpointPolicy {
     }
     return values.count == 4 ? values : nil
   }
+
 }

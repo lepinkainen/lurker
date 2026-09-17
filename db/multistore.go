@@ -663,39 +663,48 @@ func toStoredMessages(networkID, globalBufferID uuid.UUID, in []LogMessageRow) [
 	return out
 }
 
-// BatchRecentMessages returns the last limit messages for each of the given
-// buffer IDs in a single per-network log DB query, keyed by buffer ID.
-func (ms *MultiStore) BatchRecentMessages(ctx context.Context, networkID uuid.UUID, bufferIDs []uuid.UUID, limit int) (map[uuid.UUID][]StoredMessage, error) {
-	logStore, err := ms.LogStore(networkID)
-	if err != nil {
-		return nil, err
-	}
-	byBuf, err := BatchRecentLogMessages(ctx, logStore.DB, bufferIDs, limit)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[uuid.UUID][]StoredMessage, len(byBuf))
-	for bufID, msgs := range byBuf {
-		stored := make([]StoredMessage, 0, len(msgs))
-		for _, m := range msgs {
-			stored = append(stored, StoredMessage{
-				ID: m.ID, NetworkID: networkID, BufferID: bufID,
-				MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Userhost: m.Userhost, Account: m.Account,
-				Kind: m.Kind, Target: m.Target, Content: m.Content,
-			})
-		}
-		out[bufID] = stored
-	}
-	return out, nil
+// NetworkSnapshot is the per-network part of /api/state read in one
+// transaction, so the recent-message windows and the unread candidates agree
+// on which messages exist. Two separate reads let a message land between
+// them, making it counted-but-not-in-window (or vice versa), which breaks
+// clients that use the window's newest id as the replay boundary.
+type NetworkSnapshot struct {
+	Recent map[uuid.UUID][]StoredMessage
+	Unread map[uuid.UUID][]UnreadCandidate
 }
 
-// BatchUnreadCandidates returns unread candidates for multiple buffers in a
-// single per-network log DB query. cutoffs maps buffer ID to last-seen message
-// ID (uuid.Nil = no cutoff). limit caps per-buffer row count; must be > 0.
-func (ms *MultiStore) BatchUnreadCandidates(ctx context.Context, networkID uuid.UUID, cutoffs map[uuid.UUID]uuid.UUID, limit int) (map[uuid.UUID][]UnreadCandidate, error) {
+// SnapshotNetwork runs BatchRecentLogMessages and BatchUnreadCandidates inside a
+// single read transaction on the network's log DB (WAL gives it one
+// consistent view). cutoffs maps buffer ID to last-seen message ID.
+func (ms *MultiStore) SnapshotNetwork(ctx context.Context, networkID uuid.UUID, cutoffs map[uuid.UUID]uuid.UUID, msgLimit, unreadLimit int) (NetworkSnapshot, error) {
 	logStore, err := ms.LogStore(networkID)
 	if err != nil {
-		return nil, err
+		return NetworkSnapshot{}, err
 	}
-	return BatchUnreadCandidates(ctx, logStore.DB, cutoffs, limit)
+	tx, err := logStore.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return NetworkSnapshot{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	bufferIDs := make([]uuid.UUID, 0, len(cutoffs))
+	for id := range cutoffs {
+		bufferIDs = append(bufferIDs, id)
+	}
+	byBuf, err := BatchRecentLogMessages(ctx, tx, bufferIDs, msgLimit)
+	if err != nil {
+		return NetworkSnapshot{}, err
+	}
+	unread, err := BatchUnreadCandidates(ctx, tx, cutoffs, unreadLimit)
+	if err != nil {
+		return NetworkSnapshot{}, err
+	}
+	return NetworkSnapshot{Recent: storedFromLogRows(networkID, byBuf), Unread: unread}, nil
+}
+
+func storedFromLogRows(networkID uuid.UUID, byBuf map[uuid.UUID][]LogMessageRow) map[uuid.UUID][]StoredMessage {
+	out := make(map[uuid.UUID][]StoredMessage, len(byBuf))
+	for bufID, msgs := range byBuf {
+		out[bufID] = toStoredMessages(networkID, bufID, msgs)
+	}
+	return out
 }

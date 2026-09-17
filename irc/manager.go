@@ -256,7 +256,7 @@ func (m *Manager) LogOutbound(ctx context.Context, networkID uuid.UUID, target, 
 	if nick == "" {
 		return errors.New("irc: cannot log outbound message without known nick")
 	}
-	id, ts, inserted, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	id, ts, inserted, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
 		BufferID:  bufID,
 		Timestamp: time.Now(),
 		Sender:    nick,
@@ -859,7 +859,7 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 	m.avatars[networkID] = avs
 	m.mu.Unlock()
 
-	h := &handler{stores: m.stores, db: logStore.DB, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectCommands: nc.ConnectCommands, userChannels: newUserChannels(), bots: bots, avatars: avs, nickFn: func() string { return m.Nick(networkID) }, connectedHook: func(currentNick string) {
+	h := &handler{stores: m.stores, db: logStore, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectCommands: nc.ConnectCommands, userChannels: newUserChannels(), bots: bots, avatars: avs, nickFn: func() string { return m.Nick(networkID) }, connectedHook: func(currentNick string) {
 		m.mu.Lock()
 		m.state[networkID] = StateConnected.String()
 		if _, ok := m.membersLoaded[networkID]; !ok {

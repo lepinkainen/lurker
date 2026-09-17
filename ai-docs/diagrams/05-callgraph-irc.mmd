@@ -1,0 +1,373 @@
+flowchart LR
+    %% irc/ package: cross-file call graph (connection lifecycle, event handlers, persistence).
+    %% Scoped to calls whose caller and callee both live in irc/.
+    %% One node per function, one subgraph per file. Intra-file calls omitted by design.
+    subgraph irc_avatars_go["irc/avatars.go"]
+        irc_avatars_go_clear["clear<br/>in:2 out:1"]
+        irc_avatars_go_get["get<br/>in:0 out:1"]
+        irc_avatars_go_has["has<br/>in:1 out:0"]
+        irc_avatars_go_newavatartracker["newAvatarTracker<br/>in:1 out:0"]
+        irc_avatars_go_rename["rename<br/>in:0 out:1"]
+        irc_avatars_go_set["set<br/>in:0 out:1"]
+    end
+    subgraph irc_bots_go["irc/bots.go"]
+        irc_bots_go_isbot["isBot<br/>in:1 out:1"]
+        irc_bots_go_mark["mark<br/>in:1 out:1"]
+        irc_bots_go_newbottracker["newBotTracker<br/>in:1 out:0"]
+        irc_bots_go_rename["rename<br/>in:0 out:1"]
+        irc_bots_go_unmark["unmark<br/>in:1 out:1"]
+    end
+    subgraph irc_casemap_go["irc/casemap.go"]
+        irc_casemap_go_casefoldnick["caseFoldNick<br/>in:18 out:0"]
+    end
+    subgraph irc_channel_members_go["irc/channel_members.go"]
+        irc_channel_members_go_buildchannelmembers["buildChannelMembers<br/>in:2 out:3"]
+    end
+    subgraph irc_chathistory_go["irc/chathistory.go"]
+        irc_chathistory_go_chathistorydivert["chathistoryDivert<br/>in:1 out:0"]
+        irc_chathistory_go_mayberequestchathistory["maybeRequestChathistory<br/>in:1 out:1"]
+        irc_chathistory_go_privmsgkindcontent["privmsgKindContent<br/>in:1 out:0"]
+        irc_chathistory_go_requestquerybackfills["requestQueryBackfills<br/>in:1 out:1"]
+        irc_chathistory_go_storebackfillmessage["storeBackfillMessage<br/>in:1 out:6"]
+    end
+    subgraph irc_encoding_go["irc/encoding.go"]
+        irc_encoding_go_ensureutf8["ensureUTF8<br/>in:2 out:0"]
+    end
+    subgraph irc_events_go["irc/events.go"]
+        irc_events_go_applysemantics["ApplySemantics<br/>in:0 out:1"]
+        irc_events_go_withsemantics["WithSemantics<br/>in:3 out:0"]
+    end
+    subgraph irc_fixture_runtime_go["irc/fixture_runtime.go"]
+        irc_fixture_runtime_go_loadfixtureruntimestate["LoadFixtureRuntimeState<br/>in:0 out:1"]
+    end
+    subgraph irc_handler_bots_go["irc/handler_bots.go"]
+        irc_handler_bots_go_markbot["markBot<br/>in:0 out:3"]
+        irc_handler_bots_go_notebottag["noteBotTag<br/>in:1 out:0"]
+        irc_handler_bots_go_requestbotwho["requestBotWho<br/>in:2 out:1"]
+    end
+    subgraph irc_handler_channel_go["irc/handler_channel.go"]
+        irc_handler_channel_go_markallchannelsparted["markAllChannelsParted<br/>in:1 out:3"]
+        irc_handler_channel_go_onchannelmodeis["onChannelModeIs<br/>in:0 out:2"]
+        irc_handler_channel_go_onendofnames["onEndOfNames<br/>in:0 out:3"]
+        irc_handler_channel_go_onendofwho["onEndOfWho<br/>in:0 out:1"]
+        irc_handler_channel_go_onjoin["onJoin<br/>in:0 out:5"]
+        irc_handler_channel_go_onkick["onKick<br/>in:0 out:8"]
+        irc_handler_channel_go_onmode["onMode<br/>in:0 out:2"]
+        irc_handler_channel_go_onpart["onPart<br/>in:0 out:5"]
+        irc_handler_channel_go_ontopic["onTopic<br/>in:0 out:2"]
+        irc_handler_channel_go_ontopicreply["onTopicReply<br/>in:0 out:1"]
+        irc_handler_channel_go_touchchannelbuffer["touchChannelBuffer<br/>in:1 out:2"]
+        irc_handler_channel_go_updatechanneljoined["updateChannelJoined<br/>in:0 out:4"]
+        irc_handler_channel_go_updatechanneltopicstate["updateChannelTopicState<br/>in:0 out:3"]
+    end
+    subgraph irc_handler_helpers_go["irc/handler_helpers.go"]
+        irc_handler_helpers_go_publishnetworkstate["PublishNetworkState<br/>in:3 out:1"]
+        irc_handler_helpers_go_channelparam["channelParam<br/>in:2 out:0"]
+        irc_handler_helpers_go_channeltopic["channelTopic<br/>in:2 out:0"]
+        irc_handler_helpers_go_ensurebuffer["ensureBuffer<br/>in:10 out:0"]
+        irc_handler_helpers_go_eventcontext["eventContext<br/>in:13 out:0"]
+        irc_handler_helpers_go_modetargetandargs["modeTargetAndArgs<br/>in:3 out:1"]
+        irc_handler_helpers_go_publishbufferupdate["publishBufferUpdate<br/>in:5 out:0"]
+        irc_handler_helpers_go_publishnetworkstate["publishNetworkState<br/>in:2 out:0"]
+        irc_handler_helpers_go_syncbufferarchived["syncBufferArchived<br/>in:3 out:0"]
+    end
+    subgraph irc_handler_lifecycle_go["irc/handler_lifecycle.go"]
+        irc_handler_lifecycle_go_joinbatched["joinBatched<br/>in:0 out:1"]
+        irc_handler_lifecycle_go_logstatus["logStatus<br/>in:0 out:5"]
+        irc_handler_lifecycle_go_onconnected["onConnected<br/>in:0 out:3"]
+        irc_handler_lifecycle_go_ondisconnected["onDisconnected<br/>in:0 out:3"]
+    end
+    subgraph irc_handler_messages_go["irc/handler_messages.go"]
+        irc_handler_messages_go_enqueuepreviews["enqueuePreviews<br/>in:1 out:0"]
+        irc_handler_messages_go_ignorelevel["ignoreLevel<br/>in:1 out:1"]
+        irc_handler_messages_go_onprivmsg["onPrivmsg<br/>in:1 out:3"]
+        irc_handler_messages_go_storeevent["storeEvent<br/>in:11 out:8"]
+        irc_handler_messages_go_tracknetsplit["trackNetsplit<br/>in:0 out:4"]
+    end
+    subgraph irc_handler_metadata_go["irc/handler_metadata.go"]
+        irc_handler_metadata_go_applyavatarmetadata["applyAvatarMetadata<br/>in:0 out:1"]
+    end
+    subgraph irc_handler_presence_go["irc/handler_presence.go"]
+        irc_handler_presence_go_fanoutpresence["fanOutPresence<br/>in:0 out:1"]
+        irc_handler_presence_go_onaccount["onAccount<br/>in:0 out:1"]
+        irc_handler_presence_go_onaway["onAway<br/>in:0 out:1"]
+        irc_handler_presence_go_onchghost["onChghost<br/>in:0 out:2"]
+        irc_handler_presence_go_oninvite["onInvite<br/>in:0 out:2"]
+        irc_handler_presence_go_onnick["onNick<br/>in:0 out:4"]
+        irc_handler_presence_go_onquit["onQuit<br/>in:0 out:5"]
+        irc_handler_presence_go_publishmemberlist["publishMemberList<br/>in:5 out:3"]
+        irc_handler_presence_go_publishremotepresence["publishRemotePresence<br/>in:1 out:2"]
+    end
+    subgraph irc_handler_register_go["irc/handler_register.go"]
+        irc_handler_register_go_onallevent["onAllEvent<br/>in:0 out:2"]
+        irc_handler_register_go_onstateupdate["onStateUpdate<br/>in:0 out:1"]
+        irc_handler_register_go_queuemodememberrefresh["queueModeMemberRefresh<br/>in:0 out:1"]
+        irc_handler_register_go_register["register<br/>in:1 out:0"]
+    end
+    subgraph irc_handler_unhandled_go["irc/handler_unhandled.go"]
+        irc_handler_unhandled_go_formatunhandledeventcontent["formatUnhandledEventContent<br/>in:0 out:1"]
+        irc_handler_unhandled_go_onunhandledevent["onUnhandledEvent<br/>in:1 out:1"]
+    end
+    subgraph irc_highlights_go["irc/highlights.go"]
+        irc_highlights_go_matchhighlight["matchHighlight<br/>in:1 out:0"]
+    end
+    subgraph irc_irccloud_avatar_go["irc/irccloud_avatar.go"]
+        irc_irccloud_avatar_go_irccloudavatarurl["irccloudAvatarURL<br/>in:4 out:0"]
+    end
+    subgraph irc_manager_go["irc/manager.go"]
+        irc_manager_go_avatarurl["AvatarURL<br/>in:0 out:1"]
+        irc_manager_go_channelmembers["ChannelMembers<br/>in:0 out:1"]
+        irc_manager_go_join["Join<br/>in:4 out:0"]
+        irc_manager_go_logoutbound["LogOutbound<br/>in:0 out:1"]
+        irc_manager_go_send["Send<br/>in:1 out:0"]
+        irc_manager_go_startnetwork["StartNetwork<br/>in:0 out:1"]
+        irc_manager_go_stopnetwork["StopNetwork<br/>in:0 out:2"]
+        irc_manager_go_buildclient["buildClient<br/>in:0 out:5"]
+        irc_manager_go_markdisconnected["markDisconnected<br/>in:0 out:2"]
+        irc_manager_go_setconnectingstate["setConnectingState<br/>in:0 out:2"]
+    end
+    subgraph irc_netsplit_go["irc/netsplit.go"]
+        irc_netsplit_go_isnetsplitreason["IsNetsplitReason<br/>in:1 out:0"]
+        irc_netsplit_go_assignquitclusters["assignQuitClusters<br/>in:0 out:1"]
+        irc_netsplit_go_matchrejoins["matchRejoins<br/>in:0 out:1"]
+        irc_netsplit_go_netsplitkey["netsplitKey<br/>in:2 out:0"]
+    end
+    subgraph irc_netsplit_tracker_go["irc/netsplit_tracker.go"]
+        irc_netsplit_tracker_go_metafornetsplit["MetaForNetsplit<br/>in:0 out:1"]
+        irc_netsplit_tracker_go_onjoin["OnJoin<br/>in:1 out:1"]
+        irc_netsplit_tracker_go_onquit["OnQuit<br/>in:1 out:3"]
+        irc_netsplit_tracker_go_newnetsplittracker["newNetsplitTracker<br/>in:1 out:0"]
+        irc_netsplit_tracker_go_parsestoredts["parseStoredTS<br/>in:1 out:0"]
+    end
+    subgraph irc_semantics_go["irc/semantics.go"]
+        irc_semantics_go_computemessagesemantics["ComputeMessageSemantics<br/>in:1 out:1"]
+    end
+    subgraph irc_state_go["irc/state.go"]
+        irc_state_go_string["String<br/>in:12 out:0"]
+    end
+    subgraph irc_user_channels_go["irc/user_channels.go"]
+        irc_user_channels_go_adduser["addUser<br/>in:1 out:1"]
+        irc_user_channels_go_channelsfor["channelsFor<br/>in:5 out:1"]
+        irc_user_channels_go_dropchannel["dropChannel<br/>in:2 out:0"]
+        irc_user_channels_go_dropuser["dropUser<br/>in:1 out:1"]
+        irc_user_channels_go_foldnickset["foldNickSet<br/>in:0 out:1"]
+        irc_user_channels_go_newuserchannels["newUserChannels<br/>in:2 out:0"]
+        irc_user_channels_go_removeuser["removeUser<br/>in:2 out:1"]
+        irc_user_channels_go_renameuser["renameUser<br/>in:1 out:1"]
+        irc_user_channels_go_syncchannel["syncChannel<br/>in:1 out:0"]
+    end
+    irc_avatars_go_clear --> irc_casemap_go_casefoldnick
+    irc_avatars_go_get --> irc_casemap_go_casefoldnick
+    irc_avatars_go_rename --> irc_casemap_go_casefoldnick
+    irc_avatars_go_set --> irc_casemap_go_casefoldnick
+    irc_bots_go_isbot --> irc_casemap_go_casefoldnick
+    irc_bots_go_mark --> irc_casemap_go_casefoldnick
+    irc_bots_go_rename --> irc_casemap_go_casefoldnick
+    irc_bots_go_unmark --> irc_casemap_go_casefoldnick
+    irc_channel_members_go_buildchannelmembers --> irc_avatars_go_has
+    irc_channel_members_go_buildchannelmembers --> irc_bots_go_isbot
+    irc_channel_members_go_buildchannelmembers --> irc_irccloud_avatar_go_irccloudavatarurl
+    irc_chathistory_go_mayberequestchathistory --> irc_handler_helpers_go_eventcontext
+    irc_chathistory_go_requestquerybackfills --> irc_handler_helpers_go_eventcontext
+    irc_chathistory_go_storebackfillmessage --> irc_encoding_go_ensureutf8
+    irc_chathistory_go_storebackfillmessage --> irc_handler_helpers_go_ensurebuffer
+    irc_chathistory_go_storebackfillmessage --> irc_handler_helpers_go_eventcontext
+    irc_chathistory_go_storebackfillmessage --> irc_handler_messages_go_enqueuepreviews
+    irc_chathistory_go_storebackfillmessage --> irc_handler_messages_go_ignorelevel
+    irc_chathistory_go_storebackfillmessage --> irc_state_go_string
+    irc_events_go_applysemantics --> irc_semantics_go_computemessagesemantics
+    irc_fixture_runtime_go_loadfixtureruntimestate --> irc_state_go_string
+    irc_handler_bots_go_markbot --> irc_bots_go_mark
+    irc_handler_bots_go_markbot --> irc_handler_presence_go_publishmemberlist
+    irc_handler_bots_go_markbot --> irc_user_channels_go_channelsfor
+    irc_handler_bots_go_requestbotwho --> irc_manager_go_send
+    irc_handler_channel_go_markallchannelsparted --> irc_handler_helpers_go_ensurebuffer
+    irc_handler_channel_go_markallchannelsparted --> irc_handler_helpers_go_eventcontext
+    irc_handler_channel_go_markallchannelsparted --> irc_handler_helpers_go_publishbufferupdate
+    irc_handler_channel_go_onchannelmodeis --> irc_handler_helpers_go_modetargetandargs
+    irc_handler_channel_go_onchannelmodeis --> irc_handler_messages_go_storeevent
+    irc_handler_channel_go_onendofnames --> irc_handler_bots_go_requestbotwho
+    irc_handler_channel_go_onendofnames --> irc_handler_presence_go_publishmemberlist
+    irc_handler_channel_go_onendofnames --> irc_user_channels_go_syncchannel
+    irc_handler_channel_go_onendofwho --> irc_handler_presence_go_publishmemberlist
+    irc_handler_channel_go_onjoin --> irc_chathistory_go_mayberequestchathistory
+    irc_handler_channel_go_onjoin --> irc_handler_bots_go_requestbotwho
+    irc_handler_channel_go_onjoin --> irc_handler_helpers_go_channelparam
+    irc_handler_channel_go_onjoin --> irc_handler_messages_go_storeevent
+    irc_handler_channel_go_onjoin --> irc_user_channels_go_adduser
+    irc_handler_channel_go_onkick --> irc_handler_helpers_go_ensurebuffer
+    irc_handler_channel_go_onkick --> irc_handler_helpers_go_eventcontext
+    irc_handler_channel_go_onkick --> irc_handler_helpers_go_publishbufferupdate
+    irc_handler_channel_go_onkick --> irc_handler_helpers_go_syncbufferarchived
+    irc_handler_channel_go_onkick --> irc_handler_messages_go_storeevent
+    irc_handler_channel_go_onkick --> irc_handler_presence_go_publishmemberlist
+    irc_handler_channel_go_onkick --> irc_user_channels_go_dropchannel
+    irc_handler_channel_go_onkick --> irc_user_channels_go_removeuser
+    irc_handler_channel_go_onmode --> irc_handler_helpers_go_modetargetandargs
+    irc_handler_channel_go_onmode --> irc_handler_messages_go_storeevent
+    irc_handler_channel_go_onpart --> irc_handler_helpers_go_channelparam
+    irc_handler_channel_go_onpart --> irc_handler_messages_go_storeevent
+    irc_handler_channel_go_onpart --> irc_handler_presence_go_publishremotepresence
+    irc_handler_channel_go_onpart --> irc_user_channels_go_dropchannel
+    irc_handler_channel_go_onpart --> irc_user_channels_go_removeuser
+    irc_handler_channel_go_ontopic --> irc_handler_helpers_go_channeltopic
+    irc_handler_channel_go_ontopic --> irc_handler_messages_go_storeevent
+    irc_handler_channel_go_ontopicreply --> irc_handler_helpers_go_channeltopic
+    irc_handler_channel_go_touchchannelbuffer --> irc_handler_helpers_go_ensurebuffer
+    irc_handler_channel_go_touchchannelbuffer --> irc_handler_helpers_go_eventcontext
+    irc_handler_channel_go_updatechanneljoined --> irc_handler_helpers_go_ensurebuffer
+    irc_handler_channel_go_updatechanneljoined --> irc_handler_helpers_go_eventcontext
+    irc_handler_channel_go_updatechanneljoined --> irc_handler_helpers_go_publishbufferupdate
+    irc_handler_channel_go_updatechanneljoined --> irc_handler_helpers_go_syncbufferarchived
+    irc_handler_channel_go_updatechanneltopicstate --> irc_handler_helpers_go_ensurebuffer
+    irc_handler_channel_go_updatechanneltopicstate --> irc_handler_helpers_go_eventcontext
+    irc_handler_channel_go_updatechanneltopicstate --> irc_handler_helpers_go_publishbufferupdate
+    irc_handler_helpers_go_publishnetworkstate --> irc_state_go_string
+    irc_handler_helpers_go_modetargetandargs --> irc_manager_go_join
+    irc_handler_lifecycle_go_joinbatched --> irc_manager_go_join
+    irc_handler_lifecycle_go_logstatus --> irc_events_go_withsemantics
+    irc_handler_lifecycle_go_logstatus --> irc_handler_helpers_go_ensurebuffer
+    irc_handler_lifecycle_go_logstatus --> irc_handler_helpers_go_eventcontext
+    irc_handler_lifecycle_go_logstatus --> irc_handler_helpers_go_publishnetworkstate
+    irc_handler_lifecycle_go_logstatus --> irc_state_go_string
+    irc_handler_lifecycle_go_onconnected --> irc_chathistory_go_requestquerybackfills
+    irc_handler_lifecycle_go_onconnected --> irc_handler_helpers_go_publishnetworkstate
+    irc_handler_lifecycle_go_onconnected --> irc_state_go_string
+    irc_handler_lifecycle_go_ondisconnected --> irc_handler_channel_go_markallchannelsparted
+    irc_handler_lifecycle_go_ondisconnected --> irc_state_go_string
+    irc_handler_lifecycle_go_ondisconnected --> irc_user_channels_go_newuserchannels
+    irc_handler_messages_go_ignorelevel --> irc_handler_helpers_go_eventcontext
+    irc_handler_messages_go_onprivmsg --> irc_chathistory_go_chathistorydivert
+    irc_handler_messages_go_onprivmsg --> irc_chathistory_go_privmsgkindcontent
+    irc_handler_messages_go_onprivmsg --> irc_chathistory_go_storebackfillmessage
+    irc_handler_messages_go_storeevent --> irc_encoding_go_ensureutf8
+    irc_handler_messages_go_storeevent --> irc_events_go_withsemantics
+    irc_handler_messages_go_storeevent --> irc_handler_bots_go_notebottag
+    irc_handler_messages_go_storeevent --> irc_handler_helpers_go_ensurebuffer
+    irc_handler_messages_go_storeevent --> irc_handler_helpers_go_eventcontext
+    irc_handler_messages_go_storeevent --> irc_handler_helpers_go_publishbufferupdate
+    irc_handler_messages_go_storeevent --> irc_handler_helpers_go_syncbufferarchived
+    irc_handler_messages_go_storeevent --> irc_state_go_string
+    irc_handler_messages_go_tracknetsplit --> irc_netsplit_tracker_go_onjoin
+    irc_handler_messages_go_tracknetsplit --> irc_netsplit_tracker_go_onquit
+    irc_handler_messages_go_tracknetsplit --> irc_netsplit_tracker_go_newnetsplittracker
+    irc_handler_messages_go_tracknetsplit --> irc_netsplit_tracker_go_parsestoredts
+    irc_handler_metadata_go_applyavatarmetadata --> irc_avatars_go_clear
+    irc_handler_presence_go_fanoutpresence --> irc_handler_messages_go_storeevent
+    irc_handler_presence_go_onaccount --> irc_user_channels_go_channelsfor
+    irc_handler_presence_go_onaway --> irc_user_channels_go_channelsfor
+    irc_handler_presence_go_onchghost --> irc_manager_go_join
+    irc_handler_presence_go_onchghost --> irc_user_channels_go_channelsfor
+    irc_handler_presence_go_oninvite --> irc_handler_channel_go_touchchannelbuffer
+    irc_handler_presence_go_oninvite --> irc_handler_messages_go_storeevent
+    irc_handler_presence_go_onnick --> irc_handler_messages_go_storeevent
+    irc_handler_presence_go_onnick --> irc_irccloud_avatar_go_irccloudavatarurl
+    irc_handler_presence_go_onnick --> irc_user_channels_go_channelsfor
+    irc_handler_presence_go_onnick --> irc_user_channels_go_renameuser
+    irc_handler_presence_go_onquit --> irc_avatars_go_clear
+    irc_handler_presence_go_onquit --> irc_bots_go_unmark
+    irc_handler_presence_go_onquit --> irc_handler_messages_go_storeevent
+    irc_handler_presence_go_onquit --> irc_irccloud_avatar_go_irccloudavatarurl
+    irc_handler_presence_go_onquit --> irc_user_channels_go_dropuser
+    irc_handler_presence_go_publishmemberlist --> irc_channel_members_go_buildchannelmembers
+    irc_handler_presence_go_publishmemberlist --> irc_handler_helpers_go_ensurebuffer
+    irc_handler_presence_go_publishmemberlist --> irc_handler_helpers_go_eventcontext
+    irc_handler_presence_go_publishremotepresence --> irc_handler_helpers_go_ensurebuffer
+    irc_handler_presence_go_publishremotepresence --> irc_handler_helpers_go_eventcontext
+    irc_handler_register_go_onallevent --> irc_handler_messages_go_onprivmsg
+    irc_handler_register_go_onallevent --> irc_handler_unhandled_go_onunhandledevent
+    irc_handler_register_go_onstateupdate --> irc_handler_presence_go_publishmemberlist
+    irc_handler_register_go_queuemodememberrefresh --> irc_handler_helpers_go_modetargetandargs
+    irc_handler_unhandled_go_formatunhandledeventcontent --> irc_manager_go_join
+    irc_handler_unhandled_go_onunhandledevent --> irc_handler_messages_go_storeevent
+    irc_manager_go_avatarurl --> irc_irccloud_avatar_go_irccloudavatarurl
+    irc_manager_go_channelmembers --> irc_channel_members_go_buildchannelmembers
+    irc_manager_go_logoutbound --> irc_events_go_withsemantics
+    irc_manager_go_startnetwork --> irc_state_go_string
+    irc_manager_go_stopnetwork --> irc_handler_helpers_go_publishnetworkstate
+    irc_manager_go_stopnetwork --> irc_state_go_string
+    irc_manager_go_buildclient --> irc_avatars_go_newavatartracker
+    irc_manager_go_buildclient --> irc_bots_go_newbottracker
+    irc_manager_go_buildclient --> irc_handler_register_go_register
+    irc_manager_go_buildclient --> irc_state_go_string
+    irc_manager_go_buildclient --> irc_user_channels_go_newuserchannels
+    irc_manager_go_markdisconnected --> irc_handler_helpers_go_publishnetworkstate
+    irc_manager_go_markdisconnected --> irc_state_go_string
+    irc_manager_go_setconnectingstate --> irc_handler_helpers_go_publishnetworkstate
+    irc_manager_go_setconnectingstate --> irc_state_go_string
+    irc_netsplit_go_assignquitclusters --> irc_casemap_go_casefoldnick
+    irc_netsplit_go_matchrejoins --> irc_casemap_go_casefoldnick
+    irc_netsplit_tracker_go_metafornetsplit --> irc_netsplit_go_netsplitkey
+    irc_netsplit_tracker_go_onjoin --> irc_casemap_go_casefoldnick
+    irc_netsplit_tracker_go_onquit --> irc_casemap_go_casefoldnick
+    irc_netsplit_tracker_go_onquit --> irc_netsplit_go_isnetsplitreason
+    irc_netsplit_tracker_go_onquit --> irc_netsplit_go_netsplitkey
+    irc_semantics_go_computemessagesemantics --> irc_highlights_go_matchhighlight
+    irc_user_channels_go_adduser --> irc_casemap_go_casefoldnick
+    irc_user_channels_go_channelsfor --> irc_casemap_go_casefoldnick
+    irc_user_channels_go_dropuser --> irc_casemap_go_casefoldnick
+    irc_user_channels_go_foldnickset --> irc_casemap_go_casefoldnick
+    irc_user_channels_go_removeuser --> irc_casemap_go_casefoldnick
+    irc_user_channels_go_renameuser --> irc_casemap_go_casefoldnick
+
+    irc_avatars_go_get:::orphan
+    irc_avatars_go_rename:::orphan
+    irc_avatars_go_set:::orphan
+    irc_bots_go_rename:::orphan
+    irc_casemap_go_casefoldnick:::hot
+    irc_channel_members_go_buildchannelmembers:::hot
+    irc_chathistory_go_storebackfillmessage:::hot
+    irc_events_go_applysemantics:::orphan
+    irc_fixture_runtime_go_loadfixtureruntimestate:::orphan
+    irc_handler_bots_go_markbot:::orphan
+    irc_handler_channel_go_onchannelmodeis:::orphan
+    irc_handler_channel_go_onendofnames:::orphan
+    irc_handler_channel_go_onendofwho:::orphan
+    irc_handler_channel_go_onjoin:::orphan
+    irc_handler_channel_go_onkick:::orphan
+    irc_handler_channel_go_onmode:::orphan
+    irc_handler_channel_go_onpart:::orphan
+    irc_handler_channel_go_ontopic:::orphan
+    irc_handler_channel_go_ontopicreply:::orphan
+    irc_handler_channel_go_updatechanneljoined:::orphan
+    irc_handler_channel_go_updatechanneltopicstate:::orphan
+    irc_handler_helpers_go_ensurebuffer:::hot
+    irc_handler_helpers_go_eventcontext:::hot
+    irc_handler_helpers_go_publishbufferupdate:::hot
+    irc_handler_lifecycle_go_joinbatched:::orphan
+    irc_handler_lifecycle_go_logstatus:::orphan
+    irc_handler_lifecycle_go_onconnected:::orphan
+    irc_handler_lifecycle_go_ondisconnected:::orphan
+    irc_handler_messages_go_storeevent:::hot
+    irc_handler_messages_go_tracknetsplit:::orphan
+    irc_handler_metadata_go_applyavatarmetadata:::orphan
+    irc_handler_presence_go_fanoutpresence:::orphan
+    irc_handler_presence_go_onaccount:::orphan
+    irc_handler_presence_go_onaway:::orphan
+    irc_handler_presence_go_onchghost:::orphan
+    irc_handler_presence_go_oninvite:::orphan
+    irc_handler_presence_go_onnick:::orphan
+    irc_handler_presence_go_onquit:::orphan
+    irc_handler_presence_go_publishmemberlist:::hot
+    irc_handler_register_go_onallevent:::orphan
+    irc_handler_register_go_onstateupdate:::orphan
+    irc_handler_register_go_queuemodememberrefresh:::orphan
+    irc_handler_unhandled_go_formatunhandledeventcontent:::orphan
+    irc_manager_go_avatarurl:::orphan
+    irc_manager_go_channelmembers:::orphan
+    irc_manager_go_logoutbound:::orphan
+    irc_manager_go_startnetwork:::entry
+    irc_manager_go_stopnetwork:::orphan
+    irc_manager_go_buildclient:::orphan
+    irc_manager_go_markdisconnected:::orphan
+    irc_manager_go_setconnectingstate:::orphan
+    irc_netsplit_go_assignquitclusters:::orphan
+    irc_netsplit_go_matchrejoins:::orphan
+    irc_netsplit_tracker_go_metafornetsplit:::orphan
+    irc_state_go_string:::hot
+    irc_user_channels_go_channelsfor:::hot
+    irc_user_channels_go_foldnickset:::orphan
+
+    classDef hot fill:#b23a3a,stroke:#7a1f1f,color:#ffffff
+    classDef orphan fill:#6b6b6b,stroke:#3f3f3f,color:#ffffff
+    classDef entry fill:#2f6f4f,stroke:#1c4530,color:#ffffff

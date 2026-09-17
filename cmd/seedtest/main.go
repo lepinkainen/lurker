@@ -267,7 +267,7 @@ func resolveLocalBuffer(ctx context.Context, stores *ircdb.MultiStore, _ *ircdb.
 func insertLines(ctx context.Context, log *ircdb.LogStore, bufferID uuid.UUID, lines []seedLine, base time.Time) error {
 	for i, l := range lines {
 		ts := base.Add(l.Offset + time.Duration(i)*time.Millisecond)
-		_, _, _, err := ircdb.InsertLogMessage(ctx, log.DB, ircdb.LogMessageInput{
+		_, _, _, err := ircdb.InsertLogMessage(ctx, log, ircdb.LogMessageInput{
 			BufferID:  bufferID,
 			Timestamp: ts,
 			Sender:    l.Sender,
@@ -331,6 +331,22 @@ func fixture() []seedNetwork {
 						{Sender: "gopher2", Kind: "privmsg", Content: "and the generated code is easy to read too", Offset: 2*time.Hour + 90*time.Second},
 						{Sender: "gopher1", Kind: "privmsg", Content: "nice, will try it out", Offset: 2*time.Hour + 2*time.Minute},
 						{Sender: "gopher1", Kind: "privmsg", Content: "got a link to a good example repo?", Offset: 2*time.Hour + 2*time.Minute + 20*time.Second},
+					},
+				},
+				{
+					// Link-heavy bot channel (##hntop-style): every line carries a
+					// story URL plus an HN comments URL back to back, most rows
+					// wrapping — the repro shape for link hit-testing in clients.
+					Name:    "##hntop",
+					Topic:   "HN Top Stories Live | Bot posts any story the instant it hits the top 30.",
+					Members: []string{"egobot", "lurkertest"},
+					Lines: []seedLine{
+						{Sender: "egobot", Kind: "privmsg", Content: "One Go binary, one YAML file, one SQLite database: I wrote my monitoring tool [2 brvier] https://rvier.fr/posts/why-i-wrote-my-own-monitoring-tool-EN https://news.ycombinator.com/item?id=49441101", Offset: 5 * time.Hour},
+						{Sender: "egobot", Kind: "privmsg", Content: "Show HN: TeXbrain, a LaTeX editor that runs pdfTeX in the browser via WASM [3 swimmingbrain] https://github.com/swimmingbrain/texbrain https://news.ycombinator.com/item?id=49441375", Offset: 5*time.Hour + 9*time.Minute},
+						{Sender: "egobot", Kind: "privmsg", Content: "Queryable Executables [4 rguiscard] https://fzakaria.com/2026/08/24/actually-queryable-executables https://news.ycombinator.com/item?id=49442589", Offset: 5*time.Hour + 18*time.Minute},
+						{Sender: "egobot", Kind: "privmsg", Content: "Show HN: Lightweight system monitor for Linux VPS written in Go [46 ygagaga] https://github.com/leodeim/vpsmon https://news.ycombinator.com/item?id=49437361", Offset: 5*time.Hour + 27*time.Minute},
+						{Sender: "egobot", Kind: "privmsg", Content: "Stalking the Wily Hacker: 40 years later — Cliff Stoll [video] [9 zoenolan] https://www.youtube.com/watch?v=656058JxTM0 https://news.ycombinator.com/item?id=49395802", Offset: 5*time.Hour + 36*time.Minute},
+						{Sender: "egobot", Kind: "privmsg", Content: "Secret Cold War IBM Supercomputer Was Built for One Job [3 jnord] https://spectrum.ieee.org/cold-war-codebreaker-nsa-ibm https://news.ycombinator.com/item?id=49444232", Offset: 5*time.Hour + 45*time.Minute},
 					},
 				},
 				{

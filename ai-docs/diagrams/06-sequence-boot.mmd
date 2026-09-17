@@ -1,0 +1,53 @@
+sequenceDiagram
+    %% Process boot and shutdown (main.go). Config is the source of truth.
+    autonumber
+    participant OS as OS / signals
+    participant Main as main.go
+    participant Cfg as config.go
+    participant Stores as db.MultiStore
+    participant Hub as hub.Hub
+    participant Prev as preview.Service
+    participant Mgr as irc.Manager
+    participant DS as datasource.Manager
+    participant API as api.Server
+    participant HTTP as net/http
+
+    OS->>Main: exec (flags: --web-dir, --themes-dir)
+    Main->>Cfg: loadConfig()
+    Note over Cfg: Missing, misplaced or unparseable config.yaml<br/>exits before anything starts.
+    Cfg-->>Main: Config (DataDir, Addr, Networks, Previews, Media, Updates)
+    Main->>Stores: OpenMultiStore(DataDir)
+    Stores->>Stores: open control.db, previews.db, media.db<br/>+ OpenConfiguredNetworks -> one log DB per network
+    Note over Stores: Migrations run per database on open.
+    Stores-->>Main: *MultiStore
+    Main->>Stores: ListHighlights(ctx)
+    Main->>Mgr: irc.SetHighlightPatterns(patterns)
+    Main->>Hub: hub.New()
+    Main->>Prev: NewService(cfg.Previews, stores, hub) + Start(ctx)
+    Main->>Mgr: NewManager(ctx, stores, hub)
+    Main->>Mgr: SetPreviewEnqueuer(previewSvc)
+
+    alt LURKER_TEST_FIXTURE_RUNTIME set
+        Main->>Mgr: LoadFixtureRuntimeState(ctx)
+        Note over Main,Mgr: Fixture mode replaces the live runtime,<br/>so bootstrap networks are skipped entirely.
+    else normal boot
+        Main->>DS: NewManager + Register(bluesky sources) + Start(ctx)
+        Main->>Mgr: Start(ctx, cfg.Networks)
+        loop each configured network
+            Mgr->>Stores: UpsertNetwork (overwrites nick/host/servers/SASL/channels, resets disabled)
+            Mgr->>Mgr: StartNetwork -> go runNetwork(...)
+        end
+    end
+
+    Main->>Stores: MarkNonYAMLNetworksDisabled(yamlNames + datasource names)
+    Note over Stores: Networks absent from YAML are marked disabled,<br/>never deleted. sort_order and created_at survive.
+    Main->>Main: resolveWebFS(--web-dir), theme.Loader, updates.Checker.Start(ctx)
+    Main->>Main: newMediaService(cfg.Media, stores.Media)
+    Main->>API: build api.Server{Stores, Hub, Manager, Media, PreviewFetcher, ...}
+    Main->>HTTP: ListenAndServe(cfg.Addr, API.Handler())
+
+    OS->>Main: SIGINT / SIGTERM
+    Main->>HTTP: Shutdown(10s timeout ctx)
+    Main->>Mgr: Wait()
+    Main->>DS: Wait()
+    Main->>Stores: Close() (deferred)

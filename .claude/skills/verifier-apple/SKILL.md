@@ -40,7 +40,7 @@ Fixture data (`apple/Lurker/FixtureTransport.swift`): network `Libera`; `#lurker
 
 Accessibility quirks that cost time (from the existing tests):
 
-- `MessageRow` combines sender/time/content into ONE element: match `app.otherElements` with `NSPredicate(format: "label CONTAINS %@", "some content")`, not bare `staticTexts`.
+- The macOS timeline is a single NSTextView (one `AXTextArea`, `app.textViews.firstMatch`); each *loaded* message is additionally exposed as an `AXStaticText` row with label "sender, time, content" (match `label CONTAINS`). Row existence means loaded, not visible — assert visibility via frames. On iOS, `MessageRow` combines sender/time/content into ONE element (`app.otherElements`, `label CONTAINS`).
 - The header topic truncates (`lineLimit(1)`): match `value BEGINSWITH` a short prefix.
 - Composer is a text field whose `placeholderValue` == the buffer name (`"#lurker"`).
 - Channel switcher: `app.typeKey("k", modifierFlags: .command)`, field placeholder "Jump to a channel or conversation".

@@ -4,6 +4,7 @@ import {
   type ConnectionDeps,
   checkWebSocketHealth,
   createConnection,
+  STATE_SYNC_RETRY_MS,
   type StateSyncDeps,
   syncStateFromServer,
 } from "../src/connection";
@@ -172,6 +173,42 @@ describe("connection recovery", () => {
     expect(d.navigation.setActive).toHaveBeenCalledWith("20", { replaceHash: true });
   });
 
+  it("prunes networks and buffers missing from the snapshot (deleted while offline)", async () => {
+    const d = deps();
+    d.navigation.bufferFromHash.mockReturnValue(null);
+    state.networks.set("0", { id: "0", name: "Gone" } as never);
+    state.buffers.set("05", { id: "05", network_id: "0", name: "#gone", kind: "channel" } as never);
+    state.messages.set("05", [{ id: "1", buffer_id: "05", content: "x" } as never]);
+    state.members.set("05", []);
+    state.activeId = "05";
+
+    await syncStateFromServer({ renderer: d.renderer, navigation: d.navigation });
+
+    expect(state.networks.has("0")).toBe(false);
+    expect(state.buffers.has("05")).toBe(false);
+    expect(state.messages.has("05")).toBe(false);
+    expect(state.members.has("05")).toBe(false);
+    expect(state.buffers.has("10")).toBe(true);
+    // active buffer was pruned → startup fallback picked a replacement
+    expect(d.navigation.setActive).toHaveBeenCalledWith("10", { replaceHash: true });
+  });
+
+  it("keeps buffers created while the snapshot was in flight, prunes other missing ones", async () => {
+    const d = deps();
+    d.navigation.bufferFromHash.mockReturnValue(null);
+    // "50" arrived via buffer_created during the fetch → recorded, must survive.
+    state.buffers.set("50", { id: "50", network_id: "1", name: "alice", kind: "query" } as never);
+    state.createdDuringSync.add("50");
+    // "60" is newer too but was NOT created during this fetch → deleted offline.
+    state.buffers.set("60", { id: "60", network_id: "1", name: "#newest-deleted", kind: "channel" } as never);
+
+    await syncStateFromServer({ renderer: d.renderer, navigation: d.navigation });
+
+    expect(state.buffers.has("50")).toBe(true);
+    expect(state.buffers.has("60")).toBe(false);
+    expect(state.createdDuringSync.size).toBe(0);
+  });
+
   it("closes and immediately reconnects a stale websocket that still appears open", () => {
     const d = deps();
     const connection = createConnection(asConnectionDeps(d));
@@ -245,9 +282,9 @@ describe("connection recovery", () => {
     expect(state.needsStateSyncOnConnect).toBe(false);
   });
 
-  it("keeps reconnect sync pending when state refresh fails", async () => {
+  it("retries a failed state refresh while the socket stays open", async () => {
     const d = deps();
-    const error = new Error("state down");
+    const error = new Error("503 read positions changed");
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     d.transport.syncState.mockRejectedValueOnce(error);
     state.needsStateSyncOnConnect = true;
@@ -259,6 +296,13 @@ describe("connection recovery", () => {
       expect(consoleError).toHaveBeenCalledWith("reconnect state sync failed", error);
     });
     expect(state.needsStateSyncOnConnect).toBe(true);
+
+    // Second attempt uses the default (successful) implementation.
+    vi.advanceTimersByTime(STATE_SYNC_RETRY_MS);
+    await vi.waitFor(() => {
+      expect(state.needsStateSyncOnConnect).toBe(false);
+    });
+    expect(d.transport.syncState).toHaveBeenCalledTimes(2);
 
     consoleError.mockRestore();
   });

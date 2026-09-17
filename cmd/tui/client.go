@@ -53,6 +53,9 @@ func (c *apiClient) connectWS(ctx context.Context) (*websocket.Conn, error) {
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}
+	// Default limit is 32 KiB; a history page or a large channel's member_list
+	// exceeds that and would close the connection.
+	conn.SetReadLimit(8 << 20)
 	return conn, nil
 }
 

@@ -4,6 +4,8 @@ This document is for AI agents and other technical readers. It gives the system 
 
 ## Document index
 
+- [architecture.html](architecture.html) — visual architecture overview
+
 - [storage.md](storage.md) — control DB, per-network log DBs, preview cache DB, network + buffer models
 - [rest-api.md](rest-api.md) — HTTP endpoints under `/api/*` plus `/whoami` and health checks
 - [websocket-protocol.md](websocket-protocol.md) — `/api/stream` commands, acks, event shapes
@@ -13,6 +15,7 @@ This document is for AI agents and other technical readers. It gives the system 
 - [apple-pitfalls.md](apple-pitfalls.md) — Lurker-specific SwiftUI/macOS crash and layout pitfalls, with fixes
 - [theming.md](theming.md) — YAML themes, loader, `GET /api/themes`, how to add a theme
 - [tui.md](tui.md) — terminal UI client, configuration, keyboard controls, API usage
+- [desktop.md](desktop.md) — Tauri desktop shell (PoC): remote-URL design, external links, Rust-side uploads, Linux/WebKitGTK requirements
 - [keyboard-shortcuts.md](keyboard-shortcuts.md) — channel switcher and keyboard shortcut UX spec
 - [testing-and-build.md](testing-and-build.md) — testing strategy and Taskfile workflow
 - [operations.md](operations.md) — operational notes including image update checking

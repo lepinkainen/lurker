@@ -1,0 +1,635 @@
+import Foundation
+import Testing
+
+@testable import Lurker
+
+#if os(macOS)
+
+import AppKit
+
+private func makeMessage(
+  id: UUID = UUID(),
+  networkID: UUID = UUID(),
+  sender: String = "tove",
+  kind: String = "privmsg",
+  content: String,
+  displayKind: String = "message",
+  segments: [MircSegment]? = nil,
+  previews: [Lurker.Preview]? = nil,
+) -> Message {
+  Message(
+    id: id,
+    networkID: networkID,
+    bufferID: UUID(),
+    ts: "2026-07-23T08:12:00Z",
+    sender: sender,
+    kind: kind,
+    content: content,
+    displayKind: displayKind,
+    segments: segments,
+    previews: previews,
+  )
+}
+
+private func makeBuffer(markerID: UUID? = nil, collapsePresence: Bool = false) -> Buffer {
+  Buffer(
+    id: UUID(),
+    networkID: UUID(),
+    name: "#lurker",
+    kind: "channel",
+    joined: true,
+    markerID: markerID,
+    showEmbeds: true,
+    showPresenceEvents: true,
+    collapsePresenceEvents: collapsePresence,
+    pinned: false,
+    unread: 0,
+    mentions: 0,
+  )
+}
+
+struct TimelineDiffTests {
+  @Test
+  func `identical lists are no op`() {
+    let items: [TimelineItem] = [.message(makeMessage(content: "hello"))]
+    #expect(TimelineDiff.compute(old: items, new: items) == .none)
+  }
+
+  @Test
+  func `strict suffix is an append`() {
+    let first = TimelineItem.message(makeMessage(content: "one"))
+    let second = TimelineItem.message(makeMessage(content: "two"))
+    let diff = TimelineDiff.compute(old: [first], new: [first, second])
+    #expect(diff == .incremental(replacements: [], appendFrom: 1))
+  }
+
+  @Test
+  func `preview arrival replaces in place`() {
+    var message = makeMessage(content: "see https://example.com")
+    let before = TimelineItem.message(message)
+    message.previews = [
+      Lurker.Preview(url: "https://example.com", kind: "opengraph", title: "Example")
+    ]
+    let after = TimelineItem.message(message)
+    let diff = TimelineDiff.compute(old: [before], new: [after])
+    #expect(diff == .incremental(replacements: [0], appendFrom: nil))
+  }
+
+  @Test
+  func `presence run growth replaces the last block and appends`() {
+    let join1 = makeMessage(sender: "a", kind: "join", content: "", displayKind: "sys")
+    let join2 = makeMessage(sender: "b", kind: "join", content: "", displayKind: "sys")
+    let chat = makeMessage(content: "hi")
+    // Collapsed run keyed by its first member: growing it keeps the id but
+    // changes the content, so the block is replaced, and the new message
+    // appends after it.
+    let old: [TimelineItem] = [.presence(join1.id, [join1, join2])]
+    let join3 = makeMessage(sender: "c", kind: "join", content: "", displayKind: "sys")
+    let new: [TimelineItem] = [.presence(join1.id, [join1, join2, join3]), .message(chat)]
+    let diff = TimelineDiff.compute(old: old, new: new)
+    #expect(diff == .incremental(replacements: [0], appendFrom: 1))
+  }
+
+  @Test
+  func `history prepend forces rebuild`() {
+    let older = TimelineItem.message(makeMessage(content: "older"))
+    let newer = TimelineItem.message(makeMessage(content: "newer"))
+    #expect(TimelineDiff.compute(old: [newer], new: [older, newer]) == .rebuild)
+  }
+
+  @Test
+  func `marker move forces rebuild`() {
+    let message = makeMessage(content: "hello")
+    let old: [TimelineItem] = [.message(message)]
+    let new: [TimelineItem] = [.unread("unread-\(message.id.uuidString)"), .message(message)]
+    #expect(TimelineDiff.compute(old: old, new: new) == .rebuild)
+  }
+}
+
+struct NSMessageBodyTests {
+  // Mirror of WireModelTests.linkRunsCoverOnlyTheURLText for the AppKit
+  // builder: clickability is driven by which runs carry `.link`.
+  @Test @MainActor
+  func `link runs cover only the URL text`() {
+    let message = makeMessage(
+      content:
+      "inline links: https://example.com/lurker and https://news.ycombinator.com/item?id=1"
+    )
+    let rendered = nsMessageBody(message)
+    var linkRuns = [(text: String, url: String)]()
+    rendered.enumerateAttribute(
+      .link,
+      in: NSRange(location: 0, length: rendered.length),
+    ) { value, range, _ in
+      guard let url = value as? URL else { return }
+      linkRuns.append(((rendered.string as NSString).substring(with: range), url.absoluteString))
+    }
+    #expect(
+      linkRuns.map(\.text) == [
+        "https://example.com/lurker",
+        "https://news.ycombinator.com/item?id=1",
+      ]
+    )
+    #expect(
+      linkRuns.map(\.url) == [
+        "https://example.com/lurker",
+        "https://news.ycombinator.com/item?id=1",
+      ]
+    )
+  }
+
+  @Test @MainActor
+  func `links use the stripped segment text`() {
+    let message = makeMessage(
+      content: "\u{02}bold\u{02} https://example.com",
+      segments: [
+        MircSegment(text: "bold", bold: true),
+        MircSegment(text: " https://example.com"),
+      ],
+    )
+    let rendered = nsMessageBody(message)
+    #expect(rendered.string == "bold https://example.com")
+    var boldFont: NSFont?
+    rendered.enumerateAttribute(.font, in: NSRange(location: 0, length: 4)) { value, _, _ in
+      boldFont = value as? NSFont
+    }
+    #expect(boldFont?.fontDescriptor.symbolicTraits.contains(.bold) == true)
+  }
+
+  @Test @MainActor
+  func `plain messages have no link runs`() {
+    let rendered = nsMessageBody(makeMessage(content: "no links here"))
+    var found = false
+    rendered.enumerateAttribute(
+      .link,
+      in: NSRange(location: 0, length: rendered.length),
+    ) { value, _, _ in
+      if value != nil {
+        found = true
+      }
+    }
+    #expect(!found)
+  }
+}
+
+@MainActor
+private func makeContext(
+  buffer: Buffer? = nil,
+  expandedGroups: Set<UUID> = [],
+) -> TimelineRenderContext {
+  let defaults = UserDefaults(suiteName: "xyz.endymion.lurker.tests.\(UUID().uuidString)")!
+  let model = AppModel(transport: FixtureTransport(), defaults: defaults)
+  return TimelineRenderContext(
+    buffer: buffer ?? makeBuffer(),
+    model: model,
+    expandedGroups: expandedGroups,
+  )
+}
+
+struct TimelineBlockTests {
+  @Test @MainActor
+  func `message block carries gutter nick body and ID`() {
+    let message = makeMessage(content: "hello world")
+    let block = timelineBlockText(.message(message), context: makeContext())
+    #expect(block.string.hasSuffix("tove hello world\n"))
+    #expect(block.string.hasPrefix("\t"))
+    let id = block.attribute(.lurkerMessageID, at: 0, effectiveRange: nil) as? String
+    #expect(id == message.id.uuidString)
+  }
+
+  @Test @MainActor
+  func `unread separator is excluded from copy and carries rule`() {
+    let block = timelineBlockText(.unread("unread-x"), context: makeContext())
+    #expect(block.string == "New Messages\n")
+    #expect(block.attribute(.lurkerCopyExclude, at: 0, effectiveRange: nil) != nil)
+    #expect(block.attribute(.lurkerSeparatorRule, at: 0, effectiveRange: nil) is NSColor)
+  }
+
+  @Test @MainActor
+  func `previews render as excluded attachment paragraphs`() {
+    let message = makeMessage(
+      content: "see https://example.com",
+      previews: [
+        Lurker.Preview(url: "https://example.com", kind: "opengraph", title: "Example Site")
+      ],
+    )
+    let block = timelineBlockText(.message(message), context: makeContext())
+    var attachments = [PreviewTextAttachment]()
+    block.enumerateAttribute(
+      .attachment,
+      in: NSRange(location: 0, length: block.length),
+    ) { value, range, _ in
+      if let attachment = value as? PreviewTextAttachment {
+        attachments.append(attachment)
+        #expect(
+          block.attribute(.lurkerCopyExclude, at: range.location, effectiveRange: nil) != nil
+        )
+      }
+    }
+    #expect(attachments.map(\.preview.url) == ["https://example.com"])
+  }
+
+  @Test @MainActor
+  func `embeds hidden when buffer disables them`() {
+    var buffer = makeBuffer()
+    buffer.showEmbeds = false
+    let message = makeMessage(
+      content: "see https://example.com",
+      previews: [
+        Lurker.Preview(url: "https://example.com", kind: "opengraph", title: "Example Site")
+      ],
+    )
+    let block = timelineBlockText(.message(message), context: makeContext(buffer: buffer))
+    var found = false
+    block.enumerateAttribute(
+      .attachment,
+      in: NSRange(location: 0, length: block.length),
+    ) { value, _, _ in
+      if value is PreviewTextAttachment {
+        found = true
+      }
+    }
+    #expect(!found)
+  }
+
+  @Test @MainActor
+  func `mention rows carry the full width highlight tag`() {
+    var message = makeMessage(content: "hey shrike")
+    message.mentionsMe = true
+    let block = timelineBlockText(.message(message), context: makeContext())
+    #expect(block.attribute(.lurkerRowHighlight, at: 0, effectiveRange: nil) is NSColor)
+  }
+
+  @Test @MainActor
+  func `presence summary toggles arrow and carries internal link`() {
+    let join1 = makeMessage(sender: "a", kind: "join", content: "", displayKind: "sys")
+    let join2 = makeMessage(sender: "b", kind: "join", content: "", displayKind: "sys")
+    let item = TimelineItem.presence(join1.id, [join1, join2])
+
+    let collapsed = timelineBlockText(item, context: makeContext())
+    #expect(collapsed.string.hasPrefix("▸ "))
+    let link = collapsed.attribute(.link, at: 0, effectiveRange: nil) as? URL
+    #expect(link?.scheme == "lurker-presence")
+    #expect(link?.host()?.lowercased() == join1.id.uuidString.lowercased())
+
+    let expanded = timelineBlockText(
+      item,
+      context: makeContext(expandedGroups: [join1.id]),
+    )
+    #expect(expanded.string.hasPrefix("▾ "))
+  }
+
+  @Test @MainActor
+  func `expanded presence group emits member rows`() {
+    let join1 = makeMessage(sender: "a", kind: "join", content: "", displayKind: "sys")
+    let join2 = makeMessage(sender: "b", kind: "join", content: "", displayKind: "sys")
+    let buffer = makeBuffer(collapsePresence: true)
+
+    let collapsed = timelineItems([join1, join2], buffer: buffer)
+    #expect(collapsed.count == 2) // day separator + summary
+
+    let expanded = timelineItems([join1, join2], buffer: buffer, expandedGroups: [join1.id])
+    #expect(expanded.count == 4) // day + summary + two member rows
+    #expect(expanded[2] == .message(join1))
+    #expect(expanded[3] == .message(join2))
+  }
+}
+
+/// A live coordinator wired to real (headless) AppKit views, fed from a
+/// directly-mutated AppModel — the same objects updateNSView hands it.
+@MainActor
+private struct CoordinatorHarness {
+
+  // MARK: Lifecycle
+
+  init(buffer: Buffer, messages: [Message]) {
+    let defaults = UserDefaults(suiteName: "xyz.endymion.lurker.tests.\(UUID().uuidString)")!
+    model = AppModel(transport: nil, defaults: defaults, runsConnectionLoop: false)
+    self.buffer = buffer
+    model.buffers[buffer.id] = buffer
+    model.messages[buffer.id] = messages
+    model.selectedBufferID = buffer.id
+
+    textView = TimelineNSTextView(usingTextLayoutManager: true)
+    textView.isEditable = false
+    textView.textContainerInset = NSSize(width: 0, height: 5)
+    textView.textContainer?.widthTracksTextView = true
+    textView.textContainer?.lineFragmentPadding = 0
+    textView.isVerticallyResizable = true
+    textView.isHorizontallyResizable = false
+    textView.autoresizingMask = [.width]
+    textView.minSize = .zero
+    textView.maxSize = NSSize(
+      width: CGFloat.greatestFiniteMagnitude,
+      height: CGFloat.greatestFiniteMagnitude,
+    )
+    scrollView = TimelineScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+    scrollView.documentView = textView
+    coordinator.install(
+      textView: textView,
+      scrollView: scrollView,
+      axHost: TimelineAXHostView(),
+    )
+  }
+
+  // MARK: Internal
+
+  let coordinator = TimelineCoordinator()
+  let textView: TimelineNSTextView
+  let scrollView: NSScrollView
+  let model: AppModel
+  let buffer: Buffer
+
+  var renderedText: String {
+    textView.textStorage?.string ?? ""
+  }
+
+  var isPinnedToBottom: Bool {
+    scrollView.documentVisibleRect.maxY >= textView.frame.maxY - 40
+  }
+
+  /// Mirrors updateNSView: derive items from the model, hand them to sync.
+  func sync() {
+    coordinator.sync(
+      items: timelineItems(
+        model.selectedMessages,
+        buffer: buffer,
+        expandedGroups: coordinator.expandedPresenceGroups,
+      ),
+      buffer: buffer,
+      model: model,
+    )
+  }
+
+  /// Test-side mirror of the coordinator's forceFullLayout so assertions
+  /// about pinning see the document's true height even when the code under
+  /// test never triggered a layout pass.
+  func forceLayout() {
+    guard let layout = textView.textLayoutManager else { return }
+    layout.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { _ in true }
+    let height = layout.usageBoundsForTextContainer.maxY + textView.textContainerInset.height * 2
+    if abs(textView.frame.height - height) > 0.5 {
+      textView.setFrameSize(NSSize(width: textView.frame.width, height: height))
+    }
+  }
+
+}
+
+@MainActor
+private final class TimelineStorageEditRecorder: NSObject, @preconcurrency NSTextStorageDelegate {
+  var characterEdits = [NSRange]()
+
+  func textStorage(
+    _: NSTextStorage,
+    willProcessEditing editedMask: NSTextStorageEditActions,
+    range editedRange: NSRange,
+    changeInLength _: Int,
+  ) {
+    if editedMask.contains(.editedCharacters) {
+      characterEdits.append(editedRange)
+    }
+  }
+}
+
+struct TimelineCoordinatorTests {
+  @Test @MainActor
+  func `append preserves selection and existing preview attachments`() throws {
+    let buffer = makeBuffer()
+    let message = makeMessage(
+      content: "select this message 👋 https://example.com",
+      previews: [Lurker.Preview(url: "https://example.com", kind: "opengraph", title: "Example")],
+    )
+    let harness = CoordinatorHarness(buffer: buffer, messages: [message])
+    harness.sync()
+    let storage = try #require(harness.textView.textStorage)
+    let selection = (storage.string as NSString).range(of: "this message 👋")
+    harness.textView.setSelectedRange(selection)
+    var previewRange = NSRange()
+    var preview: PreviewTextAttachment?
+    storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) {
+      value, range, _ in
+      if let attachment = value as? PreviewTextAttachment {
+        preview = attachment
+        previewRange = range
+      }
+    }
+    let originalPreview = try #require(preview)
+    let originalText = try #require(storage.copy() as? NSAttributedString)
+    let oldLength = storage.length
+    let edits = TimelineStorageEditRecorder()
+    storage.delegate = edits
+
+    harness.model.messages[buffer.id] = [message, makeMessage(content: "next message")]
+    harness.sync()
+
+    #expect(harness.textView.selectedRange() == selection)
+    #expect(edits.characterEdits == [NSRange(location: oldLength, length: storage.length - oldLength)])
+    #expect(storage.attributedSubstring(from: NSRange(location: 0, length: oldLength)) == originalText)
+    #expect(storage.attribute(.attachment, at: previewRange.location, effectiveRange: nil)
+      as? PreviewTextAttachment === originalPreview)
+    #expect((storage.string as NSString).substring(with: NSRange(location: oldLength, length: 1)) == "\n")
+    #expect(storage.attribute(.lurkerCopyExclude, at: oldLength, effectiveRange: nil) as? Bool == true)
+    #expect(storage.attribute(.lurkerMessageID, at: oldLength, effectiveRange: nil) as? String
+      == message.id.uuidString)
+    #expect(harness.renderedText.hasSuffix("next message"))
+  }
+
+  @Test @MainActor
+  func `tail replacement and append keep the updated content and offsets`() {
+    let buffer = makeBuffer()
+    var tail = makeMessage(content: "original tail")
+    let harness = CoordinatorHarness(buffer: buffer, messages: [tail])
+    harness.sync()
+    let edits = TimelineStorageEditRecorder()
+    harness.textView.textStorage?.delegate = edits
+    tail.content = "updated tail 👋"
+    let next = makeMessage(content: "new message")
+    harness.model.messages[buffer.id] = [tail, next]
+    harness.sync()
+
+    #expect(edits.characterEdits.count == 2) // One tail replacement, then one suffix insertion.
+    #expect(!harness.renderedText.contains("original tail"))
+    #expect(harness.renderedText.contains("updated tail 👋\n"))
+    #expect(harness.renderedText.hasSuffix("new message"))
+    for message in [tail, next] {
+      let range = (harness.renderedText as NSString).range(of: message.content)
+      #expect(harness.coordinator.message(atCharacterIndex: range.location) == message)
+    }
+  }
+
+  @Test(arguments: [false, true]) @MainActor
+  func `context menu handles the document end and empty timelines`(hasMessage: Bool) throws {
+    let message = makeMessage(content: "newest message")
+    let harness = CoordinatorHarness(buffer: makeBuffer(), messages: hasMessage ? [message] : [])
+    let window = NSWindow(
+      contentRect: harness.scrollView.frame,
+      styleMask: [.borderless],
+      backing: .buffered,
+      defer: false,
+    )
+    window.isReleasedWhenClosed = false
+    defer { window.close() }
+    window.contentView = harness.scrollView
+    harness.sync()
+    let point = NSPoint(x: harness.textView.bounds.maxX - 1, y: harness.textView.bounds.maxY - 1)
+    #expect(harness.textView.characterIndexForInsertion(at: point) == (harness.renderedText as NSString).length)
+    let event = try #require(NSEvent.mouseEvent(
+      with: .rightMouseDown,
+      location: harness.textView.convert(point, to: nil),
+      modifierFlags: [],
+      timestamp: 0,
+      windowNumber: window.windowNumber,
+      context: nil,
+      eventNumber: 0,
+      clickCount: 1,
+      pressure: 1,
+    ))
+    let menu = harness.textView.menu(for: event)
+    let copy = menu?.items.first { $0.title == "Copy Message" }
+    #expect((copy != nil) == hasMessage)
+    #expect(copy?.representedObject as? Message == (hasMessage ? message : nil))
+    #expect((menu?.items.contains { $0.title == "Mute tove" } ?? false) == hasMessage)
+  }
+
+  @Test @MainActor
+  func `document ends at the last message through incremental edits`() {
+    let buffer = makeBuffer()
+    var messages = [makeMessage(content: "first 👋")]
+    let harness = CoordinatorHarness(buffer: buffer, messages: [])
+    harness.sync()
+    #expect(harness.renderedText.isEmpty)
+
+    harness.model.messages[buffer.id] = messages
+    harness.sync()
+    #expect(harness.renderedText.hasSuffix("first 👋"))
+
+    messages.append(contentsOf: [makeMessage(content: "second"), makeMessage(content: "third")])
+    harness.model.messages[buffer.id] = messages
+    harness.sync()
+    #expect(harness.renderedText.hasSuffix("third"))
+    #expect(harness.renderedText.contains("first 👋\n"))
+    #expect(harness.renderedText.contains("second\n"))
+
+    messages[0].content = "updated first"
+    messages[2].content = "updated last"
+    harness.model.messages[buffer.id] = messages
+    harness.sync()
+    #expect(harness.renderedText.hasSuffix("updated last"))
+    #expect(harness.renderedText.contains("updated first\n"))
+    for message in messages {
+      let range = (harness.renderedText as NSString).range(of: message.content)
+      #expect(harness.coordinator.message(atCharacterIndex: range.location)?.id == message.id)
+    }
+
+    messages.insert(makeMessage(content: "older"), at: 0)
+    harness.model.messages[buffer.id] = messages
+    harness.sync()
+    #expect(harness.renderedText.hasSuffix("updated last"))
+    #expect(harness.renderedText.contains("older\n"))
+  }
+
+  @Test @MainActor
+  func `bottom spacing contains only paragraph spacing and text inset`() throws {
+    let harness = CoordinatorHarness(
+      buffer: makeBuffer(),
+      messages: [makeMessage(content: "first"), makeMessage(content: "last")],
+    )
+    harness.sync()
+    let layout = try #require(harness.textView.textLayoutManager)
+    var lastLineBottom: CGFloat = 0
+    layout.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
+      for line in fragment.textLineFragments where line.characterRange.length > 0 {
+        lastLineBottom = fragment.layoutFragmentFrame.minY + line.typographicBounds.maxY
+      }
+      return true
+    }
+    let gap = harness.textView.frame.height
+      - harness.textView.textContainerInset.height - lastLineBottom
+    #expect(gap >= 0)
+    let storage = try #require(harness.textView.textStorage)
+    let style = try #require(storage.attribute(
+      .paragraphStyle,
+      at: storage.length - 1,
+      effectiveRange: nil,
+    ) as? NSParagraphStyle)
+    let expectedGap = style.paragraphSpacing + harness.textView.textContainerInset.height
+    #expect(gap <= expectedGap + 0.5) // Allow subpixel layout rounding.
+  }
+
+  @Test @MainActor
+  func `bot flag arriving after render refreshes rows`() {
+    let buffer = makeBuffer()
+    let message = makeMessage(networkID: buffer.networkID, content: "beep boop")
+    let harness = CoordinatorHarness(buffer: buffer, messages: [message])
+    harness.sync()
+    #expect(!harness.renderedText.contains("🤖"))
+
+    // Bot mode lands via a member-list snapshot after the row rendered; the
+    // message list itself is unchanged, so the diff sees nothing to do.
+    harness.model.apply(
+      .members(
+        MemberListEvent(
+          networkID: buffer.networkID,
+          bufferID: buffer.id,
+          members: [Member(nick: "tove", away: false, self: false, bot: true)],
+        )
+      )
+    )
+    harness.sync()
+    #expect(harness.renderedText.contains("🤖"))
+  }
+
+  @Test @MainActor
+  func `replacement growth keeps viewport pinned to bottom`() {
+    let buffer = makeBuffer()
+    var messages = (0..<40).map {
+      makeMessage(networkID: buffer.networkID, content: "line \($0)")
+    }
+    let harness = CoordinatorHarness(buffer: buffer, messages: messages)
+    harness.sync()
+    harness.forceLayout()
+    #expect(harness.isPinnedToBottom)
+
+    // Same id, taller content: a replacement-only diff, like a late preview.
+    messages[39].content = String(repeating: "a much longer wrapped line ", count: 40)
+    harness.model.messages[buffer.id] = messages
+    harness.sync()
+    harness.forceLayout()
+    #expect(harness.isPinnedToBottom)
+  }
+
+  @Test @MainActor
+  func `expanding terminal presence group redraws its arrow`() throws {
+    let buffer = makeBuffer(collapsePresence: true)
+    let join1 = makeMessage(
+      networkID: buffer.networkID,
+      sender: "a",
+      kind: "join",
+      content: "",
+      displayKind: "sys",
+    )
+    let join2 = makeMessage(
+      networkID: buffer.networkID,
+      sender: "b",
+      kind: "join",
+      content: "",
+      displayKind: "sys",
+    )
+    let harness = CoordinatorHarness(buffer: buffer, messages: [join1, join2])
+    harness.sync()
+    #expect(harness.renderedText.contains("▸"))
+
+    let toggle = try #require(URL(string: "lurker-presence://\(join1.id.uuidString)"))
+    _ = harness.coordinator.textView(harness.textView, clickedOnLink: toggle, at: 0)
+    #expect(harness.renderedText.contains("▾"))
+    #expect(!harness.renderedText.contains("▸"))
+    #expect(!harness.renderedText.hasSuffix("\n"))
+
+    _ = harness.coordinator.textView(harness.textView, clickedOnLink: toggle, at: 0)
+    #expect(harness.renderedText.contains("▸"))
+    #expect(!harness.renderedText.contains("▾"))
+    #expect(!harness.renderedText.hasSuffix("\n"))
+  }
+}
+
+#endif

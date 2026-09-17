@@ -1,0 +1,55 @@
+flowchart LR
+    %% System context: the lurker process and every external dependency it talks to.
+    %% Protocol on each edge. No internal package detail - see 02-modules.mmd.
+
+    subgraph clients["Clients"]
+        apple["macOS/iOS app<br/>apple/Lurker (SwiftUI)"]
+        browser["Browser<br/>web/dist (Vite + TS)"]
+        tui["Terminal client<br/>cmd/tui (bubbletea)"]
+    end
+
+    subgraph process["lurker process (main.go)"]
+        lurker["lurker<br/>HTTP + WebSocket + IRC runtime"]
+    end
+
+    subgraph storage["Local storage (data/)"]
+        controldb[("control.db<br/>networks, buffer registry, settings")]
+        logdb[("<network>.db (one per network)<br/>messages, buffers, FTS5")]
+        previewdb[("previews.db<br/>URL preview cache")]
+        mediadb[("media.db<br/>upload metadata")]
+        diskblobs[("uploads/ on disk<br/>media blobs")]
+    end
+
+    subgraph external["External services"]
+        ircd{{"IRC servers<br/>girc client"}}
+        bsky{{"Bluesky PDS<br/>bsky.social XRPC"}}
+        web{{"Arbitrary web pages<br/>OpenGraph scrape, SSRF-guarded"}}
+        youtube{{"youtube.com/oembed"}}
+        fedi{{"ActivityPub instances<br/>preview enrichment"}}
+        github{{"api.github.com<br/>release workflow runs"}}
+        s3{{"S3-compatible object store<br/>minio-go"}}
+        tailnet{{"Tailscale tailnet<br/>100.64.0.0/10 + fd7a::/48"}}
+    end
+
+    browser -->|"HTTP /api/*, WebSocket /api/stream"| lurker
+    apple -->|"HTTP /api/*, WebSocket /api/stream"| lurker
+    tui -->|"HTTP /api/*, WebSocket /api/stream"| lurker
+    lurker -->|"static files GET /"| browser
+
+    lurker -->|"SQL (modernc.org/sqlite)"| controldb
+    lurker -->|"SQL"| logdb
+    lurker -->|"SQL"| previewdb
+    lurker -->|"SQL"| mediadb
+    lurker -->|"file write/read"| diskblobs
+
+    lurker <-->|"IRC over TLS, IRCv3 caps + SASL"| ircd
+    lurker <-->|"HTTPS XRPC (getTimeline, getPosts)"| bsky
+    lurker -->|"HTTP GET + HEAD, OpenGraph"| web
+    lurker -->|"HTTPS oEmbed JSON"| youtube
+    lurker -->|"HTTPS ActivityPub JSON"| fedi
+    lurker -->|"HTTPS REST poll"| github
+    lurker -->|"HTTPS S3 PUT/HEAD/DELETE"| s3
+    tailnet -.->|"source IP classification only"| lurker
+
+    classDef entry fill:#2f6f4f,stroke:#1c4530,color:#ffffff
+    lurker:::entry

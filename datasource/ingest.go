@@ -25,7 +25,7 @@ func IngestPost(ctx context.Context, deps Deps, networkID, bufferID uuid.UUID, p
 		return uuid.Nil, false, fmt.Errorf("log store: %w", err)
 	}
 
-	id, storedTS, inserted, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	id, storedTS, inserted, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
 		BufferID:  bufferID,
 		MsgID:     post.MsgID,
 		Timestamp: post.Timestamp,

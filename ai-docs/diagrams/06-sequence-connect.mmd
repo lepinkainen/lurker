@@ -1,0 +1,51 @@
+sequenceDiagram
+    %% IRC network connect: dial, TLS fallback, registration, SASL, joins.
+    autonumber
+    participant Mgr as irc.Manager
+    participant Run as runNetwork goroutine
+    participant Ctl as control.db
+    participant Girc as girc.Client
+    participant Srv as IRC server
+    participant H as irc.handler
+    participant Hub as hub.Hub
+    participant Log as network log DB
+
+    Mgr->>Run: StartNetwork -> go runNetwork(ctx, networkID, nc, gen)
+    loop reconnect loop, backoff 1s doubling to 5m, server index rotates
+        Run->>Ctl: ListNetworkConnectCommands(networkID)
+        Ctl-->>Run: []command (refreshed every attempt)
+        Run->>Girc: buildClient(nc, server) + registerHandlers
+        Run->>Mgr: setConnectingState -> state=connecting
+        Mgr->>Hub: Publish NetworkStateEvent{state: connecting}
+        Note over Hub: Every connected client sees the state change.
+        Run->>Srv: TCP + TLS dial
+        alt dial fails and TLS downgrade is possible
+            Run->>Srv: retry once with TLSMaxVersion = TLS 1.2
+            Note over Run,Srv: connectWithTLS12Fallback - one retry only,<br/>compatibility cipher suites added.
+        end
+        opt handshake succeeded
+            Girc->>Srv: CAP LS, NICK, USER (+ PASS when server_pass set)
+            opt SASL configured
+                Girc->>Srv: AUTHENTICATE PLAIN
+                Srv-->>Girc: 903 SASL success
+            end
+            Srv-->>H: RPL_WELCOME (001)
+            H->>Mgr: state=connected
+            Mgr->>Hub: Publish NetworkStateEvent{state: connected}
+            H->>Srv: connect commands, then JOIN each configured channel
+            Srv-->>H: JOIN / NAMES / TOPIC / MODE
+            H->>Ctl: ensureBuffer(channel) -> global buffer id
+            H->>Log: persist join/topic events
+            H->>Hub: Publish BufferCreatedEvent, MemberListEvent, BufferUpdateEvent
+            opt server advertises CHATHISTORY
+                H->>Srv: CHATHISTORY LATEST for each buffer
+                Srv-->>H: BATCH of older messages
+                H->>Log: insert backfilled rows (msgid dedupe per buffer)
+                H->>Hub: Publish HistoryBackfillEvent{count}
+            end
+        end
+        Srv--)Run: connection ends (quit, error, or ctx cancel)
+        Run->>Mgr: markDisconnected(networkID, gen)
+        Note over Mgr: Generation check: a newer runtime that already<br/>owns this network is never clobbered.
+        Mgr->>Hub: Publish NetworkStateEvent{state: disconnected}
+    end

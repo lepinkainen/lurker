@@ -19,7 +19,7 @@ func TestMultiStoreSearchAndMarkRead(t *testing.T) {
 	n, _ := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
 	globalID, _, _, _ := ms.EnsureBuffer(ctx, n.ID, "#go", BufferChannel)
 	logStore, _ := ms.LogStore(n.ID)
-	id, _, _, _ := InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: globalID, Sender: "alice", Kind: "privmsg", Content: "searchable needle"})
+	id, _, _, _ := InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: globalID, Sender: "alice", Kind: "privmsg", Content: "searchable needle"})
 
 	results, err := ms.Search(ctx, "needle", uuid.Nil, uuid.Nil, 10)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestMarkBufferLastSeenRejectsUnknownMessage(t *testing.T) {
 	n, _ := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
 	globalID, _, _, _ := ms.EnsureBuffer(ctx, n.ID, "#go", BufferChannel)
 	logStore, _ := ms.LogStore(n.ID)
-	real, _, _, _ := InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: globalID, Sender: "alice", Kind: "privmsg", Content: "hi"})
+	real, _, _, _ := InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: globalID, Sender: "alice", Kind: "privmsg", Content: "hi"})
 
 	// Fabricated id: must be rejected, last_seen untouched.
 	if _, err := ms.MarkBufferLastSeen(ctx, globalID, uuid.Must(uuid.NewV7())); !errors.Is(err, ErrMessageNotFound) {
@@ -72,7 +72,7 @@ func TestMarkBufferLastSeenRejectsUnknownMessage(t *testing.T) {
 
 	// A message in a *different* buffer of the same network must also be rejected.
 	otherID, _, _, _ := ms.EnsureBuffer(ctx, n.ID, "#other", BufferChannel)
-	foreign, _, _, _ := InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: otherID, Sender: "bob", Kind: "privmsg", Content: "elsewhere"})
+	foreign, _, _, _ := InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: otherID, Sender: "bob", Kind: "privmsg", Content: "elsewhere"})
 	if _, err := ms.MarkBufferLastSeen(ctx, globalID, foreign); !errors.Is(err, ErrMessageNotFound) {
 		t.Fatalf("cross-buffer err = %v, want ErrMessageNotFound", err)
 	}
@@ -94,8 +94,8 @@ func TestMarkBufferLastSeenIsMonotonic(t *testing.T) {
 	n, _ := ms.UpsertNetwork(ctx, Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
 	globalID, _, _, _ := ms.EnsureBuffer(ctx, n.ID, "#go", BufferChannel)
 	logStore, _ := ms.LogStore(n.ID)
-	older, _, _, _ := InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: globalID, Sender: "alice", Kind: "privmsg", Content: "one"})
-	newer, _, _, _ := InsertLogMessage(ctx, logStore.DB, LogMessageInput{BufferID: globalID, Sender: "alice", Kind: "privmsg", Content: "two"})
+	older, _, _, _ := InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: globalID, Sender: "alice", Kind: "privmsg", Content: "one"})
+	newer, _, _, _ := InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: globalID, Sender: "alice", Kind: "privmsg", Content: "two"})
 
 	if _, err := ms.MarkBufferLastSeen(ctx, globalID, newer); err != nil {
 		t.Fatal(err)

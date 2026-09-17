@@ -1,11 +1,10 @@
 import SwiftUI
 
+// MARK: - ChannelSwitcher
+
 struct ChannelSwitcher: View {
-  @Environment(AppModel.self) private var model
-  @Environment(\.dismiss) private var dismiss
-  @State private var query = ""
-  @State private var selection: UUID?
-  @FocusState private var focused: Bool
+
+  // MARK: Internal
 
   var body: some View {
     VStack(spacing: 0) {
@@ -35,7 +34,8 @@ struct ChannelSwitcher: View {
             Text(result.buffer.kind == "status" ? "Status" : result.buffer.name)
               .foregroundStyle(
                 result.buffer.kind == "channel" && !result.buffer.joined
-                  ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)
+                  ? AnyShapeStyle(.secondary)
+                  : AnyShapeStyle(.primary)
               )
             Text(result.network.name)
               .font(.footnote)
@@ -55,13 +55,13 @@ struct ChannelSwitcher: View {
         .tag(result.buffer.id)
         .contentShape(.rect)
         #if os(macOS)
-          .onTapGesture(count: 2) {
-            open(result.buffer.id)
-          }
+        .onTapGesture(count: 2) {
+          open(result.buffer.id)
+        }
         #else
-          .onTapGesture {
-            open(result.buffer.id)
-          }
+        .onTapGesture {
+          open(result.buffer.id)
+        }
         #endif
       }
       .listStyle(.inset)
@@ -72,7 +72,7 @@ struct ChannelSwitcher: View {
       }
     }
     #if os(macOS)
-      .frame(width: 520, height: 430)
+    .frame(width: 520, height: 430)
     #endif
     .onAppear {
       selection = results.first?.buffer.id
@@ -83,6 +83,14 @@ struct ChannelSwitcher: View {
     }
   }
 
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+  @Environment(\.dismiss) private var dismiss
+  @State private var query = ""
+  @State private var selection: UUID?
+  @FocusState private var focused: Bool
+
   private var results: [SwitcherResult] {
     let values = model.buffers.values.compactMap { buffer -> SwitcherResult? in
       guard let network = model.networks[buffer.networkID], !network.disabled else { return nil }
@@ -90,12 +98,12 @@ struct ChannelSwitcher: View {
     }
     let filtered =
       query.isEmpty
-      ? values
-      : values.filter {
-        $0.buffer.name.localizedCaseInsensitiveContains(query)
-          || $0.network.name.localizedCaseInsensitiveContains(query)
-          || "\($0.buffer.name) \($0.network.name)".localizedCaseInsensitiveContains(query)
-      }
+        ? values
+        : values.filter {
+          $0.buffer.name.localizedCaseInsensitiveContains(query)
+            || $0.network.name.localizedCaseInsensitiveContains(query)
+            || "\($0.buffer.name) \($0.network.name)".localizedCaseInsensitiveContains(query)
+        }
     return filtered.sorted {
       if ($0.buffer.mentions > 0) != ($1.buffer.mentions > 0) {
         return $0.buffer.mentions > 0
@@ -120,6 +128,7 @@ struct ChannelSwitcher: View {
     model.selectBuffer(id)
     dismiss()
   }
+
 }
 
 private func switcherIcon(for kind: String) -> String? {
@@ -130,16 +139,21 @@ private func switcherIcon(for kind: String) -> String? {
   }
 }
 
+// MARK: - SwitcherResult
+
 private struct SwitcherResult: Identifiable {
-  var id: UUID { buffer.id }
   let buffer: Buffer
   let network: Network
+
+  var id: UUID {
+    buffer.id
+  }
 }
 
 #if DEBUG
-  #Preview {
-    ChannelSwitcher()
-      .environment(AppModel.preview())
-      .tint(.mint)
-  }
+#Preview {
+  ChannelSwitcher()
+    .environment(AppModel.preview())
+    .tint(.mint)
+}
 #endif

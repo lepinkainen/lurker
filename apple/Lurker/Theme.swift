@@ -14,29 +14,9 @@ import SwiftUI
 /// here as a named metric. New UI should reach for these tokens rather than
 /// hardcoding a font or padding value that already has a name here.
 enum Theme {
-  // MARK: Row layout
-
-  /// Horizontal inset for a full-width header/separator row: the sidebar's
-  /// bottom status bar and section headers, and the conversation's header,
-  /// day separator, unread separator, and presence summary. Previously drifted
-  /// between 12 (sidebar) and 14 (conversation); standardized on 12, which
-  /// narrows the conversation header/separators by 2pt.
-  static let rowHorizontalInset: CGFloat = 12
-
-  /// Leading indent for a sidebar row nested under a network header: joined
-  /// channels, queries, and the "Archives" fold row.
-  static let sidebarChildIndent: CGFloat = 14
-
-  // MARK: Badge geometry
-
-  /// Horizontal padding shared by the unread/mention count pill (`CountBadge`)
-  /// and the "ARCHIVED" chip in the conversation header.
-  static let badgeHorizontalPadding: CGFloat = 5
-
-  // MARK: Type scale
-  //
-  // The whole app's typography lives here so hierarchy stays consistent and
-  // a future restyle lands in one place.
+  ///
+  /// The whole app's typography lives here so hierarchy stays consistent and
+  /// a future restyle lands in one place.
   enum Fonts {
     /// Monospaced identifier text: the nick beside a message, the composer's
     /// own-nick label, member-list nicks, channel-list entries, and the
@@ -63,4 +43,19 @@ enum Theme {
     /// collapse chevron and overflow-menu ellipsis.
     static let smallIcon = Font.caption.weight(.semibold)
   }
+
+  /// Horizontal inset for a full-width header/separator row: the sidebar's
+  /// bottom status bar and section headers, and the conversation's header,
+  /// day separator, unread separator, and presence summary. Previously drifted
+  /// between 12 (sidebar) and 14 (conversation); standardized on 12, which
+  /// narrows the conversation header/separators by 2pt.
+  static let rowHorizontalInset: CGFloat = 12
+
+  /// Leading indent for a sidebar row nested under a network header: joined
+  /// channels, queries, and the "Archives" fold row.
+  static let sidebarChildIndent: CGFloat = 14
+
+  /// Horizontal padding shared by the unread/mention count pill (`CountBadge`)
+  /// and the "ARCHIVED" chip in the conversation header.
+  static let badgeHorizontalPadding: CGFloat = 5
 }

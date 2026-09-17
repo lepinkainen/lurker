@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Fetch Dependabot metadata
         id: meta
-        uses: dependabot/fetch-metadata@v2
+        uses: dependabot/fetch-metadata@v3
 
       # Minor and patch bumps: enable auto-merge (still gated on CI passing).
       # Major bumps get no action here, so a human must review and merge them.

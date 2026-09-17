@@ -1,0 +1,63 @@
+flowchart LR
+    %% Data flow: follows the payload, not the code. Ingress -> transform -> store -> fanout -> egress.
+    %% Stores/queues are [( )]; external boundaries are {{ }}.
+
+    ircd{{"IRC server"}}
+    bskypds{{"Bluesky PDS"}}
+    clientin{{"Client (web / apple / tui)"}}
+    webpage{{"Remote web page"}}
+    blobstore{{"S3 / local disk"}}
+
+    girc["girc event loop<br/>irc/handler.go"]
+    semantics["semantics + highlights + mirc strip<br/>irc/semantics.go, irc/highlights.go"]
+    ignore["ignore/mute filter<br/>irc/handler_messages.go"]
+    ensurebuf["buffer resolve/create<br/>irc/handler_helpers.go"]
+    insert["InsertLogMessage<br/>db/logstore.go"]
+    hubnode["hub.Publish fan-out<br/>hub/hub.go"]
+    wsout["WebSocket writer<br/>api/ws.go"]
+    ingest["datasource.IngestPost<br/>datasource/ingest.go"]
+    previewq[("preview job queue<br/>buffered chan, workers")]
+    fetch["Fetcher.Fetch<br/>OpenGraph / oEmbed / HEAD classify"]
+    outbound["outbound command<br/>api/ws.go cmd* handlers"]
+    localecho["local echo persist<br/>Manager.LogOutbound"]
+    upload["upload decode + variants<br/>media/upload.go"]
+
+    controldb[("control.db<br/>networks, buffer_registry, buffer_settings, ignores, highlights")]
+    logdb[("<network>.db<br/>messages + messages_fts, message_previews, buffers")]
+    previewdb[("previews.db<br/>url_previews cache")]
+    mediadb[("media.db<br/>media rows + variants JSON")]
+
+    ircd -->|"IRC line"| girc
+    girc -->|"girc.Event"| ignore
+    ignore -->|"kept event"| ensurebuf
+    ensurebuf -->|"buffer_id"| insert
+    ensurebuf -->|"buffer row upsert"| controldb
+    insert -->|"row + FTS index"| logdb
+    insert -->|"MessageEvent"| semantics
+    semantics -->|"MessageEvent + semantics/netsplit/muted"| hubnode
+
+    bskypds -->|"feed post JSON"| ingest
+    ingest -->|"datasource.Post"| insert
+
+    insert -->|"message_id + content"| previewq
+    previewq -->|"job"| fetch
+    fetch -->|"HTTP GET/HEAD"| webpage
+    fetch -->|"URLPreview row"| previewdb
+    fetch -->|"(message_id, url, position)"| logdb
+    fetch -->|"preview Event"| hubnode
+
+    hubnode -->|"any event"| wsout
+    wsout -->|"JSON frame"| clientin
+
+    clientin -->|"clientCmd JSON"| outbound
+    outbound -->|"IRC command"| ircd
+    outbound -->|"echoed message"| localecho
+    localecho --> insert
+
+    clientin -->|"multipart image"| upload
+    upload -->|"blob bytes"| blobstore
+    upload -->|"metadata"| mediadb
+    upload -->|"public URL"| clientin
+
+    clientin -->|"GET /api/state, /api/buffers/id/history, /api/search"| logdb
+    clientin -->|"GET /api/state"| controldb
