@@ -1,7 +1,15 @@
-# Node pin: always the latest Node LTS, kept in sync with node-version in
-# .github/workflows/ci.yml. Dependabot proposes the newest tag, which is the
-# Current release, not LTS - hold those bumps until the line enters LTS.
-FROM node:24-alpine AS web-builder
+# Floating LTS tag, deliberately unpinned: it always resolves to the Active LTS
+# line, which is the policy for every Node version in this repo. CI uses
+# node-version: 'lts/*' for the same reason. Dependabot has no concept of LTS and
+# would offer whatever Current release is newest (that is how node 26 briefly
+# landed here), so there is no version string left for it to bump.
+#
+# The cost is that a new LTS major arrives silently, with no PR and no diff. If
+# the frontend build breaks with nothing in the repo having changed, check
+# whether Node's Active LTS just rolled -- the next roll is 2026-10-28 (v26).
+# Node only runs in this build stage and in CI; the shipped image is the Go
+# binary plus web/dist, so a bad major fails the build rather than production.
+FROM node:lts-alpine AS web-builder
 
 WORKDIR /web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
