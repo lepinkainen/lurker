@@ -304,13 +304,23 @@ fn js_string(raw: &str) -> String {
     out
 }
 
+/// Lowercase hex of a SHA-256 digest, matching `hex.EncodeToString` on the
+/// backend (`media/browse.go`), which rejects uppercase. Written out by hand
+/// because sha2 0.11 returns hybrid-array's `Array`, which has no `LowerHex`.
+fn sha256_hex(bytes: &[u8]) -> String {
+    <sha2::Sha256 as sha2::Digest>::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 /// Ask the backend whether it already stores this content, mirroring
 /// `checkExisting`. Any failure means "upload normally", never an error.
 async fn existing_url(client: &reqwest::Client, backend: &Url, bytes: &[u8]) -> Option<String> {
     if bytes.len() < PRECHECK_MIN_BYTES {
         return None;
     }
-    let hash = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(bytes));
+    let hash = sha256_hex(bytes);
     let url = endpoint(backend, &format!("api/media/exists?hash={hash}"))?;
     let res = client.get(url).send().await.ok()?;
     if !res.status().is_success() {
@@ -767,9 +777,20 @@ fn main() {
 mod tests {
     use super::{
         drop_gate, endpoint, file_path_from_uri, is_openable_scheme, js_string, parse_backend_url,
-        paste_sentinel, pasted_filename, pick_image_mime, sentinel_target, DropGate,
+        paste_sentinel, pasted_filename, pick_image_mime, sentinel_target, sha256_hex, DropGate,
     };
     use tauri::Url;
+
+    #[test]
+    fn sha256_hex_matches_the_backend_encoding() {
+        // Reference vector: SHA-256("abc"). Lowercase and unseparated, because
+        // media/browse.go compares against hex.EncodeToString and 400s on
+        // uppercase.
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
 
     #[test]
     fn endpoint_appends_to_origin_without_trailing_slash() {
