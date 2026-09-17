@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -116,19 +117,45 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		out.Networks = append(out.Networks, s.toNetworkDTO(n, states[n.ID]))
 	}
 
-	// Group buffers by network so we can issue one log-DB query per network.
 	byNetwork := make(map[uuid.UUID][]ircdb.Buffer, len(nets))
 	for _, b := range bufs {
 		byNetwork[b.NetworkID] = append(byNetwork[b.NetworkID], b)
 	}
-
-	// Pre-fetch recent messages and unread candidates per network.
-	recentByBuf, unreadByBuf := s.prefetchNetworkState(ctx, byNetwork, len(bufs))
+	recentByBuf, unreadByBuf, err := s.prefetchNetworkState(ctx, byNetwork, len(bufs))
+	if err != nil {
+		slog.Error("state snapshot", "err", err)
+		http.Error(w, "State snapshot unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	// A queued acknowledgement may have been tallied before messages in
+	// this snapshot. Reject changed cutoffs rather than replaying that older
+	// tally over newer counts. The client owns retrying the whole snapshot.
+	again, err := s.Stores.ListAllBuffers(ctx)
+	if err != nil || !sameReadPositions(bufs, again) {
+		http.Error(w, "Read positions changed; retry state snapshot", http.StatusServiceUnavailable)
+		return
+	}
 
 	for _, b := range bufs {
 		s.appendBufferToState(ctx, &out, b, kinds, recentByBuf, unreadByBuf)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func sameReadPositions(a, b []ircdb.Buffer) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	positions := make(map[uuid.UUID]uuid.UUID, len(a))
+	for _, buffer := range a {
+		positions[buffer.ID] = buffer.LastSeenID
+	}
+	for _, buffer := range b {
+		if pos, ok := positions[buffer.ID]; !ok || pos != buffer.LastSeenID {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb.Buffer, kinds map[uuid.UUID]string, recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID]unreadTally) {
@@ -153,9 +180,11 @@ func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb
 	out.InitialMessages[b.ID.String()] = s.toMessageDTOs(ctx, recentByBuf[b.ID])
 }
 
-// prefetchNetworkState issues one batch recent-messages query and one batch
-// unread-candidates query per network, returning maps keyed by buffer ID.
-func (s *Server) prefetchNetworkState(ctx context.Context, byNetwork map[uuid.UUID][]ircdb.Buffer, totalBufs int) (recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID]unreadTally) {
+// prefetchNetworkState reads each network's recent-message windows and unread
+// candidates in one log-DB transaction (ircdb.SnapshotNetwork), so the two
+// agree on which messages exist; clients use the window's newest id as the
+// boundary for replaying live events after a reconnect.
+func (s *Server) prefetchNetworkState(ctx context.Context, byNetwork map[uuid.UUID][]ircdb.Buffer, totalBufs int) (recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID]unreadTally, err error) {
 	recentByBuf = make(map[uuid.UUID][]ircdb.StoredMessage, totalBufs)
 	unreadByBuf = make(map[uuid.UUID]unreadTally, totalBufs)
 	for netID, netBufs := range byNetwork {
@@ -163,37 +192,36 @@ func (s *Server) prefetchNetworkState(ctx context.Context, byNetwork map[uuid.UU
 		if s.Manager != nil {
 			nick = s.Manager.Nick(netID)
 		}
-		bufIDs := make([]uuid.UUID, len(netBufs))
-		for i, b := range netBufs {
-			bufIDs[i] = b.ID
+		cutoffs := make(map[uuid.UUID]uuid.UUID, len(netBufs))
+		for _, b := range netBufs {
+			cutoffs[b.ID] = b.LastSeenID
 		}
-		s.prefetchRecentMessages(ctx, netID, bufIDs, recentByBuf)
-		s.prefetchUnreadCounts(ctx, netID, netBufs, nick, unreadByBuf)
+		snap, err := s.Stores.SnapshotNetwork(ctx, netID, cutoffs, 100, unreadCountsCap)
+		if err != nil {
+			return nil, nil, fmt.Errorf("network %s snapshot: %w", netID, err)
+		}
+		maps.Copy(recentByBuf, snap.Recent)
+		muted := s.mutedMatcher(ctx, netID)
+		for bufID, cands := range snap.Unread {
+			unreadByBuf[bufID] = tallyUnread(cands, nick, muted)
+		}
 	}
-	return recentByBuf, unreadByBuf
+	return recentByBuf, unreadByBuf, nil
 }
 
-func (s *Server) prefetchRecentMessages(ctx context.Context, netID uuid.UUID, bufIDs []uuid.UUID, out map[uuid.UUID][]ircdb.StoredMessage) {
-	batchMsgs, err := s.Stores.BatchRecentMessages(ctx, netID, bufIDs, 100)
-	if err != nil {
-		slog.Error("batch recent messages", "err", err, "network_id", netID)
-		return
+// mutedMatcher loads a network's ignore entries once and returns a
+// predicate for whether a sender is muted (stored+shown but excluded from
+// unread counts). Failures degrade to "nothing muted".
+func (s *Server) mutedMatcher(ctx context.Context, netID uuid.UUID) func(sender string) bool {
+	if s.Stores == nil || s.Stores.Control == nil {
+		return func(string) bool { return false }
 	}
-	maps.Copy(out, batchMsgs)
-}
-
-func (s *Server) prefetchUnreadCounts(ctx context.Context, netID uuid.UUID, netBufs []ircdb.Buffer, nick string, out map[uuid.UUID]unreadTally) {
-	cutoffs := make(map[uuid.UUID]uuid.UUID, len(netBufs))
-	for _, b := range netBufs {
-		cutoffs[b.ID] = b.LastSeenID
+	entries, err := ircdb.ListIgnores(ctx, s.Stores.Control, netID)
+	if err != nil || len(entries) == 0 {
+		return func(string) bool { return false }
 	}
-	batchUnread, err := s.Stores.BatchUnreadCandidates(ctx, netID, cutoffs, unreadCountsCap)
-	if err != nil {
-		slog.Error("batch unread candidates", "err", err, "network_id", netID)
-		return
-	}
-	for bufID, cands := range batchUnread {
-		out[bufID] = tallyUnread(cands, nick)
+	return func(sender string) bool {
+		return ircdb.IgnoreLevelFor(entries, sender) == ircdb.IgnoreLevelMute
 	}
 }
 
@@ -209,18 +237,23 @@ type unreadTally struct {
 // tallyUnread folds unread candidates through ComputeMessageSemantics.
 // Self-authored messages never count and never anchor the marker; with an
 // unknown nick self-detection degrades to counting everything, same as
-// mention detection.
-func tallyUnread(cands []ircdb.UnreadCandidate, nick string) unreadTally {
+// mention detection. muted reports whether a sender is mute-tier ignored:
+// their messages still badge mentions/highlights but never count toward
+// unread and never anchor the marker.
+func tallyUnread(cands []ircdb.UnreadCandidate, nick string, muted func(sender string) bool) unreadTally {
 	var t unreadTally
 	for _, c := range cands {
 		sem := irc.ComputeMessageSemantics(c.Kind, c.Sender, c.Content, "", nick)
-		if !sem.CountsAsUnread || sem.IsSelf {
+		if sem.IsSelf || !sem.CountsAsUnread {
 			continue
 		}
-		t.Unread++
 		if sem.MentionsMe || sem.Highlight {
 			t.Mentions++
 		}
+		if muted != nil && muted(c.Sender) {
+			continue
+		}
+		t.Unread++
 		if t.MarkerID == uuid.Nil || bytes.Compare(c.ID[:], t.MarkerID[:]) < 0 {
 			t.MarkerID = c.ID
 		}
@@ -294,6 +327,7 @@ func (s *Server) loadHistory(ctx context.Context, bufferID, before uuid.UUID, li
 func (s *Server) toMessageDTOs(ctx context.Context, in []ircdb.StoredMessage) []messageDTO {
 	out := make([]messageDTO, 0, len(in))
 	nicks := map[uuid.UUID]string{}
+	muted := map[uuid.UUID]func(string) bool{}
 	for _, m := range in {
 		nick, ok := nicks[m.NetworkID]
 		if !ok {
@@ -301,9 +335,13 @@ func (s *Server) toMessageDTOs(ctx context.Context, in []ircdb.StoredMessage) []
 				nick = s.Manager.Nick(m.NetworkID)
 			}
 			nicks[m.NetworkID] = nick
+			muted[m.NetworkID] = s.mutedMatcher(ctx, m.NetworkID)
 		}
 		core := irc.CoreFromStored(m)
 		core.ApplySemantics(nick)
+		// Same mute decision the live path makes, so history-derived counts
+		// agree with live ones (see tallyUnread for the snapshot side).
+		core.Muted = muted[m.NetworkID](core.Sender)
 		out = append(out, messageDTO{MessageCore: core})
 	}
 	s.attachPreviews(ctx, out)
@@ -451,7 +489,8 @@ func (s *Server) computeUnreadCounts(ctx context.Context, networkID, bufferID, l
 		slog.Warn("unread candidates", "err", err, "buffer_id", bufferID)
 		return unreadTally{}
 	}
-	return tallyUnread(cands, nick)
+	muted := s.mutedMatcher(ctx, networkID)
+	return tallyUnread(cands, nick, muted)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

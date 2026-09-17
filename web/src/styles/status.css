@@ -44,20 +44,4 @@
   .statusview .stdim {
     color: var(--fg-3);
   }
-
-  .theme-select {
-    background: var(--bg-2);
-    color: var(--fg-1);
-    border: 1px solid var(--hair-strong);
-    border-radius: 4px;
-    font: inherit;
-    font-size: 0.8rem;
-    padding: 2px 6px;
-    cursor: pointer;
-  }
-
-  .theme-select:hover {
-    color: var(--fg-0);
-    border-color: var(--accent);
-  }
 }

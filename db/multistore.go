@@ -30,6 +30,7 @@ type resolvedGlobalBuffer struct {
 type MultiStore struct {
 	Control  *sql.DB
 	Previews *PreviewStore
+	Media    *MediaStore
 	DataDir  string
 
 	mu   sync.RWMutex
@@ -49,8 +50,15 @@ func OpenMultiStore(dataDir string) (*MultiStore, error) {
 		_ = control.Close()
 		return nil, err
 	}
-	ms := &MultiStore{Control: control, Previews: previews, DataDir: dataDir, logs: map[uuid.UUID]*LogStore{}}
+	mediaStore, err := OpenMediaStore(filepath.Join(dataDir, "media.db"))
+	if err != nil {
+		_ = previews.Close()
+		_ = control.Close()
+		return nil, err
+	}
+	ms := &MultiStore{Control: control, Previews: previews, Media: mediaStore, DataDir: dataDir, logs: map[uuid.UUID]*LogStore{}}
 	if err := ms.OpenConfiguredNetworks(context.Background()); err != nil {
+		_ = mediaStore.Close()
 		_ = previews.Close()
 		_ = control.Close()
 		return nil, err
@@ -70,6 +78,11 @@ func (ms *MultiStore) Close() error {
 	}
 	if ms.Previews != nil {
 		if err := ms.Previews.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if ms.Media != nil {
+		if err := ms.Media.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -304,19 +317,7 @@ func (ms *MultiStore) EnsureBuffer(ctx context.Context, networkID uuid.UUID, nam
 // peekLogBufferID returns the UUID of an existing per-network log buffer row by
 // name. found is false (with nil error) when no such row exists.
 func (ms *MultiStore) peekLogBufferID(ctx context.Context, logStore *LogStore, name string) (id uuid.UUID, found bool, err error) {
-	row, err := logdb.New(logStore.DB).LookupLogBufferByName(ctx, name)
-	switch {
-	case err == nil:
-		id, perr := parseUUID(row.ID)
-		if perr != nil {
-			return uuid.Nil, false, perr
-		}
-		return id, true, nil
-	case errors.Is(err, sql.ErrNoRows):
-		return uuid.Nil, false, nil
-	default:
-		return uuid.Nil, false, err
-	}
+	return LookupLogBufferIDByName(ctx, logStore.DB, name)
 }
 
 // ensureBufferRegistryRow looks up the registry row by (network_id, name). When
@@ -443,14 +444,19 @@ func applyBufferSettings(ctx context.Context, control *sql.DB, buf *Buffer) {
 	if err != nil {
 		buf.ShowEmbeds = true
 		buf.ShowPresenceEvents = true
-		return
+	} else {
+		buf.ShowEmbeds = settings.ShowEmbeds
+		buf.ShowPresenceEvents = settings.ShowPresenceEvents
+		buf.CollapsePresenceEvents = settings.CollapsePresenceEvents
+		buf.Pinned = settings.Pinned
+		buf.Archived = settings.Archived
+		buf.PinOrder = settings.PinOrder
 	}
-	buf.ShowEmbeds = settings.ShowEmbeds
-	buf.ShowPresenceEvents = settings.ShowPresenceEvents
-	buf.CollapsePresenceEvents = settings.CollapsePresenceEvents
-	buf.Pinned = settings.Pinned
-	buf.Archived = settings.Archived
-	buf.PinOrder = settings.PinOrder
+	// Status windows default link previews off and can't be toggled
+	// (UpdateBufferSettings rejects them), so they never carry a settings row.
+	if buf.Kind == BufferStatus {
+		buf.ShowEmbeds = false
+	}
 }
 
 // LookupBuffer resolves a global buffer ID to network/name/kind.
@@ -520,6 +526,9 @@ func (ms *MultiStore) networkBuffers(ctx context.Context, n Network, logStore *L
 		} else {
 			b.ShowEmbeds = true
 			b.ShowPresenceEvents = true
+		}
+		if b.Kind == BufferStatus {
+			b.ShowEmbeds = false
 		}
 		if lb, ok := logByName[b.Name]; ok {
 			b.Topic = lb.Topic
@@ -654,39 +663,48 @@ func toStoredMessages(networkID, globalBufferID uuid.UUID, in []LogMessageRow) [
 	return out
 }
 
-// BatchRecentMessages returns the last limit messages for each of the given
-// buffer IDs in a single per-network log DB query, keyed by buffer ID.
-func (ms *MultiStore) BatchRecentMessages(ctx context.Context, networkID uuid.UUID, bufferIDs []uuid.UUID, limit int) (map[uuid.UUID][]StoredMessage, error) {
-	logStore, err := ms.LogStore(networkID)
-	if err != nil {
-		return nil, err
-	}
-	byBuf, err := BatchRecentLogMessages(ctx, logStore.DB, bufferIDs, limit)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[uuid.UUID][]StoredMessage, len(byBuf))
-	for bufID, msgs := range byBuf {
-		stored := make([]StoredMessage, 0, len(msgs))
-		for _, m := range msgs {
-			stored = append(stored, StoredMessage{
-				ID: m.ID, NetworkID: networkID, BufferID: bufID,
-				MsgID: m.MsgID, TS: m.TS, Sender: m.Sender, Userhost: m.Userhost, Account: m.Account,
-				Kind: m.Kind, Target: m.Target, Content: m.Content,
-			})
-		}
-		out[bufID] = stored
-	}
-	return out, nil
+// NetworkSnapshot is the per-network part of /api/state read in one
+// transaction, so the recent-message windows and the unread candidates agree
+// on which messages exist. Two separate reads let a message land between
+// them, making it counted-but-not-in-window (or vice versa), which breaks
+// clients that use the window's newest id as the replay boundary.
+type NetworkSnapshot struct {
+	Recent map[uuid.UUID][]StoredMessage
+	Unread map[uuid.UUID][]UnreadCandidate
 }
 
-// BatchUnreadCandidates returns unread candidates for multiple buffers in a
-// single per-network log DB query. cutoffs maps buffer ID to last-seen message
-// ID (uuid.Nil = no cutoff). limit caps per-buffer row count; must be > 0.
-func (ms *MultiStore) BatchUnreadCandidates(ctx context.Context, networkID uuid.UUID, cutoffs map[uuid.UUID]uuid.UUID, limit int) (map[uuid.UUID][]UnreadCandidate, error) {
+// SnapshotNetwork runs BatchRecentLogMessages and BatchUnreadCandidates inside a
+// single read transaction on the network's log DB (WAL gives it one
+// consistent view). cutoffs maps buffer ID to last-seen message ID.
+func (ms *MultiStore) SnapshotNetwork(ctx context.Context, networkID uuid.UUID, cutoffs map[uuid.UUID]uuid.UUID, msgLimit, unreadLimit int) (NetworkSnapshot, error) {
 	logStore, err := ms.LogStore(networkID)
 	if err != nil {
-		return nil, err
+		return NetworkSnapshot{}, err
 	}
-	return BatchUnreadCandidates(ctx, logStore.DB, cutoffs, limit)
+	tx, err := logStore.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return NetworkSnapshot{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	bufferIDs := make([]uuid.UUID, 0, len(cutoffs))
+	for id := range cutoffs {
+		bufferIDs = append(bufferIDs, id)
+	}
+	byBuf, err := BatchRecentLogMessages(ctx, tx, bufferIDs, msgLimit)
+	if err != nil {
+		return NetworkSnapshot{}, err
+	}
+	unread, err := BatchUnreadCandidates(ctx, tx, cutoffs, unreadLimit)
+	if err != nil {
+		return NetworkSnapshot{}, err
+	}
+	return NetworkSnapshot{Recent: storedFromLogRows(networkID, byBuf), Unread: unread}, nil
+}
+
+func storedFromLogRows(networkID uuid.UUID, byBuf map[uuid.UUID][]LogMessageRow) map[uuid.UUID][]StoredMessage {
+	out := make(map[uuid.UUID][]StoredMessage, len(byBuf))
+	for bufID, msgs := range byBuf {
+		out[bufID] = toStoredMessages(networkID, bufID, msgs)
+	}
+	return out
 }

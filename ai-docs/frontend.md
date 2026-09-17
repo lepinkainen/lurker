@@ -34,6 +34,65 @@ Important invariants:
 - `pinned` and `pin_order` are stored server-side in `buffer_settings` so they follow the user across browsers/devices; the Pinned section sorts `(pin_order, name)` and pinned channels stay listed under their network group as well
 - sidebar drag-and-drop (`src/sidebar-dnd.ts`) covers two independent drags, tracked in separate `state.drag` (networks) / `state.pinDrag` (pinned rows) slots so neither highlights the other's targets. Both share one implementation (`attachReorderDragHandlers` / `endDropZone`), draw a 2px accent insertion bar on the hovered target, and use strict insert-before semantics plus an always-present end-of-list strip (`.sb-net-end` / `.sb-pin-end`) so the last slot is reachable — the bar is therefore always where the dragged item lands. Networks POST the ordered id list to `/api/networks/reorder` and apply `sort_order` optimistically; pinned drops POST the full ordered id list to `/api/buffers/pinned/reorder`, applies `pin_order` optimistically, and rolls back if the request fails (e.g. 404 against a backend predating the endpoint). The server's `pinned_reorder` broadcast then confirms or corrects the order
 - other buffer settings (`show_embeds`, `show_presence_events`, `collapse_presence_events`) are also server-persisted
+- per-buffer options (pin, embeds, presence, archive, delete) are edited via the topicbar gear button (`#buffer-options-btn`, hidden for status buffers), which opens a small `nf-dialog` for the active buffer (`sidebar.ts` `openBufferOptions`); sidebar rows carry no inline controls
+
+## Settings view
+
+`settings-dialog.ts` `openSettingsView()` renders an IRCCloud-style in-pane
+settings surface: an opaque overlay covering `#main` (sidebar stays
+interactive; covered `#main` children get `inert`; the member pane is hidden
+via inline `style.display` so unlayered `mobile.css` can't override it). Left
+nav + content pane; categories come from a `SETTINGS_CATEGORIES` registry
+(`{id, label, build}`) — currently General (highlight words, server info),
+Appearance (theme picker), Media library (inline media browser from
+`media-browser.ts` `buildMediaBrowser`), Config file sync (auto-fetched
+side-by-side diff + save). Panels are built once per open and cached
+(`replaceChildren` swap) so tab switches don't refetch or duplicate listeners;
+teardown callbacks registered via `SettingsViewHandle.onClose` run at close.
+Toggled by the sidebar footer gear; closes via Close button or capture-phase
+`Esc` (which backs off while a real `<dialog>` is stacked on top). On ≤640px
+the nav becomes a horizontal tab strip (`mobile.css`).
+
+## Image attachment
+
+- `src/input-upload.ts` handles composer image attach: a paperclip button (`uploadButtonEl` → hidden `<input type=file>`), drag&drop onto the input form, and paste. `uploadFile` POSTs `multipart/form-data` (field `file`) to `/api/upload`; the returned `url` is inserted at the caret via `insertTextAtCursor`, ready to send as a normal message.
+- Paste is bound on `document`, not on the composer input: iOS Safari does not reliably deliver an image paste to a plain `<input type=text>`, and the photo is often pasted while focus sits elsewhere. Composer pastes bubble to the same listener, so there is exactly one handler and no double upload. `clipboardImage` takes the first `image/*` from `clipboardData.files`, falling back to `clipboardData.items` (Safari can leave `files` empty). Pastes into any other text field, pastes while the composer is disabled, and pastes that also carry non-empty `text/plain` (rich text drags images along; copying an image off a web page attaches its source URL) are left alone as ordinary text pastes.
+- `uploadFilename` synthesizes `pasted-<ts>.<ext>` when the clipboard file has no name (Safari) — the server rejects an empty multipart filename.
+- The file input's `accept` lists the stored image types explicitly rather than `image/*`, which makes iOS Safari transcode HEIC photos to JPEG on pick; the backend has no HEIC decoder.
+- The button is disabled and the form gets a `.uploading` class during the request; drag hover toggles `.upload-dragover`. Progress and failures also show in a `.upload-note` above the composer (errors clear after 8s) — an upload has no other visible result until the URL lands, and on a phone the console is out of reach. Server-side optimization/validation and the URL shape are documented in [rest-api.md](rest-api.md#post-apiupload).
+
+## Icons come from one SVG
+
+`web/public/favicon.svg` is the single source of truth for every app icon in the repo. Nothing
+else is drawn by hand, and no raster is a source for another raster.
+
+`scripts/gen-icons.sh` renders it with `rsvg-convert`, and the build regenerates whatever a given
+target needs, so editing the SVG is enough:
+
+| Task | Produces | Runs from |
+|---|---|---|
+| `icons-web` | `web/public/` PWA icons (192, 512, maskable, apple-touch) | `web-build` |
+| `icons-desktop` | `desktop/icons/` Tauri set incl. `.ico`/`.icns` | `build-desktop`, `desktop-dev` |
+| `apple-icon` | `apple/…/AppIcon.appiconset/` | `build-apple` (macOS only) |
+
+`task icons` runs all three. Each is fingerprinted on the SVG, so it is a no-op when nothing
+changed — a normal build never invokes the renderers. CI installs `librsvg2-bin` and `imagemagick`
+precisely so that a change to the SVG that was not committed alongside its rasters fails the build
+instead of shipping a stale icon.
+
+Two of the outputs are not plain renders, because they cannot be transparent: the maskable icon is
+cropped to an arbitrary shape by the launcher, and iOS composites the home screen icon onto white.
+Both put the artwork on an opaque `#0f1923` (the eye-shape fill), inset to leave the safe-zone
+padding the maskable spec wants — 384px of a 512px canvas, and 148 of 180 for apple-touch.
+
+Regenerating is deterministic: the same SVG produces byte-identical output. A diff in these files
+therefore means the SVG changed, not that someone re-ran the script.
+
+The one exception is `desktop/icons/icon.icns`, which is committed but **not** generated.
+ImageMagick's ICNS writer emits different bytes on every run, so regenerating it would dirty the
+worktree on every build. It is only read when bundling Tauri for macOS, which this repo does not do
+— macOS has the native Swift client — so it is left alone; regenerate it by hand with
+`cargo tauri icon` if that ever changes.
 
 ## Hydration model
 
@@ -74,7 +133,16 @@ custom properties. See [theming.md](theming.md) for the model and how to add one
 
 Nick avatars (the small identicon square next to a nick) are a deterministic,
 client-agnostic algorithm — see [nick-identicon.md](nick-identicon.md) for the
-spec every conforming client must reproduce exactly.
+spec every conforming client must reproduce exactly. `nickAvatar` in
+`web/src/nick.ts` is the single render choke point, with precedence bot glyph →
+metadata avatar → identicon. IRCv3 metadata avatars override the identicon: a
+per-`(network, nick)` registry in `web/src/nick-colors.ts` (mirroring the bot
+registry — `registerAvatar` / `hasAvatarFor` / `avatarUrlFor`, resolved against
+the active buffer's network) remembers which nicks have an avatar, fed by
+`has_avatar` on member-list snapshots and the `avatar` WS event
+(`web/src/ws-router.ts`). When known, `nickAvatar` renders an `<img>` pointed at
+the backend proxy `/api/avatar` with an `error` handler that swaps back to the
+identicon on any load failure.
 
 ## Interaction specs
 

@@ -58,7 +58,7 @@ Returns an empty array if no themes are configured.
 
 Purpose:
 
-- expose the update checker's cached comparison of local vs remote container image
+- expose the update checker's cached comparison of the running build's commit vs the latest published release
 
 See [operations.md](operations.md) for the full response shape and configuration.
 
@@ -73,11 +73,14 @@ Returns:
 - `networks`
 - `buffers`
 - `initial_messages` keyed by buffer ID
-- `members` keyed by buffer ID
+- `members` keyed by buffer ID (same entry shape as the `member_list` WS event, including the IRCv3 `bot` flag)
 
 Current behavior:
 
 - includes recent messages for each buffer
+- per network, recent-message windows and unread candidates are read in one log-DB transaction. Read positions come from the earlier control-DB listing; this is not an atomic snapshot across databases. Concurrent acknowledgements are delivered separately as `buffer_update` events. Live message IDs are allocated and committed under a per-network lock, allowing clients to use each buffer's newest `initial_messages` ID as a boundary for replaying live events. Backfill uses historical IDs and a separate refresh event.
+- if any network's message snapshot fails, the endpoint returns HTTP 503 instead of a partial snapshot with empty messages and zero unread counts; clients can retain their current state and retry
+- read positions and the buffer set are checked once after the log reads. If they changed, the endpoint also returns 503; there is no internal retry loop or replacement buffer listing in the response.
 - includes network `sort_order`
 - network list order is the server-side canonical order
 
@@ -187,24 +190,55 @@ Search runs against stored messages, not live IRC state.
 
 Purpose:
 
-- store a locally uploaded file and return its public URL
+- store a locally uploaded image, optimize it server-side, and return its public URL plus metadata
 
 Request:
 
 - `multipart/form-data`
-- file field name: `file`
+- file field name: `file` (filename required)
 
-Response:
+Response (`201 Created`):
 
 ```json
-{ "url": "/uploads/0123456789abcdef.png" }
+{
+  "url": "https://host.tailnet.ts.net/uploads/0123456789abcdef.jpg",
+  "mime": "image/jpeg",
+  "width": 2048,
+  "height": 1365,
+  "bytes": 412873
+}
 ```
 
-Notes:
+`width`/`height`/`bytes` describe the stored (optimized) file, not the upload.
 
-- max size is controlled by server upload config
-- when `UPLOAD_BASE_URL` is set, the returned URL uses that base instead of `/uploads/...`
-- files are still stored locally under the configured upload directory
+Server-side optimization (`media/transcode.go`, pure Go, CGO off):
+
+- JPEG/WebP: decoded, downscaled so the long edge is ≤ `2048px` (never upscaled), re-encoded as JPEG q82. Stored as `.jpg`.
+- PNG/GIF: passed through unchanged (re-encoding a GIF would flatten animation). Stored as `.png` / `.gif`.
+- The stored key is a random 10-char base62 id + the extension of the *stored* format (from the optimizer), not the client-supplied name.
+
+Validation / errors:
+
+- Content-type is sniffed via `http.DetectContentType`. `video/mp4` and `video/quicktime` are classified but return `415` (video path is a reserved scaffold, not implemented). Non-image, HEIC, and unrecognized payloads fail the decode and return `415`. WebP is not reliably sniffed, so the real gate is the decode attempt in `optimizeImage`, not the sniff.
+- Decompression-bomb guard: decoded area > `50 MP` returns `415`.
+- Over the size limit returns `413`.
+- No storage backend configured (no `media:` block in `config.yaml`) returns `404`.
+- Storage backend configured but failing (bad credentials, bucket gone, network down) returns `502`, and nothing is recorded — no metadata row and no stored object. A half-published upload is never left behind, and the bytes are never diverted to another backend.
+
+Storage backend:
+
+The backend is named explicitly in the `media:` block and there is **no fallback between backends** (see [operations.md](operations.md#media-storage) and `S3_SETUP.md`):
+
+- `backend: s3` — variants are PUT to an S3-compatible bucket with `Cache-Control: public, max-age=31536000, immutable`; nothing is written to local disk, so `GET /uploads/{name}` serves nothing.
+- `backend: disk` — variants are written under `media.disk.dir` and served by `GET /uploads/{name}`.
+- block absent — uploads disabled (`404` above).
+
+Returned URL:
+
+- With `backend: s3` the URL is always `{media.s3.public_base_url}[/{prefix}]/{name}` — the CDN domain, since the bytes are only reachable there.
+- With `backend: disk`, `media.disk.base_url` wins when set: `{base}/{name}`. Otherwise the URL is made **absolute** from the incoming request (`scheme://host/uploads/{name}`) so the pasted link resolves for other IRC clients — a relative path is useless once it leaves this origin. Scheme honors `X-Forwarded-Proto` (only `http`/`https` accepted; a spoofed scheme like `javascript` is ignored) then the connection's TLS state. If the `Host` header is untrustworthy (spaces, CRLF, quotes) it falls back to a relative `/uploads/{name}`.
+
+Clients (web paperclip + drag&drop + paste, macOS/iOS paperclip + drag&drop) upload here and auto-insert the returned URL into the composer, ready to send.
 
 ## `POST /api/networks`
 
@@ -219,9 +253,9 @@ Expected fields include:
 - `nick`
 - optional `realname`
 - optional SASL fields
-- optional `connect_commands` array of raw IRC lines
+- optional `connect_commands` array of raw IRC lines — sent verbatim after registration, before autojoin, with no inter-command delay (no `WAIT` pseudo-command). QuakeNet login works via snircd's server-side `AUTH <user> <pass>` (plaintext on the wire; use a TLS port). Secure challenge-response auth is tracked in issue #128.
 
-New networks are appended to the end of sidebar order by assigning the next `sort_order`.
+New networks are appended to the end of sidebar order by assigning the next `sort_order`. Broadcasts `network_created` on the WebSocket stream; `PATCH /api/networks/{id}` broadcasts `network_updated`, `DELETE` broadcasts `network_deleted`, so other open clients converge without a reload.
 
 ## `POST /api/networks/reorder`
 
@@ -241,6 +275,7 @@ Behavior:
 - expects a complete ordered list of all network IDs
 - updates `sort_order` transactionally
 - returns the reordered `networks` list
+- broadcasts `network_reorder` with `[{id, sort_order}]`
 
 ## `POST /api/networks/{id}/buffers/reorder`
 
@@ -426,10 +461,29 @@ Response:
 
 ## `GET /uploads/{name}`
 
-Serves previously uploaded files by their generated filename. Valid names are alphanumeric hex strings with an optional lowercase extension.
+Serves previously uploaded files from local disk by their generated filename (base62 id + extension).
 
-Note: `POST /api/upload` returns the full URL path (e.g. `/uploads/0123456789abcdef.png`) which is served by this route.
+Only active under `media.backend: disk`. With `backend: s3` there is no local copy, so every request here is a `404` and clients fetch from the CDN URL returned by `POST /api/upload` instead.
 
 ## Preview attachment on reads
 
 `/api/state` and `/api/buffers/{id}/history` attach URL previews inline on each `message` under a `previews` field via `Server.attachPreviews` — groups messages by network, reads `message_previews` from each log DB, batch-loads URL rows from `previews.db` in one `GetMany`. No network calls on the read path. See [irc-runtime.md](irc-runtime.md) for the pipeline that populates these.
+
+## `GET /api/avatar`
+
+Proxies a user's avatar image so the browser never talks to the remote host directly (the avatar URL is attacker-controlled). Backed by `irc.Manager.AvatarURL` and `preview.Fetcher.FetchImage`, which reuses the preview pipeline's SSRF-guarded, DNS-pinned HTTP client — no second unguarded transport. `AvatarURL` resolves the URL from either of two sources: the per-network in-memory tracker populated from `draft/metadata-2` `avatar` key (explicit, takes precedence), or, as a fallback, an IRCCloud avatar derived on the fly from the nick's hostmask (see [irc-runtime.md](irc-runtime.md) "Metadata avatars").
+
+Query parameters:
+
+- `network` required, network UUID
+- `nick` required
+- `size` optional pixel size, clamped to the nearest of `{16, 32, 64, 128, 256}` (default `64`). A literal `{size}` token in the resolved avatar URL is substituted with the clamped value; URLs without the token are used as-is.
+
+Responses:
+
+- `200` — image bytes with the upstream `Content-Type` and `Cache-Control: public, max-age=3600`.
+- `400` — missing/invalid `network` or `nick`.
+- `404` — no avatar known for that nick/network, or the fetch was rejected by the SSRF policy (`preview.ErrBlocked`).
+- `502` — fetch failed, or the upstream response wasn't `image/*` (`preview.ErrNotImage`).
+
+Fetched bytes are cached in-memory in `Server.avatarCache` (mutex-guarded map, 1-hour TTL), keyed by the resolved (post-size-substitution) URL. `Server.PreviewFetcher` (set from `preview.Service.Fetcher()` in `main.go`) must be non-nil or the endpoint 404s.

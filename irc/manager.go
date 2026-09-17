@@ -93,7 +93,14 @@ type Manager struct {
 	membersLoaded  map[uuid.UUID]map[string]bool
 	joined         map[uuid.UUID]map[string]bool
 	fixtureMembers map[uuid.UUID]map[string][]ChannelUser
-	connector      connectorFunc
+	// bots holds the IRCv3 bot-mode set per network, shared with that
+	// network's handler so REST snapshots and WS pushes agree.
+	bots map[uuid.UUID]*botTracker
+	// avatars holds the IRCv3 metadata avatar-URL set per network, shared
+	// with that network's handler so AvatarURL and REST member snapshots
+	// agree with WS pushes.
+	avatars   map[uuid.UUID]*avatarTracker
+	connector connectorFunc
 }
 
 // NewManager constructs a Manager. Every network runtime it starts is bound
@@ -112,6 +119,8 @@ func NewManager(baseCtx context.Context, stores *ircdb.MultiStore, h *hub.Hub) *
 		membersLoaded:  map[uuid.UUID]map[string]bool{},
 		joined:         map[uuid.UUID]map[string]bool{},
 		fixtureMembers: map[uuid.UUID]map[string][]ChannelUser{},
+		bots:           map[uuid.UUID]*botTracker{},
+		avatars:        map[uuid.UUID]*avatarTracker{},
 		connector:      defaultConnector,
 	}
 }
@@ -247,7 +256,7 @@ func (m *Manager) LogOutbound(ctx context.Context, networkID uuid.UUID, target, 
 	if nick == "" {
 		return errors.New("irc: cannot log outbound message without known nick")
 	}
-	id, ts, inserted, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	id, ts, inserted, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
 		BufferID:  bufID,
 		Timestamp: time.Now(),
 		Sender:    nick,
@@ -261,16 +270,14 @@ func (m *Manager) LogOutbound(ctx context.Context, networkID uuid.UUID, target, 
 		return nil
 	}
 	m.hub.Publish((&MessageEvent{
-		Type: "message",
-		MessageCore: MessageCore{
-			ID:        id,
-			NetworkID: networkID,
-			BufferID:  bufID,
-			TS:        ts,
-			Sender:    nick,
-			Kind:      kind,
-			Content:   content,
-		},
+		Type:      "message",
+		ID:        id,
+		NetworkID: networkID,
+		BufferID:  bufID,
+		TS:        ts,
+		Sender:    nick,
+		Kind:      kind,
+		Content:   content,
 	}).WithSemantics(nick))
 	if m.previews != nil && (kind == "privmsg" || kind == "notice" || kind == "action") {
 		m.previews.Enqueue(networkID, bufID, id, content)
@@ -521,6 +528,8 @@ func (m *Manager) ChannelMembers(networkID uuid.UUID, channel string) []ChannelU
 	c := m.conn[networkID]
 	loaded := m.membersLoaded[networkID][channel]
 	fixtureMembers := slices.Clone(m.fixtureMembers[networkID][channel])
+	bots := m.bots[networkID]
+	avatars := m.avatars[networkID]
 	m.mu.Unlock()
 	if channel == "" {
 		return nil
@@ -528,7 +537,7 @@ func (m *Manager) ChannelMembers(networkID uuid.UUID, channel string) []ChannelU
 	if c == nil || !c.IsConnected() {
 		return fixtureMembers
 	}
-	members := buildChannelMembers(c, channel)
+	members := buildChannelMembers(c, channel, bots, avatars)
 	if members == nil {
 		if loaded {
 			return []ChannelUser{}
@@ -536,6 +545,33 @@ func (m *Manager) ChannelMembers(networkID uuid.UUID, channel string) []ChannelU
 		return nil
 	}
 	return members
+}
+
+// AvatarURL returns an avatar URL known for nick on the given network, if
+// any. The URL is server-side only (see AvatarEvent / ChannelUser.HasAvatar)
+// — downstream callers proxy it rather than handing it to clients directly.
+//
+// IRCv3 metadata (explicit, set by the user) wins when known; otherwise this
+// falls back to deriving an IRCCloud avatar from nick's hostmask (see
+// irccloud_avatar.go), so users on servers without draft/metadata-2 still
+// get an avatar. The fallback is computed on demand and never written back
+// into avatarTracker, which stays metadata-only.
+func (m *Manager) AvatarURL(networkID uuid.UUID, nick string) (string, bool) {
+	m.mu.Lock()
+	avatars := m.avatars[networkID]
+	c := m.conn[networkID]
+	m.mu.Unlock()
+	if url, ok := avatars.get(nick); ok {
+		return url, true
+	}
+	if c == nil {
+		return "", false
+	}
+	u := c.LookupUser(nick)
+	if u == nil {
+		return "", false
+	}
+	return irccloudAvatarURL(u.Ident, u.Host)
 }
 
 // IsJoined returns whether a JOIN has been seen for the given channel on
@@ -657,7 +693,7 @@ func (m *Manager) attemptConnect(ctx context.Context, log *slog.Logger, networkI
 
 	log.Info("connecting", "host", server.Host, "port", server.Port, "tls", server.TLS, "tls_max_version", tlsMaxVersionLabel(server))
 	err := m.connector(ctx, client, server)
-	if err != nil && ctx.Err() == nil && shouldFallbackToTLS12(server) {
+	if err != nil && ctx.Err() == nil && shouldFallbackToTLS12(server, err) {
 		err = m.connectWithTLS12Fallback(ctx, log, networkID, nc, server, err)
 	}
 	m.markDisconnected(networkID, gen)
@@ -695,6 +731,8 @@ func (m *Manager) markDisconnected(networkID uuid.UUID, gen uint64) {
 	}
 	delete(m.conn, networkID)
 	delete(m.membersLoaded, networkID)
+	delete(m.bots, networkID)
+	delete(m.avatars, networkID)
 	if _, ok := m.runtime[networkID]; ok {
 		m.state[networkID] = StateDisconnected.String()
 	}
@@ -706,7 +744,12 @@ func defaultConnector(_ context.Context, client *girc.Client, _ ServerConfig) er
 	return client.Connect()
 }
 
-func shouldFallbackToTLS12(server ServerConfig) bool {
+func shouldFallbackToTLS12(server ServerConfig, err error) bool {
+	if _, ok := errors.AsType[girc.TimedOutError](err); ok {
+		// A ping timeout means TCP+TLS already worked; retrying with TLS 1.2
+		// cannot help and doubles every reconnect cycle.
+		return false
+	}
 	return server.TLS && server.TLSMaxVersion != tls.VersionTLS12
 }
 
@@ -747,15 +790,20 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 		user = nc.Nick
 	}
 	cfg := girc.Config{
-		Server:      server.Host,
-		Port:        server.Port,
-		SSL:         server.TLS,
-		Nick:        nc.Nick,
-		User:        user,
-		Name:        nc.Realname,
-		Version:     "lurker",
-		PingDelay:   60 * time.Second,
-		PingTimeout: 30 * time.Second,
+		Server:    server.Host,
+		Port:      server.Port,
+		SSL:       server.TLS,
+		Nick:      nc.Nick,
+		User:      user,
+		Name:      nc.Realname,
+		Version:   "lurker",
+		PingDelay: 60 * time.Second,
+		// Generous on purpose: IRCnet-style servers (ISUPPORT PENALTY) defer
+		// reading client input after a connect burst (JOINs + girc's auto-WHO
+		// per channel), so a PONG can lag minutes behind. girc kills the
+		// connection after PingDelay+PingTimeout without a PONG; 30s here put
+		// every IRCnet connect into a kill/reconnect loop.
+		PingTimeout: 300 * time.Second,
 		RecoverFunc: girc.DefaultRecoverHandler,
 		Debug:       debugWriter(),
 		SupportedCaps: map[string][]string{
@@ -766,6 +814,16 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 			// (buffer_id,msgid) unique index can't dedupe, plus mis-filed
 			// self-PMs.
 			"labeled-response": nil,
+			// Gap backfill on reconnect: see irc/chathistory.go. girc only
+			// REQs caps the server advertises, so this is a no-op elsewhere.
+			"draft/chathistory": nil,
+			// Avatar URLs via IRCv3 metadata: see irc/handler_metadata.go.
+			// draft/metadata-2 carries the METADATA command/replies; batch is
+			// required because metadata bursts (WHOIS, connect-time SYNC
+			// pushes) arrive wrapped in a BATCH. girc only REQs caps the
+			// server advertises, so both are no-ops elsewhere.
+			"draft/metadata-2": nil,
+			"batch":            nil,
 		},
 	}
 	if server.TLS {
@@ -790,7 +848,18 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 		slog.Error("log store", "err", err, "network_id", networkID)
 		return client
 	}
-	h := &handler{stores: m.stores, db: logStore.DB, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectCommands: nc.ConnectCommands, userChannels: newUserChannels(), nickFn: func() string { return m.Nick(networkID) }, connectedHook: func(currentNick string) {
+	// A reconnect rebuilds the client, so bot state starts empty and is
+	// re-learned from the fresh WHO/WHOIS/tag traffic.
+	bots := newBotTracker()
+	// Same as bots: avatar metadata is re-learned from the fresh SUB/SYNC
+	// traffic after each reconnect.
+	avs := newAvatarTracker()
+	m.mu.Lock()
+	m.bots[networkID] = bots
+	m.avatars[networkID] = avs
+	m.mu.Unlock()
+
+	h := &handler{stores: m.stores, db: logStore, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectCommands: nc.ConnectCommands, userChannels: newUserChannels(), bots: bots, avatars: avs, nickFn: func() string { return m.Nick(networkID) }, connectedHook: func(currentNick string) {
 		m.mu.Lock()
 		m.state[networkID] = StateConnected.String()
 		if _, ok := m.membersLoaded[networkID]; !ok {
@@ -824,6 +893,12 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 	}, drainJoinedHook: func() []string {
 		return m.drainJoined(networkID)
 	}}
+	h.hasCap = client.HasCapability
+	h.sendRaw = func(line string) error { return client.Cmd.SendRaw(line) }
+	h.historyLimit = func() int {
+		limit, _ := client.GetServerOptionInt("CHATHISTORY")
+		return limit
+	}
 	h.register(client)
 
 	go func() {

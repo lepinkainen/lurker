@@ -46,6 +46,7 @@ function refs(): DomRefs {
     bufferTopicEl: document.createElement("div"),
     bufferMemcountEl: document.createElement("span"),
     memberCountInlineEl: document.createElement("span"),
+    bufferOptionsBtnEl: button(),
     toggleMembersEl: button(),
     shortcutsHelpBtnEl: button(),
     mobileMenuEl: button(),
@@ -154,5 +155,68 @@ describe("createAppView", () => {
     d.sbScrollEl.querySelector<HTMLButtonElement>(".sbrow.chan")?.click();
 
     expect(setActive).toHaveBeenCalledWith("10");
+  });
+
+  it("openActiveBufferOptions opens the dialog for the active channel", () => {
+    state.networks.set("1", net({ id: "1" }));
+    state.activeId = "10";
+    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#go" }));
+    const d = refs();
+    const view = createAppView(d, { sendCmd: vi.fn(), setActive: vi.fn(), stick: createScrollStick(d.messagesEl) });
+
+    view.openActiveBufferOptions();
+
+    const dialog = document.body.querySelector("dialog");
+    expect(dialog).not.toBeNull();
+    expect(dialog?.querySelector(".nf-title")?.textContent).toBe("#go display");
+    dialog?.remove();
+  });
+
+  it("openActiveBufferOptions is a no-op for the status buffer", () => {
+    state.networks.set("1", net({ id: "1" }));
+    state.activeId = "10";
+    state.buffers.set("10", buf({ id: "10", network_id: "1", kind: "status", name: "(status)" }));
+    const d = refs();
+    const view = createAppView(d, { sendCmd: vi.fn(), setActive: vi.fn(), stick: createScrollStick(d.messagesEl) });
+
+    view.openActiveBufferOptions();
+
+    expect(document.body.querySelector("dialog")).toBeNull();
+  });
+
+  it("showCommandError restores rejected text into the composer when its buffer is active", () => {
+    state.activeId = "10";
+    const d = refs();
+    const view = createAppView(d, { sendCmd: vi.fn(), setActive: vi.fn(), stick: createScrollStick(d.messagesEl) });
+
+    view.showCommandError("not joined", { bufferId: "10", text: "hello" });
+
+    expect(d.inputEl.value).toBe("hello");
+    expect(d.inputForm.querySelector(".upload-note")?.textContent).toBe("not joined");
+  });
+
+  it("showCommandError never puts another buffer's text into the active composer", () => {
+    state.activeId = "20";
+    const d = refs();
+    const view = createAppView(d, { sendCmd: vi.fn(), setActive: vi.fn(), stick: createScrollStick(d.messagesEl) });
+
+    view.showCommandError("not joined", { bufferId: "10", text: "hello" });
+
+    expect(d.inputEl.value).toBe("");
+    expect(state.inputHistory.get("10")?.draft).toBe("hello");
+  });
+
+  it("showCommandError does not clobber typed text or an existing draft", () => {
+    state.activeId = "20";
+    state.inputHistory.set("10", { entries: [], draft: "wip", index: null });
+    const d = refs();
+    d.inputEl.value = "typing";
+    const view = createAppView(d, { sendCmd: vi.fn(), setActive: vi.fn(), stick: createScrollStick(d.messagesEl) });
+
+    view.showCommandError("nope", { bufferId: "10", text: "hello" });
+    view.showCommandError("nope", { bufferId: "20", text: "hello" });
+
+    expect(d.inputEl.value).toBe("typing");
+    expect(state.inputHistory.get("10")?.draft).toBe("wip");
   });
 });

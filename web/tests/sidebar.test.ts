@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type Buffer, type Network, state } from "../src/app-state";
 import { orderedNetworks } from "../src/buffers";
 import { resetAppState } from "../src/reset";
-import { renderSidebar, type SidebarDeps } from "../src/sidebar";
+import { openBufferOptions, renderSidebar, type SidebarDeps } from "../src/sidebar";
 
 function buf(overrides: Partial<Buffer>): Buffer {
   return {
@@ -111,18 +111,49 @@ describe("renderSidebar", () => {
     expect(chanNames).toEqual(["#aaa", "#zzz"]);
   });
 
-  it("toggles pinned buffers from visible row control", () => {
+  it("toggles pinned buffers from the options dialog Pin checkbox", async () => {
     state.networks.set("1", net({ id: "1" }));
-    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#aaa", joined: true }));
+    const buffer = buf({ id: "10", network_id: "1", name: "#aaa", joined: true });
+    state.buffers.set("10", buffer);
     const d = deps();
     renderSidebar(d);
 
-    d.sbScrollEl.querySelector<HTMLElement>(".sbrow.chan .pin-toggle")?.click();
+    // Sidebar rows carry no inline pin control anymore — pinning lives in
+    // the per-buffer options dialog (topicbar gear).
+    expect(d.sbScrollEl.querySelector(".pin-toggle")).toBeNull();
+
+    openBufferOptions(buffer, d);
+    const dialog = document.body.querySelector("dialog");
+    expect(dialog).not.toBeNull();
+    const pinInput = [...(dialog?.querySelectorAll<HTMLElement>(".nf-checkbox-wrap") ?? [])]
+      .find((w) => w.querySelector(".nf-checkbox-label")?.textContent === "Pin")
+      ?.querySelector<HTMLInputElement>(".nf-checkbox");
+    expect(pinInput).not.toBeNull();
+
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ...buffer, pinned: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    pinInput?.click();
+    // Optimistic update applies synchronously, before the PATCH settles.
     expect(state.buffers.get("10")?.pinned).toBe(true);
     expect(d.sbScrollEl.firstElementChild?.querySelector(".pinned-hdr")).not.toBeNull();
 
-    d.sbScrollEl.querySelector<HTMLElement>(".sbrow.pinned .pin-toggle")?.click();
-    expect(state.buffers.get("10")?.pinned).toBe(false);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/buffers/10/settings");
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("PATCH");
+
+    // No rollback: the PATCH succeeded, so the optimistic state persists.
+    expect(state.buffers.get("10")?.pinned).toBe(true);
+
+    dialog?.remove();
+    vi.unstubAllGlobals();
   });
 
   it("collapses network when collapsed flag set and shows unread badge", () => {
@@ -175,14 +206,17 @@ describe("renderSidebar", () => {
     expect(d.sbScrollEl.querySelectorAll(".sbrow.parted").length).toBe(1);
   });
 
-  it("gives query rows an options toggle and archives them from the dialog", () => {
+  // openBufferOptions is triggered from the topicbar gear button
+  // (app-view.ts's openActiveBufferOptions) rather than a sidebar row
+  // control, so these exercise it directly with the same SidebarDeps the
+  // sidebar rows use.
+  it("opens the options dialog for query buffers and archives them from it", () => {
     state.networks.set("1", net({ id: "1" }));
-    state.buffers.set("11", buf({ id: "11", network_id: "1", name: "alice", kind: "query" }));
+    const buffer = buf({ id: "11", network_id: "1", name: "alice", kind: "query" });
+    state.buffers.set("11", buffer);
     const d = deps();
     renderSidebar(d);
-    const opt = d.sbScrollEl.querySelector<HTMLElement>(".sbrow.query .chan-options");
-    expect(opt).not.toBeNull();
-    opt?.click();
+    openBufferOptions(buffer, d);
     const dialog = document.body.querySelector("dialog");
     expect(dialog).not.toBeNull();
     const labels = [...(dialog?.querySelectorAll(".nf-checkbox-label") ?? [])].map((l) => l.textContent);
@@ -192,17 +226,15 @@ describe("renderSidebar", () => {
 
   it("offers two-step delete for archived buffers and sends delete_buffer", () => {
     state.networks.set("1", net({ id: "1" }));
-    state.buffers.set(
-      "10",
-      buf({ id: "10", network_id: "1", name: "#left", kind: "channel", joined: false, archived: true }),
-    );
+    const buffer = buf({ id: "10", network_id: "1", name: "#left", kind: "channel", joined: false, archived: true });
+    state.buffers.set("10", buffer);
     state.layout.archivesOpen[1] = true;
     const d = deps();
     const sendCmd = vi.fn();
     d.sendCmd = sendCmd;
     renderSidebar(d);
 
-    d.sbScrollEl.querySelector<HTMLElement>(".sbrow.parted .chan-options")?.click();
+    openBufferOptions(buffer, d);
     const dialog = document.body.querySelector("dialog");
     expect(dialog).not.toBeNull();
     const del = dialog?.querySelector<HTMLElement>(".chan-delete-btn");
@@ -216,11 +248,12 @@ describe("renderSidebar", () => {
 
   it("hides delete for non-archived buffers", () => {
     state.networks.set("1", net({ id: "1" }));
-    state.buffers.set("10", buf({ id: "10", network_id: "1", name: "#active", kind: "channel", joined: true }));
+    const buffer = buf({ id: "10", network_id: "1", name: "#active", kind: "channel", joined: true });
+    state.buffers.set("10", buffer);
     const d = deps();
     d.sendCmd = vi.fn();
     renderSidebar(d);
-    d.sbScrollEl.querySelector<HTMLElement>(".sbrow.chan .chan-options")?.click();
+    openBufferOptions(buffer, d);
     const dialog = document.body.querySelector("dialog");
     expect(dialog).not.toBeNull();
     expect(dialog?.querySelector(".chan-delete-btn")).toBeNull();

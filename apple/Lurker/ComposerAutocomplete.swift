@@ -1,5 +1,7 @@
 import Foundation
 
+// MARK: - NickCompletion
+
 /// Composer autocomplete matching, mirroring the web client's
 /// nick-autocomplete.ts / emoji-autocomplete.ts / input-command-popup.ts.
 ///
@@ -8,6 +10,9 @@ import Foundation
 /// text. Every web rule collapses to a string-suffix rule under that policy,
 /// and typing happens at the end in practice.
 enum NickCompletion {
+
+  // MARK: Internal
+
   static let maxResults = 12
 
   /// Nick candidates for the current composer text. Active only for the
@@ -17,12 +22,14 @@ enum NickCompletion {
     guard !text.isEmpty, buffersFirstToken(text) else { return [] }
     let query = text.lowercased()
     var seen = Set<String>()
-    var prefixes: [String] = []
-    var contains: [String] = []
+    var prefixes = [String]()
+    var contains = [String]()
     for member in members {
       let nick = member.nick
       guard !nick.isEmpty, member.`self` != true else { continue }
-      if let ownNick, nick.caseInsensitiveCompare(ownNick) == .orderedSame { continue }
+      if let ownNick, nick.caseInsensitiveCompare(ownNick) == .orderedSame {
+        continue
+      }
       let lowered = nick.lowercased()
       guard seen.insert(lowered).inserted else { continue }
       if lowered.hasPrefix(query) {
@@ -40,19 +47,31 @@ enum NickCompletion {
     "\(nick): "
   }
 
+  // MARK: Private
+
   private static func buffersFirstToken(_ text: String) -> Bool {
     !text.hasPrefix("/") && !text.hasPrefix(":") && !text.contains(where: \.isWhitespace)
   }
+
 }
+
+// MARK: - EmojiMatch
 
 struct EmojiMatch: Equatable, Identifiable {
   let name: String
   let emoji: String
 
-  var id: String { name }
+  var id: String {
+    name
+  }
 }
 
+// MARK: - EmojiCompletion
+
 enum EmojiCompletion {
+
+  // MARK: Internal
+
   static let maxResults = 12
   static let minKeywordLength = 2
 
@@ -72,14 +91,18 @@ enum EmojiCompletion {
 
   static func matches(text: String, catalog: EmojiCatalog = .shared) -> [EmojiMatch] {
     guard let keyword = keyword(in: text)?.lowercased() else { return [] }
-    var results: [EmojiMatch] = []
+    var results = [EmojiMatch]()
     for name in catalog.names where name.hasPrefix(keyword) {
       results.append(EmojiMatch(name: name, emoji: catalog.byName[name]!))
-      if results.count == maxResults { return results }
+      if results.count == maxResults {
+        return results
+      }
     }
     for name in catalog.names where !name.hasPrefix(keyword) && name.contains(keyword) {
       results.append(EmojiMatch(name: name, emoji: catalog.byName[name]!))
-      if results.count == maxResults { break }
+      if results.count == maxResults {
+        break
+      }
     }
     return results
   }
@@ -91,24 +114,26 @@ enum EmojiCompletion {
     return text[..<colon] + match.emoji
   }
 
+  // MARK: Private
+
   private static func isKeywordChar(_ char: Character) -> Bool {
     char == "-" || char == "+" || char == "_" || char.isLetter || char.isNumber
   }
+
 }
+
+// MARK: - EmojiCatalog
 
 /// The bundled emoji table (a build-time copy of web/src/emoji-map.json).
 struct EmojiCatalog {
-  let byName: [String: String]
-  /// Alphabetical for deterministic prefix-then-substring ordering.
-  let names: [String]
-
   init(byName: [String: String]) {
     self.byName = byName
     names = byName.keys.sorted()
   }
 
   static let shared: EmojiCatalog = {
-    guard let url = Bundle.main.url(forResource: "emoji-map", withExtension: "json"),
+    guard
+      let url = Bundle.main.url(forResource: "emoji-map", withExtension: "json"),
       let data = try? Data(contentsOf: url),
       let map = try? JSONDecoder().decode([String: String].self, from: data)
     else {
@@ -116,7 +141,13 @@ struct EmojiCatalog {
     }
     return EmojiCatalog(byName: map)
   }()
+
+  let byName: [String: String]
+  /// Alphabetical for deterministic prefix-then-substring ordering.
+  let names: [String]
 }
+
+// MARK: - ComposerPopup
 
 /// Which popup (if any) the composer shows for the current text. Priority is
 /// emoji > command > nick (web parity: updateInputPopups in input.ts).
@@ -126,14 +157,28 @@ enum ComposerPopup: Equatable {
   case nick([String])
   case none
 
+  // MARK: Internal
+
+  /// Rows the selection can move across; the command popup is display-only.
+  var selectableCount: Int {
+    switch self {
+    case .emoji(let matches): matches.count
+    case .nick(let nicks): nicks.count
+    case .command,
+         .none: 0
+    }
+  }
+
   static func resolve(
     text: String,
     buffer: Buffer?,
     members: [Member],
-    ownNick: String?
+    ownNick: String?,
   ) -> ComposerPopup {
     let emoji = EmojiCompletion.matches(text: text)
-    if !emoji.isEmpty { return .emoji(emoji) }
+    if !emoji.isEmpty {
+      return .emoji(emoji)
+    }
     if text.hasPrefix("/") {
       let commands = SlashCommands.matching(text)
       return commands.isEmpty ? .none : .command(commands)
@@ -141,14 +186,5 @@ enum ComposerPopup: Equatable {
     guard let buffer, buffer.kind == "channel" else { return .none }
     let nicks = NickCompletion.matches(text: text, members: members, ownNick: ownNick)
     return nicks.isEmpty ? .none : .nick(nicks)
-  }
-
-  /// Rows the selection can move across; the command popup is display-only.
-  var selectableCount: Int {
-    switch self {
-    case .emoji(let matches): matches.count
-    case .nick(let nicks): nicks.count
-    case .command, .none: 0
-    }
   }
 }

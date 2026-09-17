@@ -2,7 +2,7 @@
 
 set -eu
 
-project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+project_root=$(unset CDPATH; cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_root"
 
 : "${LURKER_DEVELOPER_ID:?Set LURKER_DEVELOPER_ID to a Developer ID Application identity}"

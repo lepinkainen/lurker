@@ -4,17 +4,22 @@ This document is for AI agents and other technical readers. It gives the system 
 
 ## Document index
 
+- [architecture.html](architecture.html) — visual architecture overview
+
 - [storage.md](storage.md) — control DB, per-network log DBs, preview cache DB, network + buffer models
 - [rest-api.md](rest-api.md) — HTTP endpoints under `/api/*` plus `/whoami` and health checks
 - [websocket-protocol.md](websocket-protocol.md) — `/api/stream` commands, acks, event shapes
 - [irc-runtime.md](irc-runtime.md) — `irc.Manager`, handler, event persistence, URL preview pipeline, event hub
 - [frontend.md](frontend.md) — web UI layout, source-of-truth rules, hydration model
 - [apple.md](apple.md) — native SwiftUI client, endpoint policy, state model, packaging
+- [apple-pitfalls.md](apple-pitfalls.md) — Lurker-specific SwiftUI/macOS crash and layout pitfalls, with fixes
 - [theming.md](theming.md) — YAML themes, loader, `GET /api/themes`, how to add a theme
 - [tui.md](tui.md) — terminal UI client, configuration, keyboard controls, API usage
+- [desktop.md](desktop.md) — Tauri desktop shell (PoC): remote-URL design, external links, Rust-side uploads, Linux/WebKitGTK requirements
 - [keyboard-shortcuts.md](keyboard-shortcuts.md) — channel switcher and keyboard shortcut UX spec
 - [testing-and-build.md](testing-and-build.md) — testing strategy and Taskfile workflow
 - [operations.md](operations.md) — operational notes including image update checking
+- [simplification-backlog.md](simplification-backlog.md) — ranked over-engineering audit findings (2026-08-06)
 
 ## Purpose and scope
 
@@ -38,6 +43,13 @@ Non-goals unless explicitly requested:
 - app-layer authentication
 - SaaS-style tenancy or account models
 
+## Deliberate design decisions
+
+These look over-engineered for a single-user app on paper. They are intentional — the owner builds them for the challenge. Do not propose deleting them in audits or reviews.
+
+- **Three full clients (web, Apple, TUI).** Each renders the same buffers with its own sidebar sort, presence collapse, unread bar, mIRC rendering, and nick colors. The duplication is the point: cross-client parity contracts (e.g. `nick-identicon.md`) are part of the exercise.
+- **S3 media backend alongside disk.** `media.Blobs` keeps two real backends (`disk`, `s3` via `internal/objstore` + minio-go, provisioned by `deploy/tofu/s3`). Disk alone would suffice for one user; S3 stays as a deliberate infrastructure exercise. See `S3_SETUP.md`.
+
 ## High-level architecture
 
 Main components:
@@ -48,7 +60,7 @@ Main components:
 - `irc/`: persistent IRC connection lifecycle and event handling
 - `db/`: control DB, per-network log DBs, migrations, and query helpers
 - `hub/`: in-process pub/sub used to fan live events to WebSocket clients
-- `updates/`: background checker for published Linux container image metadata
+- `updates/`: background checker comparing the running build's commit with the latest successful GitHub release run
 - `web/`: Vite + TypeScript frontend
 - `apple/`: Xcode project for the native SwiftUI client (one target builds macOS and iOS)
 - `cmd/tui/`: terminal UI client for the backend
@@ -60,7 +72,7 @@ Runtime flow:
 3. bootstrap networks from `config.yaml` are upserted into control DB and started
 4. HTTP API and web UI are served from the same Go process
 5. IRC events resolve buffers through `MultiStore.EnsureBuffer`, persist to SQLite with UUIDv7 IDs, and publish to the hub
-6. background update checker polls GHCR image metadata and caches latest status in memory
+6. background update checker polls GitHub for the latest successful release run and caches status in memory
 7. web, terminal, and native (macOS/iOS) clients consume the existing REST and WebSocket APIs
 8. WebSocket clients receive hub events and issue commands back to the backend
 
@@ -72,10 +84,8 @@ Primary config inputs:
 - `ADDR` default `:8080`
 - `CONFIG_PATH` default `./config.yaml`
 - CLI flag `--web-dir` to serve built frontend from disk
-- `UPDATE_CHECK_*` env vars for optional GHCR image update polling, default daily and clamped to no more than once per hour
-- `UPLOAD_DIR` default `./data/uploads`
-- `UPLOAD_MAX_BYTES` default `20971520`
-- `UPLOAD_BASE_URL` optional override for returned upload URLs
+- `UPDATE_CHECK_ENABLED` / `UPDATE_CHECK_INTERVAL` for optional release update polling via the GitHub API, default daily and clamped to no more than once per hour
+- `media:` block in `config.yaml` selects the upload storage backend (`s3` or `disk`); no block means uploads are disabled. See [operations.md](operations.md#media-storage) and `S3_SETUP.md`. There are no `UPLOAD_*` env vars — an implicit disk default is exactly the failure mode the explicit backend replaced.
 
 ### Important invariant: `config.yaml` is the source of truth at boot
 

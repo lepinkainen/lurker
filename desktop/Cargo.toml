@@ -1,0 +1,30 @@
+[package]
+name = "lurker-desktop"
+version = "0.1.0"
+description = "Minimal Tauri desktop shell for the Lurker IRC bouncer web UI"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# The Linux drop path uploads from Rust, so the shell
+# needs an HTTP client (see "Uploads: drag-and-drop and paste are handled in Rust"
+# in ai-docs/desktop.md). reqwest's defaults pull rustls + aws-lc-sys, adding ~50
+# crates and a cmake/C build step; native-tls links the system OpenSSL that the
+# GTK build already requires and keeps an https:// backend_url working.
+reqwest = { version = "0.13", default-features = false, features = ["multipart", "native-tls"] }
+serde_json = "1"
+sha2 = "0.10"
+# Reads raw clipboard bytes with their original MIME type, so a pasted JPEG is
+# uploaded as a JPEG. arboard would decode to RGBA and force a re-encode, and
+# costs roughly twice the dependencies. Wayland only -- see "Paste is Wayland-only,
+# and costs more bytes than dropping" in ai-docs/desktop.md for the X11 gap.
+[target.'cfg(target_os = "linux")'.dependencies]
+wl-clipboard-rs = "0.9"
+
+[[bin]]
+name = "lurker-desktop"
+path = "src/main.rs"

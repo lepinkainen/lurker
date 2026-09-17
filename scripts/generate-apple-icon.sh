@@ -2,7 +2,7 @@
 
 set -eu
 
-project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+project_root=$(unset CDPATH; cd -- "$(dirname -- "$0")/.." && pwd)
 source_svg="$project_root/web/public/favicon.svg"
 iconset="$project_root/apple/Lurker/Assets.xcassets/AppIcon.appiconset"
 

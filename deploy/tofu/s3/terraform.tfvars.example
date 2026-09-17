@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is gitignored.
+
+aws_region        = "eu-north-1"
+bucket_name       = "lurker-media"
+cdn_hostname      = "cdn.example.com"
+route53_zone_name = "example.com"
+
+# iam_user_name = "lurker-media"
+# tags          = { project = "lurker" }

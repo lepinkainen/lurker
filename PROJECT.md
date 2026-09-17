@@ -14,3 +14,7 @@ Current clients:
 - SwiftUI macOS client
 
 Future client work should improve practical parity while keeping each interface idiomatic to its platform.
+
+## Toolchain policy
+
+Single contributor, single deployment target. Track the latest stable Go release aggressively rather than staying on an old language version for compatibility: bump `go.mod`, the `Dockerfile` builder image, and the version notes in `CLAUDE.md` / `AGENTS.md` together, then run `go fix ./...` (excluding `llm-shared/`) to pick up any modernizations the new language version unlocks. CI reads the version from `go.mod` via `go-version-file`, so it follows automatically.

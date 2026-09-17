@@ -1,8 +1,10 @@
 import SwiftUI
 
+// MARK: - MembersInspector
+
 struct MembersInspector: View {
-  @Environment(AppModel.self) private var model
-  @State private var filter = ""
+
+  // MARK: Internal
 
   var body: some View {
     VStack(spacing: 0) {
@@ -22,7 +24,7 @@ struct MembersInspector: View {
         .padding(.bottom, 8)
 
       List(filtered) { member in
-        MemberRow(member: member)
+        MemberRow(member: member, networkID: model.selectedBuffer?.networkID)
           .listRowSeparator(.hidden)
           .contextMenu {
             Text(member.nick)
@@ -35,6 +37,35 @@ struct MembersInspector: View {
             }
             Button("WHOIS \(member.nick)") {
               sendTarget("whois", member.nick)
+            }
+            Divider()
+            if member.prefix == "@" {
+              Button("Deop \(member.nick)") {
+                sendChannelModeTarget("deop", member.nick)
+              }
+            } else {
+              Button("Op \(member.nick)") {
+                sendChannelModeTarget("op", member.nick)
+              }
+            }
+            if member.prefix == "+" {
+              Button("Devoice \(member.nick)") {
+                sendChannelModeTarget("devoice", member.nick)
+              }
+            } else {
+              Button("Voice \(member.nick)") {
+                sendChannelModeTarget("voice", member.nick)
+              }
+            }
+            Button("Kick \(member.nick)") {
+              sendChannelModeTarget("kick", member.nick)
+            }
+            Divider()
+            Button("Mute \(member.nick)") {
+              muteTarget(member.nick, muted: true)
+            }
+            Button("Unmute \(member.nick)") {
+              muteTarget(member.nick, muted: false)
             }
             Divider()
             Button("Copy Nickname") {
@@ -53,6 +84,11 @@ struct MembersInspector: View {
     }
   }
 
+  // MARK: Private
+
+  @Environment(AppModel.self) private var model
+  @State private var filter = ""
+
   private var filtered: [Member] {
     guard !filter.isEmpty else { return model.selectedMembers }
     return model.selectedMembers.filter {
@@ -65,10 +101,31 @@ struct MembersInspector: View {
     guard let networkID = model.selectedBuffer?.networkID else { return }
     model.command(ClientCommand(type: type, networkID: networkID, target: nick))
   }
+
+  private func sendChannelModeTarget(_ type: String, _ nick: String) {
+    guard let bufferID = model.selectedBuffer?.id else { return }
+    model.command(ClientCommand(type: type, bufferID: bufferID, target: nick))
+  }
+
+  private func muteTarget(_ nick: String, muted: Bool) {
+    guard let networkID = model.selectedBuffer?.networkID else { return }
+    if muted {
+      model.mute(nick: nick, in: networkID)
+    } else {
+      model.unmute(nick: nick, in: networkID)
+    }
+  }
+
 }
 
+// MARK: - MemberRow
+
 private struct MemberRow: View {
+
+  // MARK: Internal
+
   let member: Member
+  let networkID: UUID?
 
   var body: some View {
     HStack(spacing: 7) {
@@ -76,23 +133,35 @@ private struct MemberRow: View {
         .font(.footnote.monospaced().weight(.bold))
         .foregroundStyle(prefixColor)
         .frame(width: 10)
-      NickAvatar(nick: member.nick, colorIndex: member.color)
+      NickAvatar(
+        nick: member.nick,
+        colorIndex: member.color,
+        isBot: member.bot == true,
+        networkID: networkID,
+        hasAvatar: member.hasAvatar == true,
+      )
       VStack(alignment: .leading, spacing: 1) {
         Text(member.nick)
-          .font(.body.monospaced().weight(member.`self` ? .bold : .regular))
+          .font(Theme.Fonts.nick.weight(member.`self` ? .bold : .regular))
           .foregroundStyle(member.away ? .secondary : .primary)
           .lineLimit(1)
+          .truncationMode(.tail)
       }
     }
     .help(member.realname ?? member.nick)
   }
 
+  // MARK: Private
+
   private var prefixColor: Color {
     switch member.prefix {
-    case "@", "&", "~": .red
+    case "@",
+         "&",
+         "~": .red
     case "%": .purple
     case "+": .green
     default: .clear
     }
   }
+
 }

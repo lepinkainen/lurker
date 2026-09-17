@@ -184,13 +184,3 @@ func (s *PreviewStore) GetMany(ctx context.Context, urls []string) (map[string]U
 	}
 	return out, rows.Err()
 }
-
-// PurgeExpired deletes rows older than ttl. Intended for periodic
-// maintenance; callers may ignore for now.
-func (s *PreviewStore) PurgeExpired(ctx context.Context, ttl time.Duration) (int64, error) {
-	if ttl <= 0 {
-		return 0, nil
-	}
-	cutoff := s.now().Add(-ttl).UTC().Format(time.RFC3339Nano)
-	return previewdb.New(s.DB).DeleteURLPreviewsBefore(ctx, cutoff)
-}

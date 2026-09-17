@@ -28,8 +28,7 @@ func newAPIClient(baseURL string) *apiClient {
 func (c *apiClient) fetchState(ctx context.Context) (*stateResponse, error) {
 	var state stateResponse
 	if err := c.hjc.DoJSON(ctx, httpjson.Request{URL: c.baseURL + "/api/state"}, &state); err != nil {
-		var herr *httpjson.Error
-		if errors.As(err, &herr) {
+		if herr, ok := errors.AsType[*httpjson.Error](err); ok {
 			preview := string(herr.Body)
 			if len(preview) > 200 {
 				preview = preview[:200]
@@ -54,6 +53,9 @@ func (c *apiClient) connectWS(ctx context.Context) (*websocket.Conn, error) {
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}
+	// Default limit is 32 KiB; a history page or a large channel's member_list
+	// exceeds that and would close the connection.
+	conn.SetReadLimit(8 << 20)
 	return conn, nil
 }
 

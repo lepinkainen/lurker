@@ -1,0 +1,63 @@
+sequenceDiagram
+    %% Inbound PRIVMSG: filter, persist, fan out, then async URL preview.
+    autonumber
+    participant Srv as IRC server
+    participant H as irc.handler (handler_messages.go)
+    participant Ign as ignore list (control.db)
+    participant Ctl as control.db (buffer_registry)
+    participant Log as network log DB
+    participant NS as netsplitTracker
+    participant Hub as hub.Hub
+    participant WS as api/ws.go writer
+    participant C as Client
+    participant PQ as preview queue
+    participant F as preview.Fetcher
+    participant PDB as previews.db
+    participant Web as remote page
+
+    Srv->>H: PRIVMSG #chan :text https://example.com
+    H->>H: ensureUTF8(content), extract msgid/account tags
+    H->>Ign: ignoreLevel(sender)
+    alt level = hide
+        H-->>Srv: dropped, nothing stored
+    else level = mute
+        H->>H: muted = true (stored and shown, never counts unread)
+    end
+    H->>Ctl: ensureBuffer(name, kind) -> global buffer id
+    opt buffer is an archived query
+        H->>Ctl: syncBufferArchived(false)
+        H->>Hub: Publish BufferUpdateEvent{archived: false}
+        Note over Ctl: New activity resurfaces an archived DM (IRCCloud behavior).
+    end
+    H->>Log: InsertLogMessage(bufferID, msgid, ts, sender, kind, content, raw)
+    Note over Log: UUIDv7 id (byte order == time order).<br/>FTS5 triggers index content+sender.<br/>Duplicate (buffer_id, msgid) is a no-op insert.
+    Log-->>H: id, storedTS, inserted
+    alt not inserted (duplicate msgid)
+        H-->>Srv: no event published
+    end
+    opt channel quit/join
+        H->>NS: trackNetsplit(...)
+        NS-->>H: NetsplitMeta or nil
+        opt cluster just reached NetsplitMinQuits
+            NS->>Hub: Publish NetsplitEvent{message_ids} (retroactive patch)
+        end
+    end
+    H->>H: WithSemantics(nick) - display_kind, is_self, mentions_me,<br/>counts_as_unread, highlight, sender_color, mIRC segments
+    H->>Hub: Publish MessageEvent
+    Hub->>WS: fan-out to every subscriber (256-buffer chan)
+    Note over Hub,WS: Full buffer drops the event and closes the<br/>overflow chan. The socket tears down and the<br/>client resyncs from GET /api/state.
+    WS->>C: JSON frame {"type":"message",...}
+
+    H->>PQ: Enqueue(networkID, bufferID, messageID, content)
+    Note over PQ: 256-slot buffered chan - a full queue logs and drops.
+    PQ->>F: worker picks job, ExtractURLs(content)
+    F->>PDB: Get(url, CacheTTL)
+    alt cache miss
+        F->>Web: HEAD then GET (SSRF guard, size + timeout capped)
+        Web-->>F: OpenGraph / oEmbed / content-type
+        F->>PDB: Put(URLPreview)
+    end
+    F->>Log: InsertMessagePreviewLinks(message_id, url, position)
+    F->>Hub: Publish preview.Event{previews} (displayable only)
+    Hub->>WS: fan-out
+    WS->>C: JSON frame {"type":"preview",...}

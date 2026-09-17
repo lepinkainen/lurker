@@ -43,6 +43,16 @@
     border-radius: 4px;
   }
 
+  .user-popup .up-hdr .nick-avatar.bot {
+    font-size: 24px;
+    line-height: 28px;
+  }
+
+  .user-popup .up-hdr img.nick-avatar {
+    object-fit: cover;
+    image-rendering: auto;
+  }
+
   .user-popup .up-who {
     min-width: 0;
     flex: 1;

@@ -2,6 +2,7 @@ version: '3'
 
 vars:
   APP_NAME: lurker
+  SWIFTFORMAT_ARGS: --config apple/airbnb.swiftformat apple/Lurker apple/LurkerTests apple/LurkerUITests
   BUILD_DIR: build
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
@@ -42,6 +43,12 @@ tasks:
         mkdir -p {{.BUILD_DIR}}
         step binary    go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
         echo "Build OK — lint, tests, web build, and local applications"
+
+  build-backend:
+    desc: Build just the Go backend binary into build/ (no lint, tests, or frontend)
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
 
   build-linux:
     desc: Build the Linux binary into build/
@@ -84,9 +91,38 @@ tasks:
       - mkdir -p {{.BUILD_DIR}}
       - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/lurker-tui-linux-amd64 ./cmd/tui
 
+  desktop-dev:
+    desc: Run the Tauri desktop shell in dev mode (reads LURKER_URL or ~/.config/lurker/desktop.yaml)
+    deps: [icons-desktop]
+    cmds:
+      - cd desktop && cargo tauri dev
+
+  build-desktop:
+    desc: Build the Tauri desktop shell release bundle
+    deps: [icons-desktop]
+    cmds:
+      - cd desktop && cargo tauri build
+
+  install-linux:
+    desc: Install the desktop shell for the current user under ~/.local (no root, no reboot)
+    platforms: [linux]
+    deps: [icons-desktop]
+    cmds:
+      # Not build-desktop: that bundles deb/rpm/AppImage, and the AppImage step
+      # needs NO_STRIP=1 on Fedora 44. The binary is all an install needs.
+      - cd desktop && cargo build --release
+      - ./scripts/install-linux.sh
+
+  uninstall-linux:
+    desc: Remove the user-level desktop shell install
+    platforms: [linux]
+    cmds:
+      - ./scripts/install-linux.sh --uninstall
+
   build-apple:
     desc: Build the native macOS app (Apple silicon)
     platforms: [darwin]
+    deps: [apple-icon]
     cmds:
       - >-
         xcodebuild -quiet
@@ -131,6 +167,41 @@ tasks:
       - rm -rf /Applications/Lurker.app
       - ditto {{.BUILD_DIR}}/DerivedData/Build/Products/Release/Lurker.app /Applications/Lurker.app
 
+  icons:
+    desc: Regenerate every raster icon from web/public/favicon.svg
+    cmds:
+      - task: icons-web
+      - task: icons-desktop
+      - task: apple-icon
+
+  icons-web:
+    desc: Regenerate the web/PWA icons from web/public/favicon.svg
+    sources:
+      - web/public/favicon.svg
+      - scripts/gen-icons.sh
+    generates:
+      - web/public/icon-192.png
+      - web/public/icon-512.png
+      - web/public/icon-maskable-512.png
+      - web/public/apple-touch-icon.png
+    cmds:
+      - ./scripts/gen-icons.sh web
+
+  icons-desktop:
+    desc: Regenerate the Tauri desktop icon set from web/public/favicon.svg
+    sources:
+      - web/public/favicon.svg
+      - scripts/gen-icons.sh
+    generates:
+      - desktop/icons/icon.png
+      - desktop/icons/32x32.png
+      - desktop/icons/64x64.png
+      - desktop/icons/128x128.png
+      - desktop/icons/128x128@2x.png
+      - desktop/icons/icon.ico
+    cmds:
+      - ./scripts/gen-icons.sh desktop
+
   apple-icon:
     desc: Generate the native app icon from the project icon
     platforms: [darwin]
@@ -173,14 +244,21 @@ tasks:
         CODE_SIGN_IDENTITY=-
         CODE_SIGNING_REQUIRED=YES
         AD_HOC_CODE_SIGNING_ALLOWED=YES
-        -only-testing:LurkerUITests
+        -only-testing:{{.TEST_FILTER | default "LurkerUITests"}}
+        {{.CLI_ARGS}}
         test
 
   lint-apple:
-    desc: Check native Swift formatting
+    desc: Check native Swift formatting (Airbnb style guide via SwiftFormat)
     platforms: [darwin]
     cmds:
-      - xcrun swift-format lint --strict --recursive apple/Lurker apple/LurkerTests apple/LurkerUITests
+      - swiftformat --lint {{.SWIFTFORMAT_ARGS}}
+
+  format-apple:
+    desc: Apply Airbnb SwiftFormat style to native Swift sources
+    platforms: [darwin]
+    cmds:
+      - swiftformat {{.SWIFTFORMAT_ARGS}}
 
   package-apple:
     desc: Build, Developer ID sign, notarize, and staple a macOS DMG
@@ -192,7 +270,7 @@ tasks:
       - ./scripts/package-apple.sh
 
   dev-web:
-    desc: Build the frontend then run backend via air (restarts 5s after Go edits settle)
+    desc: Build the frontend then run backend via air (restarts 15s after Go edits settle)
     deps: [web-build]
     cmds:
       - air
@@ -218,6 +296,14 @@ tasks:
     cmds:
       - go run . --web-dir ./web/dist
 
+  dev-test-api:
+    desc: Run backend against seeded ./data-test, API only (no web build) — for TUI/API verification
+    env:
+      DATA_DIR: ./data-test
+      CONFIG_PATH: ./data-test/config.yaml
+    cmds:
+      - go run .
+
   web-install:
     desc: Install frontend dependencies with pnpm
     cmds:
@@ -236,12 +322,22 @@ tasks:
 
   web-build:
     desc: Build the frontend into web/dist
-    deps: [gen-palette]
+    deps: [gen-palette, icons-web]
     cmds:
       - cd web && pnpm build
 
   test:
-    desc: Run the test suite (excluding llm-shared)
+    desc: Run the full test suite — backend (incl. tui), web, and apple (macOS only)
+    cmds:
+      - task test-backend
+      - task test-web
+      - |
+        if [ "$(uname -s)" = "Darwin" ]; then
+          task test-apple
+        fi
+
+  test-backend:
+    desc: Run the Go backend test suite, incl. TUI (excludes llm-shared)
     cmds:
       - go test {{.GO_PACKAGES}}
 
@@ -255,9 +351,39 @@ tasks:
     cmds:
       - go test -tags=ci -cover -v {{.GO_PACKAGES}} | tee coverage.out
 
+  test-ergo:
+    desc: Run IRCv3 protocol integration tests against a real Ergo server (requires docker)
+    cmds:
+      - docker rm -f lurker-ergo-test >/dev/null 2>&1 || true
+      - docker run -d --name lurker-ergo-test -p 16667:6667 -v {{.ROOT_DIR}}/testdata/ergo/ircd.yaml:/ircd/ircd.yaml:ro ghcr.io/ergochat/ergo:stable
+      - defer: docker rm -f lurker-ergo-test >/dev/null 2>&1 || true
+      - |
+        for i in $(seq 1 50); do
+          nc -z 127.0.0.1 16667 >/dev/null 2>&1 && exit 0
+          sleep 0.2
+        done
+        echo "Ergo did not start listening on :16667" >&2
+        docker logs lurker-ergo-test >&2
+        exit 1
+      - ERGO_ADDR=127.0.0.1:16667 go test -tags=ergo ./irc/ -run TestErgo -count=1 -v -timeout 120s
+
+  lint-shell:
+    desc: shellcheck every shell script
+    cmds:
+      - |
+        # Selected by shebang, not extension: scripts/push-and-watch.sh is a
+        # uv/Python script that happens to be named .sh, and shellcheck would
+        # try to parse it as shell.
+        files=$(grep -lE '^#!.*\b(sh|bash|dash)\b' scripts/*.sh 2>/dev/null || true)
+        if [ -z "$files" ]; then
+          echo "no shell scripts to check"
+          exit 0
+        fi
+        echo "$files" | xargs shellcheck
+
   lint:
     desc: Run formatting and lint checks (excluding llm-shared)
-    deps: [lint-web]
+    deps: [lint-web, lint-mermaid, lint-shell]
     cmds:
       - go fix {{.GO_PACKAGES}}
       - goimports -w $(find . -path ./llm-shared -prune -o -name '*.go' -print)
@@ -276,6 +402,11 @@ tasks:
     desc: Report unreachable Go functions (advisory; interface-compliance assertions can be false positives)
     cmds:
       - deadcode {{.GO_PACKAGES}}
+
+  lint-mermaid:
+    desc: Validate Mermaid syntax in documentation (no browser or rendering)
+    cmds:
+      - node web/scripts/lint-mermaid.mjs {{.CLI_ARGS}}
 
   lint-web:
     desc: Type-check and lint the frontend

@@ -1,0 +1,17 @@
+erDiagram
+    %% media.db - upload metadata only; bytes live in S3 or uploads/ on disk.
+    %% Self-contained so the media subsystem stays detachable from chat.
+    %% Derived from db/media_migrations/0001_init.sql.
+
+    media {
+        TEXT id PK
+        TEXT kind
+        TEXT mime
+        TEXT source_hash UK "content hash - the dedupe key"
+        TEXT variants "JSON array of renditions (name, key, mime, w, h, bytes)"
+        INTEGER size
+        INTEGER width
+        INTEGER height
+        TEXT created_at "indexed DESC for the media browser"
+        TEXT updated_at
+    }

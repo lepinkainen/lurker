@@ -1,8 +1,11 @@
 package db
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -10,6 +13,32 @@ import (
 // newID generates a new UUIDv7 (time-ordered).
 func newID() uuid.UUID {
 	return uuid.Must(uuid.NewV7())
+}
+
+// newIDAtSeq disambiguates same-millisecond backfill IDs. uuid.NewV7's own
+// monotonicity counter re-randomizes every wall-clock ms, so it can't order
+// messages that share a *message* timestamp but are inserted across an
+// insert-ms boundary — a process-wide counter in the rand_a bits can.
+var newIDAtSeq atomic.Uint32
+
+// newIDAt generates a UUIDv7 whose 48-bit timestamp encodes t instead of now.
+// Used for backfilled messages so id order keeps matching chronological order
+// even though the rows are inserted long after the messages happened
+// (RecentLogMessages, LogMessagesBefore and last_seen_id all compare by id).
+// Generation order breaks ties between IDs with the same millisecond, so
+// same-timestamp messages keep their delivery order (12-bit counter: correct
+// as long as two same-ms messages of one buffer are generated fewer than
+// 4096 calls apart, which a replay batch always satisfies).
+func newIDAt(t time.Time) uuid.UUID {
+	id := uuid.Must(uuid.NewV7())
+	ms := max(t.UnixMilli(), 0)
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], uint64(ms))
+	copy(id[0:6], buf[2:8])
+	seq := newIDAtSeq.Add(1) & 0x0FFF
+	id[6] = 0x70 | byte(seq>>8) // UUID version 7 nibble + counter high bits
+	id[7] = byte(seq & 0xFF)
+	return id
 }
 
 // ErrCorruptUUID indicates a stored BLOB value was not a valid 16-byte UUID.

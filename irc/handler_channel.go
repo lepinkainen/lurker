@@ -22,10 +22,14 @@ func (h *handler) onJoin(c *girc.Client, e girc.Event) {
 	}
 	h.updateChannelJoined(channel, true, "join", e.Source)
 	if isSelf {
+		// Fill any missed-message gap from server-side history (covers both
+		// reconnects and rejoins after a kick).
+		h.maybeRequestChathistory(channel)
 		return
 	}
 	if e.Source != nil {
 		h.userChannels.addUser(e.Source.Name, channel)
+		h.requestBotWho(c, e.Source.Name)
 	}
 	h.storeEvent(e, channel, ircdb.BufferChannel, "join", "", "")
 }
@@ -191,6 +195,9 @@ func (h *handler) onEndOfNames(c *girc.Client, e girc.Event) {
 		}
 	}
 	h.publishMemberList(c, channel)
+	// Ask for bot flags once the roster is known; the reply's RPL_ENDOFWHO
+	// republishes the list with them applied.
+	h.requestBotWho(c, channel)
 }
 
 // onEndOfWho fires after girc's auto-WHO on join completes. At this point
@@ -304,7 +311,7 @@ func (h *handler) updateChannelTopicState(channel string, topic, setBy, setAt *s
 		slog.Error("ensure topic buffer", "err", err, "network", h.networkName, "buffer", channel)
 		return
 	}
-	if err := ircdb.UpdateLogBufferTopicState(ctx, h.db, channel, topic, setBy, setAt); err != nil {
+	if err := ircdb.UpdateLogBufferTopicState(ctx, h.db.DB, channel, topic, setBy, setAt); err != nil {
 		// No publish on failure: clients must never render state that a
 		// reload (which reads from the DB) can't reproduce.
 		slog.Error("update channel topic state", "err", err, "network", h.networkName, "buffer", channel)

@@ -11,7 +11,10 @@ import (
 func main() {
 	configPath := flag.String("config", "", "path to tui config YAML (default: ./tui-config.yaml or ~/.config/lurker/tui.yaml)")
 	backendURL := flag.String("url", "", "backend URL (overrides config file)")
+	stateDirFlag := flag.String("state-dir", "", "directory for tui-state.json (default: <user config dir>/lurker)")
 	flag.Parse()
+
+	stateDir = *stateDirFlag
 
 	cfg, err := loadConfig(*configPath)
 	if err != nil {

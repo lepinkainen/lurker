@@ -1,8 +1,9 @@
 -- name: CreateIgnore :exec
-INSERT OR IGNORE INTO ignores (id, network_id, mask, created_at) VALUES (?, ?, ?, ?);
+INSERT INTO ignores (id, network_id, mask, created_at, level) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(network_id, mask) DO UPDATE SET level = excluded.level;
 
 -- name: DeleteIgnore :exec
 DELETE FROM ignores WHERE network_id = ? AND mask = ?;
 
 -- name: ListIgnores :many
-SELECT mask FROM ignores WHERE network_id = ? ORDER BY created_at;
+SELECT mask, level FROM ignores WHERE network_id = ? ORDER BY created_at;

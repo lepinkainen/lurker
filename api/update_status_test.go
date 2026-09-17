@@ -20,14 +20,8 @@ func TestUpdateStatusEndpoint(t *testing.T) {
 
 	checker := updates.New(updates.Config{
 		Enabled:  true,
-		Image:    "ghcr.io/lepinkainen/lurker",
-		Tag:      "latest",
 		Interval: time.Hour,
-		Current: updates.BuildInfo{
-			Version:   "dev",
-			Commit:    "abc123",
-			BuildTime: "2026-04-27T00:00:00Z",
-		},
+		Current:  updates.BuildInfo{Commit: "abc123"},
 	})
 
 	srv := &Server{Stores: stores, UpdateChecker: checker}
@@ -47,13 +41,7 @@ func TestUpdateStatusEndpoint(t *testing.T) {
 	if !got.Enabled {
 		t.Fatal("expected enabled=true")
 	}
-	if got.Image != "ghcr.io/lepinkainen/lurker" {
-		t.Fatalf("image = %q", got.Image)
-	}
-	if got.Tag != "latest" {
-		t.Fatalf("tag = %q", got.Tag)
-	}
-	if got.CurrentCommit != "abc123" {
-		t.Fatalf("current commit = %q", got.CurrentCommit)
+	if got.UpdateAvailable {
+		t.Fatal("no check ran yet, expected update_available=false")
 	}
 }

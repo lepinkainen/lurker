@@ -236,3 +236,130 @@ func TestChghostStoresIdentAndHost(t *testing.T) {
 		t.Fatalf("message = %+v", msg)
 	}
 }
+
+// Bug 1 regression: a departing user's tracked avatar must be cleared, and
+// clients told, so a nick reuse never inherits the previous holder's
+// avatar.
+func TestQuitClearsTrackedAvatarAndPublishesEvent(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	f.Handler.avatars = newAvatarTracker()
+	f.Handler.avatars.set("alice", "https://example.com/a.png")
+	events, _, unsub := h.Subscribe(16)
+	defer unsub()
+
+	f.Handler.onQuit(nil, mustEvent(t, ":alice!u@h QUIT :bye"))
+
+	if f.Handler.avatars.has("alice") {
+		t.Fatal("avatar still tracked for alice after QUIT")
+	}
+	got := avatarEvents(drainEvents(events))
+	if len(got) != 1 || got[0].Nick != "alice" || got[0].HasAvatar {
+		t.Fatalf("events = %+v, want one nick=alice has_avatar=false", got)
+	}
+}
+
+// A quitting IRCCloud user has no tracker entry (that fallback is derived,
+// never stored) but nick-keyed web clients still need the clear so a nick
+// reuse doesn't inherit the derived avatar either.
+func TestQuitEmitsClearForIRCCloudDerivedAvatar(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	f.Handler.avatars = newAvatarTracker()
+	events, _, unsub := h.Subscribe(16)
+	defer unsub()
+
+	f.Handler.onQuit(nil, mustEvent(t, ":alice!uid123@id.irccloud.com QUIT :bye"))
+
+	got := avatarEvents(drainEvents(events))
+	if len(got) != 1 || got[0].Nick != "alice" || got[0].HasAvatar {
+		t.Fatalf("events = %+v, want one nick=alice has_avatar=false", got)
+	}
+}
+
+// A quit for a user with neither a tracked nor a derivable avatar must not
+// publish a spurious AvatarEvent.
+func TestQuitWithNoAvatarPublishesNoAvatarEvent(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	f.Handler.avatars = newAvatarTracker()
+	events, _, unsub := h.Subscribe(16)
+	defer unsub()
+
+	f.Handler.onQuit(nil, mustEvent(t, ":alice!u@h QUIT :bye"))
+
+	if got := avatarEvents(drainEvents(events)); len(got) != 0 {
+		t.Fatalf("events = %+v, want none", got)
+	}
+}
+
+// Bug 2 regression: a nick change must move the tracked avatar and tell
+// nick-keyed web clients about both the old (cleared) and new (set) nick,
+// not just rewrite the tracker silently.
+func TestNickMovesTrackedAvatarAndPublishesEvents(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	f.Handler.avatars = newAvatarTracker()
+	f.Handler.avatars.set("alice", "https://example.com/a.png")
+	events, _, unsub := h.Subscribe(16)
+	defer unsub()
+
+	f.Handler.onNick(nil, mustEvent(t, ":alice!u@h NICK bob"))
+
+	if f.Handler.avatars.has("alice") {
+		t.Fatal("old nick still has an avatar after rename")
+	}
+	url, ok := f.Handler.avatars.get("bob")
+	if !ok || url != "https://example.com/a.png" {
+		t.Fatalf("avatars.get(bob) = (%q, %v), want (https://example.com/a.png, true)", url, ok)
+	}
+	got := avatarEvents(drainEvents(events))
+	if len(got) != 2 {
+		t.Fatalf("published %d AvatarEvents, want 2 (clear old, set new): %+v", len(got), got)
+	}
+	if got[0].Nick != "alice" || got[0].HasAvatar {
+		t.Fatalf("first event = %+v, want nick=alice has_avatar=false", got[0])
+	}
+	if got[1].Nick != "bob" || !got[1].HasAvatar {
+		t.Fatalf("second event = %+v, want nick=bob has_avatar=true", got[1])
+	}
+}
+
+// An IRCCloud-derived avatar isn't in the tracker, so a rename must still
+// emit clear(old)+set(new) purely from the (unchanged) hostmask.
+func TestNickEmitsAvatarEventsForIRCCloudDerivedAvatar(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	f.Handler.avatars = newAvatarTracker()
+	events, _, unsub := h.Subscribe(16)
+	defer unsub()
+
+	f.Handler.onNick(nil, mustEvent(t, ":alice!uid123@id.irccloud.com NICK bob"))
+
+	got := avatarEvents(drainEvents(events))
+	if len(got) != 2 {
+		t.Fatalf("published %d AvatarEvents, want 2 (clear old, set new): %+v", len(got), got)
+	}
+	if got[0].Nick != "alice" || got[0].HasAvatar {
+		t.Fatalf("first event = %+v, want nick=alice has_avatar=false", got[0])
+	}
+	if got[1].Nick != "bob" || !got[1].HasAvatar {
+		t.Fatalf("second event = %+v, want nick=bob has_avatar=true", got[1])
+	}
+}
+
+// A nick change for a user with neither a tracked nor a derivable avatar
+// must not publish spurious AvatarEvents.
+func TestNickWithNoAvatarPublishesNoAvatarEvent(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	f.Handler.avatars = newAvatarTracker()
+	events, _, unsub := h.Subscribe(16)
+	defer unsub()
+
+	f.Handler.onNick(nil, mustEvent(t, ":alice!u@h NICK bob"))
+
+	if got := avatarEvents(drainEvents(events)); len(got) != 0 {
+		t.Fatalf("events = %+v, want none", got)
+	}
+}

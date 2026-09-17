@@ -10,7 +10,8 @@ import (
 )
 
 const createIgnore = `-- name: CreateIgnore :exec
-INSERT OR IGNORE INTO ignores (id, network_id, mask, created_at) VALUES (?, ?, ?, ?)
+INSERT INTO ignores (id, network_id, mask, created_at, level) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(network_id, mask) DO UPDATE SET level = excluded.level
 `
 
 type CreateIgnoreParams struct {
@@ -18,6 +19,7 @@ type CreateIgnoreParams struct {
 	NetworkID []byte
 	Mask      string
 	CreatedAt string
+	Level     string
 }
 
 func (q *Queries) CreateIgnore(ctx context.Context, arg CreateIgnoreParams) error {
@@ -26,6 +28,7 @@ func (q *Queries) CreateIgnore(ctx context.Context, arg CreateIgnoreParams) erro
 		arg.NetworkID,
 		arg.Mask,
 		arg.CreatedAt,
+		arg.Level,
 	)
 	return err
 }
@@ -45,22 +48,27 @@ func (q *Queries) DeleteIgnore(ctx context.Context, arg DeleteIgnoreParams) erro
 }
 
 const listIgnores = `-- name: ListIgnores :many
-SELECT mask FROM ignores WHERE network_id = ? ORDER BY created_at
+SELECT mask, level FROM ignores WHERE network_id = ? ORDER BY created_at
 `
 
-func (q *Queries) ListIgnores(ctx context.Context, networkID []byte) ([]string, error) {
+type ListIgnoresRow struct {
+	Mask  string
+	Level string
+}
+
+func (q *Queries) ListIgnores(ctx context.Context, networkID []byte) ([]ListIgnoresRow, error) {
 	rows, err := q.db.QueryContext(ctx, listIgnores, networkID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []ListIgnoresRow{}
 	for rows.Next() {
-		var mask string
-		if err := rows.Scan(&mask); err != nil {
+		var i ListIgnoresRow
+		if err := rows.Scan(&i.Mask, &i.Level); err != nil {
 			return nil, err
 		}
-		items = append(items, mask)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

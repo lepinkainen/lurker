@@ -47,8 +47,8 @@ func (s *Server) reorderNetworkBuffers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	event := bufferReorderEvent{Type: "buffer_reorder", NetworkID: networkID}
-	event.Buffers = make([]bufferSortEntryDTO, 0, len(entries))
+	event := bufferReorderEvent{Type: "buffer_reorder", NetworkID: networkID,
+		Buffers: make([]bufferSortEntryDTO, 0, len(entries))}
 	for _, e := range entries {
 		event.Buffers = append(event.Buffers, bufferSortEntryDTO{ID: e.ID, SortOrder: e.SortOrder})
 	}

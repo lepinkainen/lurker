@@ -2,8 +2,6 @@ package irc
 
 import (
 	"log/slog"
-	"path"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,12 +10,17 @@ import (
 )
 
 func (h *handler) onPrivmsg(_ *girc.Client, e girc.Event) {
-	var bufName, bufferKind, kind string
+	// Replayed history goes through the backfill path: buffer from the
+	// batch target, no live publish, chronology-preserving row IDs.
+	if ref, target, ok := h.chathistoryDivert(e); ok {
+		h.storeBackfillMessage(e, ref, target)
+		return
+	}
+	var bufName, bufferKind string
 	switch {
 	case e.IsFromChannel():
 		bufName = e.Params[0]
 		bufferKind = ircdb.BufferChannel
-		kind = "privmsg"
 	default:
 		if e.Command == girc.NOTICE && (e.Source == nil || e.Source.Ident == "") {
 			// Server notice (no userhost) — route to network status buffer.
@@ -28,44 +31,24 @@ func (h *handler) onPrivmsg(_ *girc.Client, e girc.Event) {
 			}
 			bufferKind = ircdb.BufferQuery
 		}
-		kind = "privmsg"
 	}
-	if e.Command == girc.NOTICE {
-		kind = "notice"
-	}
-	content := e.Last()
-	if e.IsAction() {
-		kind = "action"
-		content = e.StripAction()
-	} else if ok, ctcp := e.IsCTCP(); ok && ctcp.Command != girc.CTCP_ACTION {
-		kind = "ctcp"
-		if ctcp.Text != "" {
-			content = ctcp.Command + " " + ctcp.Text
-		} else {
-			content = ctcp.Command
-		}
-	}
+	kind, content := privmsgKindContent(e)
 	h.storeEvent(e, bufName, bufferKind, kind, "", content)
 }
 
-// isIgnored checks whether the given nick matches any configured ignore mask.
-func (h *handler) isIgnored(nick string) bool {
+// ignoreLevel returns the configured ignore level ("", hide, or mute) for
+// the given nick.
+func (h *handler) ignoreLevel(nick string) string {
 	if h.stores == nil {
-		return false
+		return ""
 	}
 	ctx, cancel := h.eventContext()
 	defer cancel()
-	masks, err := ircdb.ListIgnores(ctx, h.stores.Control, h.networkID)
-	if err != nil || len(masks) == 0 {
-		return false
+	entries, err := ircdb.ListIgnores(ctx, h.stores.Control, h.networkID)
+	if err != nil || len(entries) == 0 {
+		return ""
 	}
-	nickLower := strings.ToLower(nick)
-	for _, mask := range masks {
-		if matched, _ := path.Match(strings.ToLower(mask), nickLower); matched {
-			return true
-		}
-	}
-	return false
+	return ircdb.IgnoreLevelFor(entries, nick)
 }
 
 // storeEvent is the single funnel for inbound IRC events. It upserts the
@@ -81,9 +64,16 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 			userhost = e.Source.Ident + "@" + e.Source.Host
 		}
 	}
-	if sender != "" && sender != "*" && h.isIgnored(sender) {
-		return
+	muted := false
+	if sender != "" && sender != "*" {
+		switch h.ignoreLevel(sender) {
+		case ircdb.IgnoreLevelHide:
+			return
+		case ircdb.IgnoreLevelMute:
+			muted = true
+		}
 	}
+	h.noteBotTag(e)
 	msgID, _ := e.Tags.Get("msgid")
 	account, _ := e.Tags.Get("account")
 	ts := e.Timestamp
@@ -132,24 +122,23 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 	}
 	nsMeta := h.trackNetsplit(bufID, id, bufKind, kind, sender, content, storedTS, ts)
 	ev := (&MessageEvent{
-		Type: "message",
-		MessageCore: MessageCore{
-			ID:        id,
-			NetworkID: h.networkID,
-			BufferID:  bufID,
-			MsgID:     msgID,
-			TS:        storedTS,
-			Sender:    sender,
-			Userhost:  userhost,
-			Account:   account,
-			Kind:      kind,
-			Target:    target,
-			Content:   content,
-		},
+		Type:      "message",
+		ID:        id,
+		NetworkID: h.networkID,
+		BufferID:  bufID,
+		MsgID:     msgID,
+		TS:        storedTS,
+		Sender:    sender,
+		Userhost:  userhost,
+		Account:   account,
+		Kind:      kind,
+		Target:    target,
+		Content:   content,
 	}).WithSemantics(nick)
+	ev.Muted = muted
 	ev.Netsplit = nsMeta
 	h.hub.Publish(ev)
-	h.enqueuePreviews(id, bufID, kind, content)
+	h.enqueuePreviews(id, bufID, bufKind, kind, content)
 }
 
 // trackNetsplit feeds stored channel quit/join messages through the live
@@ -182,9 +171,10 @@ func (h *handler) trackNetsplit(bufID, msgID uuid.UUID, bufKind, kind, sender, c
 
 // enqueuePreviews schedules URL-preview fetches for user-authored content.
 // We skip synthetic kinds (joins, modes, etc.) so the preview worker never
-// wastes cycles on system noise.
-func (h *handler) enqueuePreviews(messageID, bufferID uuid.UUID, kind, content string) {
-	if h.previews == nil || content == "" {
+// wastes cycles on system noise. Status windows (server notices, MOTD) never
+// get previews: link previews are off by default there.
+func (h *handler) enqueuePreviews(messageID, bufferID uuid.UUID, bufKind, kind, content string) {
+	if h.previews == nil || content == "" || bufKind == ircdb.BufferStatus {
 		return
 	}
 	switch kind {

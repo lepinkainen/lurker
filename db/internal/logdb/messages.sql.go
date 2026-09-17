@@ -61,6 +61,19 @@ func (q *Queries) InsertLogMessage(ctx context.Context, arg InsertLogMessagePara
 	return result.RowsAffected()
 }
 
+const latestLogMessageTS = `-- name: LatestLogMessageTS :one
+SELECT CAST(COALESCE(MAX(ts), '') AS TEXT) AS ts FROM messages WHERE buffer_id = ?
+`
+
+// Newest stored timestamp for a buffer (uses messages_buffer_ts index).
+// Empty string when the buffer has no messages.
+func (q *Queries) LatestLogMessageTS(ctx context.Context, bufferID []byte) (string, error) {
+	row := q.db.QueryRowContext(ctx, latestLogMessageTS, bufferID)
+	var ts string
+	err := row.Scan(&ts)
+	return ts, err
+}
+
 const logMessageInBuffer = `-- name: LogMessageInBuffer :one
 SELECT EXISTS(SELECT 1 FROM messages WHERE buffer_id = ? AND id = ?)
 `

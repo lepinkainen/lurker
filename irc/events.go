@@ -27,8 +27,13 @@ type MessageCore struct {
 	IsSelf         bool   `json:"is_self,omitzero"`
 	MentionsMe     bool   `json:"mentions_me,omitzero"`
 	CountsAsUnread bool   `json:"counts_as_unread,omitzero"`
-	SenderColor    *int   `json:"sender_color,omitempty"`
-	TargetColor    *int   `json:"target_color,omitempty"`
+	// Muted marks a sender on the mute tier of the ignore list: the message
+	// is stored and shown, never counts toward unread or anchors the marker,
+	// but mentions/highlights from it still badge. Set on live events and
+	// history alike so clients derive identical counts from either.
+	Muted       bool `json:"muted,omitzero"`
+	SenderColor *int `json:"sender_color,omitempty"`
+	TargetColor *int `json:"target_color,omitempty"`
 	// Highlight/HighlightPattern are set when content matches a
 	// user-defined highlight pattern (custom hilight words).
 	Highlight        bool   `json:"highlight,omitzero"`
@@ -93,6 +98,16 @@ type NetsplitEvent struct {
 	MessageIDs []uuid.UUID  `json:"message_ids"`
 }
 
+// HistoryBackfillEvent announces that a CHATHISTORY batch inserted older
+// messages into a buffer. Clients refetch the buffer's history (or ignore
+// the event — the rows are there on next load either way).
+type HistoryBackfillEvent struct {
+	Type      string    `json:"type"`
+	NetworkID uuid.UUID `json:"network_id"`
+	BufferID  uuid.UUID `json:"buffer_id"`
+	Count     int       `json:"count"`
+}
+
 // BufferCreatedEvent is published the first time we see activity in a
 // buffer that didn't exist yet (autojoin, inbound PM, network status).
 type BufferCreatedEvent struct {
@@ -130,6 +145,18 @@ type PresenceEvent struct {
 	Target    string    `json:"target,omitzero"`
 }
 
+// AvatarEvent announces that a nick's IRCv3 metadata avatar URL (see
+// ChannelUser.HasAvatar) was set or cleared. Event-only, like PresenceEvent:
+// nothing is persisted to the log DB. The URL itself never crosses the wire
+// here — clients refetch member lists (or the later avatar proxy endpoint)
+// once they see HasAvatar flip.
+type AvatarEvent struct {
+	Type      string    `json:"type"`
+	NetworkID uuid.UUID `json:"network_id"`
+	Nick      string    `json:"nick"`
+	HasAvatar bool      `json:"has_avatar"`
+}
+
 // MemberListEvent publishes the full known member list for a channel.
 type MemberListEvent struct {
 	Type      string        `json:"type"`
@@ -140,14 +167,22 @@ type MemberListEvent struct {
 }
 
 // ChannelUser is one user in a channel member list. Color is the
-// server-computed nickcolor palette index.
+// server-computed nickcolor palette index. Bot reflects IRCv3 bot mode
+// (https://ircv3.net/specs/extensions/bot-mode); clients render bots with a
+// robot glyph instead of the nick identicon. HasAvatar reflects IRCv3
+// metadata (draft/metadata-2, https://ircv3.net/specs/extensions/metadata)
+// avatar publication; the URL itself is not sent here — clients that see
+// HasAvatar fetch it through the (later) avatar proxy endpoint instead of
+// rendering the procedural identicon.
 type ChannelUser struct {
-	Nick     string `json:"nick"`
-	Prefix   string `json:"prefix,omitzero"`
-	Realname string `json:"realname,omitzero"`
-	Away     bool   `json:"away"`
-	Self     bool   `json:"self"`
-	Color    int    `json:"color"`
+	Nick      string `json:"nick"`
+	Prefix    string `json:"prefix,omitzero"`
+	Realname  string `json:"realname,omitzero"`
+	Away      bool   `json:"away"`
+	Self      bool   `json:"self"`
+	Bot       bool   `json:"bot"`
+	HasAvatar bool   `json:"has_avatar,omitzero"`
+	Color     int    `json:"color"`
 }
 
 // NetworkStateEvent announces connection state transitions.

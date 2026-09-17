@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture diagrams</title>
+<link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+<header id="header">
+  <div id="header-left">
+    <span id="project-name">—</span>
+    <span class="header-sep">·</span>
+    <span id="generated-at">—</span>
+    <span class="header-sep">·</span>
+    <span id="commit" class="mono">—</span>
+  </div>
+  <div id="header-right">
+    <button id="btn-theme" type="button" title="Toggle light/dark theme">theme</button>
+    <button id="btn-source" type="button" title="Toggle raw source view">source</button>
+    <button id="btn-copy" type="button" title="Copy raw source to clipboard">copy</button>
+    <button id="btn-reset" type="button" title="Reset zoom/pan">reset zoom</button>
+  </div>
+</header>
+
+<nav id="tabs" aria-label="Diagrams"></nav>
+
+<div id="banner" hidden></div>
+
+<main id="pane">
+  <div id="viewport">
+    <div id="canvas"></div>
+  </div>
+  <pre id="source" hidden></pre>
+</main>
+
+<script type="module" src="viewer.js"></script>
+</body>
+</html>

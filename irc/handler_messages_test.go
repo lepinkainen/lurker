@@ -91,7 +91,7 @@ func TestPrivmsgCTCPAndActionKinds(t *testing.T) {
 
 func TestIgnoredNickSkipsPersistence(t *testing.T) {
 	f := newTestHandlerFixture(t)
-	if err := ircdb.CreateIgnore(t.Context(), f.Stores.Control, f.Network.ID, "bad*"); err != nil {
+	if err := ircdb.CreateIgnore(t.Context(), f.Stores.Control, f.Network.ID, "bad*", ircdb.IgnoreLevelHide); err != nil {
 		t.Fatal(err)
 	}
 
@@ -104,6 +104,49 @@ func TestIgnoredNickSkipsPersistence(t *testing.T) {
 	msg := lastHandlerMessage(t, f)
 	if msg.Sender != "alice" || msg.Content != "keep me" {
 		t.Fatalf("message = %+v", msg)
+	}
+}
+
+// TestMutedNickIsStoredButFlaggedNotCountingUnread verifies mute-tier
+// ignores are persisted and published like normal messages, but the
+// outgoing MessageEvent has CountsAsUnread forced false so buffer tallies
+// skip them.
+func TestMutedNickIsStoredButFlaggedNotCountingUnread(t *testing.T) {
+	h := hub.New()
+	f := newTestHandlerFixture(t, withTestHandlerHub(h))
+	if err := ircdb.CreateIgnore(t.Context(), f.Stores.Control, f.Network.ID, "weatherbot", ircdb.IgnoreLevelMute); err != nil {
+		t.Fatal(err)
+	}
+
+	events, _, unsub := h.Subscribe(16)
+	defer unsub()
+
+	f.Handler.onPrivmsg(nil, mustEvent(t, ":weatherbot!u@h PRIVMSG #test :sunny today"))
+
+	if count := handlerMessageCount(t, f); count != 1 {
+		t.Fatalf("message count = %d, want 1 (muted sender is still stored)", count)
+	}
+	msg := lastHandlerMessage(t, f)
+	if msg.Sender != "weatherbot" || msg.Content != "sunny today" {
+		t.Fatalf("message = %+v", msg)
+	}
+
+	drained := drainEvents(events)
+	var found bool
+	for _, ev := range drained {
+		me, ok := ev.(*MessageEvent)
+		if !ok {
+			continue
+		}
+		found = true
+		// counts_as_unread stays the pure kind-based flag; the mute decision
+		// rides separately so clients can still badge mentions from the sender.
+		if !me.CountsAsUnread || !me.Muted {
+			t.Fatalf("CountsAsUnread=%v Muted=%v, want true/true for muted sender", me.CountsAsUnread, me.Muted)
+		}
+	}
+	if !found {
+		t.Fatal("no MessageEvent published")
 	}
 }
 

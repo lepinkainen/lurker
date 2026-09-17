@@ -6,6 +6,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 -- name: LogMessageInBuffer :one
 SELECT EXISTS(SELECT 1 FROM messages WHERE buffer_id = ? AND id = ?);
 
+-- name: LatestLogMessageTS :one
+-- Newest stored timestamp for a buffer (uses messages_buffer_ts index).
+-- Empty string when the buffer has no messages.
+SELECT CAST(COALESCE(MAX(ts), '') AS TEXT) AS ts FROM messages WHERE buffer_id = ?;
+
 -- name: RecentLogMessages :many
 SELECT id, buffer_id, COALESCE(msgid,'') AS msgid, ts, sender, COALESCE(userhost,'') AS userhost,
        COALESCE(account,'') AS account, kind, COALESCE(target,'') AS target, content

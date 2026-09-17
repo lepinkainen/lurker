@@ -42,7 +42,7 @@ Do not add public-internet deployment assumptions or app-level auth unless the u
 
 ## Stack
 
-- Backend: Go `1.26`
+- Backend: Go `1.27`
 - Frontend: Vite + TypeScript in `web/`
 - Storage: SQLite (`control.db` plus one DB per network)
 - Streaming: WebSocket API at `/api/stream`
@@ -109,7 +109,9 @@ task down
 - Keep the web UI scope minimal and aligned with the current v1 direction.
 - Respect existing REST/WebSocket API patterns.
 - Prefer updating docs when behavior, commands, or architecture changes.
+- Every shell script must pass `shellcheck` (`task lint-shell`, part of `task lint`). Shell has too many silent footguns to catch by reading — unquoted expansions, and the absence of local variables in POSIX `sh`, where a helper assigning a bare `out=` clobbers its caller's.
 - Do not use `README.md` to document individual features, configuration options, or APIs; keep it concise and human-readable.
+- Never treat a PR description, commit message, or review comment as documentation. They are not discoverable from the code, they are not updated when behaviour changes, and review threads go stale the moment the code moves — a comment describing a fixed bug still reads as current. Anything a future reader needs — why a workaround exists, which platform quirk forced a design, what was deliberately rejected — belongs in `ai-docs/` (or a code comment at the site it constrains). Write it there first, then link to it from the PR if useful.
 
 ## Validation guidance
 

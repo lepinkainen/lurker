@@ -1,0 +1,55 @@
+stateDiagram-v2
+    %% Per-network IRC connection lifecycle, owned by irc.Manager.runNetwork.
+    %% The three persisted/published states are irc.NetworkState values;
+    %% the rest are internal steps of one connect attempt.
+
+    [*] --> Stopped : network row exists, no runtime
+
+    Stopped --> Connecting : StartNetwork (boot from config.yaml,<br/>POST /api/networks/{id}/connect)
+
+    state Connecting {
+        [*] --> RefreshCommands : runNetwork iteration begins
+        RefreshCommands --> Dialing : ListNetworkConnectCommands(networkID)
+        Dialing --> TLS12Fallback : dial error and TLS downgrade possible
+        TLS12Fallback --> Dialing : one retry, TLSMaxVersion = TLS 1.2
+        Dialing --> Registering : TCP + TLS handshake ok
+        Registering --> Authenticating : CAP LS, NICK, USER, optional PASS
+        Authenticating --> [*] : 001 RPL_WELCOME<br/>(or SASL 903 first)
+    }
+
+    Connecting --> Connected : RPL_WELCOME<br/>publish NetworkStateEvent{connected}
+    Connecting --> Disconnected : dial or registration failed<br/>markDisconnected
+
+    state Connected {
+        [*] --> Joining : run connect commands
+        Joining --> Synced : JOIN + NAMES + TOPIC per channel
+        Synced --> Backfilling : server advertises CHATHISTORY
+        Backfilling --> Synced : BATCH inserted,<br/>publish HistoryBackfillEvent
+        Synced --> Synced : PRIVMSG / presence / mode traffic
+    }
+
+    Connected --> Disconnected : socket closed, ERROR, QUIT,<br/>or ctx cancel -> markDisconnected
+
+    Disconnected --> Backoff : ctx still alive
+    Backoff --> Connecting : after backoff,<br/>server index rotates to the next entry
+
+    note right of Backoff
+        Backoff starts at 1s, doubles per attempt,
+        caps at 5 minutes. It is never reset on a
+        successful connect, so a network that
+        flaps repeatedly keeps the long delay.
+    end note
+
+    note right of Disconnected
+        markDisconnected compares the runtime
+        generation: if a newer runtime already owns
+        this network (StopNetwork then restart) it
+        returns without touching conn/state and
+        without publishing, so the live connection
+        is never contradicted.
+    end note
+
+    Connected --> Stopped : StopNetwork (DELETE/PATCH network,<br/>POST .../disconnect, shutdown)
+    Connecting --> Stopped : StopNetwork
+    Backoff --> Stopped : StopNetwork or baseCtx cancelled
+    Stopped --> [*]

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -72,11 +71,19 @@ type bufferLastSeenEvent struct {
 	Mentions int        `json:"mentions"`
 }
 
+// ignoreEntryWire is the wire shape of one ignore entry (mask + level).
+// ircdb.IgnoreEntry has no json tags of its own, so we keep a small
+// api-local mirror rather than tag the storage type.
+type ignoreEntryWire struct {
+	Mask  string `json:"mask"`
+	Level string `json:"level"`
+}
+
 type ignoreListResult struct {
-	Type      string    `json:"type"`
-	ReqID     string    `json:"req_id"`
-	NetworkID uuid.UUID `json:"network_id"`
-	Masks     []string  `json:"masks"`
+	Type      string            `json:"type"`
+	ReqID     string            `json:"req_id"`
+	NetworkID uuid.UUID         `json:"network_id"`
+	Entries   []ignoreEntryWire `json:"entries"`
 }
 
 // messageSender covers outbound IRC messages to channels and users plus
@@ -129,6 +136,11 @@ type wsManager interface {
 // forwards every published event as JSON; it also reads client commands
 // and dispatches them to the IRC manager or the SQLite store.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
+	// Subscribe before accepting: once the handshake completes, clients can
+	// fetch a snapshot knowing subsequent publications will reach the socket.
+	events, overflow, unsub := s.Hub.Subscribe(256)
+	defer unsub()
+
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
 	})
@@ -143,12 +155,42 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	events, overflow, unsub := s.Hub.Subscribe(256)
-	defer unsub()
-
 	done := make(chan struct{})
-	go runStreamWriter(ctx, c, events, overflow, done)
+	go runStreamWriter(ctx, c, cancel, events, overflow, done)
+	go runStreamPinger(ctx, c, cancel)
 	s.runStreamReader(ctx, c, cancel, done)
+}
+
+// wsPingInterval is the server-side heartbeat period. The web client treats
+// a socket with no application message for 60s as dead, so pinging well
+// inside that keeps idle-but-healthy sessions from reconnecting and
+// reloading state.
+var wsPingInterval = 25 * time.Second // var so tests can shorten it
+
+// runStreamPinger sends a {"type":"ping"} event every wsPingInterval. It is
+// an application-level message (not a WebSocket control frame) because
+// browsers do not expose protocol pings to JS. Write failures cancel ctx,
+// which unblocks the reader and tears the connection down. Concurrent with
+// runStreamWriter is fine: coder/websocket Write is goroutine-safe.
+func runStreamPinger(ctx context.Context, c *websocket.Conn, cancel context.CancelFunc) {
+	t := time.NewTicker(wsPingInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			pctx, pcancel := context.WithTimeout(ctx, 10*time.Second)
+			err := wsjson.Write(pctx, c, struct {
+				Type string `json:"type"`
+			}{Type: "ping"})
+			pcancel()
+			if err != nil {
+				cancel()
+				return
+			}
+		}
+	}
 }
 
 // runStreamWriter forwards every event published on the hub channel to the
@@ -156,9 +198,12 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 // down the connection rather than backing up the hub. If the hub signals
 // overflow (this subscriber fell behind and an event was dropped) the
 // writer returns, tearing down the connection so the client reconnects and
-// resyncs from a fresh snapshot.
-func runStreamWriter(ctx context.Context, c *websocket.Conn, events <-chan any, overflow <-chan struct{}, done chan<- struct{}) {
+// resyncs from a fresh snapshot. Returning also cancels ctx so the reader,
+// blocked in wsjson.Read, unblocks and closes the socket instead of leaving
+// a silent half-dead connection open.
+func runStreamWriter(ctx context.Context, c *websocket.Conn, cancel context.CancelFunc, events <-chan any, overflow <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
+	defer cancel()
 	for {
 		select {
 		case <-ctx.Done():
@@ -280,12 +325,8 @@ func (s *Server) handleCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd
 		s.cmdBanlist(ctx, c, cmd)
 	case "kickban":
 		s.cmdKickban(ctx, c, cmd)
-	case "ignore":
-		s.cmdIgnore(ctx, c, cmd)
-	case "unignore":
-		s.cmdUnignore(ctx, c, cmd)
-	case "ignorelist":
-		s.cmdIgnorelist(ctx, c, cmd)
+	case "ignore", "unignore", "ignorelist", "mute", "unmute", "mutelist":
+		s.dispatchIgnoreCmd(ctx, c, cmd)
 	default:
 		if s.handleBufferLifecycleCmd(ctx, c, cmd) {
 			return
@@ -770,13 +811,32 @@ func (s *Server) cmdKickban(ctx context.Context, c *websocket.Conn, cmd clientCm
 	writeWSAck(ctx, c, cmd.ReqID)
 }
 
+// dispatchIgnoreCmd routes the hide/mute ignore command family. It's
+// factored out of handleCmd's switch to keep that switch's cyclomatic
+// complexity down; mutelist is an alias for ignorelist (one combined
+// mask+level list backs both slash commands).
+func (s *Server) dispatchIgnoreCmd(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	switch cmd.Type {
+	case "ignore":
+		s.cmdIgnore(ctx, c, cmd)
+	case "unignore":
+		s.cmdUnignore(ctx, c, cmd)
+	case "mute":
+		s.cmdMute(ctx, c, cmd)
+	case "unmute":
+		s.cmdUnmute(ctx, c, cmd)
+	case "ignorelist", "mutelist":
+		s.cmdIgnorelist(ctx, c, cmd)
+	}
+}
+
 func (s *Server) cmdIgnore(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	mask := strings.TrimSpace(cmd.Target)
 	if cmd.NetworkID == uuid.Nil || mask == "" {
 		writeWSErr(ctx, c, cmd.ReqID, "ignore requires network_id and target")
 		return
 	}
-	if err := ircdb.CreateIgnore(ctx, s.Stores.Control, cmd.NetworkID, mask); err != nil {
+	if err := ircdb.CreateIgnore(ctx, s.Stores.Control, cmd.NetworkID, mask, ircdb.IgnoreLevelHide); err != nil {
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return
 	}
@@ -796,22 +856,57 @@ func (s *Server) cmdUnignore(ctx context.Context, c *websocket.Conn, cmd clientC
 	writeWSAck(ctx, c, cmd.ReqID)
 }
 
+// cmdMute adds a mute-tier ignore: matching senders' messages are still
+// stored and shown, but never count toward unread (mentions/highlights are
+// unaffected). Re-muting a hide-tier mask promotes it to mute, and vice
+// versa for cmdIgnore, since CreateIgnore upserts the level.
+func (s *Server) cmdMute(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	mask := strings.TrimSpace(cmd.Target)
+	if cmd.NetworkID == uuid.Nil || mask == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "mute requires network_id and target")
+		return
+	}
+	if err := ircdb.CreateIgnore(ctx, s.Stores.Control, cmd.NetworkID, mask, ircdb.IgnoreLevelMute); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+// cmdUnmute removes a mask from the ignore list. Mask removal is
+// level-agnostic, so this is identical to cmdUnignore.
+func (s *Server) cmdUnmute(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
+	mask := strings.TrimSpace(cmd.Target)
+	if cmd.NetworkID == uuid.Nil || mask == "" {
+		writeWSErr(ctx, c, cmd.ReqID, "unmute requires network_id and target")
+		return
+	}
+	if err := ircdb.DeleteIgnore(ctx, s.Stores.Control, cmd.NetworkID, mask); err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
+	}
+	writeWSAck(ctx, c, cmd.ReqID)
+}
+
+// cmdIgnorelist returns the combined hide+mute ignore list for a network.
+// It backs both the "ignorelist" and "mutelist" commands.
 func (s *Server) cmdIgnorelist(ctx context.Context, c *websocket.Conn, cmd clientCmd) {
 	if cmd.NetworkID == uuid.Nil {
 		writeWSErr(ctx, c, cmd.ReqID, "ignorelist requires network_id")
 		return
 	}
-	masks, err := ircdb.ListIgnores(ctx, s.Stores.Control, cmd.NetworkID)
+	entries, err := ircdb.ListIgnores(ctx, s.Stores.Control, cmd.NetworkID)
 	if err != nil {
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return
 	}
-	if masks == nil {
-		masks = []string{}
+	wire := make([]ignoreEntryWire, len(entries))
+	for i, e := range entries {
+		wire[i] = ignoreEntryWire{Mask: e.Mask, Level: e.Level}
 	}
 	_ = wsjson.Write(ctx, c, ignoreListResult{
 		Type: "ignorelist_result", ReqID: cmd.ReqID,
-		NetworkID: cmd.NetworkID, Masks: masks,
+		NetworkID: cmd.NetworkID, Entries: wire,
 	})
 }
 
@@ -854,8 +949,6 @@ func writeWSAck(ctx context.Context, c *websocket.Conn, reqID string) {
 func writeWSErr(ctx context.Context, c *websocket.Conn, reqID, msg string) {
 	_ = wsjson.Write(ctx, c, errorEnvelope{Type: "error", ReqID: reqID, Message: msg})
 }
-
-var _ = json.Marshal
 
 type closeFunc func() error
 

@@ -1,19 +1,19 @@
 package irc
 
 import (
-	"database/sql"
 	"sync"
 
 	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/hub"
+	"github.com/lrstanley/girc"
 )
 
 // handler is the glue between a girc.Client and the SQLite store. One
 // instance per network connection.
 type handler struct {
 	stores              *ircdb.MultiStore
-	db                  *sql.DB
+	db                  *ircdb.LogStore
 	hub                 *hub.Hub
 	previews            PreviewEnqueuer
 	networkID           uuid.UUID
@@ -44,4 +44,24 @@ type handler struct {
 	// netsplits clusters live quit/join events so published messages carry
 	// their netsplit annotation (clients group by it instead of re-deriving).
 	netsplits *netsplitTracker
+	// bots tracks IRCv3 bot-mode nicks for this network. Shared with the
+	// Manager so REST member snapshots see the same flags as WS pushes.
+	bots *botTracker
+	// avatars tracks IRCv3 metadata (draft/metadata-2) avatar URLs per nick
+	// for this network. Shared with the Manager so REST member snapshots and
+	// Manager.AvatarURL agree with WS pushes.
+	avatars *avatarTracker
+	// client is the girc client this handler is registered on, for the paths
+	// that need it outside a handler callback (message-tag bot detection).
+	client *girc.Client
+	// hasCap/sendRaw/historyLimit are seams over the girc client used by the
+	// chathistory backfill (capability check, raw CHATHISTORY sends, and the
+	// server's CHATHISTORY ISUPPORT limit). Nil disables backfill.
+	hasCap       func(name string) bool
+	sendRaw      func(line string) error
+	historyLimit func() int
+	// chathistory tracks in-flight history batches and pagination for this
+	// connection. Lazily initialized; guarded by chathistoryMu.
+	chathistoryMu sync.Mutex
+	chathistory   *chathistoryState
 }

@@ -51,8 +51,11 @@ YAML fields (all optional except needing at least `colors` to be useful):
   - sets `color-scheme` and `data-theme=<id>`.
 - Selection persists in `localStorage["lurker.theme.id"]`.
 - `loadInitialTheme()` picks: stored id → else `tokyo-night` → else first theme.
-- `theme-ui.ts` `initThemeSelector()` fills the `#theme-select` dropdown and wires
-  the change handler (apply + persist). Hides the select if no themes.
+- `theme-ui.ts` `initTheme()` applies the stored/default theme at boot (via
+  `loadInitialTheme()`'s apply side effect). The picker UI lives in the settings
+  view's Appearance tab (`settings-dialog.ts` `buildAppearanceSection`): a
+  vertical list of theme rows with color swatches; clicking applies + persists.
+  Shows a "No themes available" note if the list is empty.
 
 ### The `THEME_VARS` list matters
 

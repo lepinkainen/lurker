@@ -2,7 +2,10 @@ import { activeBuffer, type Member, type Message, type Network, state } from "./
 import { getStartupFallbackBufferIds } from "./buffers";
 import { tryRenderActiveChannelList } from "./channel-list";
 import type { DomRefs } from "./dom";
+import type { PendingSend } from "./input";
 import { updateInputEnabled } from "./input";
+import { saveInputDraft } from "./input-history";
+import { showNote } from "./input-upload";
 import { renderMembers } from "./members";
 import {
   onBufferUpdate,
@@ -14,7 +17,7 @@ import {
 } from "./messages";
 import { nickAvatar } from "./nick";
 import type { ScrollStick } from "./scroll-stick";
-import { renderSidebar } from "./sidebar";
+import { openBufferOptions, renderSidebar, type SidebarDeps } from "./sidebar";
 import { renderSidebarStatus } from "./status";
 
 export type AppViewDeps = {
@@ -34,7 +37,17 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
     statusViewEl: d.statusViewEl,
     bufferNameEl: d.bufferNameEl,
     bufferTopicEl: d.bufferTopicEl,
+    bufferOptionsBtnEl: d.bufferOptionsBtnEl,
     inputEl: d.inputEl,
+  };
+  // Shared with openActiveBufferOptions below so the topicbar gear button
+  // reuses the exact sidebar wiring (sendCmd, setActive, iconEl) the dialog
+  // needs to rerender the sidebar row after a settings change.
+  const sidebarDeps: SidebarDeps = {
+    sbScrollEl: d.sbScrollEl,
+    setActive: deps.setActive,
+    iconEl,
+    sendCmd: deps.sendCmd,
   };
   const ackBufferRead = (bufferId: string) => deps.ackBufferRead?.(bufferId);
   const messageDeps = () => ({ renderPromptNick: view.renderPromptNick, iconEl, stick: deps.stick, ackBufferRead });
@@ -67,8 +80,15 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
         sendCmd: deps.sendCmd,
       }),
     updateInputEnabled: () => updateInputEnabled(d.inputEl),
-    renderSidebar: () =>
-      renderSidebar({ sbScrollEl: d.sbScrollEl, setActive: deps.setActive, iconEl, sendCmd: deps.sendCmd }),
+    renderSidebar: () => renderSidebar(sidebarDeps),
+    // Opens the display-options dialog for the currently active buffer.
+    // Wired to the topicbar gear button (#buffer-options-btn); the button
+    // itself is hidden for status buffers by renderHeader, so this is a
+    // no-op guard rather than the primary gate.
+    openActiveBufferOptions: () => {
+      const buffer = activeBuffer();
+      if (buffer && buffer.kind !== "status") openBufferOptions(buffer, sidebarDeps);
+    },
     appendMessage: (msg: Message) => {
       onMessage(msg, {
         renderActiveView: view.renderActiveView,
@@ -76,7 +96,11 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
       });
     },
     prependHistory: (msg: { buffer_id: string; messages?: Message[] }) => {
-      onHistoryResult(msg, { renderActiveView: view.renderActiveView }, d.messagesEl);
+      onHistoryResult(
+        msg,
+        { renderActiveView: view.renderActiveView, renderSidebar: view.renderSidebar },
+        d.messagesEl,
+      );
     },
     patchPreview: (msg: { buffer_id: string; message_id: string; previews?: Message["previews"] }) => {
       onPreview(msg, d.messagesEl, deps.stick);
@@ -114,6 +138,21 @@ export function createAppView(d: DomRefs, deps: AppViewDeps) {
         view.renderActiveView();
       }
       view.renderSidebar();
+    },
+    // showCommandError surfaces a WS `error` envelope in the composer note
+    // (same slot as upload failures). failed is the rejected "send"; its text
+    // goes back to the originating buffer only — into the live composer if
+    // that buffer is still active and the composer is empty, otherwise into
+    // that buffer's saved draft so it reappears on switch-back. Never into
+    // whatever buffer happens to be active now.
+    showCommandError: (message: string, failed?: PendingSend) => {
+      showNote(d.inputForm, message, "error");
+      if (!failed) return;
+      if (failed.bufferId === state.activeId) {
+        if (d.inputEl.value === "") d.inputEl.value = failed.text;
+        return;
+      }
+      if (!(state.inputHistory.get(failed.bufferId)?.draft ?? "")) saveInputDraft(failed.bufferId, failed.text);
     },
   };
   return view;

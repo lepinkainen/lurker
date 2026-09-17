@@ -77,15 +77,12 @@ func TestOnConnectedSendsConnectCommandsThenAutojoin(t *testing.T) {
 	f.Handler.onConnected(client, girc.Event{})
 
 	identify := awaitLine(t, lines, func(l string) bool { return strings.Contains(l, "IDENTIFY hunter2") })
-	var joins []string
-	for len(joins) < 2 {
-		joins = append(joins, awaitLine(t, lines, func(l string) bool { return strings.HasPrefix(l, "JOIN ") }))
-	}
+	join := awaitLine(t, lines, func(l string) bool { return strings.HasPrefix(l, "JOIN ") })
 	if !strings.HasPrefix(identify, "PRIVMSG NickServ") {
 		t.Fatalf("connect command line = %q, want PRIVMSG NickServ prefix", identify)
 	}
-	if joins[0] != "JOIN #alpha" || joins[1] != "JOIN #beta" {
-		t.Fatalf("autojoin lines = %v, want [JOIN #alpha, JOIN #beta]", joins)
+	if join != "JOIN #alpha,#beta" {
+		t.Fatalf("autojoin line = %q, want JOIN #alpha,#beta", join)
 	}
 	if !hookCalled {
 		t.Fatal("connectedHook not called")

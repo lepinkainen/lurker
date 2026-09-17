@@ -24,6 +24,9 @@ var logMigrationsFS embed.FS
 //go:embed preview_migrations/*.sql
 var previewMigrationsFS embed.FS
 
+//go:embed media_migrations/*.sql
+var mediaMigrationsFS embed.FS
+
 // OpenControl opens the control-plane SQLite database and applies the control
 // migration set independently from the log-store migration set.
 func OpenControl(path string) (*sql.DB, error) {
@@ -39,6 +42,13 @@ func OpenLog(path string) (*sql.DB, error) {
 // preview migration set. One file, shared across every network.
 func OpenPreviews(path string) (*sql.DB, error) {
 	return openAndMigrate(path, previewMigrationsFS, "preview_migrations")
+}
+
+// OpenMedia opens the media metadata database and applies the media
+// migration set. Media bytes themselves live on local disk (see media.Config);
+// this database only tracks their metadata and dedup index.
+func OpenMedia(path string) (*sql.DB, error) {
+	return openAndMigrate(path, mediaMigrationsFS, "media_migrations")
 }
 
 func openAndMigrate(path string, migrationFS embed.FS, migrationDir string) (*sql.DB, error) {

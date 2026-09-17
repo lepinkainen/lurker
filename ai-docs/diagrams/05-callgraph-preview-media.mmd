@@ -1,0 +1,114 @@
+flowchart LR
+    %% preview/, media/, internal/objstore: cross-file call graph.
+    %% Includes the db/ and hub/ functions these subsystems reach into.
+    %% One node per function, one subgraph per file. Intra-file calls omitted by design.
+    subgraph db_logstore_go["db/logstore.go"]
+        db_logstore_go_insertmessagepreviewlinks["InsertMessagePreviewLinks<br/>in:1 out:0"]
+    end
+    subgraph db_media_store_go["db/media_store.go"]
+        db_media_store_go_getbysourcehash["GetBySourceHash<br/>in:2 out:0"]
+        db_media_store_go_insert["Insert<br/>in:1 out:0"]
+        db_media_store_go_list["List<br/>in:1 out:0"]
+    end
+    subgraph db_multistore_go["db/multistore.go"]
+        db_multistore_go_logstore["LogStore<br/>in:1 out:0"]
+    end
+    subgraph db_preview_store_go["db/preview_store.go"]
+        db_preview_store_go_displayable["Displayable<br/>in:1 out:0"]
+    end
+    subgraph db_time_go["db/time.go"]
+        db_time_go_now["Now<br/>in:2 out:0"]
+    end
+    subgraph hub_hub_go["hub/hub.go"]
+        hub_hub_go_publish["Publish<br/>in:1 out:0"]
+    end
+    subgraph media_browse_go["media/browse.go"]
+        media_browse_go_existsmedia["existsMedia<br/>in:0 out:2"]
+        media_browse_go_listmedia["listMedia<br/>in:0 out:2"]
+    end
+    subgraph media_transcode_go["media/transcode.go"]
+        media_transcode_go_classifymedia["classifyMedia<br/>in:1 out:0"]
+        media_transcode_go_optimizeimage["optimizeImage<br/>in:1 out:0"]
+    end
+    subgraph media_upload_go["media/upload.go"]
+        media_upload_go_allocateandstore["allocateAndStore<br/>in:0 out:1"]
+        media_upload_go_upload["upload<br/>in:0 out:3"]
+        media_upload_go_uploadurl["uploadURL<br/>in:1 out:0"]
+        media_upload_go_writeuploadresponse["writeUploadResponse<br/>in:1 out:0"]
+    end
+    subgraph preview_dialer_go["preview/dialer.go"]
+        preview_dialer_go_pinningdialcontext["pinningDialContext<br/>in:0 out:1"]
+        preview_dialer_go_pinningtransport["pinningTransport<br/>in:1 out:0"]
+    end
+    subgraph preview_extract_go["preview/extract.go"]
+        preview_extract_go_extracturls["ExtractURLs<br/>in:1 out:0"]
+    end
+    subgraph preview_fediverse_go["preview/fediverse.go"]
+        preview_fediverse_go_fetchactivitypub["fetchActivityPub<br/>in:1 out:0"]
+    end
+    subgraph preview_fetcher_go["preview/fetcher.go"]
+        preview_fetcher_go_fetch["Fetch<br/>in:1 out:1"]
+        preview_fetcher_go_newfetcher["NewFetcher<br/>in:1 out:2"]
+        preview_fetcher_go_classifyhead["classifyHead<br/>in:0 out:1"]
+        preview_fetcher_go_contenttype["contentType<br/>in:1 out:0"]
+        preview_fetcher_go_dorequest["doRequest<br/>in:1 out:0"]
+        preview_fetcher_go_enrichfromactivitypub["enrichFromActivityPub<br/>in:0 out:1"]
+        preview_fetcher_go_tryyoutube["tryYouTube<br/>in:0 out:2"]
+    end
+    subgraph preview_image_go["preview/image.go"]
+        preview_image_go_fetchimage["FetchImage<br/>in:0 out:2"]
+    end
+    subgraph preview_service_go["preview/service.go"]
+        preview_service_go_newservice["NewService<br/>in:0 out:1"]
+        preview_service_go_process["process<br/>in:0 out:6"]
+    end
+    subgraph preview_ssrf_go["preview/ssrf.go"]
+        preview_ssrf_go_checkurl["CheckURL<br/>in:1 out:0"]
+        preview_ssrf_go_ipallowed["IPAllowed<br/>in:1 out:0"]
+    end
+    subgraph preview_youtube_go["preview/youtube.go"]
+        preview_youtube_go_isyoutube["IsYouTube<br/>in:1 out:0"]
+        preview_youtube_go_fetchyoutube["fetchYouTube<br/>in:1 out:0"]
+    end
+    media_browse_go_existsmedia --> db_media_store_go_getbysourcehash
+    media_browse_go_existsmedia --> media_upload_go_writeuploadresponse
+    media_browse_go_listmedia --> db_media_store_go_list
+    media_browse_go_listmedia --> media_upload_go_uploadurl
+    media_upload_go_allocateandstore --> db_media_store_go_insert
+    media_upload_go_upload --> db_media_store_go_getbysourcehash
+    media_upload_go_upload --> media_transcode_go_classifymedia
+    media_upload_go_upload --> media_transcode_go_optimizeimage
+    preview_dialer_go_pinningdialcontext --> preview_ssrf_go_ipallowed
+    preview_fetcher_go_fetch --> db_time_go_now
+    preview_fetcher_go_newfetcher --> preview_dialer_go_pinningtransport
+    preview_fetcher_go_newfetcher --> preview_ssrf_go_checkurl
+    preview_fetcher_go_classifyhead --> db_time_go_now
+    preview_fetcher_go_enrichfromactivitypub --> preview_fediverse_go_fetchactivitypub
+    preview_fetcher_go_tryyoutube --> preview_youtube_go_isyoutube
+    preview_fetcher_go_tryyoutube --> preview_youtube_go_fetchyoutube
+    preview_image_go_fetchimage --> preview_fetcher_go_contenttype
+    preview_image_go_fetchimage --> preview_fetcher_go_dorequest
+    preview_service_go_newservice --> preview_fetcher_go_newfetcher
+    preview_service_go_process --> db_logstore_go_insertmessagepreviewlinks
+    preview_service_go_process --> db_multistore_go_logstore
+    preview_service_go_process --> db_preview_store_go_displayable
+    preview_service_go_process --> hub_hub_go_publish
+    preview_service_go_process --> preview_extract_go_extracturls
+    preview_service_go_process --> preview_fetcher_go_fetch
+
+    media_browse_go_existsmedia:::orphan
+    media_browse_go_listmedia:::orphan
+    media_upload_go_allocateandstore:::orphan
+    media_upload_go_upload:::orphan
+    preview_dialer_go_pinningdialcontext:::orphan
+    preview_fetcher_go_newfetcher:::hot
+    preview_fetcher_go_classifyhead:::orphan
+    preview_fetcher_go_enrichfromactivitypub:::orphan
+    preview_fetcher_go_tryyoutube:::orphan
+    preview_image_go_fetchimage:::orphan
+    preview_service_go_newservice:::entry
+    preview_service_go_process:::orphan
+
+    classDef hot fill:#b23a3a,stroke:#7a1f1f,color:#ffffff
+    classDef orphan fill:#6b6b6b,stroke:#3f3f3f,color:#ffffff
+    classDef entry fill:#2f6f4f,stroke:#1c4530,color:#ffffff

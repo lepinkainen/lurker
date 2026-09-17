@@ -87,23 +87,12 @@ func main() {
 
 	updateChecker := updates.New(updates.Config{
 		Enabled:  cfg.Updates.Enabled,
-		Image:    cfg.Updates.Image,
-		Tag:      cfg.Updates.Tag,
 		Interval: cfg.Updates.Interval,
-		Username: cfg.Updates.Username,
-		Token:    cfg.Updates.Token,
-		Current: updates.BuildInfo{
-			Version:   version,
-			Commit:    gitHash,
-			BuildTime: buildTime,
-		},
+		Current:  updates.BuildInfo{Commit: gitHash},
 	})
 	updateChecker.Start(ctx)
 
-	if err := os.MkdirAll(cfg.Uploads.Dir, 0o755); err != nil {
-		slog.Error("create upload dir", "dir", cfg.Uploads.Dir, "err", err)
-		os.Exit(1)
-	}
+	mediaSvc := newMediaService(ctx, cfg.Media, stores.Media)
 	apiSrv := &api.Server{
 		Stores:             stores,
 		Hub:                evHub,
@@ -115,12 +104,9 @@ func main() {
 		GitHash:            gitHash,
 		BuildTime:          buildTime,
 		UpdateChecker:      updateChecker,
+		Media:              mediaSvc,
+		PreviewFetcher:     previewSvc.Fetcher(),
 		ConfigNetworkNames: yamlNetworkNames,
-		Uploads: api.UploadConfig{
-			Dir:      cfg.Uploads.Dir,
-			MaxBytes: cfg.Uploads.MaxBytes,
-			BaseURL:  cfg.Uploads.BaseURL,
-		},
 		ConfigPreview: func(ctx context.Context) (string, string, error) {
 			nets, err := db.ListNetworksWithSASL(ctx, stores.Control)
 			if err != nil {

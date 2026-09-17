@@ -40,6 +40,16 @@ The handler is responsible for:
 
 Outbound messages are also persisted through `Manager.LogOutbound()` because the connected IRC servers may not provide echo-message in a way the app can rely on.
 
+### Chathistory gap backfill
+
+`irc/chathistory.go` fills missed-message gaps using the IRCv3 `draft/chathistory` extension when the server supports it (Ergo, UnrealIRCd; not Libera/Solanum). Requested via `SupportedCaps` in `buildClient` — girc only REQs caps the server advertises, so it's a silent no-op elsewhere.
+
+- Channels are requested on **self-JOIN** (`CHATHISTORY AFTER <target> timestamp=<newest stored ts> <limit>`), which covers both reconnects and rejoins after a kick. Query buffers are requested once per connection right after CONNECTED. Buffers with no stored messages are skipped (no anchor).
+- Replayed messages arrive in a `chathistory` batch. The batch **target** decides the buffer — never the message source (our own replayed PMs would otherwise misfile under our own nick).
+- Replayed rows are persisted with `LogMessageInput.Backfill = true`: the row's UUIDv7 id encodes the *message* timestamp instead of insert time (plus a process-wide sequence in the rand_a bits so same-millisecond messages keep their delivery order), so id-ordered reads (`RecentLogMessages`, `last_seen_id` comparisons) stay chronological despite the late insert. Duplicates drop on the `(buffer_id, msgid)` unique index. Known limitation: live rows encode local arrival time while backfilled rows encode server time, so ordering across the two at the reconnect boundary is only as good as the local↔server clock skew — acceptable for a single-user bouncer on NTP-synced hosts.
+- No per-message hub events are published for replays; one `history_backfill` event per batch announces the insert count. Clients respond by refetching the buffer's recent window and merging by id (web `ws-router.ts`, tui `requestBackfillRefetch`, apple `refetchBackfilledHistory`).
+- Pagination: a full page triggers another AFTER request anchored on the newest replayed message's **msgid** (timestamp fallback when it has none — an AFTER timestamp excludes every message sharing that timestamp, so a page boundary inside a same-ms cluster would drop the rest). Bounded by `chathistoryMaxPages` per target per connection; the per-page limit comes from the server's `CHATHISTORY` ISUPPORT token (clamped to 500, default 100 when absent). Hide-tier ignored-sender messages are dropped from storage but still count toward the page size, or a full page would look partial and pagination would stop early. Mute-tier senders are backfilled normally (see "Ignore system" below).
+
 ## Normal IRC message flow
 
 ```mermaid
@@ -127,6 +137,29 @@ The WebSocket endpoint subscribes to the hub and forwards events as JSON. See [w
 
 Frontend uses these events for per-buffer presence display when `show_presence_events` is enabled.
 
+## Bot mode (IRCv3)
+
+`irc/bots.go` + `irc/handler_bots.go` implement [IRCv3 bot mode](https://ircv3.net/specs/extensions/bot-mode). girc tracks neither WHO flags nor the 335 numeric, so a per-network `botTracker` (a set of case-folded nicks, shared between the handler and `irc.Manager` so REST snapshots and WS pushes agree) accumulates bot status from three sources:
+
+- **WHO flags** — the ISUPPORT `BOT` mode character appearing in `RPL_WHOREPLY` (352) / `RPL_WHOSPCRPL` (354) flags. girc's own auto-WHO requests `%tacuhnr` (no flags field), so on servers advertising `BOT` we send an extra `WHO <target> %tnf,9` after `RPL_ENDOFNAMES` and on remote joins; query type `9` distinguishes the reply from girc's (`1`) and `Cmd.Who()`'s (`2`). Without `WHOX` we send a plain `WHO` and read 352 flags. Servers that don't advertise `BOT` see no extra traffic.
+- **RPL_WHOISBOT (335)** in a WHOIS response.
+- **the `bot` message tag** (also `draft/bot`) on any event with a source, covering nicks we never WHO'd.
+
+Only replies to our own `%tnf` query can *clear* bot status — any other WHO reply may simply omit the flag, so those only ever set it. The leading `H`/`G` away indicator is stripped before matching so a network using `G` or `H` as its bot mode character doesn't match every away user.
+
+Bot status is exposed as `ChannelUser.bot` in member lists (and is part of the member-list dedupe hash, so a newly detected bot republishes). Detection during a WHO burst does not publish per nick — `RPL_ENDOFWHO` already republishes the affected member lists. The tracker follows NICK changes, drops nicks on QUIT, and starts empty on every reconnect. Clients render bots with 🤖 in place of the nick identicon (see [nick-identicon.md](nick-identicon.md)).
+
+## Metadata avatars
+
+`irc/avatars.go` + `irc/handler_metadata.go` implement the [IRCv3 metadata extension](https://ircv3.net/specs/extensions/metadata) (`draft/metadata-2`) to read other users' avatar URLs. girc has no METADATA support, so — like bot mode — a per-network `avatarTracker` (case-folded nick → URL, shared between the handler and `irc.Manager`) accumulates avatars.
+
+- **Caps**: `draft/metadata-2` and `batch` are requested via `SupportedCaps` in `buildClient`; girc only REQs caps the server advertises, so it's a silent no-op elsewhere (Ergo supports it; Libera/Solanum do not). `batch` is required because SYNC bursts arrive wrapped in a BATCH — girc does no BATCH buffering of its own, so every batched line reaches the normal handlers in wire order.
+- **Subscribe**: on connect (`onConnected`, cap-gated) the client sends `METADATA * SUB avatar`. The server then pushes current values for visible users and unsolicited updates thereafter.
+- **Sources**: the unsolicited/batched `METADATA` command (`<target> <key> <visibility> :<value>`), `761 RPL_KEYVALUE` (GET/SYNC replies and SUB pushes), `760 RPL_WHOISKEYVALUE` (inline in WHOIS), and `766 RPL_KEYNOTSET` (clear). Only the `avatar` key and only nick targets are tracked (channel avatars are out of scope). A non-empty value sets, an empty value or `766` clears.
+- **Deferred sync**: on `774 RPL_METADATASYNCLATER` (server deferred the burst — e.g. our connect-time SUB, or joining a large/throttled channel), the handler issues `METADATA <target> SYNC` itself so avatars still arrive rather than staying absent indefinitely. It honors the numeric's optional `RetryAfter` seconds (waiting via a timer before sending, clamped to a 300s max against a hostile/broken server) or sends immediately when absent/invalid.
+- **Exposure**: only a boolean leaves the backend — the URL stays server-side and is fetched through the SSRF-guarded avatar proxy (see [rest-api.md](rest-api.md) `/api/avatar`). `ChannelUser.has_avatar` rides member-list snapshots; live changes publish an `avatar` WS event (see [websocket-protocol.md](websocket-protocol.md)), fired only on an actual transition so repeated SYNC pushes don't spam clients. The tracker follows NICK changes and starts empty on every reconnect (re-learned via SUB). Clients render the avatar image in place of the nick identicon (see [nick-identicon.md](nick-identicon.md)).
+- **Second source — IRCCloud hostmask**: `irc/irccloud_avatar.go` derives an avatar for IRCCloud users straight from their hostmask (`sid<id>`/`uid<id>` ident on `*.irccloud.com`), resolving through IRCCloud's `avatar-redirect` CDN. This needs no IRCv3 support at all, so it works on plain servers (Libera, OFTC, ...) with no `draft/metadata-2`. Metadata is an explicit user choice and always wins when known; the IRCCloud derivation is only a fallback, computed on demand in `Manager.AvatarURL` and `buildChannelMembers` — it is never written into `avatarTracker`, which stays metadata-only.
+
 ## Channel list events
 
 `irc/handler_list.go` handles server `/LIST` responses and publishes streaming `ChannelListEvent` (`type: "channel_list"`):
@@ -137,4 +170,11 @@ Frontend uses these events for per-buffer presence display when `show_presence_e
 
 ## Ignore system
 
-Persistent per-network ignore masks are stored in `control.db.ignores` (see [storage.md](storage.md)). The `irc.Manager` loads ignores on connect and passes them to `girc.Client.SetIgnoreMask`. The WebSocket `ignore`/`unignore`/`ignorelist` commands mutate the backing table and update the live mask set on the active connection.
+Persistent per-network ignore masks are stored in `control.db.ignores` (see [storage.md](storage.md)), one row per mask with a `level` column of `hide` or `mute`. There is no girc-level ignore mechanism (no `SetIgnoreMask` call exists in girc) — enforcement is entirely a DB lookup done fresh on every event: `handler.ignoreLevel(sender)` loads the network's ignore entries and calls `db.IgnoreLevelFor`, which glob-matches masks (case-insensitive, `path.Match`) against the lowercased sender nick. When a nick matches both a `hide` and a `mute` mask, `hide` wins. Nothing per-message is persisted, so changing or removing a mask retroactively affects every message from that sender the next time it's evaluated.
+
+Two tiers:
+
+- **hide** — the original behavior. `storeEvent` (`irc/handler_messages.go`) and the chathistory backfill path (`irc/chathistory.go`) both `return` before any DB write or hub publish, so hidden-sender messages are never stored and never shown.
+- **mute** — stored and published normally, but the outgoing `MessageEvent`'s `CountsAsUnread` flag is forced `false` after `WithSemantics` runs, so `MentionsMe`/`Highlight` are untouched. On the read side, `api/state.go`'s `tallyUnread` re-derives mute status per candidate via the same `IgnoreLevelFor` lookup (loaded once per network via `mutedMatcher`): a muted sender's message still bumps `Mentions` if it triggers a mention/highlight, but never bumps `Unread` and never anchors the "New messages" marker.
+
+The WebSocket `ignore`/`unignore`/`ignorelist` commands manage `hide`-tier entries (plus deletion, which is level-agnostic); `mute`/`unmute`/`mutelist` are the mute-tier equivalents, with `mutelist` an alias for `ignorelist` — both return the same combined mask+level list. `CreateIgnore` upserts on `(network_id, mask)`, so re-issuing `/ignore` on a muted mask (or vice versa) promotes/demotes it in place.

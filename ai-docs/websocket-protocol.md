@@ -11,6 +11,8 @@ The stream serves two roles:
 
 See [rest-api.md](rest-api.md) for the REST surface and [irc-runtime.md](irc-runtime.md) for how server events are produced.
 
+The server subscribes to the event hub before completing the WebSocket handshake. Clients can open the socket before fetching `/api/state` and queue events during the fetch. This ordering needs the updated backend; older backends open the socket before subscribing, leaving a small gap. No ready frame or client protocol change is required. The web client applies live events while its `/api/state` fetch is in flight and then prunes networks/buffers the snapshot lacks; ids that arrived via `buffer_created` / `network_created` while the fetch was pending are recorded and spared, so a buffer created mid-fetch survives while a buffer deleted offline (even the newest one) is pruned. `/api/state` may answer 503 when a snapshot could not be taken consistently (see [rest-api.md](rest-api.md)); clients keep their current state and retry (web: 2s while the socket stays open; TUI: 5s; Apple: full reconnect with backoff).
+
 ## Client commands
 
 Current client command envelope fields:
@@ -20,7 +22,7 @@ Current client command envelope fields:
 - `buffer_id` — UUIDv7 string
 - `network_id` — UUIDv7 string
 - `channel`
-- `target` — nick or channel for commands that target a user (`msg`, `whois`, `invite`, `kick`, `notice`, `ctcp`, `query`, `op`, `deop`, `voice`, `devoice`, `ban`, `unban`, `kickban`, `ignore`, `unignore`)
+- `target` — nick or channel for commands that target a user (`msg`, `whois`, `invite`, `kick`, `notice`, `ctcp`, `query`, `op`, `deop`, `voice`, `devoice`, `ban`, `unban`, `kickban`, `ignore`, `unignore`, `mute`, `unmute`)
 - `content`
 - `before` — UUIDv7 message ID string for history pagination
 - `limit`
@@ -80,9 +82,14 @@ Current client command envelope fields:
 
 #### Ignore management
 
-- `ignore` — add an ignore mask to a network (uses `network_id` + `target`)
-- `unignore` — remove an ignore mask from a network (uses `network_id` + `target`)
-- `ignorelist` — list all ignore masks for a network (uses `network_id`)
+Two-tier ignore: `hide` masks are dropped before storage (never persisted, never shown); `mute` masks are stored and shown normally but excluded from unread counts and the "New messages" marker — mentions/highlights from a muted sender still count. `CreateIgnore` upserts by `(network_id, mask)`, so re-adding an existing mask at a different level promotes/demotes it rather than erroring.
+
+- `ignore` — add a **hide**-tier ignore mask to a network (uses `network_id` + `target`)
+- `unignore` — remove an ignore mask from a network, regardless of level (uses `network_id` + `target`)
+- `ignorelist` — list all ignore entries (mask + level) for a network (uses `network_id`)
+- `mute` — add a **mute**-tier ignore mask to a network (uses `network_id` + `target`)
+- `unmute` — remove an ignore mask from a network; identical to `unignore` since mask removal is level-agnostic (uses `network_id` + `target`)
+- `mutelist` — alias for `ignorelist`; same combined hide+mute list (uses `network_id`)
 
 ## Generic command responses
 
@@ -98,6 +105,8 @@ Error envelope:
 { "type": "error", "req_id": "r1", "message": "..." }
 ```
 
+Client handling: web shows `message` in the composer note (`.upload-note`, same slot as upload failures) and, if the failed command was a `send`, puts the rejected text back into the *originating* buffer — the live composer if that buffer is still active and empty, else that buffer's saved draft — never into a different buffer the user switched to meanwhile; `ack` drops the pending entry. TUI shows `Server error: <message>` in the status line. Apple shows errors inline. Acks are otherwise not tracked — there is no pending/succeeded state machine.
+
 ## Command-specific response types
 
 `history_result` — response to `history` command:
@@ -111,14 +120,17 @@ Error envelope:
 }
 ```
 
-`ignorelist_result` — response to `ignorelist` command:
+`ignorelist_result` — response to both `ignorelist` and `mutelist` commands. `entries` carries every configured mask for the network with its level (`hide` or `mute`):
 
 ```json
 {
   "type": "ignorelist_result",
   "req_id": "r1",
   "network_id": "...",
-  "masks": ["*!*@spam.example.com"]
+  "entries": [
+    { "mask": "*!*@spam.example.com", "level": "hide" },
+    { "mask": "weatherbot", "level": "mute" }
+  ]
 }
 ```
 
@@ -131,15 +143,21 @@ Currently published events:
 - `buffer_deleted` — buffer and its history permanently deleted
 - `buffer_update` — topic, topic setter/set-time, joined/archived state, or last-seen-ID changes
 - `network_state` — connection state transitions
+- `network_created` / `network_updated` — `{network: networkDTO}` after a REST create/patch (see rest-api.md); clients upsert the record so open UIs converge without reload
+- `network_deleted` — `{id}`; clients drop the network and every buffer under it (same cleanup as `buffer_deleted`)
+- `network_reorder` — `{networks: [{id, sort_order}]}` after `POST /api/networks/reorder`
 - `member_list` — full channel member list snapshot
 - `preview` — URL previews ready for a message
 - `presence` — lightweight join/part/quit/kick/nick-change events
+- `avatar` — a user's IRCv3 metadata avatar appeared, changed, or cleared
 - `buffer_settings` — per-buffer display preferences changed
 - `buffer_reorder` — manual channel ordering changed for one network
 - `pinned_reorder` — manual ordering of the global Pinned section changed
 - `channel_list` — streaming /LIST results
 - `netsplit` — retroactive netsplit annotation for already-published messages
 - `highlights` — global highlight pattern list changed (`{patterns: [...]}`); matching itself stays server-side, the event only lets open settings UIs refresh
+- `ping` — `{type: "ping"}` server heartbeat every 25s, no payload. Exists so clients that use inactivity as a liveness signal (web: 60s) don't reconnect on quiet sessions. Clients ignore it beyond refreshing their last-activity timestamp
+- `history_backfill` — `{network_id, buffer_id, count}`: a CHATHISTORY replay inserted `count` older messages into the buffer (no per-message `message` events are sent for replays). Clients with the buffer loaded refetch its recent window (`history` command without `before`) and merge by id; the recovered rows also feed unread/marker bookkeeping. Buffers not yet loaded see the rows on their normal first load
 
 Important event shapes:
 
@@ -155,8 +173,9 @@ Important event shapes:
 - `kind`
 - `target`
 - `content`
-- `display_kind`, `is_self`, `mentions_me`, `counts_as_unread` — server-computed semantics (`irc.ComputeMessageSemantics`); clients consume verbatim
-- `highlight`, `highlight_pattern` — set when `content` matches a user-defined highlight pattern (`irc/highlights.go`, configured via `PUT /api/settings/highlights`); word-boundary case-insensitive matching, self-authored messages never highlight. Clients treat `highlight` like `mentions_me` for badges/styling but can distinguish the two
+- `display_kind`, `is_self`, `mentions_me`, `counts_as_unread` — server-computed semantics (`irc.ComputeMessageSemantics`); clients consume verbatim.
+- `muted` (omitted when false) — sender is on the mute tier of the ignore list. Set identically on live events, history pages and `initial_messages`. Clients: count mentions/highlights normally, but never increment unread or place the marker for a muted message. `counts_as_unread` stays the pure kind-based flag (true for a muted privmsg); the server's own `/api/state` tally applies the same rule. Server-originated messages (`sender` containing `.` or `:`, e.g. a server hostname on numerics like the 001 welcome) never set `mentions_me`, even if the content embeds the user's nick
+- `highlight`, `highlight_pattern` — set when `content` matches a user-defined highlight pattern (`irc/highlights.go`, configured via `PUT /api/settings/highlights`); word-boundary case-insensitive matching, self-authored messages never highlight, nor do server-originated messages (see `mentions_me` above). Clients treat `highlight` like `mentions_me` for badges/styling but can distinguish the two
 - `sender_color` — nick-color palette index for `sender` (Go `nickcolor` package; omitted when no sender)
 - `target_color` — palette index for `target` when it is a nick (`kick`/`nick` kinds only)
 - `netsplit` — `{id, server_a, server_b}` on quit/join messages belonging to a collapsed netsplit group (server-side clustering, `irc/netsplit_tracker.go`)
@@ -209,7 +228,7 @@ Two server-side variants share this type:
 - `network_id`
 - `buffer_id`
 - `channel`
-- `members` — array of `{nick, prefix?, realname?, away, self, color}`; `realname` is pre-stripped of mIRC codes server-side, `color` is the nick-color palette index
+- `members` — array of `{nick, prefix?, realname?, away, self, bot, color, has_avatar?}`; `realname` is pre-stripped of mIRC codes server-side, `color` is the nick-color palette index, `bot` is IRCv3 bot mode (see [irc-runtime.md](irc-runtime.md)), `has_avatar` (omitted when false) means the user published an IRCv3 metadata `avatar` and the client should render `/api/avatar` instead of the identicon (see [rest-api.md](rest-api.md), [irc-runtime.md](irc-runtime.md))
 
 `preview`
 
@@ -227,6 +246,12 @@ Only previews with `kind` = `image` or `opengraph` are published. Negative resul
 - `nick` — affected nick
 - `state` — `"join"`, `"part"`, `"quit"`, `"kick"`, or `"nick"`
 - `target` — new nick when `state` = `"nick"`
+
+`avatar`
+
+- `network_id`
+- `nick` — affected nick
+- `has_avatar` — `true` when the user's IRCv3 metadata `avatar` key was set/changed, `false` when cleared. Carries no URL: the client flips a per-`(network, nick)` flag and (re)points the nick icon at `/api/avatar?network=&nick=` (see [rest-api.md](rest-api.md)). Published only on an actual state transition, so repeated SYNC/GET pushes of an unchanged value are suppressed server-side
 
 `buffer_settings`
 

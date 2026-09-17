@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +19,7 @@ import (
 type LogStore struct {
 	NetworkID uuid.UUID
 	DB        *sql.DB
+	insertMu  sync.Mutex // serializes live ID allocation and commit within this network
 }
 
 // OpenLogStore opens the per-network log DB for a validated network name.
@@ -54,13 +57,26 @@ type LogMessageInput struct {
 	Target    string
 	Content   string
 	Raw       string
+	// Backfill marks a message replayed from server history (CHATHISTORY).
+	// Its row ID timestamp derives from the message's own Timestamp so that
+	// id order stays chronological despite the late insert.
+	Backfill bool
 }
 
 // InsertLogMessage inserts an IRC event into the per-network log.
-func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id uuid.UUID, ts string, inserted bool, err error) {
+func InsertLogMessage(ctx context.Context, store *LogStore, m LogMessageInput) (id uuid.UUID, ts string, inserted bool, err error) {
+	// Live ID order must match commit order for snapshot replay boundaries.
+	// Backfill uses historical IDs and is refreshed separately.
+	if !m.Backfill {
+		store.insertMu.Lock()
+		defer store.insertMu.Unlock()
+	}
 	ts = FormatTime(m.Timestamp)
 	newId := newID()
-	affected, err := logdb.New(d).InsertLogMessage(ctx, logdb.InsertLogMessageParams{
+	if m.Backfill && !m.Timestamp.IsZero() {
+		newId = newIDAt(m.Timestamp)
+	}
+	affected, err := logdb.New(store.DB).InsertLogMessage(ctx, logdb.InsertLogMessageParams{
 		ID:       newId[:],
 		BufferID: m.BufferID[:],
 		Msgid:    nullableString(m.MsgID),
@@ -80,6 +96,30 @@ func InsertLogMessage(ctx context.Context, d *sql.DB, m LogMessageInput) (id uui
 		return uuid.Nil, ts, false, nil
 	}
 	return newId, ts, true, nil
+}
+
+// LookupLogBufferIDByName returns the UUID of an existing per-network log
+// buffer row by name. found is false (with nil error) when no such row exists.
+func LookupLogBufferIDByName(ctx context.Context, d *sql.DB, name string) (id uuid.UUID, found bool, err error) {
+	row, err := logdb.New(d).LookupLogBufferByName(ctx, name)
+	switch {
+	case err == nil:
+		id, perr := parseUUID(row.ID)
+		if perr != nil {
+			return uuid.Nil, false, perr
+		}
+		return id, true, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return uuid.Nil, false, nil
+	default:
+		return uuid.Nil, false, err
+	}
+}
+
+// LatestLogMessageTS returns the newest stored message timestamp for a
+// buffer in FormatTime format, or "" when the buffer has no messages.
+func LatestLogMessageTS(ctx context.Context, d *sql.DB, bufferID uuid.UUID) (string, error) {
+	return logdb.New(d).LatestLogMessageTS(ctx, bufferID[:])
 }
 
 // ListLogBuffers returns every buffer stored in a per-network log DB.
@@ -131,15 +171,6 @@ func LogMessagesBefore(ctx context.Context, d *sql.DB, bufferID, before uuid.UUI
 		return nil, err
 	}
 	return beforeRowsToMessages(rows), nil
-}
-
-// LookupLogBuffer returns the name and kind for a local log buffer.
-func LookupLogBuffer(ctx context.Context, d *sql.DB, bufferID uuid.UUID) (name, kind string, err error) {
-	row, err := logdb.New(d).LookupLogBuffer(ctx, bufferID[:])
-	if err != nil {
-		return "", "", err
-	}
-	return row.Name, row.Kind, nil
 }
 
 func recentRowsToMessages(rows []logdb.RecentLogMessagesRow) []logMessageRow {
@@ -240,7 +271,7 @@ func LogBufferLastSeen(ctx context.Context, d *sql.DB, name string) (uuid.UUID, 
 // bufferIDs in a single round-trip. Each buffer's subquery uses ORDER BY id
 // DESC LIMIT so the index stops early rather than scanning full history.
 // Results are keyed by buffer ID in ascending message order. limit must be > 0.
-func BatchRecentLogMessages(ctx context.Context, d *sql.DB, bufferIDs []uuid.UUID, limit int) (map[uuid.UUID][]LogMessageRow, error) {
+func BatchRecentLogMessages(ctx context.Context, d logdb.DBTX, bufferIDs []uuid.UUID, limit int) (map[uuid.UUID][]LogMessageRow, error) {
 	if len(bufferIDs) == 0 {
 		return map[uuid.UUID][]LogMessageRow{}, nil
 	}
@@ -318,10 +349,6 @@ func logMessagesQuery(ctx context.Context, d *sql.DB, q string, args ...any) ([]
 		return rows.Scan(&m.ID, &m.BufferID, &m.MsgID, &m.TS,
 			&m.Sender, &m.Userhost, &m.Account, &m.Kind, &m.Target, &m.Content)
 	})
-}
-
-func (s *LogStore) String() string {
-	return fmt.Sprintf("LogStore(network_id=%s)", s.NetworkID.String())
 }
 
 // MessagePreviewLink is one (message_id, url) association in a per-network log.

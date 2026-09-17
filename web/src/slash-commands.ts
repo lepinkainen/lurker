@@ -141,6 +141,11 @@ const registry: SlashCommandEntry[] = [
   command("/ignorelist", "", "List ignored masks", ({ buffer, sendCmd }) => {
     sendCmd({ type: "ignorelist", network_id: buffer.network_id });
   }),
+  networkTargetCommand("mute", "/mute", "<nick>", "Mute nick or mask (hidden from unread, still visible)"),
+  networkTargetCommand("unmute", "/unmute", "<nick>", "Remove mute"),
+  command("/mutelist", "", "List ignored and muted masks", ({ buffer, sendCmd }) => {
+    sendCmd({ type: "mutelist", network_id: buffer.network_id });
+  }),
   command("/archive", "", "Archive this buffer", ({ buffer, sendCmd }) => {
     if (buffer.kind === "status") return;
     sendCmd({ type: "archive_buffer", buffer_id: buffer.id });

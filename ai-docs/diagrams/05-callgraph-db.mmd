@@ -1,0 +1,252 @@
+flowchart LR
+    %% db/ package: cross-file call graph (MultiStore, LogStore, registries, helpers).
+    %% sqlc-generated db/internal/* excluded.
+    %% One node per function, one subgraph per file. Intra-file calls omitted by design.
+    subgraph db_buffer_registry_go["db/buffer_registry.go"]
+        db_buffer_registry_go_lookupbufferregistry["LookupBufferRegistry<br/>in:1 out:1"]
+        db_buffer_registry_go_reordernetworkbuffers["ReorderNetworkBuffers<br/>in:0 out:1"]
+        db_buffer_registry_go_assigndenseorder["assignDenseOrder<br/>in:1 out:0"]
+    end
+    subgraph db_buffer_settings_go["db/buffer_settings.go"]
+        db_buffer_settings_go_getbuffersettings["GetBufferSettings<br/>in:1 out:0"]
+        db_buffer_settings_go_listbuffersettings["ListBufferSettings<br/>in:1 out:0"]
+        db_buffer_settings_go_reorderpinnedbuffers["ReorderPinnedBuffers<br/>in:0 out:2"]
+        db_buffer_settings_go_updatebuffersettings["UpdateBufferSettings<br/>in:0 out:1"]
+        db_buffer_settings_go_buffersettingsfromrow["bufferSettingsFromRow<br/>in:0 out:1"]
+    end
+    subgraph db_control_go["db/control.go"]
+        db_control_go_createnetwork["CreateNetwork<br/>in:0 out:4"]
+        db_control_go_getnetwork["GetNetwork<br/>in:2 out:1"]
+        db_control_go_reordernetworks["ReorderNetworks<br/>in:0 out:1"]
+        db_control_go_updatenetwork["UpdateNetwork<br/>in:0 out:2"]
+        db_control_go_nullstr["nullStr<br/>in:1 out:0"]
+    end
+    subgraph db_db_go["db/db.go"]
+        db_db_go_opencontrol["OpenControl<br/>in:1 out:0"]
+        db_db_go_openlog["OpenLog<br/>in:1 out:0"]
+        db_db_go_openmedia["OpenMedia<br/>in:1 out:0"]
+        db_db_go_openpreviews["OpenPreviews<br/>in:1 out:0"]
+    end
+    subgraph db_highlight_go["db/highlight.go"]
+        db_highlight_go_sethighlights["SetHighlights<br/>in:0 out:2"]
+    end
+    subgraph db_ignore_go["db/ignore.go"]
+        db_ignore_go_createignore["CreateIgnore<br/>in:0 out:2"]
+    end
+    subgraph db_logstore_go["db/logstore.go"]
+        db_logstore_go_batchrecentlogmessages["BatchRecentLogMessages<br/>in:1 out:1"]
+        db_logstore_go_ensurestatusbuffer["EnsureStatusBuffer<br/>in:0 out:1"]
+        db_logstore_go_insertlogmessage["InsertLogMessage<br/>in:0 out:4"]
+        db_logstore_go_listlogbuffers["ListLogBuffers<br/>in:1 out:2"]
+        db_logstore_go_logbufferlastseen["LogBufferLastSeen<br/>in:1 out:1"]
+        db_logstore_go_logmessageinbuffer["LogMessageInBuffer<br/>in:1 out:0"]
+        db_logstore_go_logmessagesbefore["LogMessagesBefore<br/>in:1 out:0"]
+        db_logstore_go_lookuplogbufferidbyname["LookupLogBufferIDByName<br/>in:1 out:1"]
+        db_logstore_go_openlogstore["OpenLogStore<br/>in:1 out:1"]
+        db_logstore_go_recentlogmessages["RecentLogMessages<br/>in:1 out:0"]
+        db_logstore_go_searchlogmessages["SearchLogMessages<br/>in:2 out:0"]
+        db_logstore_go_updatelogbufferlastseen["UpdateLogBufferLastSeen<br/>in:1 out:0"]
+        db_logstore_go_updatelogbuffertopicstate["UpdateLogBufferTopicState<br/>in:0 out:1"]
+        db_logstore_go_beforerowstomessages["beforeRowsToMessages<br/>in:0 out:1"]
+        db_logstore_go_logmessagesquery["logMessagesQuery<br/>in:0 out:1"]
+        db_logstore_go_recentrowstomessages["recentRowsToMessages<br/>in:0 out:1"]
+    end
+    subgraph db_media_store_go["db/media_store.go"]
+        db_media_store_go_insert["Insert<br/>in:0 out:1"]
+        db_media_store_go_openmediastore["OpenMediaStore<br/>in:1 out:1"]
+    end
+    subgraph db_multistore_go["db/multistore.go"]
+        db_multistore_go_deletenetwork["DeleteNetwork<br/>in:0 out:1"]
+        db_multistore_go_ensurebuffer["EnsureBuffer<br/>in:1 out:2"]
+        db_multistore_go_listallbuffers["ListAllBuffers<br/>in:0 out:2"]
+        db_multistore_go_lookupbuffer["LookupBuffer<br/>in:0 out:1"]
+        db_multistore_go_markbufferlastseen["MarkBufferLastSeen<br/>in:0 out:3"]
+        db_multistore_go_messagesbefore["MessagesBefore<br/>in:0 out:1"]
+        db_multistore_go_openconfigurednetworks["OpenConfiguredNetworks<br/>in:0 out:1"]
+        db_multistore_go_openmultistore["OpenMultiStore<br/>in:0 out:3"]
+        db_multistore_go_opennetwork["OpenNetwork<br/>in:0 out:2"]
+        db_multistore_go_recentmessages["RecentMessages<br/>in:0 out:1"]
+        db_multistore_go_renamenetworklogdb["RenameNetworkLogDB<br/>in:0 out:1"]
+        db_multistore_go_search["Search<br/>in:0 out:1"]
+        db_multistore_go_snapshotnetwork["SnapshotNetwork<br/>in:0 out:2"]
+        db_multistore_go_applybuffersettings["applyBufferSettings<br/>in:0 out:1"]
+        db_multistore_go_ensurebufferlogrow["ensureBufferLogRow<br/>in:0 out:2"]
+        db_multistore_go_ensurebufferregistryrow["ensureBufferRegistryRow<br/>in:0 out:2"]
+        db_multistore_go_insertbufferlogrow["insertBufferLogRow<br/>in:0 out:2"]
+        db_multistore_go_networkbuffers["networkBuffers<br/>in:0 out:2"]
+        db_multistore_go_peeklogbufferid["peekLogBufferID<br/>in:0 out:1"]
+        db_multistore_go_searchnetwork["searchNetwork<br/>in:0 out:1"]
+    end
+    subgraph db_naming_go["db/naming.go"]
+        db_naming_go_logdbpath["LogDBPath<br/>in:2 out:0"]
+        db_naming_go_normalizenetworkname["NormalizeNetworkName<br/>in:4 out:0"]
+        db_naming_go_validatenetworkname["ValidateNetworkName<br/>in:3 out:0"]
+    end
+    subgraph db_network_connect_commands_go["db/network_connect_commands.go"]
+        db_network_connect_commands_go_listnetworkconnectcommands["ListNetworkConnectCommands<br/>in:1 out:0"]
+    end
+    subgraph db_network_store_go["db/network_store.go"]
+        db_network_store_go_listnetworks["ListNetworks<br/>in:2 out:1"]
+        db_network_store_go_listnetworkswithsasl["ListNetworksWithSASL<br/>in:0 out:2"]
+        db_network_store_go_marknonyamlnetworksdisabled["MarkNonYAMLNetworksDisabled<br/>in:0 out:1"]
+        db_network_store_go_upsertnetwork["UpsertNetwork<br/>in:0 out:7"]
+    end
+    subgraph db_preview_store_go["db/preview_store.go"]
+        db_preview_store_go_openpreviewstore["OpenPreviewStore<br/>in:1 out:1"]
+        db_preview_store_go_put["Put<br/>in:0 out:1"]
+        db_preview_store_go_now["now<br/>in:0 out:1"]
+    end
+    subgraph db_shared_store_go["db/shared_store.go"]
+        db_shared_store_go_normalizebufferidentity["normalizeBufferIdentity<br/>in:1 out:0"]
+        db_shared_store_go_nullableptr["nullablePtr<br/>in:1 out:0"]
+        db_shared_store_go_nullablestring["nullableString<br/>in:2 out:0"]
+        db_shared_store_go_scanlogmessagerows["scanLogMessageRows<br/>in:1 out:0"]
+    end
+    subgraph db_time_go["db/time.go"]
+        db_time_go_formattime["FormatTime<br/>in:1 out:0"]
+        db_time_go_now["Now<br/>in:8 out:0"]
+    end
+    subgraph db_unread_go["db/unread.go"]
+        db_unread_go_batchunreadcandidates["BatchUnreadCandidates<br/>in:1 out:1"]
+        db_unread_go_unreadcandidates["UnreadCandidates<br/>in:0 out:1"]
+    end
+    subgraph db_uuid_helpers_go["db/uuid_helpers.go"]
+        db_uuid_helpers_go_newid["newID<br/>in:6 out:0"]
+        db_uuid_helpers_go_newidat["newIDAt<br/>in:1 out:0"]
+        db_uuid_helpers_go_parseuuid["parseUUID<br/>in:14 out:0"]
+        db_uuid_helpers_go_scanuuid["scanUUID<br/>in:10 out:0"]
+    end
+    db_buffer_registry_go_lookupbufferregistry --> db_uuid_helpers_go_parseuuid
+    db_buffer_registry_go_reordernetworkbuffers --> db_uuid_helpers_go_parseuuid
+    db_buffer_settings_go_reorderpinnedbuffers --> db_buffer_registry_go_assigndenseorder
+    db_buffer_settings_go_reorderpinnedbuffers --> db_uuid_helpers_go_parseuuid
+    db_buffer_settings_go_updatebuffersettings --> db_time_go_now
+    db_buffer_settings_go_buffersettingsfromrow --> db_uuid_helpers_go_scanuuid
+    db_control_go_createnetwork --> db_naming_go_normalizenetworkname
+    db_control_go_createnetwork --> db_naming_go_validatenetworkname
+    db_control_go_createnetwork --> db_time_go_now
+    db_control_go_createnetwork --> db_uuid_helpers_go_newid
+    db_control_go_getnetwork --> db_uuid_helpers_go_parseuuid
+    db_control_go_reordernetworks --> db_uuid_helpers_go_parseuuid
+    db_control_go_updatenetwork --> db_naming_go_normalizenetworkname
+    db_control_go_updatenetwork --> db_naming_go_validatenetworkname
+    db_highlight_go_sethighlights --> db_time_go_now
+    db_highlight_go_sethighlights --> db_uuid_helpers_go_newid
+    db_ignore_go_createignore --> db_time_go_now
+    db_ignore_go_createignore --> db_uuid_helpers_go_newid
+    db_logstore_go_batchrecentlogmessages --> db_uuid_helpers_go_scanuuid
+    db_logstore_go_ensurestatusbuffer --> db_multistore_go_ensurebuffer
+    db_logstore_go_insertlogmessage --> db_shared_store_go_nullablestring
+    db_logstore_go_insertlogmessage --> db_time_go_formattime
+    db_logstore_go_insertlogmessage --> db_uuid_helpers_go_newid
+    db_logstore_go_insertlogmessage --> db_uuid_helpers_go_newidat
+    db_logstore_go_listlogbuffers --> db_uuid_helpers_go_parseuuid
+    db_logstore_go_listlogbuffers --> db_uuid_helpers_go_scanuuid
+    db_logstore_go_logbufferlastseen --> db_uuid_helpers_go_scanuuid
+    db_logstore_go_lookuplogbufferidbyname --> db_uuid_helpers_go_parseuuid
+    db_logstore_go_openlogstore --> db_db_go_openlog
+    db_logstore_go_updatelogbuffertopicstate --> db_shared_store_go_nullableptr
+    db_logstore_go_beforerowstomessages --> db_uuid_helpers_go_scanuuid
+    db_logstore_go_logmessagesquery --> db_shared_store_go_scanlogmessagerows
+    db_logstore_go_recentrowstomessages --> db_uuid_helpers_go_scanuuid
+    db_media_store_go_insert --> db_time_go_now
+    db_media_store_go_openmediastore --> db_db_go_openmedia
+    db_multistore_go_deletenetwork --> db_control_go_getnetwork
+    db_multistore_go_ensurebuffer --> db_shared_store_go_normalizebufferidentity
+    db_multistore_go_ensurebuffer --> db_time_go_now
+    db_multistore_go_listallbuffers --> db_buffer_settings_go_listbuffersettings
+    db_multistore_go_listallbuffers --> db_network_store_go_listnetworks
+    db_multistore_go_lookupbuffer --> db_buffer_registry_go_lookupbufferregistry
+    db_multistore_go_markbufferlastseen --> db_logstore_go_logbufferlastseen
+    db_multistore_go_markbufferlastseen --> db_logstore_go_logmessageinbuffer
+    db_multistore_go_markbufferlastseen --> db_logstore_go_updatelogbufferlastseen
+    db_multistore_go_messagesbefore --> db_logstore_go_logmessagesbefore
+    db_multistore_go_openconfigurednetworks --> db_network_store_go_listnetworks
+    db_multistore_go_openmultistore --> db_db_go_opencontrol
+    db_multistore_go_openmultistore --> db_media_store_go_openmediastore
+    db_multistore_go_openmultistore --> db_preview_store_go_openpreviewstore
+    db_multistore_go_opennetwork --> db_logstore_go_openlogstore
+    db_multistore_go_opennetwork --> db_naming_go_logdbpath
+    db_multistore_go_recentmessages --> db_logstore_go_recentlogmessages
+    db_multistore_go_renamenetworklogdb --> db_naming_go_logdbpath
+    db_multistore_go_search --> db_logstore_go_searchlogmessages
+    db_multistore_go_snapshotnetwork --> db_logstore_go_batchrecentlogmessages
+    db_multistore_go_snapshotnetwork --> db_unread_go_batchunreadcandidates
+    db_multistore_go_applybuffersettings --> db_buffer_settings_go_getbuffersettings
+    db_multistore_go_ensurebufferlogrow --> db_uuid_helpers_go_parseuuid
+    db_multistore_go_ensurebufferlogrow --> db_uuid_helpers_go_scanuuid
+    db_multistore_go_ensurebufferregistryrow --> db_uuid_helpers_go_newid
+    db_multistore_go_ensurebufferregistryrow --> db_uuid_helpers_go_parseuuid
+    db_multistore_go_insertbufferlogrow --> db_uuid_helpers_go_parseuuid
+    db_multistore_go_insertbufferlogrow --> db_uuid_helpers_go_scanuuid
+    db_multistore_go_networkbuffers --> db_logstore_go_listlogbuffers
+    db_multistore_go_networkbuffers --> db_uuid_helpers_go_parseuuid
+    db_multistore_go_peeklogbufferid --> db_logstore_go_lookuplogbufferidbyname
+    db_multistore_go_searchnetwork --> db_logstore_go_searchlogmessages
+    db_network_store_go_listnetworks --> db_uuid_helpers_go_parseuuid
+    db_network_store_go_listnetworkswithsasl --> db_network_connect_commands_go_listnetworkconnectcommands
+    db_network_store_go_listnetworkswithsasl --> db_uuid_helpers_go_parseuuid
+    db_network_store_go_marknonyamlnetworksdisabled --> db_naming_go_normalizenetworkname
+    db_network_store_go_upsertnetwork --> db_control_go_getnetwork
+    db_network_store_go_upsertnetwork --> db_control_go_nullstr
+    db_network_store_go_upsertnetwork --> db_naming_go_normalizenetworkname
+    db_network_store_go_upsertnetwork --> db_naming_go_validatenetworkname
+    db_network_store_go_upsertnetwork --> db_time_go_now
+    db_network_store_go_upsertnetwork --> db_uuid_helpers_go_newid
+    db_network_store_go_upsertnetwork --> db_uuid_helpers_go_parseuuid
+    db_preview_store_go_openpreviewstore --> db_db_go_openpreviews
+    db_preview_store_go_put --> db_shared_store_go_nullablestring
+    db_preview_store_go_now --> db_time_go_now
+    db_unread_go_batchunreadcandidates --> db_uuid_helpers_go_scanuuid
+    db_unread_go_unreadcandidates --> db_uuid_helpers_go_scanuuid
+
+    db_buffer_registry_go_reordernetworkbuffers:::orphan
+    db_buffer_settings_go_reorderpinnedbuffers:::orphan
+    db_buffer_settings_go_updatebuffersettings:::orphan
+    db_buffer_settings_go_buffersettingsfromrow:::orphan
+    db_control_go_createnetwork:::orphan
+    db_control_go_reordernetworks:::orphan
+    db_control_go_updatenetwork:::orphan
+    db_highlight_go_sethighlights:::orphan
+    db_ignore_go_createignore:::orphan
+    db_logstore_go_ensurestatusbuffer:::orphan
+    db_logstore_go_insertlogmessage:::orphan
+    db_logstore_go_updatelogbuffertopicstate:::orphan
+    db_logstore_go_beforerowstomessages:::orphan
+    db_logstore_go_logmessagesquery:::orphan
+    db_logstore_go_recentrowstomessages:::orphan
+    db_media_store_go_insert:::orphan
+    db_multistore_go_deletenetwork:::orphan
+    db_multistore_go_listallbuffers:::orphan
+    db_multistore_go_lookupbuffer:::orphan
+    db_multistore_go_markbufferlastseen:::orphan
+    db_multistore_go_messagesbefore:::orphan
+    db_multistore_go_openconfigurednetworks:::orphan
+    db_multistore_go_openmultistore:::entry
+    db_multistore_go_opennetwork:::orphan
+    db_multistore_go_recentmessages:::orphan
+    db_multistore_go_renamenetworklogdb:::orphan
+    db_multistore_go_search:::orphan
+    db_multistore_go_snapshotnetwork:::orphan
+    db_multistore_go_applybuffersettings:::orphan
+    db_multistore_go_ensurebufferlogrow:::orphan
+    db_multistore_go_ensurebufferregistryrow:::orphan
+    db_multistore_go_insertbufferlogrow:::orphan
+    db_multistore_go_networkbuffers:::orphan
+    db_multistore_go_peeklogbufferid:::orphan
+    db_multistore_go_searchnetwork:::orphan
+    db_naming_go_normalizenetworkname:::hot
+    db_network_store_go_listnetworkswithsasl:::orphan
+    db_network_store_go_marknonyamlnetworksdisabled:::orphan
+    db_network_store_go_upsertnetwork:::orphan
+    db_preview_store_go_put:::orphan
+    db_preview_store_go_now:::orphan
+    db_time_go_now:::hot
+    db_unread_go_unreadcandidates:::orphan
+    db_uuid_helpers_go_newid:::hot
+    db_uuid_helpers_go_parseuuid:::hot
+    db_uuid_helpers_go_scanuuid:::hot
+
+    classDef hot fill:#b23a3a,stroke:#7a1f1f,color:#ffffff
+    classDef orphan fill:#6b6b6b,stroke:#3f3f3f,color:#ffffff
+    classDef entry fill:#2f6f4f,stroke:#1c4530,color:#ffffff

@@ -85,8 +85,11 @@ When `Esc` is pressed, close or cancel the highest-priority active UI in this or
 
 1. channel switcher
 2. shortcuts help overlay
-3. other modal dialogs
-4. otherwise no action
+3. other modal dialogs (network form, buffer options)
+4. settings view (in-pane, capture-phase listener; backs off while a real
+   `<dialog>` is open on top so the dialog closes first)
+5. otherwise bare `Esc` acks the active buffer's unread marker (see
+   `behaviors/new-messages-marker.md`)
 
 `Esc` should not change buffers by itself.
 
@@ -186,6 +189,8 @@ If the sidebar supports collapsed sections, navigation still uses the logical vi
 ### Previous/next unread buffer
 
 Unread navigation (`Alt+Shift+ArrowUp` / `Alt+Shift+ArrowDown`) navigates through channel-kind buffers (`kind = "channel"`) with unread messages, excluding the currently active buffer.
+
+Navigation is relative to the active buffer's position in sidebar order, not to its position among unread buffers: up/down selects the nearest unread buffer above/below the active buffer's sidebar slot, even when the active buffer itself has no unread (and so is not part of the unread-only set).
 
 If no unread channel buffer exists in the requested direction, wrapping around once is preferred.
 

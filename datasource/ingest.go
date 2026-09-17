@@ -25,7 +25,7 @@ func IngestPost(ctx context.Context, deps Deps, networkID, bufferID uuid.UUID, p
 		return uuid.Nil, false, fmt.Errorf("log store: %w", err)
 	}
 
-	id, storedTS, inserted, err := ircdb.InsertLogMessage(ctx, logStore.DB, ircdb.LogMessageInput{
+	id, storedTS, inserted, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
 		BufferID:  bufferID,
 		MsgID:     post.MsgID,
 		Timestamp: post.Timestamp,
@@ -47,19 +47,17 @@ func IngestPost(ctx context.Context, deps Deps, networkID, bufferID uuid.UUID, p
 		// (IsSelf, MentionsMe) stay zero. WithSemantics still computes the
 		// canonical DisplayKind from kind/content (e.g. action vs. privmsg).
 		deps.Hub.Publish((&irc.MessageEvent{
-			Type: "message",
-			MessageCore: irc.MessageCore{
-				ID:        id,
-				NetworkID: networkID,
-				BufferID:  bufferID,
-				MsgID:     post.MsgID,
-				TS:        storedTS,
-				Sender:    post.Sender,
-				Account:   post.Account,
-				Kind:      post.Kind,
-				Target:    post.Target,
-				Content:   post.Content,
-			},
+			Type:      "message",
+			ID:        id,
+			NetworkID: networkID,
+			BufferID:  bufferID,
+			MsgID:     post.MsgID,
+			TS:        storedTS,
+			Sender:    post.Sender,
+			Account:   post.Account,
+			Kind:      post.Kind,
+			Target:    post.Target,
+			Content:   post.Content,
 		}).WithSemantics(""))
 	}
 

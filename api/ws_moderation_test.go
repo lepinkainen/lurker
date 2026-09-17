@@ -117,12 +117,12 @@ func TestWSCmdIgnoreRoundtrip(t *testing.T) {
 	t.Run("ignore persists mask", func(t *testing.T) {
 		sendCmd(t, ctx, c, clientCmd{Type: "ignore", ReqID: "g1", NetworkID: nID, Target: "spammer!*@*"})
 		checkAckOrErr(t, ctx, c, "g1", "")
-		masks, err := ircdb.ListIgnores(ctx, ts.stores.Control, nID)
+		entries, err := ircdb.ListIgnores(ctx, ts.stores.Control, nID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(masks) != 1 || masks[0] != "spammer!*@*" {
-			t.Fatalf("stored masks = %v, want [spammer!*@*]", masks)
+		if len(entries) != 1 || entries[0].Mask != "spammer!*@*" || entries[0].Level != ircdb.IgnoreLevelHide {
+			t.Fatalf("stored entries = %v, want [{spammer!*@* hide}]", entries)
 		}
 	})
 
@@ -136,20 +136,49 @@ func TestWSCmdIgnoreRoundtrip(t *testing.T) {
 		if res.Type != "ignorelist_result" || res.ReqID != "g2" || res.NetworkID != nID {
 			t.Fatalf("unexpected envelope: %+v", res)
 		}
-		if len(res.Masks) != 1 || res.Masks[0] != "spammer!*@*" {
-			t.Fatalf("masks = %v, want [spammer!*@*]", res.Masks)
+		if len(res.Entries) != 1 || res.Entries[0].Mask != "spammer!*@*" || res.Entries[0].Level != ircdb.IgnoreLevelHide {
+			t.Fatalf("entries = %v, want [{spammer!*@* hide}]", res.Entries)
 		}
+	})
+
+	t.Run("mute promotes existing mask", func(t *testing.T) {
+		sendCmd(t, ctx, c, clientCmd{Type: "mute", ReqID: "g2b", NetworkID: nID, Target: "spammer!*@*"})
+		checkAckOrErr(t, ctx, c, "g2b", "")
+		entries, err := ircdb.ListIgnores(ctx, ts.stores.Control, nID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 || entries[0].Mask != "spammer!*@*" || entries[0].Level != ircdb.IgnoreLevelMute {
+			t.Fatalf("entries after mute = %v, want [{spammer!*@* mute}]", entries)
+		}
+	})
+
+	t.Run("unmute removes mask", func(t *testing.T) {
+		sendCmd(t, ctx, c, clientCmd{Type: "unmute", ReqID: "g2c", NetworkID: nID, Target: "spammer!*@*"})
+		checkAckOrErr(t, ctx, c, "g2c", "")
+		entries, err := ircdb.ListIgnores(ctx, ts.stores.Control, nID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 0 {
+			t.Fatalf("entries after unmute = %v, want empty", entries)
+		}
+	})
+
+	t.Run("re-ignore for unignore test", func(t *testing.T) {
+		sendCmd(t, ctx, c, clientCmd{Type: "ignore", ReqID: "g2d", NetworkID: nID, Target: "spammer!*@*"})
+		checkAckOrErr(t, ctx, c, "g2d", "")
 	})
 
 	t.Run("unignore removes mask", func(t *testing.T) {
 		sendCmd(t, ctx, c, clientCmd{Type: "unignore", ReqID: "g3", NetworkID: nID, Target: "spammer!*@*"})
 		checkAckOrErr(t, ctx, c, "g3", "")
-		masks, err := ircdb.ListIgnores(ctx, ts.stores.Control, nID)
+		entries, err := ircdb.ListIgnores(ctx, ts.stores.Control, nID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(masks) != 0 {
-			t.Fatalf("masks after unignore = %v, want empty", masks)
+		if len(entries) != 0 {
+			t.Fatalf("entries after unignore = %v, want empty", entries)
 		}
 	})
 
@@ -160,8 +189,22 @@ func TestWSCmdIgnoreRoundtrip(t *testing.T) {
 		if err := json.Unmarshal(raw, &res); err != nil {
 			t.Fatalf("decode ignorelist_result: %v (raw=%s)", err, raw)
 		}
-		if res.Masks == nil || len(res.Masks) != 0 {
-			t.Fatalf("masks = %#v, want empty non-nil slice", res.Masks)
+		if res.Entries == nil || len(res.Entries) != 0 {
+			t.Fatalf("entries = %#v, want empty non-nil slice", res.Entries)
+		}
+	})
+
+	t.Run("mutelist alias returns entries", func(t *testing.T) {
+		sendCmd(t, ctx, c, clientCmd{Type: "mute", ReqID: "g5a", NetworkID: nID, Target: "botty"})
+		checkAckOrErr(t, ctx, c, "g5a", "")
+		sendCmd(t, ctx, c, clientCmd{Type: "mutelist", ReqID: "g5", NetworkID: nID})
+		raw := recvSkipBufferUpdate(t, ctx, c)
+		var res ignoreListResult
+		if err := json.Unmarshal(raw, &res); err != nil {
+			t.Fatalf("decode ignorelist_result: %v (raw=%s)", err, raw)
+		}
+		if res.Type != "ignorelist_result" || len(res.Entries) != 1 || res.Entries[0].Mask != "botty" || res.Entries[0].Level != ircdb.IgnoreLevelMute {
+			t.Fatalf("mutelist entries = %+v, want [{botty mute}]", res.Entries)
 		}
 	})
 }

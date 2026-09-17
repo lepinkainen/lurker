@@ -39,7 +39,7 @@ func insertHistoryMessages(t *testing.T, stores *ircdb.MultiStore, networkID, bu
 	}
 	ids := make([]uuid.UUID, 0, count)
 	for range count {
-		id, _, _, err := ircdb.InsertLogMessage(t.Context(), ls.DB, ircdb.LogMessageInput{
+		id, _, _, err := ircdb.InsertLogMessage(t.Context(), ls, ircdb.LogMessageInput{
 			BufferID: bufID, Sender: "alice", Kind: "privmsg", Content: "hi",
 		})
 		if err != nil {
@@ -48,6 +48,79 @@ func insertHistoryMessages(t *testing.T, stores *ircdb.MultiStore, networkID, bu
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+func TestStateRejectsIncompleteNetworkSnapshot(t *testing.T) {
+	stores, server, network, _ := newHistoryTestServer(t)
+	store, err := stores.LogStore(network.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Buffer enumeration still works, but the message snapshot query fails.
+	if _, err := store.DB.ExecContext(t.Context(), "ALTER TABLE messages RENAME TO unavailable_messages"); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/api/state", nil)
+	w := httptest.NewRecorder()
+	server.state(w, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s, want 503", w.Code, w.Body.String())
+	}
+	if _, err := store.DB.ExecContext(t.Context(), "ALTER TABLE unavailable_messages RENAME TO messages"); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	server.state(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("retry status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+type stateReadRaceManager struct {
+	*mockManager
+	onNick func()
+}
+
+func (m *stateReadRaceManager) Nick(id uuid.UUID) string {
+	if m.onNick != nil {
+		fn := m.onNick
+		m.onNick = nil
+		fn()
+	}
+	return m.mockManager.Nick(id)
+}
+
+func TestStateRejectsReadPositionRaceWithoutInternalRetry(t *testing.T) {
+	stores, server, network, buffer := newHistoryTestServer(t)
+	ids := insertHistoryMessages(t, stores, network.ID, buffer, 1)
+	server.Manager = &stateReadRaceManager{mockManager: newMockManager(), onNick: func() {
+		// The ack would publish unread=0. A later insertion belongs in the
+		// snapshot, but not in that queued acknowledgement's counts.
+		if _, err := stores.MarkBufferLastSeen(t.Context(), buffer, ids[0]); err != nil {
+			t.Fatal(err)
+		}
+		insertHistoryMessages(t, stores, network.ID, buffer, 1)
+	}}
+	r := httptest.NewRequest(http.MethodGet, "/api/state", nil)
+	w := httptest.NewRecorder()
+	server.state(w, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("raced snapshot status=%d, want 503", w.Code)
+	}
+	w = httptest.NewRecorder()
+	server.state(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("retry status=%d body=%s", w.Code, w.Body.String())
+	}
+	var state stateDTO
+	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range state.Buffers {
+		if b.ID == buffer && (b.LastSeenID != ids[0] || b.Unread != 1) {
+			t.Fatalf("retry read state=%+v", b)
+		}
+	}
 }
 
 func TestTallyUnreadSkipsSelfAndAnchorsMarker(t *testing.T) {
@@ -61,7 +134,7 @@ func TestTallyUnreadSkipsSelfAndAnchorsMarker(t *testing.T) {
 		{ID: id3, Kind: "privmsg", Sender: "alice", Content: "hi bob"},
 		{ID: id4, Kind: "privmsg", Sender: "alice", Content: "plain"},
 	}
-	got := tallyUnread(cands, "bob")
+	got := tallyUnread(cands, "bob", nil)
 	if got.Unread != 2 {
 		t.Fatalf("unread = %d, want 2 (self message and join excluded)", got.Unread)
 	}
@@ -76,14 +149,35 @@ func TestTallyUnreadSkipsSelfAndAnchorsMarker(t *testing.T) {
 }
 
 func TestTallyUnreadEmptyAndUnknownNick(t *testing.T) {
-	if got := tallyUnread(nil, "bob"); got != (unreadTally{}) {
+	if got := tallyUnread(nil, "bob", nil); got != (unreadTally{}) {
 		t.Fatalf("empty tally = %+v, want zero", got)
 	}
 	// Unknown nick: self-detection degrades to counting everything.
 	id := uuid.Must(uuid.NewV7())
-	got := tallyUnread([]ircdb.UnreadCandidate{{ID: id, Kind: "privmsg", Sender: "Bob", Content: "x"}}, "")
+	got := tallyUnread([]ircdb.UnreadCandidate{{ID: id, Kind: "privmsg", Sender: "Bob", Content: "x"}}, "", nil)
 	if got.Unread != 1 || got.MarkerID != id {
 		t.Fatalf("tally = %+v, want unread=1 marker=%v", got, id)
+	}
+}
+
+func TestTallyUnreadMutedSuppressesUnreadButKeepsMentions(t *testing.T) {
+	id1 := uuid.Must(uuid.NewV7())
+	id2 := uuid.Must(uuid.NewV7())
+	cands := []ircdb.UnreadCandidate{
+		{ID: id1, Kind: "privmsg", Sender: "weatherbot", Content: "sunny today"},
+		{ID: id2, Kind: "privmsg", Sender: "weatherbot", Content: "hey bob, sunny today"},
+	}
+	muted := func(sender string) bool { return sender == "weatherbot" }
+
+	got := tallyUnread(cands, "bob", muted)
+	if got.Unread != 0 {
+		t.Fatalf("unread = %d, want 0 (both messages from a muted sender)", got.Unread)
+	}
+	if got.Mentions != 1 {
+		t.Fatalf("mentions = %d, want 1 (mention survives mute)", got.Mentions)
+	}
+	if got.MarkerID != uuid.Nil {
+		t.Fatalf("marker = %v, want Nil (muted sender never anchors the marker)", got.MarkerID)
 	}
 }
 
@@ -206,7 +300,7 @@ func TestAttachPreviewsLeavesMessagesUntouchedWithoutLinks(t *testing.T) {
 	stores, s, n, bufID := newHistoryTestServer(t)
 	ids := insertHistoryMessages(t, stores, n.ID, bufID, 1)
 
-	dto := messageDTO{MessageCore: irc.MessageCore{ID: ids[0], NetworkID: n.ID, BufferID: bufID}}
+	dto := messageDTO{ID: ids[0], NetworkID: n.ID, BufferID: bufID}
 	msgs := []messageDTO{dto}
 	s.attachPreviews(t.Context(), msgs)
 	if len(msgs[0].Previews) != 0 {
@@ -229,7 +323,7 @@ func TestAttachPreviewsResolvesCachedDisplayablePreview(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msgs := []messageDTO{{MessageCore: irc.MessageCore{ID: ids[0], NetworkID: n.ID, BufferID: bufID}}}
+	msgs := []messageDTO{{ID: ids[0], NetworkID: n.ID, BufferID: bufID}}
 	s.attachPreviews(t.Context(), msgs)
 	if len(msgs[0].Previews) != 1 {
 		t.Fatalf("previews len = %d want 1: %+v", len(msgs[0].Previews), msgs[0].Previews)
@@ -254,7 +348,7 @@ func TestAttachPreviewsSkipsNonDisplayableKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msgs := []messageDTO{{MessageCore: irc.MessageCore{ID: ids[0], NetworkID: n.ID, BufferID: bufID}}}
+	msgs := []messageDTO{{ID: ids[0], NetworkID: n.ID, BufferID: bufID}}
 	s.attachPreviews(t.Context(), msgs)
 	if len(msgs[0].Previews) != 0 {
 		t.Fatalf("expected error-kind to be filtered: %+v", msgs[0].Previews)

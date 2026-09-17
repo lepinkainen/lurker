@@ -106,22 +106,6 @@ func (q *Queries) ListLogBuffers(ctx context.Context) ([]ListLogBuffersRow, erro
 	return items, nil
 }
 
-const lookupLogBuffer = `-- name: LookupLogBuffer :one
-SELECT name, kind FROM buffers WHERE id = ?
-`
-
-type LookupLogBufferRow struct {
-	Name string
-	Kind string
-}
-
-func (q *Queries) LookupLogBuffer(ctx context.Context, id []byte) (LookupLogBufferRow, error) {
-	row := q.db.QueryRowContext(ctx, lookupLogBuffer, id)
-	var i LookupLogBufferRow
-	err := row.Scan(&i.Name, &i.Kind)
-	return i, err
-}
-
 const lookupLogBufferByName = `-- name: LookupLogBufferByName :one
 SELECT id, COALESCE(topic,'') AS topic, last_seen_id, created_at FROM buffers WHERE name = ?
 `

@@ -1,4 +1,7 @@
+import CryptoKit
 import Foundation
+
+// MARK: - LurkerAPIError
 
 enum LurkerAPIError: LocalizedError, Sendable {
   case invalidResponse
@@ -21,6 +24,8 @@ enum LurkerAPIError: LocalizedError, Sendable {
   }
 }
 
+// MARK: - ClientCommand
+
 struct ClientCommand: Encodable, Sendable, Equatable {
   var type: String
   var reqID: String = UUID().uuidString
@@ -34,6 +39,8 @@ struct ClientCommand: Encodable, Sendable, Equatable {
   var messageID: UUID?
 }
 
+// MARK: - LurkerTransport
+
 protocol LurkerTransport: Sendable {
   func validateServer() async throws -> ServiceIdentity
   func fetchState() async throws -> StateSnapshot
@@ -44,13 +51,19 @@ protocol LurkerTransport: Sendable {
   func reorderPinnedBuffers(ids: [UUID]) async throws -> PinnedReorderEvent
   func openEvents() async -> AsyncThrowingStream<ServerEvent, Error>
   func send(_ command: ClientCommand) async throws
+  func ping() async throws
   func disconnect() async
+  func upload(_ data: Data, filename: String, contentType: String) async throws -> URL
 }
+
+// MARK: - ReorderRequest
 
 /// Request body shared by both reorder endpoints.
 struct ReorderRequest: Codable, Sendable {
   let ids: [UUID]
 }
+
+// MARK: - RedirectGuard
 
 private final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
   func urlSession(
@@ -58,7 +71,7 @@ private final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked 
     task _: URLSessionTask,
     willPerformHTTPRedirection _: HTTPURLResponse,
     newRequest request: URLRequest,
-    completionHandler: @escaping (URLRequest?) -> Void
+    completionHandler: @escaping (URLRequest?) -> Void,
   ) {
     guard let url = request.url, EndpointPolicy.allows(url) else {
       completionHandler(nil)
@@ -68,12 +81,11 @@ private final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked 
   }
 }
 
+// MARK: - LurkerAPI
+
 actor LurkerAPI: LurkerTransport {
-  let baseURL: URL
-  private let session: URLSession
-  private var socket: URLSessionWebSocketTask?
-  private let decoder = JSONDecoder.lurker()
-  private let encoder = JSONEncoder.lurker()
+
+  // MARK: Lifecycle
 
   init(baseURL: URL) {
     self.baseURL = baseURL
@@ -82,8 +94,15 @@ actor LurkerAPI: LurkerTransport {
     configuration.timeoutIntervalForResource = 30
     configuration.waitsForConnectivity = true
     session = URLSession(
-      configuration: configuration, delegate: RedirectGuard(), delegateQueue: nil)
+      configuration: configuration,
+      delegate: RedirectGuard(),
+      delegateQueue: nil,
+    )
   }
+
+  // MARK: Internal
+
+  let baseURL: URL
 
   func validateServer() async throws -> ServiceIdentity {
     let identity: ServiceIdentity = try await get("whoami")
@@ -103,7 +122,9 @@ actor LurkerAPI: LurkerTransport {
 
   func fetchHistory(bufferID: UUID, before: UUID?) async throws -> [Message] {
     var components = URLComponents(
-      url: url("api/buffers/\(bufferID.uuidString)/history"), resolvingAgainstBaseURL: false)
+      url: url("api/buffers/\(bufferID.uuidString)/history"),
+      resolvingAgainstBaseURL: false,
+    )
     components?.queryItems = [
       before.map { URLQueryItem(name: "before", value: $0.uuidString) },
       URLQueryItem(name: "limit", value: "200"),
@@ -163,11 +184,13 @@ actor LurkerAPI: LurkerTransport {
             let data: Data
             switch frame {
             case .data(let value): data = value
+
             case .string(let value):
               guard let value = value.data(using: .utf8) else {
                 throw LurkerAPIError.textExpected
               }
               data = value
+
             @unknown default:
               throw LurkerAPIError.textExpected
             }
@@ -198,9 +221,117 @@ actor LurkerAPI: LurkerTransport {
     try await socket.send(.string(text))
   }
 
+  /// Probe the live socket with a WebSocket ping. A ping into a dead TCP
+  /// connection can hang until the OS gives up (minutes), so a watchdog
+  /// cancels the socket after 3s — that both fails this call fast and makes
+  /// the receive loop throw, which is what kicks the reconnect loop.
+  /// ponytail: the watchdog can race a pong arriving at exactly 3s and kill a
+  /// healthy socket — worst case is one spurious reconnect.
+  func ping() async throws {
+    guard let socket else {
+      throw LurkerAPIError.disconnected
+    }
+    let watchdog = Task {
+      try? await Task.sleep(for: .seconds(3))
+      if !Task.isCancelled {
+        socket.cancel(with: .abnormalClosure, reason: nil)
+      }
+    }
+    defer { watchdog.cancel() }
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      socket.sendPing { error in
+        if let error {
+          continuation.resume(throwing: error)
+        } else {
+          continuation.resume()
+        }
+      }
+    }
+  }
+
   func disconnect() {
     socket?.cancel(with: .goingAway, reason: nil)
     socket = nil
+  }
+
+  func upload(_ data: Data, filename: String, contentType: String) async throws -> URL {
+    // Client-side dedup: hash the exact bytes we would POST (already
+    // HEIC→JPEG transcoded upstream, so this matches the server's source_hash)
+    // and skip the upload entirely if the server already has them. Best-effort
+    // — any failure falls through to a normal upload, which dedups server-side
+    // anyway.
+    let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    if let existing = try? await existingUpload(hash: hash) {
+      return existing
+    }
+
+    let boundary = UUID().uuidString
+    var body = Data()
+    body.append("--\(boundary)\r\n".data(using: .utf8)!)
+    body.append(
+      "Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n"
+        .data(using: .utf8)!
+    )
+    body.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
+    body.append(data)
+    body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+    var request = URLRequest(url: url("api/upload"))
+    request.httpMethod = "POST"
+    request.setValue(
+      "multipart/form-data; boundary=\(boundary)",
+      forHTTPHeaderField: "Content-Type",
+    )
+    request.httpBody = body
+
+    let (responseData, response) = try await session.data(for: request)
+    guard let response = response as? HTTPURLResponse else {
+      throw LurkerAPIError.invalidResponse
+    }
+    guard (200..<300).contains(response.statusCode) else {
+      throw LurkerAPIError.httpStatus(
+        response.statusCode,
+        String(data: responseData, encoding: .utf8) ?? "",
+      )
+    }
+    struct UploadResponse: Decodable {
+      let url: String
+    }
+    let decoded = try decoder.decode(UploadResponse.self, from: responseData)
+    guard let resolved = URL(string: decoded.url, relativeTo: baseURL)?.absoluteURL else {
+      throw LurkerAPIError.invalidResponse
+    }
+    return resolved
+  }
+
+  // MARK: Private
+
+  private let session: URLSession
+  private var socket: URLSessionWebSocketTask?
+  private let decoder = JSONDecoder.lurker()
+  private let encoder = JSONEncoder.lurker()
+
+  /// Asks the server whether bytes with this SHA-256 are already stored,
+  /// returning the existing URL on a hit or nil on a miss (404). Used by
+  /// upload() to skip re-uploading a duplicate.
+  private func existingUpload(hash: String) async throws -> URL? {
+    guard var comps = URLComponents(url: url("api/media/exists"), resolvingAgainstBaseURL: false)
+    else {
+      return nil
+    }
+    comps.queryItems = [URLQueryItem(name: "hash", value: hash)]
+    guard let target = comps.url else { return nil }
+    var request = URLRequest(url: target)
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    let (data, response) = try await session.data(for: request)
+    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+      return nil
+    }
+    struct ExistsResponse: Decodable {
+      let url: String
+    }
+    let decoded = try decoder.decode(ExistsResponse.self, from: data)
+    return URL(string: decoded.url, relativeTo: baseURL)?.absoluteURL
   }
 
   private func get<T: Decodable>(_ path: String) async throws -> T {
@@ -220,7 +351,9 @@ actor LurkerAPI: LurkerTransport {
     }
     guard (200..<300).contains(response.statusCode) else {
       throw LurkerAPIError.httpStatus(
-        response.statusCode, String(data: data, encoding: .utf8) ?? "")
+        response.statusCode,
+        String(data: data, encoding: .utf8) ?? "",
+      )
     }
     return try decoder.decode(T.self, from: data)
   }
@@ -228,4 +361,5 @@ actor LurkerAPI: LurkerTransport {
   private func url(_ path: String) -> URL {
     baseURL.appending(path: path)
   }
+
 }

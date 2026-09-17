@@ -1,0 +1,1 @@
+ALTER TABLE ignores ADD COLUMN level TEXT NOT NULL DEFAULT 'hide';

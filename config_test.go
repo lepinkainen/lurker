@@ -42,10 +42,11 @@ networks:
 		t.Fatal(err)
 	}
 
-	nets, _, _, err := parseYAMLConfig(path)
+	parsed, err := parseYAMLConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	nets := parsed.Networks
 	if len(nets) != 2 {
 		t.Fatalf("len = %d, want 2", len(nets))
 	}
@@ -132,10 +133,11 @@ networks:
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	nets, _, _, err := parseYAMLConfig(path)
+	parsed, err := parseYAMLConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	nets := parsed.Networks
 	if len(nets) != 2 {
 		t.Fatalf("len = %d, want 2", len(nets))
 	}
@@ -158,7 +160,7 @@ networks:
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := parseYAMLConfig(path); err == nil {
+	if _, err := parseYAMLConfig(path); err == nil {
 		t.Fatal("expected error for network with no servers")
 	}
 }
@@ -167,7 +169,7 @@ networks:
 // never boots half-configured (a misplaced file would otherwise silently
 // disable every network).
 func TestParseYAMLConfigMissingFileIsError(t *testing.T) {
-	if _, _, _, err := parseYAMLConfig(filepath.Join(t.TempDir(), "does-not-exist.yaml")); err == nil {
+	if _, err := parseYAMLConfig(filepath.Join(t.TempDir(), "does-not-exist.yaml")); err == nil {
 		t.Fatal("missing config file should be an error")
 	}
 }
@@ -420,24 +422,6 @@ func TestEnvDurationOr(t *testing.T) {
 	}
 	if got := envDurationOr("LURKER_TEST_DUR_UNSET", 5*time.Second); got != 5*time.Second {
 		t.Fatalf("got %v", got)
-	}
-}
-
-func TestEnvInt64Or(t *testing.T) {
-	t.Setenv("LURKER_TEST_INT", "42")
-	if got := envInt64Or("LURKER_TEST_INT", 7); got != 42 {
-		t.Fatalf("got %d", got)
-	}
-	t.Setenv("LURKER_TEST_INT_NEG", "-5")
-	if got := envInt64Or("LURKER_TEST_INT_NEG", 7); got != 7 {
-		t.Fatalf("negatives should fall back, got %d", got)
-	}
-	t.Setenv("LURKER_TEST_INT_BAD", "abc")
-	if got := envInt64Or("LURKER_TEST_INT_BAD", 7); got != 7 {
-		t.Fatalf("got %d", got)
-	}
-	if got := envInt64Or("LURKER_TEST_INT_UNSET", 3); got != 3 {
-		t.Fatalf("got %d", got)
 	}
 }
 

@@ -1,7 +1,13 @@
-import { type Member, type Message, type NetsplitInfo, state } from "./app-state";
+import { activeBuffer, type Member, type Message, type NetsplitInfo, type Network, state } from "./app-state";
 import type { AppView } from "./app-view";
 import { applyChannelListUpdate, type ChannelListUpdate } from "./channel-list";
-import { registerMemberNickColors, registerMessageNickColors } from "./nick-colors";
+import { takePendingSend } from "./input";
+import {
+  registerAvatar,
+  registerMemberNickColors,
+  registerMessageNickColors,
+  registerNetworkNickColor,
+} from "./nick-colors";
 
 type WSMessage =
   | ({ type: "message" } & Message)
@@ -37,15 +43,28 @@ type WSMessage =
   | { type: "buffer_reorder"; network_id: string; buffers?: { id: string; sort_order: number }[] }
   | { type: "buffer_deleted"; id: string; network_id: string }
   | { type: "network_state"; network_id: string; state: string }
+  | { type: "network_created" | "network_updated"; network: Network }
+  | { type: "network_deleted"; id: string }
+  | { type: "network_reorder"; networks?: { id: string; sort_order: number }[] }
   | { type: "history_result"; buffer_id: string; messages?: Message[] }
+  | { type: "history_backfill"; network_id: string; buffer_id: string; count: number }
   | { type: "preview"; buffer_id: string; message_id: string; previews?: Message["previews"] }
-  | { type: "member_list"; buffer_id: string; members?: Member[] }
+  | { type: "member_list"; network_id: string; buffer_id: string; members?: Member[] }
+  | { type: "avatar"; network_id: string; nick: string; has_avatar?: boolean }
   | { type: "netsplit"; buffer_id: string; netsplit: NetsplitInfo; message_ids?: string[] }
   | ({ type: "channel_list" } & ChannelListUpdate)
-  | { type: "ignorelist_result"; req_id: string; network_id: string; masks: string[] }
-  | { type: "highlights"; patterns?: string[] };
+  | {
+      type: "ignorelist_result";
+      req_id: string;
+      network_id: string;
+      entries: { mask: string; level: "hide" | "mute" }[];
+    }
+  | { type: "highlights"; patterns?: string[] }
+  | { type: "ack"; req_id?: string }
+  | { type: "error"; req_id?: string; message?: string }
+  | { type: "ping" };
 
-export function createWSRouter(view: AppView): (msg: unknown) => void {
+export function createWSRouter(view: AppView, sendCmd: (cmd: Record<string, unknown>) => void): (msg: unknown) => void {
   return (msg: unknown) => {
     const m = msg as WSMessage;
     switch (m.type) {
@@ -53,7 +72,16 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
         registerMessageNickColors(m);
         view.appendMessage(m);
         break;
+      case "ack":
+        takePendingSend(m.req_id);
+        break;
+      case "error":
+        view.showCommandError(m.message || "command failed", takePendingSend(m.req_id));
+        break;
+      case "ping":
+        break;
       case "buffer_created": {
+        if (state.needsStateSyncOnConnect) state.createdDuringSync.add(m.id);
         const net = state.networks.get(m.network_id);
         const isDatasource = net?.kind !== undefined && net.kind !== "irc";
         state.buffers.set(m.id, {
@@ -66,7 +94,7 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
           unread: 0,
           mentions: 0,
           last_seen_id: "",
-          show_embeds: true,
+          show_embeds: m.kind !== "status",
           show_presence_events: true,
           collapse_presence_events: false,
           pinned: false,
@@ -99,6 +127,29 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
         }
         view.renderSidebar();
         break;
+      case "network_created":
+      case "network_updated":
+        if (state.needsStateSyncOnConnect) state.createdDuringSync.add(m.network.id);
+        state.networks.set(m.network.id, m.network);
+        registerNetworkNickColor(m.network);
+        view.renderSidebar();
+        view.renderHeader();
+        break;
+      case "network_deleted":
+        for (const b of [...state.buffers.values()]) {
+          if (b.network_id === m.id) view.removeBuffer(b.id);
+        }
+        state.networks.delete(m.id);
+        view.renderSidebar();
+        view.renderHeader();
+        break;
+      case "network_reorder":
+        for (const entry of m.networks || []) {
+          const n = state.networks.get(entry.id);
+          if (n) n.sort_order = entry.sort_order;
+        }
+        view.renderSidebar();
+        break;
       case "network_state": {
         const n = state.networks.get(m.network_id);
         if (n && n.status !== m.state) {
@@ -112,12 +163,32 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
         for (const msg of m.messages || []) registerMessageNickColors(msg);
         view.prependHistory(m);
         break;
+      case "history_backfill":
+        // A CHATHISTORY replay inserted older messages server-side without
+        // live message events. Refetch the recent window; onHistoryResult
+        // merges by id, so the gap rows slot into place. Buffers we haven't
+        // loaded yet just see the rows on their normal first load.
+        if (state.messages.has(m.buffer_id)) {
+          sendCmd({ type: "history", buffer_id: m.buffer_id, limit: Math.min(500, m.count + 100) });
+        }
+        break;
       case "preview":
         view.patchPreview(m);
         break;
       case "member_list":
-        registerMemberNickColors(m.members || []);
+        registerMemberNickColors(m.members || [], m.network_id);
         view.setMembers(m.buffer_id, m.members || []);
+        break;
+      case "avatar":
+        registerAvatar(m.network_id, m.nick, m.has_avatar);
+        // Only the active buffer's network is ever on screen (member list,
+        // message rows, input nick all render the active buffer). Reuse the
+        // same refresh calls member_list already does for the active buffer.
+        if (activeBuffer()?.network_id === m.network_id) {
+          view.renderMembers();
+          view.renderActiveView();
+          view.renderPromptNick();
+        }
         break;
       case "netsplit": {
         // Retroactive annotation: earlier quits were published before the
@@ -140,7 +211,10 @@ export function createWSRouter(view: AppView): (msg: unknown) => void {
         if (applyChannelListUpdate(m)) view.renderActiveView();
         break;
       case "ignorelist_result":
-        console.log("ignore list:", m.masks);
+        console.log(
+          "ignore list:",
+          m.entries.map((e) => `${e.mask} (${e.level})`),
+        );
         break;
       case "highlights":
         // Highlight matching is server-side; new flags arrive on future

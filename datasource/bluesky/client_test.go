@@ -148,8 +148,8 @@ func TestLoginStoresSession(t *testing.T) {
 	if err := c.Login(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if c.DID() != "did:plc:abc" || c.Handle() != "tester.bsky.social" {
-		t.Fatalf("DID/Handle = %q/%q", c.DID(), c.Handle())
+	if c.Handle() != "tester.bsky.social" {
+		t.Fatalf("Handle = %q", c.Handle())
 	}
 }
 

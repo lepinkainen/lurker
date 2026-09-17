@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type Buffer, type Message, type Network, state } from "../src/app-state";
-import { type MessagesDom, onBufferUpdate, onMessage, renderActiveView, renderHeader } from "../src/messages";
+import {
+  type MessagesDom,
+  onBufferUpdate,
+  onHistoryResult,
+  onMessage,
+  renderActiveView,
+  renderHeader,
+} from "../src/messages";
 import { resetAppState } from "../src/reset";
 
 function buf(overrides: Partial<Buffer> & { id: string }): Buffer {
@@ -26,8 +33,9 @@ function dom(): MessagesDom {
   statusViewEl.hidden = true;
   const bufferNameEl = document.createElement("div");
   const bufferTopicEl = document.createElement("div");
+  const bufferOptionsBtnEl = document.createElement("button");
   const inputEl = document.createElement("input");
-  return { messagesEl, statusViewEl, bufferNameEl, bufferTopicEl, inputEl };
+  return { messagesEl, statusViewEl, bufferNameEl, bufferTopicEl, bufferOptionsBtnEl, inputEl };
 }
 
 const deps = {
@@ -67,6 +75,24 @@ describe("renderHeader", () => {
     renderHeader(d, deps);
     expect(d.bufferNameEl.textContent).toBe("libera (status)");
     expect(d.bufferTopicEl.querySelector(".topictext")?.textContent).toContain("libera.example");
+  });
+
+  it("shows the buffer options gear for channels and queries, hides it for status", () => {
+    state.activeId = "1";
+    state.buffers.set("1", buf({ id: "1", kind: "channel", name: "#x" }));
+    const d = dom();
+    renderHeader(d, deps);
+    expect(d.bufferOptionsBtnEl.hidden).toBe(false);
+
+    state.activeId = "2";
+    state.buffers.set("2", buf({ id: "2", kind: "query", name: "alice" }));
+    renderHeader(d, deps);
+    expect(d.bufferOptionsBtnEl.hidden).toBe(false);
+
+    state.activeId = "3";
+    state.buffers.set("3", buf({ id: "3", kind: "status", name: "(status)" }));
+    renderHeader(d, deps);
+    expect(d.bufferOptionsBtnEl.hidden).toBe(true);
   });
 
   it("falls back to 'No topic set' when topic missing", () => {
@@ -447,6 +473,19 @@ describe("onMessage", () => {
     expect(handlers.renderActiveView).not.toHaveBeenCalled();
   });
 
+  it("muted sender: badges the mention but never counts unread or places the marker", () => {
+    state.activeId = "99";
+    state.buffers.set("1", buf({ id: "1" }));
+    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
+    onMessage(line({ id: "10", buffer_id: "1", sender: "bot", muted: true }), handlers);
+    onMessage(line({ id: "11", buffer_id: "1", sender: "bot", muted: true, mentions_me: true }), handlers);
+    const b = state.buffers.get("1");
+    expect(b?.unread ?? 0).toBe(0);
+    expect(b?.mentions).toBe(1);
+    expect(b?.marker_id).toBeUndefined();
+    expect(state.messages.get("1")?.length).toBe(2);
+  });
+
   it("bumps mentions for highlight-only message on inactive buffer", () => {
     state.activeId = "99";
     state.me.nick = "you";
@@ -646,5 +685,76 @@ describe("onBufferUpdate", () => {
     const handlers = { renderHeader: vi.fn(), renderSidebar: vi.fn() };
     onBufferUpdate({ id: "999", topic: "x" }, handlers);
     expect(handlers.renderHeader).not.toHaveBeenCalled();
+  });
+});
+
+describe("onHistoryResult", () => {
+  beforeEach(() => {
+    resetAppState();
+  });
+
+  function historyDeps() {
+    return { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
+  }
+
+  function msg(id: string, content: string, extra: Partial<Message> = {}): Message {
+    return { id, buffer_id: "1", sender: "a", content, ts: "2024-05-01T10:00:00Z", ...extra };
+  }
+
+  it("merges backfilled rows into the middle of the timeline", () => {
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "9" }));
+    // Gap between 2 and 8 — a chathistory backfill refetch returns the
+    // full recent window including the recovered rows 4 and 5.
+    state.messages.set("1", [msg("2", "before gap"), msg("8", "after gap")]);
+    onHistoryResult(
+      {
+        buffer_id: "1",
+        messages: [msg("2", "before gap"), msg("4", "gap a"), msg("5", "gap b"), msg("8", "after gap")],
+      },
+      historyDeps(),
+      document.createElement("section"),
+    );
+    expect((state.messages.get("1") || []).map((m) => m.id)).toEqual(["2", "4", "5", "8"]);
+  });
+
+  it("counts recovered unread messages and anchors the marker", () => {
+    state.buffers.set("1", buf({ id: "1", last_seen_id: "3" }));
+    state.messages.set("1", [msg("2", "seen"), msg("8", "live")]);
+    const deps = historyDeps();
+    onHistoryResult(
+      {
+        buffer_id: "1",
+        messages: [
+          msg("4", "gap a", { counts_as_unread: true }),
+          msg("5", "gap b", { counts_as_unread: true, mentions_me: true }),
+        ],
+      },
+      deps,
+      document.createElement("section"),
+    );
+    const b = state.buffers.get("1");
+    expect(b?.unread).toBe(2);
+    expect(b?.mentions).toBe(1);
+    expect(b?.marker_id).toBe("4");
+    expect(deps.renderSidebar).toHaveBeenCalled();
+  });
+
+  it("does not mark history exhausted on an all-known refetch", () => {
+    state.buffers.set("1", buf({ id: "1" }));
+    state.messages.set("1", [msg("2", "known")]);
+    onHistoryResult(
+      { buffer_id: "1", messages: [msg("2", "known")] },
+      historyDeps(),
+      document.createElement("section"),
+    );
+    expect(state.historyExhausted.has("1")).toBe(false);
+  });
+
+  it("marks history exhausted only for a scroll-up request", () => {
+    state.buffers.set("1", buf({ id: "1" }));
+    state.messages.set("1", [msg("2", "known")]);
+    state.loadingHistory.add("1");
+    onHistoryResult({ buffer_id: "1", messages: [] }, historyDeps(), document.createElement("section"));
+    expect(state.historyExhausted.has("1")).toBe(true);
   });
 });

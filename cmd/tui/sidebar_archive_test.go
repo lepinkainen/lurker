@@ -221,3 +221,27 @@ func TestSlashDeleteGuards(t *testing.T) {
 		t.Fatalf("/unarchive = %v ok=%v", cmd, ok)
 	}
 }
+
+func TestSlashIgnoreMute(t *testing.T) {
+	buf := &bufferDTO{ID: uuid.New(), NetworkID: uuid.New(), Name: "#chan", Kind: "channel", Joined: true}
+
+	cmd, ok := parseSlash("/mute someone", buf)
+	if !ok || cmd["type"] != "mute" || cmd["network_id"] != buf.NetworkID || cmd["target"] != "someone" {
+		t.Fatalf("/mute someone = %v ok=%v", cmd, ok)
+	}
+	cmd, ok = parseSlash("/ignore someone", buf)
+	if !ok || cmd["type"] != "ignore" || cmd["network_id"] != buf.NetworkID || cmd["target"] != "someone" {
+		t.Fatalf("/ignore someone = %v ok=%v", cmd, ok)
+	}
+	cmd, ok = parseSlash("/unmute someone", buf)
+	if !ok || cmd["type"] != "unmute" || cmd["network_id"] != buf.NetworkID || cmd["target"] != "someone" {
+		t.Fatalf("/unmute someone = %v ok=%v", cmd, ok)
+	}
+	cmd, ok = parseSlash("/unignore someone", buf)
+	if !ok || cmd["type"] != "unignore" || cmd["network_id"] != buf.NetworkID || cmd["target"] != "someone" {
+		t.Fatalf("/unignore someone = %v ok=%v", cmd, ok)
+	}
+	if _, ok := parseSlash("/mute", buf); ok {
+		t.Fatal("/mute with no arg allowed")
+	}
+}

@@ -27,6 +27,37 @@ This means tests should primarily cover:
 
 Only add true transport-level integration tests when validating behavior that is specifically about Lurker's own network integration rather than `girc` internals.
 
+## Real IRCv3 server integration tests (Ergo)
+
+`task test-ergo` runs `irc/ergo_integration_test.go` (build tag `ergo`) against a real [Ergo](https://ergo.chat) server started in docker from `testdata/ergo/ircd.yaml` (plaintext :16667, throttling off, in-memory history with CHATHISTORY enabled). Use this layer — not `cmd/fakeircd`, and not unit tests — for behavior that depends on real server-side protocol flows: CAP negotiation outcomes (`HasCapability`), CHATHISTORY request/replay, and future echo-message / SASL / multiline work. Division of labor:
+
+- **unit tests** (synthetic `girc.Event`s): lurker's translation layer, persistence, hub publication
+- **`cmd/fakeircd`**: manual verification and adversarial/edge-case line injection (a real server never sends malformed input)
+- **`task test-ergo`**: protocol conformance against a reference IRCv3 implementation; requires docker, not part of `task test`
+
+Assertion caveats: Ergo timestamps/msgids are nondeterministic (assert on content/order/counts), and without the `event-playback` cap Ergo replays join/quit history as PRIVMSGs from `HistServ` — filter by sender.
+
+### Workflow
+
+- One-shot: `task test-ergo` (starts container, waits for the port, runs tests, removes container even on failure).
+- Iterating on a test: start the server once and keep it running, then run tests directly against it:
+
+  ```sh
+  docker run -d --name lurker-ergo-test -p 16667:6667 \
+    -v $PWD/testdata/ergo/ircd.yaml:/ircd/ircd.yaml:ro ghcr.io/ergochat/ergo:stable
+  ERGO_ADDR=127.0.0.1:16667 go test -tags=ergo ./irc/ -run TestErgo -count=1 -v
+  docker rm -f lurker-ergo-test   # when done
+  ```
+
+  `ERGO_ADDR` (default `127.0.0.1:16667`) points tests at any reachable Ergo instance.
+
+### Writing new tests
+
+- Put them in `irc/` with the `//go:build ergo` tag; name them `TestErgo*` so the task target's `-run TestErgo` picks them up.
+- Reuse `dialRaw` (`ergo_integration_test.go`) for scripted counterpart clients — it registers, answers PINGs, and offers `send`/`waitFor`.
+- Use unique channel names per run (e.g. time-based suffix): the container keeps in-memory history for its whole lifetime, so a rerun against a kept-alive server sees earlier messages. Restarting the container resets all state (history is RAM-only, datastore is throwaway).
+- Server behavior knobs live in `testdata/ergo/ircd.yaml` (e.g. `history.chathistory-maxmessages`, `limits.multiline`); it's a trimmed Ergo default.yaml, so new sections can be copied from upstream when a test needs them.
+
 ## Build and developer workflow
 
 Preferred commands come from `Taskfile.yml`:
@@ -36,19 +67,23 @@ Preferred commands come from `Taskfile.yml`:
 - `task web-install`
 - `task web-dev`
 - `task web-build`
-- `task lint-apple` — check Swift formatting (macOS only)
+- `task lint-apple` — check Swift formatting against the Airbnb style guide via SwiftFormat, config in `apple/airbnb.swiftformat` (macOS only)
+- `task format-apple` — apply that formatting in place (macOS only)
 - `task test-apple` — run native unit tests (macOS only)
 - `task test-apple-ui` — run the fixture-driven native UI smoke test (macOS only)
 - `task build-apple` — build the unsigned Apple silicon debug app (macOS only)
 - `task package-apple` — sign, notarize, and staple a release DMG (macOS only)
 - `task test`
 - `task lint`
+- `task lint-mermaid` — parse Mermaid diagrams in root-level documentation and `ai-docs/`; included in `task lint`
 - `task build`
 - `task generate` — regenerate sqlc Go code from `db/{control,log,preview}_queries/*.sql`
 - `task up`
 - `task down`
 
 On macOS, `task build` includes Swift lint, native unit tests, and the native app build. CI runs those checks in a separate `apple` job on a `macos-26` runner. The UI smoke test is kept as an explicit local check because it launches an application and takes control of the desktop session.
+
+Mermaid lint validates Markdown `mermaid` fences, HTML `pre.mermaid` elements and `script[type="text/plain"]` elements whose IDs start with `source-`, and `.mmd` files. It uses `mermaid.parse()` in Node with jsdom for label sanitization; it does not launch a browser or render diagrams. Invalid syntax fails lint with the file and diagram line number. Dependencies are installed by `task web-install`. Keep the pinned Mermaid dependency in `web/package.json` and the HTML CDN import at the same version; lint checks for mismatches. To validate specific files, use `task lint-mermaid -- path/to/document.md`.
 
 ## SQL codegen (sqlc)
 

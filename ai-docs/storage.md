@@ -40,7 +40,7 @@ The `networks` table stores:
 
 `MultiStore.DeleteBuffer` permanently removes a buffer: message rows and the log-DB buffer row first (explicit `DELETE FROM messages` so the `messages_ad` trigger keeps the FTS index in sync; `message_previews` cascades), then the control-DB registry row (`buffer_settings` cascades). Log DB first is deliberate: the two files share no transaction, and a crash after the log delete only leaves an empty-but-visible buffer, whereas the reverse order would leave orphaned history that `EnsureBuffer`'s adopt-existing-id logic silently resurrects on the next join/PM with the same name. Recreating the same buffer name later mints a fresh UUID.
 
-`ignores` stores per-network IRC ignore masks. Columns: `id` (PK, UUIDv7 BLOB), `network_id` (FK to `networks` with `ON DELETE CASCADE`), `mask` (TEXT), `created_at`. Unique on `(network_id, mask)`.
+`ignores` stores per-network IRC ignore masks. Columns: `id` (PK, UUIDv7 BLOB), `network_id` (FK to `networks` with `ON DELETE CASCADE`), `mask` (TEXT), `created_at`, `level` (TEXT, default `'hide'`, migration 0014). Unique on `(network_id, mask)`. `level` is one of `hide` (never stored, never shown — the original single-tier behavior) or `mute` (stored and shown, but excluded from unread counts and the "New messages" marker; mentions/highlights still count). `CreateIgnore` upserts on `(network_id, mask)` conflict, so re-adding an existing mask at a new level promotes/demotes it in place rather than erroring or duplicating. Both tiers are enforced by re-deriving the level from this table at read/write time (`db.IgnoreLevelFor`, glob-matched case-insensitively against the sender nick) — nothing per-message is persisted, so removing or changing a mask retroactively affects every message from that sender.
 
 `highlights` stores the global (all-networks) user-defined highlight word list. Columns: `id` (PK, UUIDv7 BLOB), `pattern` (TEXT, unique `COLLATE NOCASE`), `created_at`. Loaded into the in-process matcher (`irc.SetHighlightPatterns`) at startup and on every `PUT /api/settings/highlights`; match results ship as `highlight`/`highlight_pattern` message flags and are never stored per-message.
 
@@ -67,6 +67,10 @@ Important properties:
 - message IDs are UUIDv7 values stored as 16-byte SQLite `BLOB`s and exposed over the API as strings
 - the `buffers.joined` column was dropped (migration `0003_drop_buffer_joined.sql`); joined state is now tracked in the IRC runtime only
 - each log DB has a `messages_fts` FTS5 virtual table for full-text search, kept in sync via triggers
+
+`InsertLogMessage` takes the shared `LogStore` and serializes live ID allocation and commit with that store's mutex. ID order therefore matches live commit order within a network, without making another network wait on its SQLite writes. Backfill skips this mutex: its IDs derive from historical timestamps and clients refresh it separately.
+
+`MultiStore.SnapshotNetwork` reads recent message windows and unread candidates in one read transaction per log DB. Both queries see the same committed rows. Read positions originate in the control DB and are checked once after the log reads. A failed network snapshot or changed read positions makes `/api/state` return 503, preserving clients' existing state until a successful retry. The response is not an atomic snapshot across all databases.
 
 ### Preview cache DB
 

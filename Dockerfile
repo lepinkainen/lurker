@@ -6,7 +6,7 @@ RUN corepack enable && pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
 
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 ARG VERSION=dev
 ARG GIT_HASH=unknown
@@ -18,7 +18,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=${VERSION} -X main.gitHash=${GIT_HASH} -X main.buildTime=${BUILD_TIME}" -o lurker .
 
-FROM alpine:3.20
+FROM alpine:3.24
 
 ARG VERSION=dev
 ARG GIT_HASH=unknown

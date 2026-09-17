@@ -4,21 +4,11 @@ import Testing
 @testable import Lurker
 
 struct SlashCommandsTests {
-  private let buffer = Buffer(
-    id: UUID(),
-    networkID: UUID(),
-    name: "#swift",
-    kind: "channel",
-    joined: true,
-    showEmbeds: true,
-    showPresenceEvents: true,
-    collapsePresenceEvents: false,
-    pinned: false,
-    unread: 0,
-    mentions: 0
-  )
 
-  @Test func plainTextSendsToBuffer() {
+  // MARK: Internal
+
+  @Test
+  func `plain text sends to buffer`() {
     guard case .command(let command) = SlashCommands.parse("hello", buffer: buffer) else {
       Issue.record("Expected command")
       return
@@ -28,7 +18,8 @@ struct SlashCommandsTests {
     #expect(command.content == "hello")
   }
 
-  @Test func parsesCommonCommands() {
+  @Test
+  func `parses common commands`() {
     guard case .command(let message) = SlashCommands.parse("/msg tove hello there", buffer: buffer)
     else {
       Issue.record("Expected message command")
@@ -46,7 +37,8 @@ struct SlashCommandsTests {
     #expect(join.channel == "#macdev")
   }
 
-  @Test func parsesListCommand() {
+  @Test
+  func `parses list command`() {
     guard case .command(let list) = SlashCommands.parse("/list", buffer: buffer) else {
       Issue.record("Expected list command")
       return
@@ -62,7 +54,46 @@ struct SlashCommandsTests {
     #expect(filtered.content == "linux")
   }
 
-  @Test func statusBufferAcceptsCommandsOnly() {
+  @Test
+  func `parses moderation commands`() {
+    guard case .command(let op) = SlashCommands.parse("/op tove", buffer: buffer) else {
+      Issue.record("Expected op command")
+      return
+    }
+    #expect(op.type == "op")
+    #expect(op.bufferID == buffer.id)
+    #expect(op.target == "tove")
+
+    guard case .command(let mode) = SlashCommands.parse("/mode +m", buffer: buffer) else {
+      Issue.record("Expected mode command")
+      return
+    }
+    #expect(mode.type == "mode")
+    #expect(mode.bufferID == buffer.id)
+    #expect(mode.content == "+m")
+
+    guard case .command(let kick) = SlashCommands.parse("/kick tove be nice", buffer: buffer)
+    else {
+      Issue.record("Expected kick command")
+      return
+    }
+    #expect(kick.type == "kick")
+    #expect(kick.target == "tove")
+    #expect(kick.content == "be nice")
+
+    // Target-less moderation commands are rejected with usage hints.
+    guard case .invalid = SlashCommands.parse("/voice", buffer: buffer) else {
+      Issue.record("Expected /voice without nick to be invalid")
+      return
+    }
+    guard case .invalid = SlashCommands.parse("/kickban", buffer: buffer) else {
+      Issue.record("Expected /kickban without nick to be invalid")
+      return
+    }
+  }
+
+  @Test
+  func `status buffer accepts commands only`() {
     var status = buffer
     status.kind = "status"
     // Plain text has no message target in the status window.
@@ -78,7 +109,8 @@ struct SlashCommandsTests {
     #expect(list.type == "list")
   }
 
-  @Test func rejectsMissingArgumentsAndUnknownCommands() {
+  @Test
+  func `rejects missing arguments and unknown commands`() {
     guard case .invalid = SlashCommands.parse("/msg tove", buffer: buffer) else {
       Issue.record("Expected invalid /msg")
       return
@@ -89,7 +121,8 @@ struct SlashCommandsTests {
     }
   }
 
-  @Test func archiveAndUnarchiveTargetTheBuffer() {
+  @Test
+  func `archive and unarchive target the buffer`() {
     guard case .command(let archive) = SlashCommands.parse("/archive", buffer: buffer) else {
       Issue.record("Expected /archive command")
       return
@@ -111,7 +144,8 @@ struct SlashCommandsTests {
     }
   }
 
-  @Test func deleteRequiresArchivedBuffer() {
+  @Test
+  func `delete requires archived buffer`() {
     guard case .invalid = SlashCommands.parse("/delete", buffer: buffer) else {
       Issue.record("Expected /delete to be rejected on a non-archived buffer")
       return
@@ -125,4 +159,21 @@ struct SlashCommandsTests {
     #expect(delete.type == "delete_buffer")
     #expect(delete.bufferID == buffer.id)
   }
+
+  // MARK: Private
+
+  private let buffer = Buffer(
+    id: UUID(),
+    networkID: UUID(),
+    name: "#swift",
+    kind: "channel",
+    joined: true,
+    showEmbeds: true,
+    showPresenceEvents: true,
+    collapsePresenceEvents: false,
+    pinned: false,
+    unread: 0,
+    mentions: 0,
+  )
+
 }

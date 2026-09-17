@@ -143,15 +143,17 @@ def find_run(workflow_name: str, sha: str) -> Run | None:
 
 
 def wait_for_run(workflow_name: str, sha: str, attempts: int = 60, sleep_secs: int = 5) -> Run:
+    print(f"Looking for {workflow_name} run for {sha}", file=sys.stderr)
     for attempt in range(1, attempts + 1):
-        print(
-            f"Looking for {workflow_name} run for {sha} (attempt {attempt}/{attempts})",
-            file=sys.stderr,
-        )
         run = find_run(workflow_name, sha)
         if run is not None:
             print(f"Found {workflow_name} run: {run.database_id}", file=sys.stderr)
             return run
+        if attempt % 12 == 0:
+            print(
+                f"Still looking for {workflow_name} run (attempt {attempt}/{attempts})",
+                file=sys.stderr,
+            )
         time.sleep(sleep_secs)
     raise SystemExit(f"Timed out waiting for {workflow_name} run for {sha}")
 
@@ -177,8 +179,29 @@ def view_run(run_id: int) -> Run:
     )
 
 
+def print_failed_logs(run_id: int, label: str, tail_lines: int = 120) -> None:
+    """Dump the failing job logs so the reader gets the root cause inline."""
+    result = subprocess.run(
+        ["gh", "run", "view", str(run_id), "--log-failed"],
+        text=True,
+        capture_output=True,
+    )
+    lines = result.stdout.splitlines()
+    if not lines:
+        return
+    print(f"--- {label} failing job logs (last {min(len(lines), tail_lines)} lines) ---")
+    for line in lines[-tail_lines:]:
+        print(line)
+    print(f"--- end {label} logs ---")
+
+
 def wait_for_completion(run_id: int, label: str, interval: int = 5) -> Run:
+    # Status lines print only on change (plus a heartbeat once a minute):
+    # this output is read by agents, and a page of identical in_progress
+    # lines is pure context waste.
     elapsed = 0
+    last_status = ""
+    last_print = 0
     while True:
         run = view_run(run_id)
         if run.status == "completed":
@@ -187,11 +210,15 @@ def wait_for_completion(run_id: int, label: str, interval: int = 5) -> Run:
             if run.url:
                 print(f"{label} URL: {run.url}")
             if run.conclusion != "success":
+                print_failed_logs(run_id, label)
                 raise SystemExit(1)
             return run
 
         status = run.status or "unknown"
-        print(f"{label} status: {status} (elapsed: {elapsed}s, checking again in {interval}s)")
+        if status != last_status or elapsed - last_print >= 60:
+            print(f"{label} status: {status} (elapsed: {elapsed}s)")
+            last_status = status
+            last_print = elapsed
         time.sleep(interval)
         elapsed += interval
 

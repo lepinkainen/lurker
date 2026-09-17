@@ -1,0 +1,175 @@
+{
+  "project": "lurker",
+  "generated_at": "2026-09-15T07:34:53Z",
+  "commit": "42f0a9a",
+  "diagrams": [
+    {
+      "id": "context",
+      "title": "System context",
+      "file": "01-context.mmd",
+      "description": "The lurker process and every external dependency, with protocol on each edge.",
+      "nodes": 21,
+      "edges": 17
+    },
+    {
+      "id": "modules",
+      "title": "Go module graph",
+      "file": "02-modules.mmd",
+      "description": "Go package dependency graph with fan-in/fan-out. Primary overcomplexity view.",
+      "nodes": 23,
+      "edges": 46
+    },
+    {
+      "id": "modules-web",
+      "title": "Web module graph",
+      "file": "02-modules-web.mmd",
+      "description": "web/src TypeScript module graph with fan-in/fan-out and the one import cycle.",
+      "nodes": 53,
+      "edges": 134
+    },
+    {
+      "id": "dataflow",
+      "title": "Data flow",
+      "file": "03-dataflow.mmd",
+      "description": "Payload path: IRC/Bluesky ingress through persistence, hub fan-out, and client egress.",
+      "nodes": 22,
+      "edges": 28
+    },
+    {
+      "id": "classes",
+      "title": "Class / type structure",
+      "file": "04-classes.mmd",
+      "description": "Exported Go types per package with interface implementation and composition edges.",
+      "nodes": 39,
+      "edges": 46
+    },
+    {
+      "id": "callgraph-irc",
+      "title": "Call graph: irc/",
+      "file": "05-callgraph-irc.mmd",
+      "description": "Cross-file calls inside irc/: connection lifecycle, event handlers, persistence.",
+      "nodes": 104,
+      "edges": 153
+    },
+    {
+      "id": "callgraph-api",
+      "title": "Call graph: api/",
+      "file": "05-callgraph-api.mmd",
+      "description": "Cross-file calls inside api/ plus its calls into irc/ and hub/.",
+      "nodes": 110,
+      "edges": 113
+    },
+    {
+      "id": "callgraph-db",
+      "title": "Call graph: db/",
+      "file": "05-callgraph-db.mmd",
+      "description": "Cross-file calls inside db/: MultiStore, LogStore, registries, helpers.",
+      "nodes": 80,
+      "edges": 83
+    },
+    {
+      "id": "callgraph-preview-media",
+      "title": "Call graph: preview/ + media/",
+      "file": "05-callgraph-preview-media.mmd",
+      "description": "Cross-file calls in preview/, media/, internal/objstore and what they reach into.",
+      "nodes": 34,
+      "edges": 25
+    },
+    {
+      "id": "callgraph-datasource",
+      "title": "Call graph: datasource/",
+      "file": "05-callgraph-datasource.mmd",
+      "description": "Cross-file calls in datasource/ and datasource/bluesky.",
+      "nodes": 34,
+      "edges": 26
+    },
+    {
+      "id": "sequence-boot",
+      "title": "Flow: boot + shutdown",
+      "file": "06-sequence-boot.mmd",
+      "description": "main.go: config load, store open, runtime start, config.yaml reconciliation, shutdown.",
+      "nodes": 10,
+      "edges": 27
+    },
+    {
+      "id": "sequence-connect",
+      "title": "Flow: network connect",
+      "file": "06-sequence-connect.mmd",
+      "description": "Dial, TLS 1.2 fallback, registration, SASL, joins, CHATHISTORY backfill, reconnect.",
+      "nodes": 8,
+      "edges": 26
+    },
+    {
+      "id": "sequence-message-ingest",
+      "title": "Flow: message ingest",
+      "file": "06-sequence-message-ingest.mmd",
+      "description": "Inbound PRIVMSG: ignore filter, persist, semantics, hub fan-out, async URL preview.",
+      "nodes": 13,
+      "edges": 28
+    },
+    {
+      "id": "sequence-outbound",
+      "title": "Flow: outbound send",
+      "file": "06-sequence-outbound.mmd",
+      "description": "Client input parsed and dispatched to IRC, with the local echo write that replaces server echo.",
+      "nodes": 9,
+      "edges": 21
+    },
+    {
+      "id": "sequence-upload",
+      "title": "Flow: media upload",
+      "file": "06-sequence-upload.mmd",
+      "description": "POST /api/upload: hash dedupe, blob write, metadata insert, and the serve paths.",
+      "nodes": 7,
+      "edges": 22
+    },
+    {
+      "id": "schema-control",
+      "title": "Schema: control.db",
+      "file": "07-schema-control.mmd",
+      "description": "Networks, global buffer registry, buffer settings, connect commands, ignores, highlights.",
+      "nodes": 6,
+      "edges": 4
+    },
+    {
+      "id": "schema-log",
+      "title": "Schema: per-network log DB",
+      "file": "07-schema-log.mmd",
+      "description": "Buffers, messages, FTS5 mirror, message-to-URL preview links.",
+      "nodes": 4,
+      "edges": 3
+    },
+    {
+      "id": "schema-preview",
+      "title": "Schema: previews.db",
+      "file": "07-schema-preview.mmd",
+      "description": "Shared URL preview cache keyed by URL, TTL-checked on read.",
+      "nodes": 1,
+      "edges": 0
+    },
+    {
+      "id": "schema-media",
+      "title": "Schema: media.db",
+      "file": "07-schema-media.mmd",
+      "description": "Upload metadata keyed by content hash; blobs live outside SQLite.",
+      "nodes": 1,
+      "edges": 0
+    },
+    {
+      "id": "state-network-connection",
+      "title": "State: network connection",
+      "file": "08-state-network-connection.mmd",
+      "description": "irc.Manager.runNetwork lifecycle: connecting, connected, disconnected, backoff.",
+      "nodes": 14,
+      "edges": 23
+    },
+    {
+      "id": "state-ws-subscriber",
+      "title": "State: WebSocket subscriber",
+      "file": "08-state-ws-subscriber.mmd",
+      "description": "One /api/stream client's lifecycle and the hub overflow/resync contract.",
+      "nodes": 12,
+      "edges": 18
+    }
+  ]
+}

@@ -39,6 +39,7 @@ type Ignore struct {
 	NetworkID []byte
 	Mask      string
 	CreatedAt string
+	Level     string
 }
 
 type Network struct {

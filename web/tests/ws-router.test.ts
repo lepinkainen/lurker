@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { state } from "../src/app-state";
 import type { AppView } from "../src/app-view";
+import { hasAvatarFor } from "../src/nick-colors";
 import { resetAppState } from "../src/reset";
 import { createWSRouter } from "../src/ws-router";
 
@@ -126,11 +127,65 @@ describe("ws-router state transformations", () => {
     expect(state.networks.has("missing")).toBe(false);
   });
 
-  it("ignorelist_result writes masks to console", () => {
+  it("ignorelist_result writes mask+level entries to console", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    createWSRouter(fakeView())({ type: "ignorelist_result", req_id: "r1", network_id: "n1", masks: ["a!*@*"] });
-    expect(log).toHaveBeenCalledWith("ignore list:", ["a!*@*"]);
+    createWSRouter(fakeView())({
+      type: "ignorelist_result",
+      req_id: "r1",
+      network_id: "n1",
+      entries: [
+        { mask: "a!*@*", level: "hide" },
+        { mask: "weatherbot", level: "mute" },
+      ],
+    });
+    expect(log).toHaveBeenCalledWith("ignore list:", ["a!*@* (hide)", "weatherbot (mute)"]);
     log.mockRestore();
+  });
+});
+
+describe("ws-router avatar", () => {
+  beforeEach(() => resetAppState());
+  afterEach(() => resetAppState());
+
+  function seedActiveBuffer(networkId = "n1") {
+    state.buffers.set("b1", {
+      id: "b1",
+      network_id: networkId,
+      name: "#a",
+      kind: "channel",
+      unread: 0,
+      mentions: 0,
+      show_embeds: true,
+      show_presence_events: true,
+      collapse_presence_events: false,
+      pinned: false,
+    });
+    state.activeId = "b1";
+  }
+
+  it("registers the avatar regardless of the active buffer", () => {
+    const view = fakeView();
+    createWSRouter(view)({ type: "avatar", network_id: "n1", nick: "alice", has_avatar: true });
+    seedActiveBuffer("n1");
+    expect(hasAvatarFor("alice")).toBe(true);
+  });
+
+  it("refreshes members, active view, and prompt nick when it matches the active network", () => {
+    seedActiveBuffer("n1");
+    const view = fakeView();
+    createWSRouter(view)({ type: "avatar", network_id: "n1", nick: "alice", has_avatar: true });
+    expect(view.renderMembers).toHaveBeenCalledTimes(1);
+    expect(view.renderActiveView).toHaveBeenCalledTimes(1);
+    expect(view.renderPromptNick).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not refresh the view for a network that isn't active", () => {
+    seedActiveBuffer("n1");
+    const view = fakeView();
+    createWSRouter(view)({ type: "avatar", network_id: "n2", nick: "alice", has_avatar: true });
+    expect(view.renderMembers).not.toHaveBeenCalled();
+    expect(view.renderActiveView).not.toHaveBeenCalled();
+    expect(view.renderPromptNick).not.toHaveBeenCalled();
   });
 });
 
@@ -256,5 +311,100 @@ describe("ws-router channel_list", () => {
     const view = fakeView();
     createWSRouter(view)({ type: "channel_list", network_id: "n1", entries: [], done: false });
     expect(view.renderActiveView).not.toHaveBeenCalled();
+  });
+});
+
+describe("ws-router command outcomes", () => {
+  beforeEach(() => resetAppState());
+  afterEach(() => resetAppState());
+
+  it("error envelope surfaces the message and hands back the pending send text", async () => {
+    const { recordPendingSend } = await import("../src/input");
+    const view = fakeView();
+    view.showCommandError = vi.fn();
+    recordPendingSend("r7", "b1", "hello there");
+    createWSRouter(view)({ type: "error", req_id: "r7", message: "not joined" });
+    expect(view.showCommandError).toHaveBeenCalledWith("not joined", { bufferId: "b1", text: "hello there" });
+  });
+
+  it("ack drops the pending send so a later unrelated error does not restore it", async () => {
+    const { recordPendingSend } = await import("../src/input");
+    const view = fakeView();
+    view.showCommandError = vi.fn();
+    recordPendingSend("r8", "b1", "acked text");
+    createWSRouter(view)({ type: "ack", req_id: "r8" });
+    createWSRouter(view)({ type: "error", req_id: "r8", message: "late" });
+    expect(view.showCommandError).toHaveBeenCalledWith("late", undefined);
+  });
+
+  it("ping is ignored", () => {
+    const view = fakeView();
+    expect(() => createWSRouter(view)({ type: "ping" })).not.toThrow();
+  });
+});
+
+describe("ws-router network configuration events", () => {
+  beforeEach(() => resetAppState());
+  afterEach(() => resetAppState());
+
+  const net = (id: string, extra: Record<string, unknown> = {}) =>
+    ({
+      id,
+      name: `net-${id}`,
+      kind: "irc",
+      host: "h",
+      port: 6697,
+      tls: true,
+      nick: "me",
+      sort_order: 0,
+      ...extra,
+    }) as never;
+
+  it("network_created / network_updated upsert the record", () => {
+    const view = fakeView();
+    const route = createWSRouter(view);
+    route({ type: "network_created", network: net("n1") });
+    expect(state.networks.get("n1")?.name).toBe("net-n1");
+    route({ type: "network_updated", network: net("n1", { nick: "renamed" }) });
+    expect(state.networks.get("n1")?.nick).toBe("renamed");
+    expect(view.renderSidebar).toHaveBeenCalled();
+  });
+
+  it("records ids created while a state sync is pending", () => {
+    const view = fakeView();
+    state.needsStateSyncOnConnect = true;
+    const route = createWSRouter(view);
+    route({ type: "network_created", network: net("n1") });
+    route({ type: "buffer_created", id: "b1", network_id: "n1", name: "#a", kind: "channel" });
+    expect([...state.createdDuringSync]).toEqual(["n1", "b1"]);
+    state.needsStateSyncOnConnect = false;
+    route({ type: "buffer_created", id: "b2", network_id: "n1", name: "#b", kind: "channel" });
+    expect(state.createdDuringSync.has("b2")).toBe(false);
+  });
+
+  it("network_deleted removes the network and its buffers", () => {
+    const view = fakeView();
+    state.networks.set("n1", net("n1"));
+    state.buffers.set("b1", { id: "b1", network_id: "n1", name: "#a", kind: "channel" } as never);
+    state.buffers.set("b2", { id: "b2", network_id: "n2", name: "#b", kind: "channel" } as never);
+    createWSRouter(view)({ type: "network_deleted", id: "n1" });
+    expect(state.networks.has("n1")).toBe(false);
+    expect(view.removeBuffer).toHaveBeenCalledWith("b1");
+    expect(view.removeBuffer).not.toHaveBeenCalledWith("b2");
+  });
+
+  it("network_reorder applies sort_order", () => {
+    const view = fakeView();
+    state.networks.set("n1", net("n1"));
+    state.networks.set("n2", net("n2"));
+    createWSRouter(view)({
+      type: "network_reorder",
+      networks: [
+        { id: "n2", sort_order: 0 },
+        { id: "n1", sort_order: 1 },
+      ],
+    });
+    expect(state.networks.get("n1")?.sort_order).toBe(1);
+    expect(state.networks.get("n2")?.sort_order).toBe(0);
   });
 });

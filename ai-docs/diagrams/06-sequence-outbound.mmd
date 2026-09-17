@@ -1,0 +1,48 @@
+sequenceDiagram
+    %% Client input -> IRC command + local echo. IRC servers never echo back,
+    %% so the echo is written locally or the message is invisible to clients.
+    autonumber
+    participant C as Client (web / apple / tui)
+    participant WS as api/ws.go
+    participant Parse as api/input.go parseInput
+    participant Ctl as control.db
+    participant Mgr as irc.Manager
+    participant Srv as IRC server
+    participant Log as network log DB
+    participant Hub as hub.Hub
+    participant PQ as preview queue
+
+    C->>WS: {"type":"input","buffer_id":...,"content":"/me waves"}
+    WS->>Ctl: LookupBuffer(buffer_id) -> networkID, name, kind
+    WS->>Parse: parseInput(content, buffer)
+    Parse-->>WS: clientCmd{type: "me", ...} (internal = true)
+    opt command not in commandsAllowedForNonIRC
+        WS->>Ctl: GetNetwork(networkID)
+        alt kind is a non-IRC network (e.g. bluesky)
+            WS-->>C: {"type":"error","msg":"command not supported on bluesky networks"}
+        end
+    end
+    WS->>WS: handleCmd dispatch (cmdSend / cmdMe / cmdJoin / cmdMode / ...)
+
+    Note over WS,Mgr: Plain text takes the cmdSend path below.
+    C->>WS: {"type":"send","buffer_id":...,"content":"hello"}
+    WS->>Ctl: LookupBuffer -> networkID, name, kind
+    alt kind = status
+        WS-->>C: error "cannot send to status buffer"
+    end
+    WS->>Mgr: Send(networkID, name, content)
+    Mgr->>Srv: PRIVMSG name :hello
+    Note over Srv: The server does NOT echo this back.
+    WS->>Mgr: LogOutbound(ctx, networkID, name, "privmsg", content)
+    Mgr->>Ctl: EnsureBuffer(networkID, target, channel|query)
+    Mgr->>Log: InsertLogMessage(sender = own nick, kind, content)
+    Log-->>Mgr: id, ts, inserted
+    opt inserted
+        Mgr->>Hub: Publish MessageEvent (WithSemantics -> is_self = true)
+        Hub->>WS: fan-out to every subscriber, including the sender's own socket
+        WS->>C: {"type":"message",...} - this is the echo the UI renders
+        opt kind is privmsg / notice / action
+            Mgr->>PQ: Enqueue(networkID, bufID, id, content)
+        end
+    end
+    WS-->>C: {"type":"ack","req_id":...}

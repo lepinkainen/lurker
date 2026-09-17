@@ -123,6 +123,14 @@
     margin-bottom: 2px;
   }
 
+  /* Grouped follow-up messages hide the repeated nick with visibility:hidden
+     on desktop to preserve column alignment. On mobile the nick is a
+     full-width row of its own, so a hidden-but-present nick renders as a
+     blank line above every follow-up — remove it from layout entirely. */
+  .msg.flat.cont .nick {
+    display: none;
+  }
+
   .msg .previews {
     max-width: 100%;
     margin-left: 0;
@@ -137,5 +145,32 @@
     right: 8px;
     width: auto;
     max-width: none;
+  }
+
+  .settings-view {
+    padding: 12px;
+  }
+
+  .sd-body {
+    flex-direction: column;
+  }
+
+  .sd-nav {
+    width: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--hair);
+    padding: 0 0 8px;
+    margin: 0 0 8px;
+  }
+
+  .sd-nav-item {
+    width: auto;
+    white-space: nowrap;
+  }
+
+  .sd-diff {
+    flex-direction: column;
   }
 }

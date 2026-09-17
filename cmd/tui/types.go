@@ -56,7 +56,9 @@ type messageDTO struct {
 	Content        string    `json:"content"`
 	MentionsMe     bool      `json:"mentions_me"`
 	Highlight      bool      `json:"highlight"`
+	Muted          bool      `json:"muted"`
 	CountsAsUnread bool      `json:"counts_as_unread"`
+	IsSelf         bool      `json:"is_self"`
 	// parsed-once cache: TS is RFC3339Nano. Parsing it on every viewport
 	// refresh is wasted work — refreshViewport fires on every WS message.
 	TSParsed time.Time `json:"-"`
@@ -81,6 +83,8 @@ type stateResponse struct {
 // Fields not relevant to a given type are zero-valued.
 type wsEvent struct {
 	Type string `json:"type"`
+	// error envelope
+	Message string `json:"message"`
 	// message
 	ID             uuid.UUID `json:"id"`
 	NetworkID      uuid.UUID `json:"network_id"`
@@ -93,7 +97,15 @@ type wsEvent struct {
 	MentionsMe     bool      `json:"mentions_me"`
 	Highlight      bool      `json:"highlight"`
 	CountsAsUnread bool      `json:"counts_as_unread"`
+	Muted          bool      `json:"muted"`
 	IsSelf         bool      `json:"is_self"`
+	// network_created / network_updated
+	Network *networkDTO `json:"network"`
+	// network_reorder
+	Networks []struct {
+		ID        uuid.UUID `json:"id"`
+		SortOrder int       `json:"sort_order"`
+	} `json:"networks"`
 	// buffer_update — pointers: fields absent from the wire mean "unchanged"
 	// (e.g. the mark_read echo carries none of these), while a present empty
 	// string means "set to empty" (cleared topic).
@@ -133,6 +145,8 @@ type wsEvent struct {
 	// history_result
 	ReqID    string       `json:"req_id"`
 	Messages []messageDTO `json:"messages"`
+	// history_backfill
+	Count int `json:"count"`
 	// channel_list (streamed; final batch has Done=true)
 	Entries []channelListEntry `json:"entries"`
 	Done    bool               `json:"done"`
@@ -152,7 +166,15 @@ type channelListEntry struct {
 
 // tea messages
 
-type stateLoadedMsg struct{ state *stateResponse }
+type stateLoadedMsg struct {
+	gen   int
+	state *stateResponse
+}
+
+type stateFailedMsg struct {
+	gen int
+	err error
+}
 
 type wsConnectedMsg struct {
 	conn   *websocket.Conn

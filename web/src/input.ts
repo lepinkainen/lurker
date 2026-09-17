@@ -13,6 +13,28 @@ export type InputDeps = InputUploadDeps & {
   nickPopEl: HTMLElement;
 };
 
+// Outbound "send" text by req_id, so a server error can hand the text back
+// to the composer instead of it silently vanishing. Acks drop entries; the cap
+// bounds the map if acks never arrive (old backend).
+export type PendingSend = { bufferId: string; text: string };
+const pendingSends = new Map<string, PendingSend>();
+const MAX_PENDING_SENDS = 50;
+
+export function recordPendingSend(reqId: string, bufferId: string, text: string) {
+  pendingSends.set(reqId, { bufferId, text });
+  if (pendingSends.size > MAX_PENDING_SENDS) {
+    const oldest = pendingSends.keys().next().value;
+    if (oldest !== undefined) pendingSends.delete(oldest);
+  }
+}
+
+export function takePendingSend(reqId: string | undefined): PendingSend | undefined {
+  if (!reqId) return undefined;
+  const pending = pendingSends.get(reqId);
+  pendingSends.delete(reqId);
+  return pending;
+}
+
 export function updateInputEnabled(inputEl: HTMLInputElement) {
   const buffer = activeBuffer();
   inputEl.disabled = !(state.wsReady && buffer && !(buffer.kind === "channel" && buffer.joined !== true));
@@ -36,7 +58,9 @@ export function onSubmit(ev: SubmitEvent, deps: InputDeps) {
   // (/nick, /list, /msg, /raw, NickServ via /msg, …) make sense there.
   // The backend rejects plain "send" to a status buffer, so drop it here.
   if (buffer.kind === "status") return;
-  deps.sendCmd({ type: "send", buffer_id: buffer.id, content: text });
+  const cmd: Record<string, unknown> = { type: "send", buffer_id: buffer.id, content: text };
+  deps.sendCmd(cmd);
+  if (typeof cmd.req_id === "string") recordPendingSend(cmd.req_id, buffer.id, text);
   recordSentInput(buffer.id, text);
   deps.inputEl.value = "";
   updateInputPopups(deps.inputEl, deps.cmdPopEl, deps.emojiPopEl, deps.nickPopEl, buffer);
