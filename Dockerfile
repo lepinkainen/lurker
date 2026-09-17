@@ -1,4 +1,7 @@
-FROM node:26-alpine AS web-builder
+# Node pin: always the latest Node LTS, kept in sync with node-version in
+# .github/workflows/ci.yml. Dependabot proposes the newest tag, which is the
+# Current release, not LTS - hold those bumps until the line enters LTS.
+FROM node:24-alpine AS web-builder
 
 WORKDIR /web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
