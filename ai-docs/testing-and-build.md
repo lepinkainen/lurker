@@ -4,6 +4,13 @@
 
 Frontend browser tests use a seeded SQLite backend plus a small runtime-state overlay. See [test-fixtures.md](test-fixtures.md) for how `data-test/`, `cmd/seedtest`, and `LURKER_TEST_FIXTURE_RUNTIME` work.
 
+The suite runs in Vitest browser mode against headless chromium via `@vitest/browser-playwright`, so it needs the Playwright browser binaries, not just the npm package. pnpm blocks Playwright's postinstall script — `web/pnpm-workspace.yaml` allowlists builds for `esbuild` only — so the binaries are fetched explicitly with `pnpm exec playwright install --with-deps chromium`. Do that once locally, and note that the CI `lint` job runs it on every job because runners start with an empty `~/.cache/ms-playwright`.
+
+Two tiers, and only the first belongs in CI:
+
+- `task test-web` — unit tier, `vitest.config.ts`, no backend. Some tests hit proxied endpoints and log `ECONNREFUSED` against the backend port; that is expected noise, not a failure.
+- `task test-web-integration` — integration tier, `vitest.integration.config.ts`, starts a seeded backend through `tests/globalSetup.ts`. Local only.
+
 ## Fake IRC server (manual verification)
 
 `cmd/fakeircd` (`task fake-ircd`) is a minimal IRC server for *manual* end-to-end verification, not for automated tests: it completes the girc handshake on :6667 and injects PRIVMSGs from a fake user when a control line (`#channel :message`) arrives on :6668. Point a network at `127.0.0.1:6667` (tls false) via config.yaml bootstrap to drive live-arrival behaviors (unread badges, new-messages marker) in real clients. See `.claude/skills/verifier-tui/SKILL.md` for the full recipe.
@@ -80,6 +87,8 @@ Preferred commands come from `Taskfile.yml`:
 - `task generate` — regenerate sqlc Go code from `db/{control,log,preview}_queries/*.sql`
 - `task up`
 - `task down`
+
+CI's `lint` job runs `task lint-web`, then `task test-web`, then `task lint-mermaid` and the Go linters; the `test` job runs `task test-ci`. Frontend tests live in `lint` because that is the only job that installs frontend dependencies.
 
 On macOS, `task build` includes Swift lint, native unit tests, and the native app build. CI runs those checks in a separate `apple` job on a `macos-26` runner. The UI smoke test is kept as an explicit local check because it launches an application and takes control of the desktop session.
 
