@@ -520,39 +520,32 @@ describe("onMessage", () => {
     expect(b?.marker_id).toBeUndefined();
   });
 
-  it.each([
-    "join",
-    "part",
-    "quit",
-    "nick",
-    "mode",
-    "kick",
-    "connected",
-    "disconnected",
-    "error",
-  ])("does not bump unread or mentions for %s on inactive buffer", (kind) => {
-    state.activeId = "99";
-    state.me.nick = "you";
-    state.buffers.set("1", buf({ id: "1", show_presence_events: true }));
-    const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
-    // Server marks presence/system kinds not-unread; mentions only count on
-    // unread-eligible messages, so neither counter moves even though the body
-    // contains the nick.
-    onMessage(
-      {
-        id: "100",
-        buffer_id: "1",
-        sender: "alice",
-        content: `mentions you in ${kind}`,
-        kind,
-        counts_as_unread: false,
-        mentions_me: true,
-      },
-      handlers,
-    );
-    expect(state.buffers.get("1")?.unread).toBe(0);
-    expect(state.buffers.get("1")?.mentions).toBe(0);
-  });
+  it.each(["join", "part", "quit", "nick", "mode", "kick", "connected", "disconnected", "error"])(
+    "does not bump unread or mentions for %s on inactive buffer",
+    (kind) => {
+      state.activeId = "99";
+      state.me.nick = "you";
+      state.buffers.set("1", buf({ id: "1", show_presence_events: true }));
+      const handlers = { renderActiveView: vi.fn(), renderSidebar: vi.fn() };
+      // Server marks presence/system kinds not-unread; mentions only count on
+      // unread-eligible messages, so neither counter moves even though the body
+      // contains the nick.
+      onMessage(
+        {
+          id: "100",
+          buffer_id: "1",
+          sender: "alice",
+          content: `mentions you in ${kind}`,
+          kind,
+          counts_as_unread: false,
+          mentions_me: true,
+        },
+        handlers,
+      );
+      expect(state.buffers.get("1")?.unread).toBe(0);
+      expect(state.buffers.get("1")?.mentions).toBe(0);
+    },
+  );
 
   it("sets marker on inactive buffer when last_seen_id exists", () => {
     state.activeId = "99";

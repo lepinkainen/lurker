@@ -18,7 +18,7 @@ export function membersForActive(): Member[] {
 
 export function populateMembersForActive() {
   const buffer = activeBuffer();
-  if (!buffer || buffer.kind !== "channel") return;
+  if (buffer?.kind !== "channel") return;
   if (state.members.has(buffer.id)) return;
   const names = new Set<string>();
   for (const message of state.messages.get(buffer.id) || []) {
