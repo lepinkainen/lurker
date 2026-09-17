@@ -88,6 +88,12 @@ padding the maskable spec wants — 384px of a 512px canvas, and 148 of 180 for 
 Regenerating is deterministic: the same SVG produces byte-identical output. A diff in these files
 therefore means the SVG changed, not that someone re-ran the script.
 
+The one exception is `desktop/icons/icon.icns`, which is committed but **not** generated.
+ImageMagick's ICNS writer emits different bytes on every run, so regenerating it would dirty the
+worktree on every build. It is only read when bundling Tauri for macOS, which this repo does not do
+— macOS has the native Swift client — so it is left alone; regenerate it by hand with
+`cargo tauri icon` if that ever changes.
+
 ## Hydration model
 
 On load:
