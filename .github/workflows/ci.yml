@@ -76,6 +76,17 @@ jobs:
       - name: Run frontend lint/typecheck
         run: task lint-web
 
+      # The vitest suite runs in browser mode against chromium. pnpm blocks
+      # playwright's postinstall (see allowBuilds in web/pnpm-workspace.yaml),
+      # so the browser binaries have to be fetched explicitly.
+      - name: Install Playwright browsers
+        run: cd web && pnpm exec playwright install --with-deps chromium
+
+      # Unit tier only. test-web-integration needs a seeded backend and stays
+      # out of CI.
+      - name: Run frontend tests
+        run: task test-web
+
       - name: Validate Mermaid documentation
         run: task lint-mermaid
 
