@@ -164,9 +164,6 @@ final class TimelineCoordinator: NSObject {
   struct RenderedBlock {
     let item: TimelineItem
     var length: Int
-    /// The builder's attributed newline, omitted while this is the last
-    /// block. Restore it on append without replacing any existing content.
-    let separator: NSAttributedString
     /// What the row's avatar slot rendered as (bot glyph / cached image /
     /// identicon). Depends on AppModel state outside the item, so a diff of
     /// items alone can't see it change; compared on every sync instead.
@@ -392,6 +389,9 @@ final class TimelineCoordinator: NSObject {
   // the children query and the attribute fetch and get pruned.
   private var axRowElements = [NSAccessibilityElement]()
   private var blocks = [RenderedBlock]()
+  /// The last block's builder-added "\n", stripped from the document and
+  /// restored by the next append.
+  private var tailSeparator: NSAttributedString?
   private var renderedBufferID: UUID?
   private var renderedFingerprint: Fingerprint?
   private var avatarLoadsInFlight = Set<URL>()
@@ -428,11 +428,7 @@ final class TimelineCoordinator: NSObject {
       return
     }
     let document = NSMutableAttributedString()
-    blocks = items.enumerated().map { index, item in
-      let rendered = renderBlock(item, context: context, isLast: index == items.count - 1)
-      document.append(rendered.text)
-      return rendered.block
-    }
+    blocks = renderBlocks(items, context: context, into: document)
     storage.setAttributedString(document)
   }
 
@@ -440,60 +436,60 @@ final class TimelineCoordinator: NSObject {
     guard let textView, let storage = textView.textStorage, let context = renderContext else {
       return
     }
-    let rendered = renderBlock(
-      item,
+    let document = NSMutableAttributedString()
+    let rendered = renderBlocks(
+      [item],
       context: context,
-      isLast: index == blocks.count - 1,
+      into: document,
+      terminal: index == blocks.count - 1,
     )
     let range = NSRange(location: offset(of: index), length: blocks[index].length)
     textView.textContentStorage?.performEditingTransaction {
-      storage.replaceCharacters(in: range, with: rendered.text)
+      storage.replaceCharacters(in: range, with: document)
     }
-    blocks[index] = rendered.block
+    blocks[index] = rendered[0]
   }
 
   private func appendBlocks(_ items: ArraySlice<TimelineItem>) {
     guard let textView, let storage = textView.textStorage, let context = renderContext else {
       return
     }
-    // Load-bearing: an empty append would still restore the tail separator
-    // and reintroduce the trailing empty line.
-    guard !items.isEmpty else { return }
-    let appended = NSMutableAttributedString()
-    if let last = blocks.last {
-      appended.append(last.separator)
-    }
-    let newBlocks = items.enumerated().map { index, item in
-      let rendered = renderBlock(item, context: context, isLast: index == items.count - 1)
-      appended.append(rendered.text)
-      return rendered.block
-    }
     // One suffix insertion preserves selection and hosted preview identity
-    // in the old tail. Its omitted separator belongs to that block's range.
+    // in the old tail. Its restored separator belongs to that block's range.
+    let appended = NSMutableAttributedString()
+    if let tailSeparator {
+      appended.append(tailSeparator)
+      blocks[blocks.count - 1].length += tailSeparator.length
+    }
+    blocks += renderBlocks(items, context: context, into: appended)
     textView.textContentStorage?.performEditingTransaction {
-      if let last = blocks.last {
-        blocks[blocks.count - 1].length += last.separator.length
-      }
-      blocks.append(contentsOf: newBlocks)
       storage.append(appended)
     }
   }
 
-  /// Block builders include a paragraph separator for concatenation. At
-  /// the document end it creates an empty TextKit line, so omit only that
-  /// final separator (preserving any newlines in the message itself).
-  private func renderBlock(
-    _ item: TimelineItem,
+  /// Appends the items' builder text to `document`. Every builder ends its
+  /// block with a "\n"; at the document end that creates an empty TextKit
+  /// line, so when `terminal` the final one is stripped and kept in
+  /// `tailSeparator` for the next append to restore.
+  private func renderBlocks(
+    _ items: some Collection<TimelineItem>,
     context: TimelineRenderContext,
-    isLast: Bool,
-  ) -> (text: NSAttributedString, block: RenderedBlock) {
-    let text = timelineBlockText(item, context: context)
-    let separator = text.attributedSubstring(from: NSRange(location: text.length - 1, length: 1))
-    let length = text.length - (isLast ? 1 : 0)
-    return (
-      isLast ? text.attributedSubstring(from: NSRange(location: 0, length: length)) : text,
-      RenderedBlock(item: item, length: length, separator: separator, avatarKey: avatarKey(for: item)),
-    )
+    into document: NSMutableAttributedString,
+    terminal: Bool = true,
+  ) -> [RenderedBlock] {
+    var rendered = items.map { item in
+      let text = timelineBlockText(item, context: context)
+      document.append(text)
+      return RenderedBlock(item: item, length: text.length, avatarKey: avatarKey(for: item))
+    }
+    guard terminal else { return rendered }
+    tailSeparator = nil
+    guard !rendered.isEmpty else { return rendered }
+    let last = NSRange(location: document.length - 1, length: 1)
+    tailSeparator = document.attributedSubstring(from: last)
+    document.deleteCharacters(in: last)
+    rendered[rendered.count - 1].length -= 1
+    return rendered
   }
 
   /// Fires cache-filling fetches for avatars the block builder had to

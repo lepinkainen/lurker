@@ -15,13 +15,14 @@ even when scrolled fully to the bottom.
 the final separator in the document creates an empty terminal line, which
 the text view includes in its scrollable height.
 
-**Fix.** The coordinator omits only the last block's builder-added newline
-and retains its attributed separator in `RenderedBlock`. On append it inserts
-that separator together with the new blocks in one transaction. Do not
-replace the old tail just to restore its newline: that collapses selection
-inside the row and recreates hosted preview attachments. Keep the explicit
-presence-summary redraw on expansion; a separator insertion does not update
-its arrow.
+**Fix.** `TimelineCoordinator.renderBlocks` strips the last block's
+builder-added newline and keeps it in `tailSeparator`. On append it inserts
+that separator together with the new blocks in one transaction. A tail
+replacement arriving with an append runs first so the updated tail's
+separator is the one restored. Do not replace the old tail just to restore
+its newline: that collapses selection inside the row and recreates hosted
+preview attachments. Keep the explicit presence-summary redraw on expansion;
+a separator insertion does not update its arrow.
 
 **Verify.** `TimelineCoordinatorTests` checks bottom geometry, selection and
 preview identity across append, separator attributes, combined tail updates

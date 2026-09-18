@@ -92,8 +92,8 @@ private enum RowStyles {
 }
 
 /// Renders one `TimelineItem` as an attributed paragraph (or several, for a
-/// message with previews). Every builder appends a final "\n" separator;
-/// the coordinator omits it at the document end and restores it on append.
+/// message with previews). Every builder ends the block with exactly one
+/// "\n" so blocks concatenate into paragraphs.
 @MainActor
 func timelineBlockText(
   _ item: TimelineItem,

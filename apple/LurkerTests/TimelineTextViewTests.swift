@@ -186,6 +186,20 @@ private func makeContext(
   )
 }
 
+/// Every preview attachment in `text`, with the range it occupies.
+private func previewAttachments(
+  in text: NSAttributedString,
+) -> [(attachment: PreviewTextAttachment, range: NSRange)] {
+  var found = [(attachment: PreviewTextAttachment, range: NSRange)]()
+  text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) {
+    value, range, _ in
+    if let attachment = value as? PreviewTextAttachment {
+      found.append((attachment, range))
+    }
+  }
+  return found
+}
+
 struct TimelineBlockTests {
   @Test @MainActor
   func `message block carries gutter nick body and ID`() {
@@ -214,19 +228,11 @@ struct TimelineBlockTests {
       ],
     )
     let block = timelineBlockText(.message(message), context: makeContext())
-    var attachments = [PreviewTextAttachment]()
-    block.enumerateAttribute(
-      .attachment,
-      in: NSRange(location: 0, length: block.length),
-    ) { value, range, _ in
-      if let attachment = value as? PreviewTextAttachment {
-        attachments.append(attachment)
-        #expect(
-          block.attribute(.lurkerCopyExclude, at: range.location, effectiveRange: nil) != nil
-        )
-      }
+    let attachments = previewAttachments(in: block)
+    #expect(attachments.map(\.attachment.preview.url) == ["https://example.com"])
+    for (_, range) in attachments {
+      #expect(block.attribute(.lurkerCopyExclude, at: range.location, effectiveRange: nil) != nil)
     }
-    #expect(attachments.map(\.preview.url) == ["https://example.com"])
   }
 
   @Test @MainActor
@@ -240,16 +246,7 @@ struct TimelineBlockTests {
       ],
     )
     let block = timelineBlockText(.message(message), context: makeContext(buffer: buffer))
-    var found = false
-    block.enumerateAttribute(
-      .attachment,
-      in: NSRange(location: 0, length: block.length),
-    ) { value, _, _ in
-      if value is PreviewTextAttachment {
-        found = true
-      }
-    }
-    #expect(!found)
+    #expect(previewAttachments(in: block).isEmpty)
   }
 
   @Test @MainActor
@@ -404,16 +401,7 @@ struct TimelineCoordinatorTests {
     let storage = try #require(harness.textView.textStorage)
     let selection = (storage.string as NSString).range(of: "this message 👋")
     harness.textView.setSelectedRange(selection)
-    var previewRange = NSRange()
-    var preview: PreviewTextAttachment?
-    storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) {
-      value, range, _ in
-      if let attachment = value as? PreviewTextAttachment {
-        preview = attachment
-        previewRange = range
-      }
-    }
-    let originalPreview = try #require(preview)
+    let (originalPreview, previewRange) = try #require(previewAttachments(in: storage).first)
     let originalText = try #require(storage.copy() as? NSAttributedString)
     let oldLength = storage.length
     let edits = TimelineStorageEditRecorder()
@@ -461,24 +449,16 @@ struct TimelineCoordinatorTests {
   func `context menu handles the document end and empty timelines`(hasMessage: Bool) throws {
     let message = makeMessage(content: "newest message")
     let harness = CoordinatorHarness(buffer: makeBuffer(), messages: hasMessage ? [message] : [])
-    let window = NSWindow(
-      contentRect: harness.scrollView.frame,
-      styleMask: [.borderless],
-      backing: .buffered,
-      defer: false,
-    )
-    window.isReleasedWhenClosed = false
-    defer { window.close() }
-    window.contentView = harness.scrollView
     harness.sync()
     let point = NSPoint(x: harness.textView.bounds.maxX - 1, y: harness.textView.bounds.maxY - 1)
     #expect(harness.textView.characterIndexForInsertion(at: point) == (harness.renderedText as NSString).length)
+    // Unhosted: convert(to:/from: nil) round-trips through the scroll view.
     let event = try #require(NSEvent.mouseEvent(
       with: .rightMouseDown,
       location: harness.textView.convert(point, to: nil),
       modifierFlags: [],
       timestamp: 0,
-      windowNumber: window.windowNumber,
+      windowNumber: 0,
       context: nil,
       eventNumber: 0,
       clickCount: 1,
