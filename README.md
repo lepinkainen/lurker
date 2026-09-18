@@ -18,6 +18,9 @@ Current implemented scope includes:
 - minimal in-repo web UI with history loading, slash commands, persisted read state, and search
 - terminal UI client
 - native SwiftUI client for macOS 26 and iOS 26 with history, live messages, unread state, members, common slash commands, and mention notifications
+- image and file uploads to S3-compatible storage, disabled unless configured ([S3_SETUP.md](S3_SETUP.md))
+- read-only Bluesky timeline ingestion alongside IRC networks
+- desktop shell wrapping the web UI in a native window on macOS and Linux, still a proof of concept ([ai-docs/desktop.md](ai-docs/desktop.md))
 
 ## Run locally
 
