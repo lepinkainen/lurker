@@ -464,7 +464,10 @@ struct TimelineCoordinatorTests {
     harness.sync()
     let storage = try #require(harness.textView.textStorage)
     let oldLength = storage.length
-    let rowStyle = storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+    // Index 0 is the day separator; take the row style from the message itself.
+    let rowStart = (storage.string as NSString).range(of: "plain tail").location
+    let rowStyle = storage.attribute(.paragraphStyle, at: rowStart, effectiveRange: nil)
+      as? NSParagraphStyle
 
     harness.model.messages[buffer.id] = [message, makeMessage(content: "next message")]
     harness.sync()
@@ -588,9 +591,9 @@ struct TimelineCoordinatorTests {
       effectiveRange: nil,
     ) as? NSParagraphStyle)
     let expectedGap = style.paragraphSpacing + harness.textView.textContainerInset.height
-    // Pinned, not bounded: the newline-less tail paragraph must keep its
-    // paragraphSpacing, or the mention band and near-bottom threshold shift
-    // by that much when the next append restores the separator.
+    // Pinned, not bounded: TextKit drops paragraphSpacing from the newline-
+    // less tail paragraph, and LurkerLayoutFragment.bottomMargin restores it
+    // so row height does not shift when the next append adds the newline.
     #expect(abs(gap - expectedGap) <= 0.5) // Allow subpixel layout rounding.
   }
 

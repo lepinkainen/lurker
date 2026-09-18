@@ -27,6 +27,12 @@ is unchanged; otherwise the hosted card and its resize relay are rebuilt on
 every append. Keep the explicit presence-summary redraw on expansion;
 a separator insertion does not update its arrow.
 
+TextKit 2 also drops `paragraphSpacing` from a paragraph with no trailing
+newline, so the terminal row would be 4pt shorter than after the next append
+(visible as the mention band growing). The layout-fragment delegate hands the
+terminal paragraph a `LurkerLayoutFragment` whose `bottomMargin` restores
+that spacing.
+
 **Verify.** `TimelineCoordinatorTests` checks bottom geometry, selection and
 preview identity across append, separator attributes, combined tail updates
 and appends, and presence expansion/collapse. The context-menu tests exercise

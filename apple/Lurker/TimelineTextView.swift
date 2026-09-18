@@ -674,27 +674,39 @@ extension TimelineCoordinator: NSTextViewDelegate {
 
 extension TimelineCoordinator: @preconcurrency NSTextLayoutManagerDelegate {
   /// Paragraphs tagged with a full-row highlight or separator rules render
-  /// through `LurkerLayoutFragment`, which draws behind/around the text.
+  /// through `LurkerLayoutFragment`, which draws behind/around the text. So
+  /// does the terminal paragraph: TextKit 2 drops `paragraphSpacing` from a
+  /// paragraph without a trailing newline, so the fragment restores it as
+  /// bottom margin, keeping row height (and the mention band) stable when
+  /// the next append turns it into an ordinary paragraph.
   func textLayoutManager(
-    _: NSTextLayoutManager,
+    _ layoutManager: NSTextLayoutManager,
     textLayoutFragmentFor _: NSTextLocation,
     in textElement: NSTextElement,
   ) -> NSTextLayoutFragment {
-    if let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0 {
-      let attributes = paragraph.attributedString.attributes(at: 0, effectiveRange: nil)
-      let highlight = attributes[.lurkerRowHighlight] as? NSColor
-      let rule = attributes[.lurkerSeparatorRule] as? NSColor
-      if highlight != nil || rule != nil {
-        let fragment = LurkerLayoutFragment(
-          textElement: textElement,
-          range: textElement.elementRange,
-        )
-        fragment.rowHighlight = highlight
-        fragment.separatorRule = rule
-        return fragment
-      }
+    guard let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0
+    else {
+      return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
     }
-    return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+    let attributes = paragraph.attributedString.attributes(at: 0, effectiveRange: nil)
+    let highlight = attributes[.lurkerRowHighlight] as? NSColor
+    let rule = attributes[.lurkerSeparatorRule] as? NSColor
+    var terminalSpacing: CGFloat = 0
+    if
+      let end = textElement.elementRange?.endLocation,
+      end.compare(layoutManager.documentRange.endLocation) == .orderedSame,
+      let style = attributes[.paragraphStyle] as? NSParagraphStyle
+    {
+      terminalSpacing = style.paragraphSpacing
+    }
+    guard highlight != nil || rule != nil || terminalSpacing > 0 else {
+      return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+    }
+    let fragment = LurkerLayoutFragment(textElement: textElement, range: textElement.elementRange)
+    fragment.rowHighlight = highlight
+    fragment.separatorRule = rule
+    fragment.terminalSpacing = terminalSpacing
+    return fragment
   }
 }
 
@@ -703,6 +715,12 @@ extension TimelineCoordinator: @preconcurrency NSTextLayoutManagerDelegate {
 final class LurkerLayoutFragment: NSTextLayoutFragment {
   var rowHighlight: NSColor?
   var separatorRule: NSColor?
+  /// Paragraph spacing TextKit omits for the newline-less final paragraph.
+  var terminalSpacing: CGFloat = 0
+
+  override var bottomMargin: CGFloat {
+    max(super.bottomMargin, terminalSpacing)
+  }
 
   override func draw(at point: CGPoint, in context: CGContext) {
     context.saveGState()
