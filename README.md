@@ -70,18 +70,7 @@ After startup, network definitions are managed through the application itself an
 
 ### Update checker
 
-Server compares the running build's commit against the latest successful release on GitHub and reports status over API. It does not pull or restart containers.
-
-Environment variables:
-
-- `UPDATE_CHECK_ENABLED` default `true`
-- `UPDATE_CHECK_INTERVAL` default `24h`, clamped to minimum `1h`
-
-API endpoint:
-
-- `GET /api/update-status`
-
-Response includes the released version, last check time, and `update_available`.
+The server checks daily whether a newer release has been published and reports it over the API. It never pulls images or restarts anything. See [ai-docs/operations.md](ai-docs/operations.md#update-checker) for the environment variables and endpoint.
 
 ## Build and CI
 
