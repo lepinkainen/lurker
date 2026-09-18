@@ -187,9 +187,9 @@ private func makeContext(
 }
 
 /// Every preview attachment in `text`, with the range it occupies.
-private func previewAttachments(
-  in text: NSAttributedString,
-) -> [(attachment: PreviewTextAttachment, range: NSRange)] {
+private func previewAttachments(in text: NSAttributedString)
+  -> [(attachment: PreviewTextAttachment, range: NSRange)]
+{
   var found = [(attachment: PreviewTextAttachment, range: NSRange)]()
   text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) {
     value, range, _ in
