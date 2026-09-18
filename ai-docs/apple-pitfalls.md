@@ -20,8 +20,11 @@ builder-added newline and keeps it in `tailSeparator`. On append it inserts
 that separator together with the new blocks in one transaction. A tail
 replacement arriving with an append runs first so the updated tail's
 separator is the one restored. Do not replace the old tail just to restore
-its newline: that collapses selection inside the row and recreates hosted
-preview attachments. Keep the explicit presence-summary redraw on expansion;
+its newline: that collapses selection inside the row. Even the separator
+insertion regenerates the tail paragraph, so `PreviewTextAttachment` caches
+its view provider and hands the same one back while the attachment's offset
+is unchanged; otherwise the hosted card and its resize relay are rebuilt on
+every append. Keep the explicit presence-summary redraw on expansion;
 a separator insertion does not update its arrow.
 
 **Verify.** `TimelineCoordinatorTests` checks bottom geometry, selection and

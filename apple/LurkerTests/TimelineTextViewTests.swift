@@ -200,6 +200,21 @@ private func previewAttachments(in text: NSAttributedString)
   return found
 }
 
+/// Attachment view providers TextKit 2 created for preview attachments,
+/// in document order. Forces layout so providers exist.
+@MainActor
+private func previewViewProviders(in textView: NSTextView) -> [NSTextAttachmentViewProvider] {
+  guard let layout = textView.textLayoutManager else { return [] }
+  var providers = [NSTextAttachmentViewProvider]()
+  layout.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
+    providers += fragment.textAttachmentViewProviders.filter {
+      $0.textAttachment is PreviewTextAttachment
+    }
+    return true
+  }
+  return providers
+}
+
 struct TimelineBlockTests {
   @Test @MainActor
   func `message block carries gutter nick body and ID`() {
@@ -423,6 +438,46 @@ struct TimelineCoordinatorTests {
   }
 
   @Test @MainActor
+  func `append keeps the hosted preview view provider of the old tail`() throws {
+    let buffer = makeBuffer()
+    let message = makeMessage(
+      content: "https://example.com",
+      previews: [Lurker.Preview(url: "https://example.com", kind: "opengraph", title: "Example")],
+    )
+    let harness = CoordinatorHarness(buffer: buffer, messages: [message])
+    harness.sync()
+    let before = try #require(previewViewProviders(in: harness.textView).first)
+
+    harness.model.messages[buffer.id] = [message, makeMessage(content: "next message")]
+    harness.sync()
+
+    let after = previewViewProviders(in: harness.textView)
+    #expect(after.count == 1)
+    #expect(after.first === before)
+  }
+
+  @Test @MainActor
+  func `append restores a plain message separator with the row attributes`() throws {
+    let buffer = makeBuffer()
+    let message = makeMessage(content: "plain tail")
+    let harness = CoordinatorHarness(buffer: buffer, messages: [message])
+    harness.sync()
+    let storage = try #require(harness.textView.textStorage)
+    let oldLength = storage.length
+    let rowStyle = storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+
+    harness.model.messages[buffer.id] = [message, makeMessage(content: "next message")]
+    harness.sync()
+
+    #expect((storage.string as NSString).substring(with: NSRange(location: oldLength, length: 1)) == "\n")
+    #expect(storage.attribute(.lurkerCopyExclude, at: oldLength, effectiveRange: nil) == nil)
+    #expect(storage.attribute(.lurkerMessageID, at: oldLength, effectiveRange: nil) as? String
+      == message.id.uuidString)
+    #expect(storage.attribute(.paragraphStyle, at: oldLength, effectiveRange: nil)
+      as? NSParagraphStyle == rowStyle)
+  }
+
+  @Test @MainActor
   func `tail replacement and append keep the updated content and offsets`() {
     let buffer = makeBuffer()
     var tail = makeMessage(content: "original tail")
@@ -533,7 +588,10 @@ struct TimelineCoordinatorTests {
       effectiveRange: nil,
     ) as? NSParagraphStyle)
     let expectedGap = style.paragraphSpacing + harness.textView.textContainerInset.height
-    #expect(gap <= expectedGap + 0.5) // Allow subpixel layout rounding.
+    // Pinned, not bounded: the newline-less tail paragraph must keep its
+    // paragraphSpacing, or the mention band and near-bottom threshold shift
+    // by that much when the next append restores the separator.
+    #expect(abs(gap - expectedGap) <= 0.5) // Allow subpixel layout rounding.
   }
 
   @Test @MainActor

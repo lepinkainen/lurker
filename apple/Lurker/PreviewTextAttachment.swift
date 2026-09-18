@@ -27,20 +27,39 @@ final class PreviewTextAttachment: NSTextAttachment {
   let preview: Preview
   let model: AppModel
 
+  /// TextKit 2 regenerates the containing paragraph (and asks for a new
+  /// provider) whenever its range changes, including the coordinator
+  /// restoring the tail newline on append. Reuse the provider while the
+  /// attachment sits at the same offset so the hosted card and its resize
+  /// relay survive; a moved attachment (an earlier block grew) gets a fresh
+  /// one because the relay invalidates layout at its recorded location.
   override func viewProvider(
     for parentView: NSView?,
     location: NSTextLocation,
     textContainer: NSTextContainer?,
   ) -> NSTextAttachmentViewProvider? {
+    let layoutManager = textContainer?.textLayoutManager
+    if
+      let cached = cachedProvider,
+      let content = layoutManager?.textContentManager,
+      content.offset(from: cached.location, to: location) == 0
+    {
+      return cached
+    }
     let provider = PreviewAttachmentViewProvider(
       textAttachment: self,
       parentView: parentView,
-      textLayoutManager: textContainer?.textLayoutManager,
+      textLayoutManager: layoutManager,
       location: location,
     )
     provider.tracksTextAttachmentViewBounds = true
+    cachedProvider = provider
     return provider
   }
+
+  // MARK: Private
+
+  private var cachedProvider: PreviewAttachmentViewProvider?
 
 }
 
