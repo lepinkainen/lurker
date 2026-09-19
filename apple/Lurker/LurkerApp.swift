@@ -15,6 +15,10 @@ struct LurkerApp: App {
     }
     #endif
     if ProcessInfo.isUITest {
+      if ProcessInfo.processInfo.arguments.contains("-ui-testing-live") {
+        _model = State(initialValue: AppModel())
+        return
+      }
       _model = State(initialValue: AppModel(transport: FixtureTransport()))
     } else {
       _model = State(initialValue: AppModel())

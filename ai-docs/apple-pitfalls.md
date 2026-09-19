@@ -6,6 +6,29 @@ here, how to verify. For general SwiftUI guidance that isn't Lurker-specific,
 see `llm-shared/languages/swiftui.md`. See `apple.md` for the client's
 architecture and product scope.
 
+## The unread bar can hide the newest IRC message at the bottom
+
+**Symptom.** After reading through a buffer, a new incoming message is stored
+but its row sits just below the visible macOS timeline.
+
+**Why.** `MacTimelineContainer` adds the unread bar with `safeAreaInset`. On
+the first message after catching up, SwiftUI changes the timeline viewport
+height before `TimelineCoordinator.sync` checks its near-bottom geometry. The
+smaller viewport can make a reader who was at the bottom appear to have
+scrolled away, so the append is not followed.
+
+**Fix.** Keep the coordinator's bottom-follow intent across viewport-size
+changes and update it when the clip view's vertical origin changes. The unread
+bar changes the viewport size; scrolling changes its document origin. On an
+append, preserve the prior intent and scroll after laying out the new content.
+Do not pull a reader back to the bottom when their clip origin shows they
+scrolled away.
+
+**Verify.** `task test-apple-ui-live
+TEST_FILTER=testLiveIRCIncomingMessageScrollsAtBottom` reads an IRC backlog,
+clears the marker at the bottom, injects a message from another nick, and
+checks the incoming row's accessibility frame against the scroll viewport.
+
 ## TextKit 2 leaves a blank row after the last message
 
 **Symptom.** The macOS timeline shows a row of blank space above the composer

@@ -181,7 +181,7 @@ final class TimelineCoordinator: NSObject {
   /// which lives outside the coordinator but must preserve follow-at-bottom
   /// when an inline image grows after insertion.
   var viewportPinnedToBottom: Bool {
-    isNearBottom
+    followsBottom || isNearBottom
   }
 
   func install(
@@ -239,7 +239,10 @@ final class TimelineCoordinator: NSObject {
       return
     }
 
-    let pinned = isNearBottom
+    // SwiftUI applies safeAreaInset before updateNSView runs. A new unread bar
+    // shrinks the viewport before this check, hiding the reader's prior
+    // bottom position from the live geometry.
+    let pinned = followsBottom || isNearBottom
     switch TimelineDiff.compute(old: blocks.map(\.item), new: items) {
     case .none:
       break
@@ -258,7 +261,14 @@ final class TimelineCoordinator: NSObject {
       // Replacements can change block heights too (a late preview growing
       // the last message), not just appends — re-pin for either.
       if pinned, appendFrom != nil || !replacements.isEmpty {
-        scrollToBottom(animated: appendFrom != nil)
+        if appendFrom != nil {
+          // The incoming event can also make SwiftUI insert the unread bar.
+          // Wait until that safe-area resize and TextKit's append layout have
+          // settled before calculating the final bottom origin.
+          scrollToBottomAfterLayout(animated: true)
+        } else {
+          scrollToBottom()
+        }
       }
     }
     // Bot/avatar state lives in AppModel, not in the items, so even a .none
@@ -395,6 +405,10 @@ final class TimelineCoordinator: NSObject {
   private var renderedBufferID: UUID?
   private var renderedFingerprint: Fingerprint?
   private var avatarLoadsInFlight = Set<URL>()
+  /// Auto-follow intent survives viewport-size changes such as the unread bar
+  /// appearing above the timeline. A clip-origin change reflects scrolling.
+  private var followsBottom = false
+  private var lastClipOriginY: CGFloat?
 
   private var renderContext: TimelineRenderContext? {
     guard let model else { return nil }
@@ -583,10 +597,23 @@ final class TimelineCoordinator: NSObject {
   private func scrollToBottom(animated: Bool = false) {
     guard let textView else { return }
     forceFullLayout()
+    followsBottom = true
     if animated {
       textView.enclosingScrollView?.contentView.animator().setBoundsOrigin(bottomOrigin())
     } else {
       textView.scrollToEndOfDocument(nil)
+    }
+  }
+
+  private func scrollToBottomAfterLayout(animated: Bool) {
+    Task { @MainActor [weak self] in
+      // NSViewRepresentable updates happen before the enclosing SwiftUI
+      // transaction finishes laying out safeAreaInset changes.
+      await Task.yield()
+      guard let self, followsBottom else { return }
+      scrollView?.layoutSubtreeIfNeeded()
+      textView?.layoutSubtreeIfNeeded()
+      scrollToBottom(animated: animated)
     }
   }
 
@@ -613,6 +640,7 @@ final class TimelineCoordinator: NSObject {
     else { return }
     let y = fragment.layoutFragmentFrame.minY + textView.textContainerInset.height
     scrollView?.contentView.setBoundsOrigin(NSPoint(x: 0, y: max(0, y)))
+    followsBottom = false
     if let scrollView {
       scrollView.reflectScrolledClipView(scrollView.contentView)
     }
@@ -635,6 +663,13 @@ final class TimelineCoordinator: NSObject {
   @objc
   private func clipViewBoundsChanged(_: Notification) {
     guard let scrollView else { return }
+    let originY = scrollView.contentView.bounds.origin.y
+    if let lastClipOriginY, abs(originY - lastClipOriginY) > 0.5 {
+      // The unread bar resizes the viewport without moving its document
+      // origin. An origin change means the reader moved within the document.
+      followsBottom = isNearBottom
+    }
+    lastClipOriginY = originY
     if scrollView.documentVisibleRect.minY < 200 {
       // Self-guarding: AppModel refuses while a load or anchor is pending.
       model?.loadOlderHistory()

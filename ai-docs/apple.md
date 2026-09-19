@@ -113,6 +113,14 @@ task test-apple-ui
 To run just the paste regression, use
 `task test-apple-ui TEST_FILTER=LurkerUITests/LurkerUITests/testComposerPastesImagesAndText`.
 
+For UI flows that need a real incoming IRC message, use
+`task test-apple-ui-live TEST_FILTER=testLiveIRCIncomingMessageScrollsAtBottom`.
+This starts `cmd/fakeircd` plus a temporary Lurker backend, seeds the selected
+channel through IRC as `bob`, and launches the client against that backend.
+Additional live-message UI tests can share this runner and inject through the
+same IRC control port; fixture-transport UI tests continue to use
+`task test-apple-ui`.
+
 Swift formatting follows the [Airbnb Swift style guide](https://github.com/airbnb/swift), enforced deterministically by SwiftFormat (`brew install swiftformat`) with the config vendored at `apple/airbnb.swiftformat`. `task lint-apple` checks (CI runs this); `task format-apple` rewrites sources in place — run it instead of hand-fixing style complaints. Notable rules: 2-space indent, un-indented `#if` bodies, member ordering with `// MARK:` sections (`organizeDeclarations`), `@Test` display names derived from function names, `try #require(...)` instead of force unwraps in tests, 130-column hard wrap (upstream recommends 100 but does not enforce it). Formatter version is pinned: `--minversion` in the config and a pinned release download in the CI apple job (bump both together); CI prints `swiftformat --version` and `swift --version` so a rule-output mismatch is diagnosable at a glance.
 
 The UI test launches with `-ui-testing`, which replaces network access with deterministic in-process fixture data and suppresses notification authorization prompts.

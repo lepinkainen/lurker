@@ -10,6 +10,13 @@ final class LurkerUITests: XCTestCase {
     continueAfterFailure = false
     app = XCUIApplication()
     app.launchArguments = ["-ui-testing"]
+    if name.contains("LiveIRC") {
+      app.launchArguments += [
+        "-ui-testing-live",
+        "-mac.serverURL",
+        "http://127.0.0.1:18081",
+      ]
+    }
     app.launch()
   }
 
@@ -155,6 +162,108 @@ final class LurkerUITests: XCTestCase {
     XCTAssertFalse(
       messageRow(containing: "backlog line #0:").exists,
       "pagination ran away to the start",
+    )
+  }
+
+  func testLiveIRCIncomingMessageScrollsAtBottom() throws {
+    selectBuffer("#timeline-scroll")
+    let lastRow = messageRow(containing: "incoming IRC line #49")
+    XCTAssertTrue(lastRow.waitForExistence(timeout: 5))
+    let scrollView = try XCTUnwrap(app.scrollViews.allElementsBoundByIndex
+      .max(by: { $0.frame.width < $1.frame.width }))
+    let firstRow = messageRow(containing: "incoming IRC line #0")
+    XCTAssertTrue(firstRow.exists)
+    XCTAssertLessThan(firstRow.frame.maxY, scrollView.frame.minY, "fixture must overflow the viewport")
+    XCTAssertTrue(scrollView.scrollBars.firstMatch.exists, "overflowing timeline needs a scrollbar")
+
+    // Physically reach the bottom, as a reader would. AX existence alone is
+    // insufficient: the timeline exposes even offscreen message rows.
+    for _ in 0..<40 {
+      if scrollView.frame.insetBy(dx: -1, dy: -1).contains(lastRow.frame) {
+        break
+      }
+      timeline.scroll(byDeltaX: 0, deltaY: -20)
+    }
+    let atBottom = NSPredicate { _, _ in
+      scrollView.frame.insetBy(dx: -1, dy: -1).contains(lastRow.frame)
+    }
+    expectation(for: atBottom, evaluatedWith: app)
+    waitForExpectations(timeout: 5)
+
+    // Reading through the backlog clears its marker bar. The next incoming
+    // message recreates that bar while the reader is at the bottom; this
+    // viewport resize is part of the regression scenario.
+    let unreadBar = app.buttons.matching(
+      NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "new since", "new messages")
+    ).firstMatch
+    XCTAssertTrue(unreadBar.exists, "seeded IRC backlog should start unread")
+    timeline.click()
+    app.typeKey(.escape, modifierFlags: [])
+    let cleared = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"),
+      object: unreadBar,
+    )
+    XCTAssertEqual(XCTWaiter.wait(for: [cleared], timeout: 5), .completed)
+    for _ in 0..<40 {
+      if scrollView.frame.insetBy(dx: -1, dy: -1).contains(lastRow.frame) {
+        break
+      }
+      timeline.scroll(byDeltaX: 0, deltaY: -20)
+    }
+    XCTAssertTrue(
+      scrollView.frame.insetBy(dx: -1, dy: -1).contains(lastRow.frame),
+      "last backlog row must be visible after catching up",
+    )
+
+    func injectFromIRC(_ content: String) throws {
+      let inject = Process()
+      inject.executableURL = URL(fileURLWithPath: "/usr/bin/nc")
+      inject.arguments = ["127.0.0.1", "16668"]
+      let input = Pipe()
+      inject.standardInput = input
+      try inject.run()
+      input.fileHandleForWriting.write(Data("#timeline-scroll :\(content)\n".utf8))
+      try input.fileHandleForWriting.close()
+      inject.waitUntilExit()
+    }
+
+    // Receive a message from bob without typing or sending anything.
+    // fakeircd streams it through the production backend into the client.
+    let content = "incoming scroll regression from another IRC user"
+    try injectFromIRC(content)
+    let incoming = messageRow(containing: content)
+    XCTAssertTrue(incoming.waitForExistence(timeout: 5), "incoming event never reached the timeline")
+    XCTAssertTrue(incoming.label.localizedCaseInsensitiveContains("bob"), "fixture message must be from another user")
+    // The app intentionally follows after the safe-area + TextKit layout.
+    // Check once that transition has settled, rather than as soon as text
+    // storage exposes the row.
+    Thread.sleep(forTimeInterval: 0.5)
+    let incomingFrame = incoming.frame
+    let currentScrollView = try XCTUnwrap(app.scrollViews.allElementsBoundByIndex
+      .max(by: { $0.frame.width < $1.frame.width }))
+    let visible = currentScrollView.frame.insetBy(dx: -1, dy: -1).contains(incomingFrame)
+    screenshot(named: "apple-incoming-scroll")
+    XCTAssertTrue(visible, "Incoming row from bob at \(incomingFrame) stayed outside \(currentScrollView.frame)")
+
+    // Following stops once the reader scrolls away. A second IRC arrival must
+    // keep this visible row at the same screen position.
+    let readingAnchor = messageRow(containing: "incoming IRC line #35")
+    for _ in 0..<8 {
+      timeline.scroll(byDeltaX: 0, deltaY: 20)
+    }
+    XCTAssertTrue(readingAnchor.exists)
+    let anchorBefore = readingAnchor.frame
+    XCTAssertTrue(currentScrollView.frame.intersects(anchorBefore))
+    XCTAssertFalse(currentScrollView.frame.contains(incoming.frame))
+    let secondContent = "second incoming message while reader is scrolled up"
+    try injectFromIRC(secondContent)
+    XCTAssertTrue(messageRow(containing: secondContent).waitForExistence(timeout: 5))
+    Thread.sleep(forTimeInterval: 0.5)
+    let anchorAfter = messageRow(containing: "incoming IRC line #35").frame
+    XCTAssertLessThan(
+      abs(anchorAfter.minY - anchorBefore.minY),
+      10,
+      "incoming IRC message moved the reader's viewport away from the current row",
     )
   }
 

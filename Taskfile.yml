@@ -248,6 +248,12 @@ tasks:
         {{.CLI_ARGS}}
         test
 
+  test-apple-ui-live:
+    desc: Run macOS UI tests against a real backend and the local IRC test server
+    platforms: [darwin]
+    cmds:
+      - /bin/sh ./scripts/test-apple-ui-live.sh {{.TEST_FILTER}}
+
   lint-apple:
     desc: Check native Swift formatting (Airbnb style guide via SwiftFormat)
     platforms: [darwin]
