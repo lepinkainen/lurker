@@ -11,9 +11,34 @@ Two tiers, and only the first belongs in CI:
 - `task test-web` — unit tier, `vitest.config.ts`, no backend. Some tests hit proxied endpoints and log `ECONNREFUSED` against the backend port; that is expected noise, not a failure.
 - `task test-web-integration` — integration tier, `vitest.integration.config.ts`, starts a seeded backend through `tests/globalSetup.ts`. Local only.
 
-## Fake IRC server (manual verification)
+## Live IRC verification
 
-`cmd/fakeircd` (`task fake-ircd`) is a minimal IRC server for *manual* end-to-end verification, not for automated tests: it completes the girc handshake on :6667 and injects PRIVMSGs from a fake user when a control line (`#channel :message`) arrives on :6668. Point a network at `127.0.0.1:6667` (tls false) via config.yaml bootstrap to drive live-arrival behaviors (unread badges, new-messages marker) in real clients. See `.claude/skills/verifier-tui/SKILL.md` for the full recipe.
+All socket-level IRC integration and live-client verification uses a real
+Ergo server. `task ergo` starts a disposable container on `127.0.0.1:16667`
+and removes it on Ctrl-C. In another terminal, `task irc-test-client` connects
+as `bob`, joins `#verify`, and exposes HTTP control on `127.0.0.1:16668`.
+Override the channel with `task irc-test-client -- -channel '#timeline-scroll'`.
+
+Point a Lurker network at `127.0.0.1:16667` with TLS off and join the same
+channel. Wait for both Lurker's join and the sender's readiness before sending:
+
+```sh
+curl -fsS http://127.0.0.1:16668/ready
+curl -fsS http://127.0.0.1:16668/message --data-binary 'hello from bob'
+```
+
+`POST /message` accepts one nonempty line of at most 400 bytes. HTTP 202 means
+queued by the IRC client; verify delivery in Lurker's history/UI. The sender
+stays connected, answers PINGs through girc, and exits if its IRC connection
+closes. Presence, membership, sender identity, timestamps, and message IDs all
+come from Ergo. Use an ordinary second IRC client for other commands or query
+messages. No synthetic IRC server or arbitrary server-line injection is used.
+
+`task test-apple-ui-live` owns an Ergo instance, sender, and temporary backend,
+seeds 50 messages from `bob`, and runs the live scrolling regression by default.
+Its optional `TEST_FILTER` selects another live UI test by method name. Cleanup
+stops its processes and removes its temporary data. These commands require
+Docker; the manual and automated stacks use the same ports and run separately.
 
 ## Testing strategy
 
@@ -36,10 +61,10 @@ Only add true transport-level integration tests when validating behavior that is
 
 ## Real IRCv3 server integration tests (Ergo)
 
-`task test-ergo` runs `irc/ergo_integration_test.go` (build tag `ergo`) against a real [Ergo](https://ergo.chat) server started in docker from `testdata/ergo/ircd.yaml` (plaintext :16667, throttling off, in-memory history with CHATHISTORY enabled). Use this layer — not `cmd/fakeircd`, and not unit tests — for behavior that depends on real server-side protocol flows: CAP negotiation outcomes (`HasCapability`), CHATHISTORY request/replay, and future echo-message / SASL / multiline work. Division of labor:
+`task test-ergo` runs `irc/ergo_integration_test.go` and `cmd/irctestclient/ergo_test.go` (build tag `ergo`) against a real [Ergo](https://ergo.chat) server started in docker from `testdata/ergo/ircd.yaml` (plaintext :16667, throttling off, in-memory history with CHATHISTORY enabled). Use this layer for behavior that depends on real server-side protocol flows: CAP negotiation outcomes (`HasCapability`), CHATHISTORY request/replay, and future echo-message / SASL / multiline work. Division of labor:
 
 - **unit tests** (synthetic `girc.Event`s): lurker's translation layer, persistence, hub publication
-- **`cmd/fakeircd`**: manual verification and adversarial/edge-case line injection (a real server never sends malformed input)
+- **`task ergo` + `task irc-test-client`**: manual live-client verification using a real sender and server
 - **`task test-ergo`**: protocol conformance against a reference IRCv3 implementation; requires docker, not part of `task test`
 
 Assertion caveats: Ergo timestamps/msgids are nondeterministic (assert on content/order/counts), and without the `event-playback` cap Ergo replays join/quit history as PRIVMSGs from `HistServ` — filter by sender.
@@ -50,17 +75,16 @@ Assertion caveats: Ergo timestamps/msgids are nondeterministic (assert on conten
 - Iterating on a test: start the server once and keep it running, then run tests directly against it:
 
   ```sh
-  docker run -d --name lurker-ergo-test -p 16667:6667 \
-    -v $PWD/testdata/ergo/ircd.yaml:/ircd/ircd.yaml:ro ghcr.io/ergochat/ergo:stable
-  ERGO_ADDR=127.0.0.1:16667 go test -tags=ergo ./irc/ -run TestErgo -count=1 -v
-  docker rm -f lurker-ergo-test   # when done
+  task ergo  # keep running in a separate terminal
+  task test-one -- -tags=ergo ./irc/ ./cmd/irctestclient/ -run TestErgo -count=1 -v
+  # Ctrl-C the task ergo terminal when done
   ```
 
-  `ERGO_ADDR` (default `127.0.0.1:16667`) points tests at any reachable Ergo instance.
+  `ERGO_ADDR` (default `127.0.0.1:16667`) points a direct `go test` run at any reachable Ergo instance. `task ergo` and `task test-ergo` run their own container and set it themselves, so it has no effect there.
 
 ### Writing new tests
 
-- Put them in `irc/` with the `//go:build ergo` tag; name them `TestErgo*` so the task target's `-run TestErgo` picks them up.
+- Put protocol tests in `irc/` (sender tests in `cmd/irctestclient/`) with the `//go:build ergo` tag; name them `TestErgo*` so the task target's `-run TestErgo` picks them up.
 - Reuse `dialRaw` (`ergo_integration_test.go`) for scripted counterpart clients — it registers, answers PINGs, and offers `send`/`waitFor`.
 - Use unique channel names per run (e.g. time-based suffix): the container keeps in-memory history for its whole lifetime, so a rerun against a kept-alive server sees earlier messages. Restarting the container resets all state (history is RAM-only, datastore is throwaway).
 - Server behavior knobs live in `testdata/ergo/ircd.yaml` (e.g. `history.chathistory-maxmessages`, `limits.multiline`); it's a trimmed Ergo default.yaml, so new sections can be copied from upstream when a test needs them.
