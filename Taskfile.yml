@@ -249,10 +249,10 @@ tasks:
         test
 
   test-apple-ui-live:
-    desc: Run macOS UI tests against a real backend and the local IRC test server
+    desc: Run macOS UI tests against a real backend and Ergo (requires docker)
     platforms: [darwin]
     cmds:
-      - /bin/sh ./scripts/test-apple-ui-live.sh {{.TEST_FILTER}}
+      - /bin/sh ./scripts/with-ergo.sh /bin/sh ./scripts/test-apple-ui-live.sh {{.TEST_FILTER}}
 
   lint-apple:
     desc: Check native Swift formatting (Airbnb style guide via SwiftFormat)
@@ -288,10 +288,15 @@ tasks:
     cmds:
       - go run ./cmd/seedtest --data-dir {{.SEED_DIR}} --reset
 
-  fake-ircd:
-    desc: Run minimal IRC server on :6667 with message injection on :6668
+  ergo:
+    desc: Run a disposable Ergo server on localhost:16667 until Ctrl-C (requires docker)
     cmds:
-      - go run ./cmd/fakeircd
+      - /bin/sh ./scripts/with-ergo.sh
+
+  irc-test-client:
+    desc: Run bob with HTTP message control on localhost:16668 (start task ergo first)
+    cmds:
+      - go run ./cmd/irctestclient {{.CLI_ARGS}}
 
   dev-test:
     desc: Build the frontend then run backend against seeded ./data-test
@@ -360,18 +365,7 @@ tasks:
   test-ergo:
     desc: Run IRCv3 protocol integration tests against a real Ergo server (requires docker)
     cmds:
-      - docker rm -f lurker-ergo-test >/dev/null 2>&1 || true
-      - docker run -d --name lurker-ergo-test -p 16667:6667 -v {{.ROOT_DIR}}/testdata/ergo/ircd.yaml:/ircd/ircd.yaml:ro ghcr.io/ergochat/ergo:stable
-      - defer: docker rm -f lurker-ergo-test >/dev/null 2>&1 || true
-      - |
-        for i in $(seq 1 50); do
-          nc -z 127.0.0.1 16667 >/dev/null 2>&1 && exit 0
-          sleep 0.2
-        done
-        echo "Ergo did not start listening on :16667" >&2
-        docker logs lurker-ergo-test >&2
-        exit 1
-      - ERGO_ADDR=127.0.0.1:16667 go test -tags=ergo ./irc/ -run TestErgo -count=1 -v -timeout 120s
+      - /bin/sh ./scripts/with-ergo.sh go test -tags=ergo ./irc/ ./cmd/irctestclient/ -run TestErgo -count=1 -v -timeout 120s
 
   lint-shell:
     desc: shellcheck every shell script

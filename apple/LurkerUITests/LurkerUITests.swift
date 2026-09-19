@@ -184,6 +184,9 @@ final class LurkerUITests: XCTestCase {
       }
       timeline.scroll(byDeltaX: 0, deltaY: -20)
     }
+    // A fully visible last row can still leave room below it. Reach the
+    // actual scroll limit so the test starts with bottom-follow enabled.
+    timeline.scroll(byDeltaX: 0, deltaY: -100)
     let atBottom = NSPredicate { _, _ in
       scrollView.frame.insetBy(dx: -1, dy: -1).contains(lastRow.frame)
     }
@@ -210,6 +213,7 @@ final class LurkerUITests: XCTestCase {
       }
       timeline.scroll(byDeltaX: 0, deltaY: -20)
     }
+    timeline.scroll(byDeltaX: 0, deltaY: -100)
     XCTAssertTrue(
       scrollView.frame.insetBy(dx: -1, dy: -1).contains(lastRow.frame),
       "last backlog row must be visible after catching up",
@@ -217,33 +221,56 @@ final class LurkerUITests: XCTestCase {
 
     func injectFromIRC(_ content: String) throws {
       let inject = Process()
-      inject.executableURL = URL(fileURLWithPath: "/usr/bin/nc")
-      inject.arguments = ["127.0.0.1", "16668"]
+      inject.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+      inject.arguments = [
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "5",
+        "--data-binary",
+        "@-",
+        "http://127.0.0.1:16668/message",
+      ]
       let input = Pipe()
       inject.standardInput = input
       try inject.run()
-      input.fileHandleForWriting.write(Data("#timeline-scroll :\(content)\n".utf8))
+      input.fileHandleForWriting.write(Data(content.utf8))
       try input.fileHandleForWriting.close()
       inject.waitUntilExit()
+      XCTAssertEqual(inject.terminationStatus, 0, "IRC sender rejected the message")
     }
 
     // Receive a message from bob without typing or sending anything.
-    // fakeircd streams it through the production backend into the client.
+    // bob sends through Ergo and the production backend into the client.
     let content = "incoming scroll regression from another IRC user"
     try injectFromIRC(content)
     let incoming = messageRow(containing: content)
     XCTAssertTrue(incoming.waitForExistence(timeout: 5), "incoming event never reached the timeline")
     XCTAssertTrue(incoming.label.localizedCaseInsensitiveContains("bob"), "fixture message must be from another user")
-    // The app intentionally follows after the safe-area + TextKit layout.
-    // Check once that transition has settled, rather than as soon as text
-    // storage exposes the row.
-    Thread.sleep(forTimeInterval: 0.5)
-    let incomingFrame = incoming.frame
+    // Wait for the safe-area + TextKit layout and follow animation, rather
+    // than assuming a fixed delay is enough after text storage exposes it.
     let currentScrollView = try XCTUnwrap(app.scrollViews.allElementsBoundByIndex
       .max(by: { $0.frame.width < $1.frame.width }))
-    let visible = currentScrollView.frame.insetBy(dx: -1, dy: -1).contains(incomingFrame)
+    let incomingVisible = XCTNSPredicateExpectation(
+      // Re-resolve the row on every poll: the follow-to-bottom relayout tears
+      // the AX element down and rebuilds it, and a captured handle goes
+      // permanently unresolvable (frame (inf, inf, 0, 0)) when it does.
+      predicate: NSPredicate { _, _ in
+        let row = self.messageRow(containing: content)
+        return row.exists && currentScrollView.frame.insetBy(dx: -1, dy: -1).contains(row.frame)
+      },
+      object: incoming,
+    )
+    // Capture before asserting: continueAfterFailure is false, so a failing
+    // assert aborts the test and the screenshot would never be taken.
     screenshot(named: "apple-incoming-scroll")
-    XCTAssertTrue(visible, "Incoming row from bob at \(incomingFrame) stayed outside \(currentScrollView.frame)")
+    XCTAssertEqual(
+      XCTWaiter.wait(for: [incomingVisible], timeout: 5),
+      .completed,
+      "Incoming row from bob at \(messageRow(containing: content).frame) "
+        + "stayed outside \(currentScrollView.frame)",
+    )
 
     // Following stops once the reader scrolls away. A second IRC arrival must
     // keep this visible row at the same screen position.

@@ -73,16 +73,18 @@ Mouse is on (`tea.WithMouseCellMotion`), so terminal-native scroll and link-clic
 `cmd/seedtest` (`task seed-test`) creates: network `libera` with `#lurker` (7 messages), `#go-nuts` (3), `#retired` (archived), query `alice` (3), query `spammer` (archived); network `oftc` with `#debian` (2); a 4-line status buffer per network. Pin order is deliberately non-alphabetical: `#go-nuts`, `#debian`, `#lurker` — so a fresh run should land on `libera/#go-nuts`.
 
 - **No unread/marker state is seeded** and members are populated in the fixture struct but never inserted. So: members panes are empty, and there is no preset "N unread mid-backlog" fixture — everything reads unread on first launch. To get a real marker mid-backlog, ack once (Esc), then inject new messages.
-- Seeded networks point at `127.0.0.1:1` and never connect. For **live arrivals** use `cmd/fakeircd` (`task fake-ircd`: IRC on :6667, control on :6668) and attach a network via REST:
+- Seeded networks point at `127.0.0.1:1` and never connect. For **live arrivals**, run `task ergo` and `task irc-test-client` in separate terminals (Docker required), then attach a network via REST:
 
 ```bash
 NET=$(curl -s -X POST localhost:8080/api/networks -H 'Content-Type: application/json' \
-  -d '{"name":"testnet","host":"127.0.0.1","port":6667,"tls":false,"nick":"lurkertest","connect_commands":["JOIN #verify"]}' | jq -r .id)
+  -d '{"name":"testnet","host":"127.0.0.1","port":16667,"tls":false,"nick":"lurkertest","connect_commands":["JOIN #verify"]}' | jq -r .id)
 curl -s -X POST "localhost:8080/api/networks/$NET/connect"
-echo "#verify :hello from bob" | nc -w1 127.0.0.1 6668     # inject a live PRIVMSG
+curl -fsS http://127.0.0.1:16668/ready
+# Wait for Lurker to join #verify, then send through Ergo as bob:
+curl -fsS http://127.0.0.1:16668/message --data-binary 'hello from bob'
 ```
 
-- The control port speaks one thing only: `<target> :<text>` → a PRIVMSG **always from `bob!bob@fake.host`**, broadcast to every connected client. Lines without ` :` are silently dropped. No join/part/quit injection exists; `bob` appears in NAMES synthetically but never sends real presence events. Target may be a nick, which gives you a query buffer.
+- The sender is a real, persistent IRC client named `bob` in `#verify`. HTTP 202 acknowledges queuing; confirm arrival in the backend/UI. Presence events and sender identity come from Ergo. Use another IRC client for query messages or other commands. Ctrl-C both tasks when finished; `task ergo` removes its own container. See `ai-docs/testing-and-build.md` for the full harness behavior.
 - API-created networks are ephemeral (reverted at boot by the config invariant). To make one survive a restart, **append** it to `data-test/config.yaml` — a separate config file would disable the seeded networks.
 - Server-side assertions: `curl -s localhost:8080/api/state` and inspect `buffers[].unread` / `marker_id` / `last_seen_id` to check what the TUI actually told the backend.
 

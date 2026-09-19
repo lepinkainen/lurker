@@ -60,7 +60,7 @@ open -n build/DerivedData/Build/Products/Debug/Lurker.app --args -mac.serverURL 
 - **Pass the URL as a launch argument, not via `defaults write`.** `-key value` in `--args` populates NSUserDefaults' *argument domain*, which outranks the persistent domain, needs no backup/restore, and cannot clobber the user's real `mac.serverURL`. `defaults write xyz.endymion.lurker mac.serverURL …` is unreliable: observed the app launching on the user's real server across two launches while both the host domain *and* the sandbox container plist read `http://localhost:8080` — a stale cfprefsd read the write can't defeat. The app is sandboxed (`~/Library/Containers/xyz.endymion.lurker/`), so its real prefs live in the container; cfprefsd usually redirects a host-domain write there, which makes the failure look like success when you verify by reading the plist back.
 - The app also persists `mac.selectedBuffer` / `mac.inspectorVisible` — stale values can change what you see at launch (a `mac.selectedBuffer` from the user's real server just won't resolve). Override these the same way, via `--args`.
 - **The backend logs no HTTP or WebSocket requests.** Don't try to confirm the app connected by grepping the `dev-test` log — a connected client leaves no trace. Confirm from the app side (window title / screenshot) or by mutating state and reading `/api/state`.
-- **Live message arrivals**: same fakeircd recipe as the TUI skill — `task fake-ircd` (IRC :6667, control :6668), create + connect a network via REST, then `echo "#verify :hello from bob" | nc -w1 127.0.0.1 6668`. The app receives it over the real WebSocket.
+- **Live message arrivals**: same Ergo recipe as the TUI skill — run `task ergo` (IRC :16667) and `task irc-test-client` (HTTP :16668), create + connect a network via REST, wait for Lurker and `bob` to join `#verify`, then `curl -fsS http://127.0.0.1:16668/message --data-binary 'hello from bob'`. The app receives the real IRC message over the backend WebSocket. Docker is required.
 - Server-side assertions: `curl -s localhost:8080/api/state` — check `buffers[].last_seen_id` / `marker_id` / `unread` to see what the app actually told the backend (e.g. `mark_read` fires only on explicit ack: unread-bar click or Esc — never on buffer open/focus; see `ai-docs/behaviors/new-messages-marker.md`).
 - Input driving in this mode is limited to `osascript` System Events keystrokes (needs Accessibility permission, may prompt, flaky). Prefer Mode A for anything interactive; use Mode B to observe real-backend behavior.
 
@@ -88,7 +88,7 @@ In Mode A, `XCUIScreen.main.screenshot()` inside the test (attach or write to a 
 
 ```bash
 osascript -e 'tell app "Lurker" to quit' 2>/dev/null
-# stop the background dev-test / fake-ircd tasks (TaskStop <id>)
+# stop the background dev-test / ergo / irc-test-client tasks (TaskStop <id>)
 # revert any throwaway UI test unless it earned a place in the suite
 ```
 

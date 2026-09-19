@@ -3,7 +3,7 @@ flowchart TD
     %% Excludes _test.go files, llm-shared/ submodule, and sqlc-generated db/internal/* internals.
     root_main["main (root)<br/>in:0 out:12"]
     api["api<br/>in:1 out:10"]
-    cmd_fakeircd["cmd/fakeircd<br/>in:0 out:0"]
+    cmd_irctestclient["cmd/irctestclient<br/>in:0 out:0"]
     cmd_seedtest["cmd/seedtest<br/>in:0 out:1"]
     cmd_tui["cmd/tui<br/>in:0 out:4"]
     datasource["datasource<br/>in:2 out:3"]
@@ -72,7 +72,7 @@ flowchart TD
     updates --> internal_httpjson
 
     root_main:::hot
-    cmd_fakeircd:::entry
+    cmd_irctestclient:::entry
     cmd_seedtest:::entry
     cmd_tui:::entry
     db:::hot

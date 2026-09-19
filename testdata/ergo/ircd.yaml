@@ -1,4 +1,4 @@
-# Minimal Ergo config for lurker integration tests (task test-ergo).
+# Shared Ergo config for task ergo, test-ergo, and test-apple-ui-live.
 # Based on Ergo's default.yaml, trimmed to: plaintext listener only, no
 # connection throttling (tests reconnect rapidly from one IP), in-memory
 # message history with CHATHISTORY enabled. NOT for production use.
