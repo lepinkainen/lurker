@@ -8,6 +8,7 @@ import (
 )
 
 func TestMessageHandler(t *testing.T) {
+	const limit = 32
 	for _, tc := range []struct {
 		name, method, path, body string
 		status                   int
@@ -17,12 +18,15 @@ func TestMessageHandler(t *testing.T) {
 		{"empty", "POST", "/message", "", http.StatusBadRequest},
 		{"multiline", "POST", "/message", "hello\r\nQUIT", http.StatusBadRequest},
 		{"nul", "POST", "/message", "hello\x00", http.StatusBadRequest},
-		{"too long", "POST", "/message", strings.Repeat("x", 401), http.StatusBadRequest},
+		{"at limit", "POST", "/message", strings.Repeat("x", limit), http.StatusAccepted},
+		{"too long", "POST", "/message", strings.Repeat("x", limit+1), http.StatusBadRequest},
+		{"multibyte at limit", "POST", "/message", strings.Repeat("é", limit/2), http.StatusAccepted},
+		{"multibyte too long", "POST", "/message", strings.Repeat("é", limit/2) + "x", http.StatusBadRequest},
 		{"wrong method", "GET", "/message", "hello", http.StatusMethodNotAllowed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var sent []string
-			h := messageHandler(func(message string) error { sent = append(sent, message); return nil })
+			h := messageHandler(func() int { return limit }, func(message string) error { sent = append(sent, message); return nil })
 			response := httptest.NewRecorder()
 			h.ServeHTTP(response, httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body)))
 			if response.Code != tc.status {

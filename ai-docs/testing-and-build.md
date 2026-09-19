@@ -27,7 +27,10 @@ curl -fsS http://127.0.0.1:16668/ready
 curl -fsS http://127.0.0.1:16668/message --data-binary 'hello from bob'
 ```
 
-`POST /message` accepts one nonempty line of at most 400 bytes. HTTP 202 means
+`POST /message` accepts one nonempty line within girc's negotiated event limit,
+minus the `PRIVMSG <channel> :` overhead and one byte to stay below girc's
+splitting threshold. Oversized bodies receive HTTP 400 with the current byte
+limit; accepted bodies remain one message with their content intact. HTTP 202 means
 queued by the IRC client; verify delivery in Lurker's history/UI. The sender
 stays connected, answers PINGs through girc, and exits if its IRC connection
 closes. Presence, membership, sender identity, timestamps, and message IDs all

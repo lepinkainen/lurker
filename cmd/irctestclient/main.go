@@ -84,16 +84,24 @@ func connectSender(ctx context.Context, addr, channel, nick string) (*girc.Clien
 	return nil, nil, err
 }
 
-func messageHandler(send func(string) error) http.Handler {
+func messageLimit(client *girc.Client, channel string) int {
+	// Reserve the PRIVMSG command, target, and trailing-parameter delimiter.
+	// girc splits at >= MaxEventLength(), which can also normalize whitespace,
+	// so stay strictly below that threshold even for messages containing spaces.
+	return max(0, client.MaxEventLength()-len("PRIVMSG "+channel+" :")-1)
+}
+
+func messageHandler(limit func() int, send func(string) error) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /message", func(w http.ResponseWriter, r *http.Request) {
 		// Keep a request to one ordinary IRC message, without girc splitting it.
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 400))
+		maxBytes := limit()
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(maxBytes)))
 		if err != nil || len(body) == 0 || strings.ContainsAny(string(body), "\r\n\x00") {
-			http.Error(w, "expected one nonempty message, at most 400 bytes", http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("expected one nonempty message, at most %d bytes", maxBytes), http.StatusBadRequest)
 			return
 		}
 		if err := send(string(body)); err != nil {
@@ -113,7 +121,7 @@ func run(ctx context.Context, addr, control, channel, nick string) error {
 	defer client.Close()
 	server := &http.Server{
 		Addr: control, ReadHeaderTimeout: 5 * time.Second,
-		Handler: messageHandler(func(message string) error {
+		Handler: messageHandler(func() int { return messageLimit(client, channel) }, func(message string) error {
 			// Cmd.Message drops the write silently when the link is down;
 			// without this the caller gets a 202 for a message nobody sends.
 			if !client.IsConnected() {
