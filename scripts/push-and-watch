@@ -340,8 +340,20 @@ def wait_for_completion(run_id: int, label: str, interval: int = 5) -> Run:
     last_status = ""
     last_print = 0.0
     seen_jobs: set[str] = set()
+    errors = 0
     while True:
-        run, jobs = view_run_with_jobs(run_id)
+        try:
+            run, jobs = view_run_with_jobs(run_id)
+            errors = 0
+        except CommandError as exc:
+            # gh/network hiccups (TLS timeouts, 5xx) must not read as a CI
+            # failure; give up only after several consecutive misses.
+            errors += 1
+            if errors >= 5:
+                raise
+            print(f"warning: gh poll failed ({errors}/5), retrying: {exc}", file=sys.stderr)
+            time.sleep(interval)
+            continue
         elapsed = time.monotonic() - start
 
         for job in jobs:
@@ -428,7 +440,7 @@ def main() -> int:
         return 1
     except CommandError as exc:
         print(exc, file=sys.stderr)
-        print(f"RESULT FAIL {short_sha}  command error")
+        print(f"RESULT FAIL {short_sha}  watch error (CI outcome unknown, check the run URL)")
         return 1
     except SystemExit as exc:
         print(f"RESULT FAIL {short_sha}  {exc.code}")
