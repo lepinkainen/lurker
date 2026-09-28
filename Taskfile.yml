@@ -371,9 +371,8 @@ tasks:
     desc: shellcheck every shell script
     cmds:
       - |
-        # Selected by shebang, not extension: scripts/push-and-watch.sh is a
-        # uv/Python script that happens to be named .sh, and shellcheck would
-        # try to parse it as shell.
+        # Selected by shebang too, so a non-shell script named .sh is skipped
+        # rather than parsed as shell.
         files=$(grep -lE '^#!.*\b(sh|bash|dash)\b' scripts/*.sh 2>/dev/null || true)
         if [ -z "$files" ]; then
           echo "no shell scripts to check"
@@ -464,4 +463,4 @@ tasks:
   push:
     desc: Push current branch, then wait for CI and release workflows to succeed
     cmds:
-      - ./scripts/push-and-watch.sh
+      - ./scripts/push-and-watch

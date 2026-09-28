@@ -24,14 +24,14 @@ Always use `task` (Taskfile.yml), not direct `go`/`pnpm`.
 - `task lint` — goimports + golangci-lint + frontend type-check + eslint fix (depends on `lint-web`)
 - `task lint-web` — `tsc --noEmit` + `pnpm lint:fix`
 - `task lint-mermaid` — parse Mermaid diagrams in root docs + `ai-docs/` (part of `task lint`; needs `task web-install`)
-- `task lint-shell` — shellcheck every shell script (part of `task lint`); scripts are selected by shebang, so `scripts/push-and-watch.sh` (a uv/Python script named `.sh`) is skipped
+- `task lint-shell` — shellcheck every shell script (part of `task lint`); `scripts/*.sh` filtered by shebang
 - `task build` — lint + test + web-build + Go binary → `build/lurker`
 - `task build-linux` — `build/lurker-linux-amd64`
 - `task test-ergo` — IRCv3 protocol integration tests against a real Ergo server in docker (`testdata/ergo/`); not part of `task test`
 - `task seed-test` / `task dev-test` — seed `./data-test`, run backend against it
 - `task install-linux` / `task uninstall-linux` — install the Tauri desktop shell into `~/.local` for the current user (launcher entry + icons); no root, no rpm-ostree layering
 - `task up` / `task down` — docker compose
-- `task push` — push branch + watch CI via `scripts/push-and-watch.sh`. do not use tail to follow this, the output is already optimised
+- `task push` — push branch + watch CI via `scripts/push-and-watch` (uv/Python script). do not use tail to follow this, the output is already optimised
 - `task tidy` — `go mod tidy`
 - `task generate` — `sqlc generate` (regenerate `db/internal/{controldb,logdb,previewdb}/*` after editing `db/{control,log,preview}_queries/*.sql` or any migration)
 - `task clean` — remove `build/`, `web/dist/`, `data/`
