@@ -134,6 +134,11 @@ export function createWSRouter(view: AppView, sendCmd: (cmd: Record<string, unkn
         registerNetworkNickColor(m.network);
         view.renderSidebar();
         view.renderHeader();
+        // Covers a self nick change too: the IRC runtime broadcasts
+        // network_updated when our own nick changes (registration alt nick
+        // or NICK), same as the REST path. Re-render unconditionally, same
+        // as the sidebar/header calls above — cheap even when unchanged.
+        view.renderPromptNick();
         break;
       case "network_deleted":
         for (const b of [...state.buffers.values()]) {

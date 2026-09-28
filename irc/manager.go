@@ -101,6 +101,12 @@ type Manager struct {
 	// agree with WS pushes.
 	avatars   map[uuid.UUID]*avatarTracker
 	connector connectorFunc
+	// nickChangedHook fires after the runtime persists a new self nick
+	// (registration alt nick or a NICK on our own connection), so the API
+	// layer can broadcast network_updated and every client converges. Set
+	// by api at construction; irc cannot import api, so this is the
+	// callback seam (mirrors previews/PreviewEnqueuer).
+	nickChangedHook func(ircdb.Network)
 }
 
 // NewManager constructs a Manager. Every network runtime it starts is bound
@@ -129,6 +135,50 @@ func NewManager(baseCtx context.Context, stores *ircdb.MultiStore, h *hub.Hub) *
 // Start so handlers pick it up when they're constructed.
 func (m *Manager) SetPreviewEnqueuer(p PreviewEnqueuer) {
 	m.previews = p
+}
+
+// SetNickChangedHook installs the callback invoked after the runtime
+// persists a new self nick. Should be called before Start so handlers pick
+// it up when they're constructed.
+func (m *Manager) SetNickChangedHook(fn func(ircdb.Network)) {
+	m.nickChangedHook = fn
+}
+
+// handleSelfNickConnected is connectedHook's body, named so it's directly
+// testable. It runs when the handler observes our own nick at registration
+// (possibly an alternate nick) or via a NICK on our own connection: it
+// updates runtime state, persists the nick, and — only when the nick
+// actually changed from what was stored — fires nickChangedHook so the API
+// layer can broadcast network_updated. Without the change check, every
+// reconnect with an unchanged nick would broadcast noise.
+func (m *Manager) handleSelfNickConnected(networkID uuid.UUID, currentNick string) {
+	m.mu.Lock()
+	m.state[networkID] = StateConnected.String()
+	if _, ok := m.membersLoaded[networkID]; !ok {
+		m.membersLoaded[networkID] = map[string]bool{}
+	}
+	oldNick := ""
+	if currentNick != "" {
+		if rt, ok := m.runtime[networkID]; ok {
+			oldNick = rt.cfg.Nick
+			rt.cfg.Nick = currentNick
+			m.runtime[networkID] = rt
+		}
+	}
+	m.mu.Unlock()
+	if currentNick == "" {
+		return
+	}
+	tCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	updated, err := ircdb.UpdateNetwork(tCtx, m.stores.Control, networkID, ircdb.Network{Nick: currentNick})
+	if err != nil {
+		slog.Warn("persist current nick", "network_id", networkID, "nick", currentNick, "err", err)
+		return
+	}
+	if oldNick != currentNick && m.nickChangedHook != nil {
+		m.nickChangedHook(updated)
+	}
 }
 
 // Start upserts and starts all configured networks.
@@ -860,25 +910,7 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 	m.mu.Unlock()
 
 	h := &handler{stores: m.stores, db: logStore, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectCommands: nc.ConnectCommands, userChannels: newUserChannels(), bots: bots, avatars: avs, nickFn: func() string { return m.Nick(networkID) }, connectedHook: func(currentNick string) {
-		m.mu.Lock()
-		m.state[networkID] = StateConnected.String()
-		if _, ok := m.membersLoaded[networkID]; !ok {
-			m.membersLoaded[networkID] = map[string]bool{}
-		}
-		if currentNick != "" {
-			if rt, ok := m.runtime[networkID]; ok {
-				rt.cfg.Nick = currentNick
-				m.runtime[networkID] = rt
-			}
-		}
-		m.mu.Unlock()
-		if currentNick != "" {
-			tCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if _, err := ircdb.UpdateNetwork(tCtx, m.stores.Control, networkID, ircdb.Network{Nick: currentNick}); err != nil {
-				slog.Warn("persist current nick", "network_id", networkID, "nick", currentNick, "err", err)
-			}
-		}
+		m.handleSelfNickConnected(networkID, currentNick)
 	}, memberListHook: func(channel string) {
 		m.mu.Lock()
 		if _, ok := m.membersLoaded[networkID]; !ok {

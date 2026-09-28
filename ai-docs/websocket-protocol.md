@@ -143,7 +143,7 @@ Currently published events:
 - `buffer_deleted` — buffer and its history permanently deleted
 - `buffer_update` — topic, topic setter/set-time, joined/archived state, or last-seen-ID changes
 - `network_state` — connection state transitions
-- `network_created` / `network_updated` — `{network: networkDTO}` after a REST create/patch (see rest-api.md); clients upsert the record so open UIs converge without reload
+- `network_created` / `network_updated` — `{network: networkDTO}` after a REST create/patch (see rest-api.md), or `network_updated` alone when the IRC runtime itself persists a new self nick (registration alt nick or a `NICK` on our own connection); clients upsert the record so open UIs converge without reload, including the prompt nick
 - `network_deleted` — `{id}`; clients drop the network and every buffer under it (same cleanup as `buffer_deleted`)
 - `network_reorder` — `{networks: [{id, sort_order}]}` after `POST /api/networks/reorder`
 - `member_list` — full channel member list snapshot
@@ -246,6 +246,8 @@ Only previews with `kind` = `image` or `opengraph` are published. Negative resul
 - `nick` — affected nick
 - `state` — `"join"`, `"part"`, `"quit"`, `"kick"`, or `"nick"`
 - `target` — new nick when `state` = `"nick"`
+
+A self nick change (registration alt nick, or a `NICK` on our own connection) also fires an ordinary `presence`/`nick` event like any other user's, so don't use it to detect and track our own nick — matching `nick` against the network's currently-stored nick is unreliable because that comparison is against the value the change is about to make stale. Instead, the IRC runtime persists the new nick and publishes `network_updated` itself (the same event REST create/patch publishes); clients take their nick from that event.
 
 `avatar`
 

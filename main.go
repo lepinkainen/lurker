@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -67,6 +68,15 @@ func main() {
 	defer closeutil.Ignore(previewSvc, "component", "preview")
 	mgr := irc.NewManager(ctx, stores, evHub)
 	mgr.SetPreviewEnqueuer(previewSvc)
+	// apiSrv is constructed later (needs mediaSvc etc.) but networks may
+	// connect before then. A nick change in that window is dropped: no WS
+	// client exists yet, and /api/state serves the persisted nick anyway.
+	var apiSrvRef atomic.Pointer[api.Server]
+	mgr.SetNickChangedHook(func(n db.Network) {
+		if s := apiSrvRef.Load(); s != nil {
+			s.HandleNickChanged(n)
+		}
+	})
 	fixtureRuntime := loadFixtureRuntimeState(ctx, mgr)
 
 	dsMgr := buildDataSourceManager(ctx, cfg, stores, evHub, previewSvc)
@@ -118,6 +128,7 @@ func main() {
 			return saveConfigYAML(cfg.ConfigPath, content)
 		},
 	}
+	apiSrvRef.Store(apiSrv)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,

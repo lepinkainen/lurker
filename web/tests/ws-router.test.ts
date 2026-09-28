@@ -370,6 +370,19 @@ describe("ws-router network configuration events", () => {
     expect(view.renderSidebar).toHaveBeenCalled();
   });
 
+  // The IRC runtime broadcasts network_updated when our own nick changes
+  // (registration alt nick or NICK), same as the REST path. The prompt nick
+  // must refresh from it so it doesn't keep showing the stale nick.
+  it("network_updated refreshes the prompt nick", () => {
+    const view = fakeView();
+    const route = createWSRouter(view);
+    route({ type: "network_created", network: net("n1") });
+    expect(view.renderPromptNick).toHaveBeenCalledTimes(1);
+    route({ type: "network_updated", network: net("n1", { nick: "renamed" }) });
+    expect(state.networks.get("n1")?.nick).toBe("renamed");
+    expect(view.renderPromptNick).toHaveBeenCalledTimes(2);
+  });
+
   it("records ids created while a state sync is pending", () => {
     const view = fakeView();
     state.needsStateSyncOnConnect = true;

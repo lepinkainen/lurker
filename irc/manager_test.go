@@ -838,6 +838,58 @@ func TestBuildClientConfiguresTLSInsecureSkipVerify(t *testing.T) {
 	}
 }
 
+// TestSelfNickConnectedBroadcastsOnlyOnActualChange proves the nick-changed
+// hook (irc/manager.go's handleSelfNickConnected, invoked from connectedHook)
+// fires network_updated wiring exactly when our own nick actually changes —
+// not on every reconnect with the same nick — and that the row it passes to
+// the hook reflects the newly persisted nick.
+func TestSelfNickConnectedBroadcastsOnlyOnActualChange(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := stores.Close(); cerr != nil {
+			t.Fatalf("close stores: %v", cerr)
+		}
+	}()
+
+	ctx := context.Background()
+	netrow, err := stores.UpsertNetwork(ctx, ircdb.Network{Name: "ircnet", Host: "irc.example", Port: 6697, Nick: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager(t.Context(), stores, nil)
+	m.runtime[netrow.ID] = networkRuntime{cfg: NetworkConfig{Nick: "tester"}}
+	var broadcasts []ircdb.Network
+	m.SetNickChangedHook(func(n ircdb.Network) { broadcasts = append(broadcasts, n) })
+
+	// Reconnect with the same nick: no broadcast.
+	m.handleSelfNickConnected(netrow.ID, "tester")
+	if len(broadcasts) != 0 {
+		t.Fatalf("broadcasts on unchanged nick = %+v, want none", broadcasts)
+	}
+
+	// Alt nick at registration, or a NICK on our own connection: broadcast
+	// once, carrying the persisted row.
+	m.handleSelfNickConnected(netrow.ID, "tester_")
+	if len(broadcasts) != 1 {
+		t.Fatalf("broadcasts = %d, want 1", len(broadcasts))
+	}
+	if broadcasts[0].Nick != "tester_" {
+		t.Fatalf("broadcast nick = %q, want tester_", broadcasts[0].Nick)
+	}
+
+	stored, err := ircdb.GetNetwork(ctx, stores.Control, netrow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Nick != "tester_" {
+		t.Fatalf("persisted nick = %q, want tester_", stored.Nick)
+	}
+}
+
 func newTestClient(_ *testing.T) *girc.Client {
 	const nick = "tester"
 	return girc.New(girc.Config{Server: "test.invalid", Port: 6667, Nick: nick, User: nick, Name: nick})
