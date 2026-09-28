@@ -17,12 +17,29 @@ height before `TimelineCoordinator.sync` checks its near-bottom geometry. The
 smaller viewport can make a reader who was at the bottom appear to have
 scrolled away, so the append is not followed.
 
-**Fix.** Keep the coordinator's bottom-follow intent across viewport-size
-changes and update it when the clip view's vertical origin changes. The unread
-bar changes the viewport size; scrolling changes its document origin. On an
-append, preserve the prior intent and scroll after laying out the new content.
-Do not pull a reader back to the bottom when their clip origin shows they
-scrolled away.
+**Fix.** Keep one follow value (`TimelineCoordinator.followsBottom`) and let
+only user scrolls recompute it. Content and viewport changes act on the value
+as it stood before them and never re-derive it from post-change geometry. The
+unread bar changes the viewport size through `TimelineScrollView.tile()`, and
+a shrinking document makes AppKit clamp the clip origin inside
+`TimelineNSTextView.setFrameSize`. Both run inside
+`applyingGeometryChange`, so the bounds observer ignores the origin moves
+they cause. A 40pt "near bottom" check after the change is the bug: a
+shrinking document makes a backlog reader look like they are at the bottom.
+Snap to the clip view's exact bottom, not `scrollToEndOfDocument` (which only
+reveals the final glyph) or an animated origin (whose intermediate positions
+look like user scrolls). TextKit posts frame changes from inside its own
+viewport layout, so late height changes repin through `scheduleRepin()` on
+the next main-actor turn, never synchronously. The full contract lives in
+`behaviors/timeline-scrolling.md`.
+
+**Test harness caveat.** In the headless unit-test harness, TextKit 2 does
+not move later fragments after a mid-document block replacement changes
+height: `enumerateTextLayoutFragments(.ensuresLayout)` keeps their old
+origins, so `usageBoundsForTextContainer` stays stale. A full rebuild
+(presence collapse, message removal) lays out fresh. Drive geometry tests
+through rebuilds, or through a direct `setFrameSize` for "late TextKit
+growth".
 
 **Verify.** `task test-apple-ui-live
 TEST_FILTER=testLiveIRCIncomingMessageScrollsAtBottom` reads an IRC backlog,

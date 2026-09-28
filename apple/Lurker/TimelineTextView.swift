@@ -177,22 +177,16 @@ final class TimelineCoordinator: NSObject {
   /// iOS DisclosureGroup's @State. Cleared on buffer switch.
   private(set) var expandedPresenceGroups = Set<UUID>()
 
-  /// Internal faces of the pinning logic for PreviewAttachmentResizeRelay,
-  /// which lives outside the coordinator but must preserve follow-at-bottom
-  /// when an inline image grows after insertion.
-  var viewportPinnedToBottom: Bool {
-    followsBottom || isNearBottom
-  }
-
   func install(
     textView: TimelineNSTextView,
-    scrollView: NSScrollView,
+    scrollView: TimelineScrollView,
     axHost: TimelineAXHostView,
   ) {
     self.textView = textView
     self.scrollView = scrollView
     self.axHost = axHost
     textView.coordinator = self
+    scrollView.coordinator = self
     textView.delegate = self
     textView.textLayoutManager?.delegate = self
     axHost.coordinator = self
@@ -216,12 +210,21 @@ final class TimelineCoordinator: NSObject {
       renderedFingerprint = fingerprint
     }
 
+    // Explicit "go to bottom" (Esc / unread-bar ack, send, buffer switch)
+    // resumes following.
+    let jump = model.scrollToBottomRequest != handledScrollRequest || buffer.id != renderedBufferID
+    handledScrollRequest = model.scrollToBottomRequest
+    if jump {
+      followsBottom = true
+    }
+
     if buffer.id != renderedBufferID || fingerprint != renderedFingerprint {
       if buffer.id != renderedBufferID {
         expandedPresenceGroups = []
       }
+      let anchor = topRowAnchor()
       rebuild(items)
-      scrollToBottom()
+      settle(anchor, shifted: true)
       // An anchor addressed to another buffer is stale: drop it without
       // scrolling rather than leaving it to block further load-older calls.
       consumeAnchor(model, ownedBy: nil)
@@ -231,56 +234,76 @@ final class TimelineCoordinator: NSObject {
 
     // A history page landed: rebuild (prepends shift every offset anyway)
     // and pin the previously-first visible message back to the top edge.
+    // Following wins over the anchor.
     if let anchor = model.historyAnchor, anchor.bufferID == buffer.id {
       rebuild(items)
-      restoreAnchor(anchor.messageID)
+      if followsBottom {
+        scrollToBottom()
+      } else {
+        restoreAnchor(anchor.messageID)
+      }
       consumeAnchor(model, ownedBy: buffer.id)
       kickAvatarLoads(items)
       return
     }
 
-    // SwiftUI applies safeAreaInset before updateNSView runs. A new unread bar
-    // shrinks the viewport before this check, hiding the reader's prior
-    // bottom position from the live geometry.
-    let pinned = followsBottom || isNearBottom
+    // Content changes act on `followsBottom` as it stood before the change;
+    // only user scrolls recompute it (behaviors/timeline-scrolling.md).
+    let anchor = topRowAnchor()
+    var changed = jump
+    var shifted = false
     switch TimelineDiff.compute(old: blocks.map(\.item), new: items) {
     case .none:
       break
 
     case .rebuild:
       rebuild(items)
-      if pinned {
-        scrollToBottom()
-      }
+      changed = true
+      shifted = true
 
     case .incremental(let replacements, let appendFrom):
       for index in replacements { replaceBlock(at: index, with: items[index]) }
       if let appendFrom {
         appendBlocks(items[appendFrom...])
       }
-      // Replacements can change block heights too (a late preview growing
-      // the last message), not just appends — re-pin for either.
-      if pinned, appendFrom != nil || !replacements.isEmpty {
-        if appendFrom != nil {
-          // The incoming event can also make SwiftUI insert the unread bar.
-          // Wait until that safe-area resize and TextKit's append layout have
-          // settled before calculating the final bottom origin.
-          scrollToBottomAfterLayout(animated: true)
-        } else {
-          scrollToBottom()
-        }
-      }
+      changed = changed || appendFrom != nil || !replacements.isEmpty
+      shifted = !replacements.isEmpty
     }
     // Bot/avatar state lives in AppModel, not in the items, so even a .none
     // diff can hide rows whose avatar slot is out of date.
-    if refreshStaleAvatarRows(), pinned {
-      scrollToBottom()
+    if refreshStaleAvatarRows() {
+      changed = true
+      shifted = true
+    }
+    if changed {
+      settle(anchor, shifted: shifted)
     }
     kickAvatarLoads(items)
   }
 
-  func repinToBottom() {
-    scrollToBottom()
+  /// Applies a geometry change that is not a user scroll (programmatic
+  /// scroll, document resize, viewport tile): clip-origin changes inside it
+  /// leave `followsBottom` alone.
+  func applyingGeometryChange(_ body: () -> Void) {
+    geometryChangeDepth += 1
+    defer { geometryChangeDepth -= 1 }
+    body()
+  }
+
+  /// The deferred entry to the repin path, for height/viewport changes that
+  /// TextKit or AppKit report from inside their own layout (frame changes,
+  /// tile, live-resize end). Coalesced to one repin on the next main-actor
+  /// turn; re-entering layout synchronously there is unsafe.
+  func scheduleRepin() {
+    guard !isRepinning, !repinScheduled else { return }
+    repinScheduled = true
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      repinScheduled = false
+      if followsBottom {
+        scrollToBottom()
+      }
+    }
   }
 
   /// One AX element per message block, restoring the SwiftUI timeline's
@@ -350,13 +373,12 @@ final class TimelineCoordinator: NSObject {
     return nil
   }
 
-  /// Esc pressed while the text view is first responder: ack unread, the
-  /// same behavior as `ConversationView`'s `.onKeyPress(.escape)`.
+  /// Esc pressed while the text view is first responder: same as
+  /// `ConversationView`'s `.onKeyPress(.escape)` — ack if anything is unread,
+  /// always bump `scrollToBottomRequest` so the next sync snaps to the bottom.
   func handleEscape() -> Bool {
-    guard let buffer, let model, buffer.markerID != nil || buffer.unread > 0 else {
-      return false
-    }
-    model.ackRead(buffer.id)
+    guard let buffer, let model else { return false }
+    model.escapeToBottom(buffer.id)
     return true
   }
 
@@ -391,8 +413,14 @@ final class TimelineCoordinator: NSObject {
     let collapsePresence: Bool
   }
 
+  /// A row and its top's offset from the viewport top.
+  private struct RowAnchor {
+    let id: String
+    let offset: CGFloat
+  }
+
   private weak var textView: TimelineNSTextView?
-  private weak var scrollView: NSScrollView?
+  private weak var scrollView: TimelineScrollView?
   private weak var axHost: TimelineAXHostView?
   // AX clients hold opaque tokens into these objects and resolve them
   // later; without a strong reference here the elements deallocate between
@@ -405,9 +433,15 @@ final class TimelineCoordinator: NSObject {
   private var renderedBufferID: UUID?
   private var renderedFingerprint: Fingerprint?
   private var avatarLoadsInFlight = Set<URL>()
-  /// Auto-follow intent survives viewport-size changes such as the unread bar
-  /// appearing above the timeline. A clip-origin change reflects scrolling.
-  private var followsBottom = false
+  /// The one follow value (behaviors/timeline-scrolling.md). Only user
+  /// scrolls (clip-origin changes outside `applyingGeometryChange`) and
+  /// explicit go-to-bottom actions change it; content and viewport changes
+  /// act on it.
+  private var followsBottom = true
+  private var handledScrollRequest: Int?
+  private var geometryChangeDepth = 0
+  private var repinScheduled = false
+  private var isRepinning = false
   private var lastClipOriginY: CGFloat?
 
   private var renderContext: TimelineRenderContext? {
@@ -419,9 +453,11 @@ final class TimelineCoordinator: NSObject {
     )
   }
 
-  private var isNearBottom: Bool {
-    guard let scrollView, let textView else { return true }
-    return scrollView.documentVisibleRect.maxY >= textView.frame.maxY - 40
+  /// Some part of the latest row (with its preview/image paragraphs, which
+  /// belong to the same block) intersects the viewport.
+  private var latestRowVisible: Bool {
+    guard let scrollView, let top = rowTop(of: blocks.count - 1) else { return true }
+    return scrollView.documentVisibleRect.maxY > top
   }
 
   /// Re-derives the item list from the current model state (used after a
@@ -594,27 +630,78 @@ final class TimelineCoordinator: NSObject {
     }
   }
 
-  private func scrollToBottom(animated: Bool = false) {
-    guard let textView else { return }
-    forceFullLayout()
-    followsBottom = true
-    if animated {
-      textView.enclosingScrollView?.contentView.animator().setBoundsOrigin(bottomOrigin())
-    } else {
-      textView.scrollToEndOfDocument(nil)
+  /// Acts on a content change with the follow value as it stood before it.
+  /// Following: pin to the bottom. Reading backlog, after an edit that can
+  /// shift rows above the viewport: put the previously top visible row back
+  /// at its on-screen offset.
+  private func settle(_ anchor: RowAnchor?, shifted: Bool) {
+    if followsBottom {
+      scrollToBottom()
+    } else if shifted, let anchor, let index = blocks.firstIndex(where: { $0.item.id == anchor.id }) {
+      forceFullLayout()
+      if let top = rowTop(of: index) {
+        setClipOrigin(top - anchor.offset)
+      }
     }
   }
 
-  private func scrollToBottomAfterLayout(animated: Bool) {
-    Task { @MainActor [weak self] in
-      // NSViewRepresentable updates happen before the enclosing SwiftUI
-      // transaction finishes laying out safeAreaInset changes.
-      await Task.yield()
-      guard let self, followsBottom else { return }
-      scrollView?.layoutSubtreeIfNeeded()
-      textView?.layoutSubtreeIfNeeded()
-      scrollToBottom(animated: animated)
+  /// Snaps to the clip view's exact bottom, without animation.
+  /// scrollToEndOfDocument reveals the final glyph, not the bottom margin; an
+  /// animation passes through origins that look like user scrolls.
+  private func scrollToBottom() {
+    guard let textView else { return }
+    isRepinning = true
+    defer { isRepinning = false }
+    // Live resize reflows on every tick; a full-document layout per tick
+    // stalls it. Pin against TextKit's current height and settle exactly in
+    // viewDidEndLiveResize.
+    if !textView.inLiveResize {
+      forceFullLayout()
     }
+    setClipOrigin(bottomOrigin().y)
+  }
+
+  private func setClipOrigin(_ y: CGFloat) {
+    guard let scrollView else { return }
+    applyingGeometryChange {
+      scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: max(0, y)))
+      scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+  }
+
+  private func topRowAnchor() -> RowAnchor? {
+    guard
+      !followsBottom,
+      let scrollView, let textView,
+      let layout = textView.textLayoutManager,
+      let content = textView.textContentStorage
+    else { return nil }
+    let minY = scrollView.documentVisibleRect.minY
+    let inset = textView.textContainerInset.height
+    guard let fragment = layout.textLayoutFragment(for: CGPoint(x: 0, y: max(0, minY - inset))) else {
+      return nil
+    }
+    var remaining = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)
+    guard
+      let index = blocks.firstIndex(where: {
+        remaining -= $0.length
+        return remaining < 0
+      }), let top = rowTop(of: index)
+    else { return nil }
+    return RowAnchor(id: blocks[index].item.id, offset: top - minY)
+  }
+
+  /// Top of block `index`'s first paragraph, in text-view coordinates.
+  private func rowTop(of index: Int) -> CGFloat? {
+    guard
+      blocks.indices.contains(index),
+      let textView,
+      let layout = textView.textLayoutManager,
+      let content = textView.textContentStorage,
+      let location = content.location(content.documentRange.location, offsetBy: offset(of: index)),
+      let fragment = layout.textLayoutFragment(for: location)
+    else { return nil }
+    return fragment.layoutFragmentFrame.minY + textView.textContainerInset.height
   }
 
   private func bottomOrigin() -> NSPoint {
@@ -624,25 +711,10 @@ final class TimelineCoordinator: NSObject {
   }
 
   private func restoreAnchor(_ messageID: UUID) {
-    guard
-      let textView,
-      let layout = textView.textLayoutManager,
-      let contentStorage = textView.textContentStorage,
-      let index = blocks.firstIndex(where: { $0.item.anchorMessageID == messageID })
-    else { return }
+    guard let index = blocks.firstIndex(where: { $0.item.anchorMessageID == messageID }) else { return }
     forceFullLayout()
-    guard
-      let location = contentStorage.location(
-        contentStorage.documentRange.location,
-        offsetBy: offset(of: index),
-      ),
-      let fragment = layout.textLayoutFragment(for: location)
-    else { return }
-    let y = fragment.layoutFragmentFrame.minY + textView.textContainerInset.height
-    scrollView?.contentView.setBoundsOrigin(NSPoint(x: 0, y: max(0, y)))
-    followsBottom = false
-    if let scrollView {
-      scrollView.reflectScrolledClipView(scrollView.contentView)
+    if let top = rowTop(of: index) {
+      setClipOrigin(top)
     }
   }
 
@@ -664,10 +736,11 @@ final class TimelineCoordinator: NSObject {
   private func clipViewBoundsChanged(_: Notification) {
     guard let scrollView else { return }
     let originY = scrollView.contentView.bounds.origin.y
-    if let lastClipOriginY, abs(originY - lastClipOriginY) > 0.5 {
-      // The unread bar resizes the viewport without moving its document
-      // origin. An origin change means the reader moved within the document.
-      followsBottom = isNearBottom
+    // Only a user scroll recomputes following. Programmatic scrolls, document
+    // resizes (AppKit clamps the origin when the document shrinks) and viewport
+    // tiles run inside applyingGeometryChange.
+    if geometryChangeDepth == 0, let lastClipOriginY, abs(originY - lastClipOriginY) > 0.5 {
+      followsBottom = latestRowVisible
     }
     lastClipOriginY = originY
     if scrollView.documentVisibleRect.minY < 200 {
@@ -687,6 +760,7 @@ extension TimelineCoordinator: NSTextViewDelegate {
       url.scheme == "lurker-presence",
       let id = (url.host()).flatMap(UUID.init(uuidString:))
     else { return false }
+    let anchor = topRowAnchor()
     expandedPresenceGroups.formSymmetricDifference([id])
     resyncFromModel()
     // Expanding a terminal group is a pure suffix append: the summary item
@@ -702,6 +776,7 @@ extension TimelineCoordinator: NSTextViewDelegate {
       })
     {
       replaceBlock(at: index, with: blocks[index].item)
+      settle(anchor, shifted: true)
     }
     return true
   }

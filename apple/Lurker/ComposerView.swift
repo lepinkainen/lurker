@@ -74,8 +74,7 @@ struct ComposerView: View {
               }
               // Native focus does not participate in SwiftUI's ancestor
               // key handlers; mirror ConversationView's Esc-to-ack action.
-              guard buffer.markerID != nil || buffer.unread > 0 else { return false }
-              model.ackRead(buffer.id)
+              model.escapeToBottom(buffer.id)
               return true
 
             default: return false

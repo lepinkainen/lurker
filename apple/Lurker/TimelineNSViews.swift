@@ -47,6 +47,24 @@ final class TimelineNSTextView: NSTextView {
     }
   }
 
+  /// Height changes (appends settling, previews, reflow) are content changes:
+  /// the coordinator repins on the next turn if following. Width-only changes
+  /// pass straight through, so a live resize repins only once reflow actually
+  /// changes the height.
+  override func setFrameSize(_ newSize: NSSize) {
+    guard let coordinator, abs(newSize.height - frame.height) > 0.5 else {
+      return super.setFrameSize(newSize)
+    }
+    coordinator.applyingGeometryChange { super.setFrameSize(newSize) }
+    coordinator.scheduleRepin()
+  }
+
+  /// Live-resize repins skip full-document layout; settle exactly once done.
+  override func viewDidEndLiveResize() {
+    super.viewDidEndLiveResize()
+    coordinator?.scheduleRepin()
+  }
+
   /// Copies the visible text of the selection, minus rows that only make
   /// sense on screen (unread separator, preview placeholders). The tab-based
   /// gutter layout is flattened to single spaces so pasted lines read
@@ -96,9 +114,23 @@ final class TimelineNSTextView: NSTextView {
 /// that overrides programmatic origin changes — the history-prepend anchor
 /// restore must win over an in-flight gesture, or the viewport lands one
 /// page off and can cascade extra history loads.
+///
+/// `tile()` is where viewport resizes land (window resize, unread-bar
+/// safeAreaInset): a content change, not a user scroll.
 final class TimelineScrollView: NSScrollView {
+  weak var coordinator: TimelineCoordinator?
+
   override func scrollWheel(with event: NSEvent) {
     super.scrollWheel(with: event)
+  }
+
+  override func tile() {
+    guard let coordinator else { return super.tile() }
+    let height = contentView.bounds.height
+    coordinator.applyingGeometryChange { super.tile() }
+    if abs(contentView.bounds.height - height) > 0.5 {
+      coordinator.scheduleRepin()
+    }
   }
 }
 

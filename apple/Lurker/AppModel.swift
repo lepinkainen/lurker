@@ -126,6 +126,10 @@ final class AppModel {
   // back to the top edge so the viewport doesn't jump to the new content and
   // re-trigger the load (runaway pagination). Consumed (nil'd) by the view.
   var historyAnchor: HistoryAnchor?
+  /// Bumped by explicit "go to bottom" actions (ack, send). Timelines observe
+  /// it to snap to the bottom and resume following
+  /// (behaviors/timeline-scrolling.md).
+  var scrollToBottomRequest = 0
   var connectionState = ConnectionState.notConfigured
   // True while an app-focus ping is probing a nominally-connected socket; the
   // displayed state can't be trusted until the probe resolves.
@@ -286,6 +290,7 @@ final class AppModel {
       }
       composerError = nil
       composerText = ""
+      scrollToBottomRequest += 1
       return send(command)
     }
   }
@@ -438,8 +443,19 @@ final class AppModel {
     buffer.unread = 0
     buffer.mentions = 0
     buffers[bufferID] = buffer
+    scrollToBottomRequest += 1
     updateBadge()
     send(ClientCommand(type: "mark_read", bufferID: bufferID, messageID: last.id))
+  }
+
+  /// Esc: "done with the backlog". Acks when there is anything to ack, and
+  /// always snaps the timeline to the bottom (behaviors/timeline-scrolling.md).
+  func escapeToBottom(_ bufferID: UUID) {
+    if let buffer = buffers[bufferID], buffer.markerID != nil || buffer.unread > 0 {
+      ackRead(bufferID)
+    } else {
+      scrollToBottomRequest += 1
+    }
   }
 
   /// Whether the nick is known to be an IRCv3 bot on the selected buffer's

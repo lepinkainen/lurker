@@ -19,7 +19,11 @@ struct ConversationView: View {
         #if os(macOS)
         MacTimelineContainer(buffer: buffer)
         #else
+        // Identity per buffer resets TimelineView's @State (`following`) and
+        // rebuilds its scroll container, so a switch lands at the bottom
+        // following again (behaviors/timeline-scrolling.md).
         TimelineView(buffer: buffer)
+          .id(buffer.id)
         #endif
         Divider()
         ComposerView(buffer: buffer)
@@ -34,8 +38,7 @@ struct ConversationView: View {
       // their Esc-to-dismiss behavior. `.ignored` when there is nothing to
       // ack preserves default Esc handling.
       .onKeyPress(.escape) {
-        guard buffer.markerID != nil || buffer.unread > 0 else { return .ignored }
-        model.ackRead(buffer.id)
+        model.escapeToBottom(buffer.id)
         return .handled
       }
       #endif
@@ -187,34 +190,46 @@ private struct TimelineView: View {
               .padding(10)
           }
           ForEach(items) { item in
-            switch item {
-            case .day(let id, let title):
-              DaySeparator(title: title).id(id)
+            Group {
+              switch item {
+              case .day(let id, let title):
+                DaySeparator(title: title).id(id)
 
-            case .unread(let id):
-              UnreadSeparator().id(id)
+              case .unread(let id):
+                UnreadSeparator().id(id)
 
-            case .message(let message):
-              MessageRow(message: message, buffer: buffer).id(message.id)
-                .onAppear {
-                  if message.id == model.selectedMessages.first?.id {
-                    model.loadOlderHistory()
+              case .message(let message):
+                MessageRow(message: message, buffer: buffer).id(message.id)
+                  .onAppear {
+                    if message.id == model.selectedMessages.first?.id {
+                      model.loadOlderHistory()
+                    }
                   }
-                }
 
-            case .presence(let id, let messages):
-              // A collapsed presence group can be the oldest item in the
-              // buffer; without this the load-older trigger never fires.
-              PresenceSummary(messages: messages).id(id)
-                .onAppear {
-                  if messages.first?.id == model.selectedMessages.first?.id {
-                    model.loadOlderHistory()
+              case .presence(let id, let messages):
+                // A collapsed presence group can be the oldest item in the
+                // buffer; without this the load-older trigger never fires.
+                PresenceSummary(messages: messages).id(id)
+                  .onAppear {
+                    if messages.first?.id == model.selectedMessages.first?.id {
+                      model.loadOlderHistory()
+                    }
                   }
-                }
+              }
+            }
+            // Any pixel of the latest row (preview included) in the viewport.
+            .onGeometryChange(for: Bool.self) { proxy in
+              guard let viewport = proxy.bounds(of: .scrollView) else { return false }
+              return CGRect(origin: .zero, size: proxy.size).intersects(viewport)
+            } action: { visible in
+              if item.id == items.last?.id {
+                latestRowVisible = visible
+              }
             }
           }
         }
         .padding(.vertical, 5)
+        Color.clear.frame(height: 0).id(Self.bottomID)
       }
       .safeAreaInset(edge: .top, spacing: 0) {
         // `unread > 0` fallback: keeps the ack affordance available when the
@@ -224,12 +239,27 @@ private struct TimelineView: View {
           UnreadBar(buffer: buffer)
         }
       }
-      .defaultScrollAnchor(.bottom)
-      .onChange(of: model.selectedMessages.last?.id) { old, new in
-        guard old != nil, let new else { return }
-        withAnimation(.snappy(duration: 0.18)) {
-          proxy.scrollTo(new, anchor: .bottom)
+      // behaviors/timeline-scrolling.md: one `following` value, recomputed
+      // only when a user scroll settles; content and viewport changes (appends,
+      // previews, unread bar, keyboard) act on it. Snaps are not animated.
+      .defaultScrollAnchor(.bottom, for: .initialOffset)
+      .defaultScrollAnchor(following ? .bottom : .top, for: .sizeChanges)
+      .onScrollPhaseChange { old, new in
+        if new == .idle, old == .interacting || old == .decelerating {
+          following = latestRowVisible
         }
+      }
+      .onChange(of: items.last?.id) {
+        latestRowVisible = following
+        if following {
+          proxy.scrollTo(Self.bottomID, anchor: .bottom)
+        }
+      }
+      // Esc / unread-bar ack and send.
+      .onChange(of: model.scrollToBottomRequest) {
+        following = true
+        latestRowVisible = true
+        proxy.scrollTo(Self.bottomID, anchor: .bottom)
       }
       // After an older page is prepended the viewport would otherwise stay at
       // the top of the grown content, re-triggering the load in a runaway
@@ -240,7 +270,8 @@ private struct TimelineView: View {
       // block further load-older calls.
       .onChange(of: model.historyAnchor) { _, anchor in
         guard let anchor else { return }
-        if anchor.bufferID == buffer.id {
+        // Following wins: the bottom size-change anchor keeps it pinned.
+        if anchor.bufferID == buffer.id, !following {
           proxy.scrollTo(anchor.messageID, anchor: .top)
         }
         model.historyAnchor = nil
@@ -254,15 +285,17 @@ private struct TimelineView: View {
         }
       }
     }
-    // Rebuild the scroll container per buffer so switching channels always
-    // re-applies the bottom anchor and lands at the end of the backlog.
-    .id(buffer.id)
     .background(Color.lurkerTimelineBackground)
   }
 
   // MARK: Private
 
+  private static let bottomID = "timeline-bottom"
+
   @Environment(AppModel.self) private var model
+  // Reset per buffer by `.id(buffer.id)` at the call site.
+  @State private var following = true
+  @State private var latestRowVisible = true
 
   private var items: [TimelineItem] {
     timelineItems(model.selectedMessages, buffer: buffer)

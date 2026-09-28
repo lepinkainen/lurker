@@ -80,7 +80,7 @@ A bar pinned at the top of the message area, shown whenever the active buffer ha
 
 - **Web** (`web/src/`): divider + bar rendered from `buffer.marker_id`; `mark_read` sent only from Esc handler and bar click. No focus/scroll/entry triggers. No client-side anchor maps.
 - **TUI** (`cmd/tui/`): same. Bar renders as the top line of the message viewport; mouse click on it acks; Esc acks (and keeps its pre-existing sidebar/input focus toggle). No debounce needed — acks are rare and user-initiated.
-- **Apple** (`apple/`): same. Bar is the primary dismiss (tap); hardware-keyboard Esc acks where available. `markRead` must never run implicitly (no buffer-open, scenePhase, or per-message triggers). `buffer_update` updates `lastSeenID`/`markerID`/counts; rendering follows.
+- **Apple** (`apple/`): same. Bar is the primary dismiss (tap); hardware-keyboard Esc acks where available. `markRead` must never run implicitly (no buffer-open, scenePhase, or per-message triggers). `buffer_update` updates `lastSeenID`/`markerID`/counts; rendering follows. On Apple, Esc and bar activation also snap the timeline to the bottom (`timeline-scrolling.md`).
 
 ## Related
 

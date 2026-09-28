@@ -337,6 +337,7 @@ private struct CoordinatorHarness {
     )
     scrollView = TimelineScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
     scrollView.documentView = textView
+    scrollView.contentView.postsBoundsChangedNotifications = true
     coordinator.install(
       textView: textView,
       scrollView: scrollView,
@@ -348,7 +349,7 @@ private struct CoordinatorHarness {
 
   let coordinator = TimelineCoordinator()
   let textView: TimelineNSTextView
-  let scrollView: NSScrollView
+  let scrollView: TimelineScrollView
   let model: AppModel
   let buffer: Buffer
 
@@ -358,6 +359,45 @@ private struct CoordinatorHarness {
 
   var isPinnedToBottom: Bool {
     scrollView.documentVisibleRect.maxY >= textView.frame.maxY - 40
+  }
+
+  /// The viewport ends exactly at the document's bottom margin.
+  var isAtExactBottom: Bool {
+    abs(textView.frame.maxY - scrollView.documentVisibleRect.maxY) < 1
+  }
+
+  var clipOriginY: CGFloat {
+    scrollView.contentView.bounds.origin.y
+  }
+
+  /// Message whose row is at the top edge of the viewport.
+  var topVisibleMessage: Message? {
+    let y = scrollView.documentVisibleRect.minY + 2
+    return coordinator.message(atCharacterIndex: textView.characterIndexForInsertion(at: NSPoint(x: 100, y: y)))
+  }
+
+  /// Top of the last row (the last layout fragment), in text-view coordinates.
+  var lastRowTop: CGFloat {
+    var top: CGFloat = 0
+    textView.textLayoutManager?.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) {
+      top = $0.layoutFragmentFrame.minY
+      return true
+    }
+    return top + textView.textContainerInset.height
+  }
+
+  /// A user scroll: moves the clip origin outside any coordinator-driven
+  /// geometry change, so the bounds observer recomputes following.
+  func userScroll(toY y: CGFloat) {
+    let clip = scrollView.contentView
+    clip.setBoundsOrigin(NSPoint(x: 0, y: y))
+    scrollView.reflectScrolledClipView(clip)
+  }
+
+  /// Model mutation + sync, as a live event would do.
+  func show(_ messages: [Message]) {
+    model.messages[buffer.id] = messages
+    sync()
   }
 
   /// Mirrors updateNSView: derive items from the model, hand them to sync.
@@ -385,6 +425,12 @@ private struct CoordinatorHarness {
     }
   }
 
+}
+
+enum GoToBottomAction: CaseIterable {
+  case escape
+  case unreadBar
+  case send
 }
 
 @MainActor
@@ -618,6 +664,145 @@ struct TimelineCoordinatorTests {
     )
     harness.sync()
     #expect(harness.renderedText.contains("🤖"))
+  }
+
+  @Test @MainActor
+  func `appends while following stay pinned, including late TextKit growth`() async {
+    let buffer = makeBuffer()
+    var messages = (0..<40).map { makeMessage(networkID: buffer.networkID, content: "line \($0)") }
+    let harness = CoordinatorHarness(buffer: buffer, messages: messages)
+    harness.sync()
+    #expect(harness.isAtExactBottom)
+
+    for index in 40..<43 {
+      messages.append(makeMessage(networkID: buffer.networkID, content: "line \(index)"))
+      harness.show(messages)
+      #expect(harness.isAtExactBottom)
+      // TextKit settling the appended paragraph after the first snap grows the
+      // document from inside its own layout; the deferred repin must follow.
+      let textView = harness.textView
+      textView.setFrameSize(NSSize(width: textView.frame.width, height: textView.frame.height + 30))
+      #expect(!harness.isAtExactBottom) // Not repinned synchronously.
+      await Task.yield()
+      #expect(harness.isAtExactBottom)
+    }
+  }
+
+  @Test(arguments: [true, false]) @MainActor
+  func `following is whether any pixel of the latest row is visible`(lastRowPeeks: Bool) {
+    let buffer = makeBuffer()
+    var messages = (0..<40).map { makeMessage(networkID: buffer.networkID, content: "line \($0)") }
+    let harness = CoordinatorHarness(buffer: buffer, messages: messages)
+    harness.sync()
+    let viewport = harness.scrollView.contentSize.height
+    harness.userScroll(toY: harness.lastRowTop + (lastRowPeeks ? 3 : -3) - viewport)
+    let readingOrigin = harness.clipOriginY
+
+    messages.append(makeMessage(networkID: buffer.networkID, content: "line 40"))
+    harness.show(messages)
+    if lastRowPeeks {
+      #expect(harness.isAtExactBottom)
+    } else {
+      #expect(abs(harness.clipOriginY - readingOrigin) < 1)
+    }
+  }
+
+  @Test @MainActor
+  func `shrinking document while reading backlog keeps the top row`() async throws {
+    let buffer = makeBuffer(collapsePresence: true)
+    let joins = (0..<8).map {
+      makeMessage(networkID: buffer.networkID, sender: "j\($0)", kind: "join", content: "", displayKind: "sys")
+    }
+    var messages = (0..<30).map { makeMessage(networkID: buffer.networkID, content: "line \($0)") }
+      + joins
+      + (30..<60).map { makeMessage(networkID: buffer.networkID, content: "line \($0)") }
+    let harness = CoordinatorHarness(buffer: buffer, messages: messages)
+    harness.sync()
+    let toggle = try #require(URL(string: "lurker-presence://\(joins[0].id.uuidString)"))
+    _ = harness.coordinator.textView(harness.textView, clickedOnLink: toggle, at: 0) // Expand.
+    // Reading a few rows above the latest one, below the presence group.
+    harness.userScroll(toY: harness.clipOriginY - 60)
+    let topMessage = try #require(harness.topVisibleMessage)
+    let heightBefore = harness.textView.frame.height
+
+    // Case C: collapsing the group above the viewport shrinks the document by
+    // more than the distance to the bottom. The clip view clamps its origin,
+    // which must not read as the reader reaching the bottom.
+    _ = harness.coordinator.textView(harness.textView, clickedOnLink: toggle, at: 0)
+    #expect(harness.textView.frame.height < heightBefore - 60)
+    #expect(harness.topVisibleMessage == topMessage)
+    #expect(!harness.isAtExactBottom)
+
+    // Still reading backlog: a new message does not move the viewport.
+    let readingOrigin = harness.clipOriginY
+    messages.append(makeMessage(networkID: buffer.networkID, content: "new"))
+    harness.show(messages)
+    await Task.yield()
+    #expect(abs(harness.clipOriginY - readingOrigin) < 1)
+  }
+
+  @Test(arguments: GoToBottomAction.allCases) @MainActor
+  func `explicit actions snap to the bottom and resume following`(action: GoToBottomAction) {
+    var messages = (0..<40).map { makeMessage(content: "line \($0)") }
+    let buffer = makeBuffer(markerID: messages[20].id)
+    let harness = CoordinatorHarness(buffer: buffer, messages: messages)
+    harness.sync()
+    harness.userScroll(toY: 0)
+    #expect(!harness.isAtExactBottom)
+
+    switch action {
+    case .escape:
+      #expect(harness.coordinator.handleEscape())
+    case .unreadBar:
+      harness.model.ackRead(buffer.id) // UnreadBar's button action.
+    case .send:
+      harness.model.composerText = "hello"
+      harness.model.sendComposer()
+    }
+    harness.sync()
+    #expect(harness.isAtExactBottom)
+
+    // following = true: the next message stays pinned.
+    messages.append(makeMessage(content: "next"))
+    harness.show(messages)
+    #expect(harness.isAtExactBottom)
+  }
+
+  @Test @MainActor
+  func `escape with nothing to ack still snaps to the bottom`() {
+    let harness = CoordinatorHarness(buffer: makeBuffer(), messages: (0..<40).map { makeMessage(content: "line \($0)") })
+    harness.sync()
+    harness.userScroll(toY: 0)
+    #expect(!harness.isAtExactBottom)
+    #expect(harness.coordinator.handleEscape())
+    harness.sync()
+    #expect(harness.isAtExactBottom)
+  }
+
+  @Test @MainActor
+  func `width-only resize does not repin`() async {
+    let buffer = makeBuffer()
+    let harness = CoordinatorHarness(
+      buffer: buffer,
+      messages: (0..<40).map { makeMessage(networkID: buffer.networkID, content: "line \($0)") },
+    )
+    harness.sync()
+    // Off the bottom while still following, so a repin would be visible.
+    // Programmatic origin changes (inside applyingGeometryChange) must not
+    // recompute following, or the control below would not repin.
+    let offBottom = harness.clipOriginY - 50
+    harness.coordinator.applyingGeometryChange {
+      harness.scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: offBottom))
+    }
+    let textView = harness.textView
+    textView.setFrameSize(NSSize(width: textView.frame.width - 40, height: textView.frame.height))
+    await Task.yield()
+    #expect(abs(harness.clipOriginY - offBottom) < 1)
+
+    // Control: a height change does repin.
+    textView.setFrameSize(NSSize(width: textView.frame.width, height: textView.frame.height + 1))
+    await Task.yield()
+    #expect(harness.isAtExactBottom)
   }
 
   @Test @MainActor

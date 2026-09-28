@@ -65,7 +65,9 @@ final class PreviewTextAttachment: NSTextAttachment {
 
 /// An inline image growing from its placeholder to the loaded bitmap is the
 /// one post-insertion size change; this relay invalidates layout so TextKit
-/// re-queries attachmentBounds. Guarded against invalidation loops. A
+/// re-queries attachmentBounds. The resulting document-height change reaches
+/// the coordinator through `TimelineNSTextView.setFrameSize`, which repins
+/// while following. Guarded against invalidation loops. A
 /// MainActor class so the hosted SwiftUI view can hold it across the
 /// Sendable boundary into NSHostingView.
 @MainActor
@@ -85,17 +87,8 @@ final class PreviewAttachmentResizeRelay {
       return
     }
     lastSize = size
-    // Check pinning before invalidating: the growth would otherwise push
-    // the viewport past the near-bottom threshold and kill auto-follow.
-    var ancestor = hostView.superview
-    while ancestor != nil, !(ancestor is TimelineNSTextView) { ancestor = ancestor?.superview }
-    let coordinator = (ancestor as? TimelineNSTextView)?.coordinator
-    let pinned = coordinator?.viewportPinnedToBottom ?? false
     if let location {
       layoutManager?.invalidateLayout(for: NSTextRange(location: location))
-    }
-    if pinned {
-      coordinator?.repinToBottom()
     }
   }
 
