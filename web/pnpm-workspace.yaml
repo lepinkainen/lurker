@@ -1,2 +1,7 @@
 allowBuilds:
   esbuild: true
+
+# chevrotain 11 (via mermaid, used only by lint-mermaid) pins lodash-es
+# 4.17.23, which has GHSA advisories fixed in 4.18.
+overrides:
+  lodash-es: ^4.18.0
