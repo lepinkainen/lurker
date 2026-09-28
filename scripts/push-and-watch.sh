@@ -7,14 +7,22 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
-
+from datetime import datetime
 
 CI_WORKFLOW_NAME = "Go CI"
 RELEASE_WORKFLOW_NAME = "Release"
+
+_RUN_FIELDS = "databaseId,headSha,workflowName,createdAt,status,conclusion,url"
+
+_LOG_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z ?")
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+_VULN_RE = re.compile(r"GitHub found (\d+) vulnerabilit(?:y|ies) on .*?\(([^)]*)\)")
+_VULN_URL_RE = re.compile(r"(https://\S+/security/dependabot\S*)")
 
 
 @dataclass
@@ -28,12 +36,114 @@ class Run:
     url: str = ""
 
 
+@dataclass
+class Job:
+    name: str
+    status: str
+    conclusion: str
+    started_at: str
+    completed_at: str
+
+
 class CommandError(RuntimeError):
     pass
 
 
+class RunNotFound(Exception):
+    def __init__(self, workflow_name: str):
+        self.workflow_name = workflow_name
+        super().__init__(f"no {workflow_name} run found")
+
+
+class RunFailed(Exception):
+    def __init__(self, workflow_name: str, failed_jobs: list[str]):
+        self.workflow_name = workflow_name
+        self.failed_jobs = failed_jobs
+        super().__init__(f"{workflow_name} failed")
+
+
+def format_duration(seconds: float) -> str:
+    total = int(seconds)
+    if total < 60:
+        return f"{total}s"
+    minutes, secs = divmod(total, 60)
+    return f"{minutes}m{secs:02d}s"
+
+
+def strip_log_prefix(line: str) -> tuple[str, str, str] | None:
+    """Split a `--log-failed` line into (job, step, message).
+
+    Each line looks like `<job>\\t<step>\\t<timestamp> <message>`. Returns
+    None for lines that don't match (blank lines, stray output).
+    """
+    parts = line.split("\t", 2)
+    if len(parts) != 3:
+        return None
+    job, step, rest = parts
+    rest = rest.lstrip("\ufeff")
+    rest = _LOG_TIMESTAMP_RE.sub("", rest, count=1)
+    rest = _ANSI_RE.sub("", rest)
+    return job, step, rest
+
+
+def group_failed_logs(raw: str, tail_lines: int = 60) -> str:
+    """Group `--log-failed` output under one header per job/step, keeping
+    only the last `tail_lines` lines of each so a noisy step can't blow out
+    the whole summary."""
+    groups: dict[tuple[str, str], list[str]] = {}
+    order: list[tuple[str, str]] = []
+    for line in raw.splitlines():
+        parsed = strip_log_prefix(line)
+        if parsed is None:
+            continue
+        job, step, message = parsed
+        key = (job, step)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(message)
+
+    blocks = []
+    for job, step in order:
+        messages = groups[(job, step)]
+        header = f"--- {job} / {step} ---"
+        blocks.append("\n".join([header, *messages[-tail_lines:]]))
+    return "\n".join(blocks)
+
+
+def parse_dependabot_note(output: str) -> str | None:
+    match = _VULN_RE.search(output)
+    if not match:
+        return None
+    count, severities = match.group(1), match.group(2)
+    note = f"note: {count} Dependabot alerts ({severities})"
+    url_match = _VULN_URL_RE.search(output)
+    if url_match:
+        note += f" — {url_match.group(1)}"
+    return note
+
+
+def summarize_push_output(output: str) -> list[str]:
+    """Reduce a `git push` transcript to the lines worth reading: the
+    ref-update line(s) and a one-line Dependabot summary, if any. Drops the
+    `remote:` progress banner entirely."""
+    lines = []
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith(("remote:", "To ", "From ")):
+            continue
+        if "->" in line:
+            lines.append(line)
+    note = parse_dependabot_note(output)
+    if note:
+        lines.append(note)
+    if not lines and "up-to-date" in output.lower():
+        lines.append("up to date")
+    return lines
+
+
 def run_command(*args: str, capture_output: bool = True) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(args, text=True, capture_output=capture_output)
+    result = subprocess.run(args, text=True, capture_output=capture_output, check=False)
     if result.returncode != 0:
         stderr = result.stderr.strip()
         stdout = result.stdout.strip()
@@ -59,6 +169,7 @@ def is_remote_at_head(remote_ref: str, sha: str) -> bool:
         ["git", "rev-parse", "--verify", remote_ref],
         text=True,
         capture_output=True,
+        check=False,
     )
     if verify.returncode != 0:
         return False
@@ -70,6 +181,7 @@ def push_urls(remote: str) -> list[str]:
         ["git", "config", "--get-all", f"remote.{remote}.pushurl"],
         text=True,
         capture_output=True,
+        check=False,
     )
     urls = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     if urls:
@@ -78,60 +190,72 @@ def push_urls(remote: str) -> list[str]:
         ["git", "config", "--get", f"remote.{remote}.url"],
         text=True,
         capture_output=True,
+        check=False,
     )
     url = fetch_url.stdout.strip()
-    return [url] if url else []
+    return [url] if url else ["origin"]
 
 
-def push_current_branch(branch: str, sha: str) -> None:
+def push_one(target: str, branch: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "push", target, branch], text=True, capture_output=True, check=False)
+
+
+def push_current_branch(branch: str, sha: str) -> bool:
+    """Push branch to the primary remote, then any mirrors. Output is
+    captured and reduced to one line per remote; full output only surfaces
+    on failure, when the details actually matter."""
     print(f"Pushing {branch} @ {sha}")
-    urls = push_urls("origin")
-    if not urls:
-        result = subprocess.run(["git", "push", "origin", branch], text=True)
-        if result.returncode != 0:
-            raise SystemExit(result.returncode)
-        return
+    targets = push_urls("origin")
+    primary, mirrors = targets[0], targets[1:]
 
-    primary, mirrors = urls[0], urls[1:]
-    primary_result = subprocess.run(
-        ["git", "push", primary, branch],
-        text=True,
-    )
-    if primary_result.returncode != 0:
-        raise SystemExit(primary_result.returncode)
+    result = push_one(primary, branch)
+    combined = result.stdout + result.stderr
+    if result.returncode != 0:
+        print(combined)
+        return False
+    for line in summarize_push_output(combined):
+        print(f"  {line}")
 
     for url in mirrors:
-        mirror_result = subprocess.run(
-            ["git", "push", url, branch],
-            text=True,
-        )
+        mirror_result = push_one(url, branch)
+        mcombined = mirror_result.stdout + mirror_result.stderr
         if mirror_result.returncode != 0:
             print(f"warning: push to mirror {url} failed (exit {mirror_result.returncode})", file=sys.stderr)
+            print(mcombined, file=sys.stderr)
+        else:
+            for line in summarize_push_output(mcombined):
+                print(f"  [mirror] {line}")
+    return True
 
 
-def list_runs(limit: int = 100) -> list[Run]:
-    output = command_output(
-        "gh",
-        "run",
-        "list",
-        "--limit",
-        str(limit),
-        "--json",
-        "databaseId,headSha,workflowName,createdAt,status,conclusion,url",
+def _parse_run(item: dict) -> Run:
+    return Run(
+        database_id=item["databaseId"],
+        head_sha=item.get("headSha", ""),
+        workflow_name=item.get("workflowName", ""),
+        created_at=item.get("createdAt", ""),
+        status=item.get("status", ""),
+        conclusion=item.get("conclusion", ""),
+        url=item.get("url", ""),
     )
-    items = json.loads(output)
+
+
+def _parse_jobs(items: list[dict]) -> list[Job]:
     return [
-        Run(
-            database_id=item["databaseId"],
-            head_sha=item.get("headSha", ""),
-            workflow_name=item.get("workflowName", ""),
-            created_at=item.get("createdAt", ""),
+        Job(
+            name=item.get("name", ""),
             status=item.get("status", ""),
             conclusion=item.get("conclusion", ""),
-            url=item.get("url", ""),
+            started_at=item.get("startedAt", ""),
+            completed_at=item.get("completedAt", ""),
         )
         for item in items
     ]
+
+
+def list_runs(limit: int = 100) -> list[Run]:
+    output = command_output("gh", "run", "list", "--limit", str(limit), "--json", _RUN_FIELDS)
+    return [_parse_run(item) for item in json.loads(output)]
 
 
 def find_run(workflow_name: str, sha: str) -> Run | None:
@@ -155,72 +279,93 @@ def wait_for_run(workflow_name: str, sha: str, attempts: int = 60, sleep_secs: i
                 file=sys.stderr,
             )
         time.sleep(sleep_secs)
-    raise SystemExit(f"Timed out waiting for {workflow_name} run for {sha}")
+    raise RunNotFound(workflow_name)
+
+
+def view_run_with_jobs(run_id: int) -> tuple[Run, list[Job]]:
+    output = command_output("gh", "run", "view", str(run_id), "--json", f"{_RUN_FIELDS},jobs")
+    data = json.loads(output)
+    return _parse_run(data), _parse_jobs(data.get("jobs", []))
 
 
 def view_run(run_id: int) -> Run:
-    output = command_output(
-        "gh",
-        "run",
-        "view",
-        str(run_id),
-        "--json",
-        "databaseId,headSha,workflowName,createdAt,status,conclusion,url",
-    )
-    item = json.loads(output)
-    return Run(
-        database_id=item["databaseId"],
-        head_sha=item.get("headSha", ""),
-        workflow_name=item.get("workflowName", ""),
-        created_at=item.get("createdAt", ""),
-        status=item.get("status", ""),
-        conclusion=item.get("conclusion", ""),
-        url=item.get("url", ""),
-    )
+    output = command_output("gh", "run", "view", str(run_id), "--json", _RUN_FIELDS)
+    return _parse_run(json.loads(output))
 
 
-def print_failed_logs(run_id: int, label: str, tail_lines: int = 120) -> None:
-    """Dump the failing job logs so the reader gets the root cause inline."""
+def job_symbol(conclusion: str) -> str:
+    if conclusion == "success":
+        return "✓"
+    if conclusion == "skipped":
+        return "–"
+    return "✗"
+
+
+def job_duration(job: Job) -> str:
+    if not job.started_at or not job.completed_at:
+        return "?"
+    try:
+        start = datetime.fromisoformat(job.started_at.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(job.completed_at.replace("Z", "+00:00"))
+    except ValueError:
+        return "?"
+    # Skipped jobs sometimes report completedAt a moment before startedAt;
+    # clamp instead of printing a negative duration.
+    return format_duration(max((end - start).total_seconds(), 0))
+
+
+def print_failed_logs(run_id: int, label: str, tail_lines: int = 60) -> None:
+    """Dump the failing job logs, grouped and de-noised, so the reader gets
+    the root cause without the raw timestamped runner chatter."""
     result = subprocess.run(
         ["gh", "run", "view", str(run_id), "--log-failed"],
         text=True,
         capture_output=True,
+        check=False,
     )
-    lines = result.stdout.splitlines()
-    if not lines:
+    grouped = group_failed_logs(result.stdout, tail_lines=tail_lines)
+    if not grouped:
         return
-    print(f"--- {label} failing job logs (last {min(len(lines), tail_lines)} lines) ---")
-    for line in lines[-tail_lines:]:
-        print(line)
+    print(f"--- {label} failing job logs ---")
+    print(grouped)
     print(f"--- end {label} logs ---")
 
 
 def wait_for_completion(run_id: int, label: str, interval: int = 5) -> Run:
     # Status lines print only on change (plus a heartbeat once a minute):
     # this output is read by agents, and a page of identical in_progress
-    # lines is pure context waste.
-    elapsed = 0
+    # lines is pure context waste. Per-job lines print once each, as jobs
+    # finish, and never repeat the run-level status line's job.
+    start = time.monotonic()
     last_status = ""
-    last_print = 0
+    last_print = 0.0
+    seen_jobs: set[str] = set()
     while True:
-        run = view_run(run_id)
+        run, jobs = view_run_with_jobs(run_id)
+        elapsed = time.monotonic() - start
+
+        for job in jobs:
+            if job.status == "completed" and job.name not in seen_jobs:
+                seen_jobs.add(job.name)
+                print(f"  {label} · {job.name} {job_symbol(job.conclusion)} {job_duration(job)}")
+
         if run.status == "completed":
             conclusion = run.conclusion or "unknown"
-            print(f"{label} completed with: {conclusion} after {elapsed}s")
+            print(f"{label} completed with: {conclusion} after {format_duration(elapsed)}")
             if run.url:
                 print(f"{label} URL: {run.url}")
             if run.conclusion != "success":
+                failed_jobs = [job.name for job in jobs if job.conclusion not in ("success", "skipped", None)]
                 print_failed_logs(run_id, label)
-                raise SystemExit(1)
+                raise RunFailed(label, failed_jobs)
             return run
 
         status = run.status or "unknown"
         if status != last_status or elapsed - last_print >= 60:
-            print(f"{label} status: {status} (elapsed: {elapsed}s)")
+            print(f"{label} status: {status} (elapsed: {format_duration(elapsed)})")
             last_status = status
             last_print = elapsed
         time.sleep(interval)
-        elapsed += interval
 
 
 def confirm_run_success(run_id: int, expected_sha: str, label: str) -> None:
@@ -231,38 +376,66 @@ def confirm_run_success(run_id: int, expected_sha: str, label: str) -> None:
         raise SystemExit(f"{label} concluded with: {run.conclusion}")
 
 
+def watch_workflow(workflow_name: str, sha: str, branch: str, attempts: int, sleep_secs: int, interval: int) -> str:
+    print(f"Waiting for {workflow_name} on {branch} @ {sha}")
+    run = find_run(workflow_name, sha)
+    if run is not None:
+        print(f"Found existing {workflow_name} run: {run.database_id}")
+    else:
+        run = wait_for_run(workflow_name, sha, attempts=attempts, sleep_secs=sleep_secs)
+    start = time.monotonic()
+    created = run.created_at
+    run = wait_for_completion(run.database_id, workflow_name, interval=interval)
+    confirm_run_success(run.database_id, sha, workflow_name)
+    # Wall time of the run itself (created → now), not just how long we
+    # watched: a run found already in progress would otherwise under-report.
+    try:
+        began = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        took = (datetime.now(began.tzinfo) - began).total_seconds()
+    except ValueError:
+        took = time.monotonic() - start
+    return f"{workflow_name} {format_duration(took)}"
+
+
 def main() -> int:
     branch = current_branch()
     sha = current_sha()
+    short_sha = sha[:7]
     remote_ref = f"origin/{branch}"
 
-    push_current_branch(branch, sha)
+    try:
+        if not push_current_branch(branch, sha):
+            print(f"RESULT FAIL {short_sha}  push")
+            return 1
 
-    if is_remote_at_head(remote_ref, sha):
-        print(f"{remote_ref} already at {sha}")
+        run_command("git", "fetch", "-q", "origin", branch)
+        if not is_remote_at_head(remote_ref, sha):
+            print(f"warning: {remote_ref} does not match {sha} after fetch", file=sys.stderr)
 
-    print(f"Waiting for Go CI on {branch} @ {sha}")
-    ci_run = find_run(CI_WORKFLOW_NAME, sha)
-    if ci_run is not None:
-        print(f"Found existing Go CI run: {ci_run.database_id}")
-    else:
-        ci_run = wait_for_run(CI_WORKFLOW_NAME, sha)
-    wait_for_completion(ci_run.database_id, "Go CI")
-    confirm_run_success(ci_run.database_id, sha, "Go CI")
-
-    if branch == "main":
-        print(f"Waiting for Release on main @ {sha}")
-        release_run = find_run(RELEASE_WORKFLOW_NAME, sha)
-        if release_run is not None:
-            print(f"Found existing Release run: {release_run.database_id}")
+        summary = [watch_workflow(CI_WORKFLOW_NAME, sha, branch, attempts=60, sleep_secs=5, interval=5)]
+        if branch == "main":
+            summary.append(
+                watch_workflow(RELEASE_WORKFLOW_NAME, sha, branch, attempts=120, sleep_secs=10, interval=10)
+            )
         else:
-            release_run = wait_for_run(RELEASE_WORKFLOW_NAME, sha, attempts=120, sleep_secs=10)
-        wait_for_completion(release_run.database_id, "Release", interval=10)
-        confirm_run_success(release_run.database_id, sha, "Release")
-    else:
-        print("Skipping Release watch: release workflow only runs from main")
+            print("Skipping Release watch: release workflow only runs from main")
+    except RunNotFound as exc:
+        print(f"RESULT FAIL {short_sha}  {exc.workflow_name} (not found)")
+        return 1
+    except RunFailed as exc:
+        jobs = ", ".join(exc.failed_jobs) if exc.failed_jobs else "unknown"
+        print(f"RESULT FAIL {short_sha}  {exc.workflow_name}: {jobs}")
+        return 1
+    except CommandError as exc:
+        print(exc, file=sys.stderr)
+        print(f"RESULT FAIL {short_sha}  command error")
+        return 1
+    except SystemExit as exc:
+        print(f"RESULT FAIL {short_sha}  {exc.code}")
+        return 1
 
     print(f"Push verified for {sha}")
+    print(f"RESULT ok {short_sha}  " + "  ".join(summary))
     return 0
 
 
