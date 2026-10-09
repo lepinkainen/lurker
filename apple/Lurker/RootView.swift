@@ -17,6 +17,17 @@ struct RootView: View {
         ChannelSwitcher()
           .environment(model)
       }
+      .sheet(isPresented: $model.showingHistorySearch) {
+        #if os(macOS)
+        HistorySearchView()
+          .environment(model)
+        #else
+        NavigationStack {
+          HistorySearchView()
+            .environment(model)
+        }
+        #endif
+      }
       .sheet(
         isPresented: Binding(
           get: { model.channelList != nil },
@@ -116,6 +127,7 @@ struct RootView: View {
         #if os(iOS)
         .toolbar {
           ToolbarItemGroup(placement: .topBarTrailing) {
+            HistorySearchButton()
             ChannelSwitcherButton()
             MembersToggleButton()
           }
@@ -133,6 +145,7 @@ struct RootView: View {
         ConnectionStatusButton()
       }
       ToolbarItemGroup(placement: .primaryAction) {
+        HistorySearchButton()
         ChannelSwitcherButton()
         MembersToggleButton()
       }
@@ -164,7 +177,12 @@ private struct CompactRootView: View {
             .navigationTitle(model.selectedBuffer?.name ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-              ToolbarItem(placement: .topBarTrailing) {
+              ToolbarItemGroup(placement: .topBarTrailing) {
+                NavigationLink {
+                  HistorySearchView()
+                } label: {
+                  Label("Search History", systemImage: "text.magnifyingglass")
+                }
                 MembersToggleButton()
               }
             }
@@ -205,6 +223,21 @@ private struct ChannelSwitcherButton: View {
       Label("Switch Channel", systemImage: "magnifyingglass")
     }
     .help("Switch channel (⌘K)")
+  }
+
+  @Environment(AppModel.self) private var model
+}
+
+// MARK: - HistorySearchButton
+
+private struct HistorySearchButton: View {
+  var body: some View {
+    Button {
+      model.showingHistorySearch = true
+    } label: {
+      Label("Search History", systemImage: "text.magnifyingglass")
+    }
+    .help("Search message history (⇧⌘F)")
   }
 
   @Environment(AppModel.self) private var model

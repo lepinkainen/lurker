@@ -75,6 +75,11 @@ private struct LurkerCommands: Commands {
       }
       .keyboardShortcut("k")
 
+      Button("Search History…") {
+        model.showingHistorySearch = true
+      }
+      .keyboardShortcut("f", modifiers: [.command, .shift])
+
       Button("Previous Buffer") {
         model.nextBuffer(direction: -1)
       }

@@ -54,6 +54,24 @@ protocol LurkerTransport: Sendable {
   func ping() async throws
   func disconnect() async
   func upload(_ data: Data, filename: String, contentType: String) async throws -> URL
+  /// Full-text history search, newest first. `bufferID == nil` searches every
+  /// network; `before` pages to hits older than that message.
+  func searchMessages(query: String, bufferID: UUID?, before: UUID?) async throws -> [Message]
+  /// Context window around one message (older half, the message, newer half),
+  /// oldest first — what the search UI expands a hit into.
+  func fetchContext(bufferID: UUID, around: UUID) async throws -> [Message]
+}
+
+/// Search is read-only enrichment, so test/fixture transports get empty
+/// defaults instead of having to stub it.
+extension LurkerTransport {
+  func searchMessages(query _: String, bufferID _: UUID?, before _: UUID?) async throws -> [Message] {
+    []
+  }
+
+  func fetchContext(bufferID _: UUID, around _: UUID) async throws -> [Message] {
+    []
+  }
 }
 
 // MARK: - ReorderRequest
@@ -133,6 +151,40 @@ actor LurkerAPI: LurkerTransport {
       throw LurkerAPIError.invalidResponse
     }
     let result: HistoryResult = try await request(historyURL)
+    return result.messages
+  }
+
+  func searchMessages(query: String, bufferID: UUID?, before: UUID?) async throws -> [Message] {
+    var components = URLComponents(url: url("api/search"), resolvingAgainstBaseURL: false)
+    components?.queryItems = [
+      URLQueryItem(name: "q", value: query),
+      bufferID.map { URLQueryItem(name: "buffer", value: $0.uuidString) },
+      before.map { URLQueryItem(name: "before", value: $0.uuidString) },
+      URLQueryItem(name: "limit", value: "50"),
+    ].compactMap(\.self)
+    guard let searchURL = components?.url else {
+      throw LurkerAPIError.invalidResponse
+    }
+    struct SearchResult: Decodable {
+      let results: [Message]
+    }
+    let result: SearchResult = try await request(searchURL)
+    return result.results
+  }
+
+  func fetchContext(bufferID: UUID, around: UUID) async throws -> [Message] {
+    var components = URLComponents(
+      url: url("api/buffers/\(bufferID.uuidString)/history"),
+      resolvingAgainstBaseURL: false,
+    )
+    components?.queryItems = [
+      URLQueryItem(name: "around", value: around.uuidString),
+      URLQueryItem(name: "limit", value: "30"),
+    ]
+    guard let contextURL = components?.url else {
+      throw LurkerAPIError.invalidResponse
+    }
+    let result: HistoryResult = try await request(contextURL)
     return result.messages
   }
 

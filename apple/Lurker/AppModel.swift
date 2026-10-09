@@ -139,6 +139,7 @@ final class AppModel {
   var applicationActive = true
   var showingConnectionEditor = false
   var showingChannelSwitcher = false
+  var showingHistorySearch = false
   // Latest /list result; non-nil presents the channel-list sheet.
   var channelList: ChannelListEvent?
   // iOS has no `Settings` scene; settings is presented as an in-app sheet.
