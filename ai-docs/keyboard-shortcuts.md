@@ -22,7 +22,6 @@ In scope for v1:
 
 Out of scope for v1:
 
-- history search
 - multi-key chord navigation like `g h`
 - customizable shortcuts
 - mobile gesture support
@@ -43,6 +42,7 @@ Out of scope for v1:
 
 - `?` — open keyboard shortcuts help overlay
 - `Ctrl+K` / `Cmd+K` — open channel switcher
+- `Ctrl+Shift+F` / `Cmd+Shift+F` — open history search (see `behaviors/history-search.md`)
 - `Esc` — close the active overlay or dialog
 
 ### Buffer navigation
@@ -84,11 +84,12 @@ Text-editing controls include:
 When `Esc` is pressed, close or cancel the highest-priority active UI in this order:
 
 1. channel switcher
-2. shortcuts help overlay
-3. other modal dialogs (network form, buffer options)
-4. settings view (in-pane, capture-phase listener; backs off while a real
+2. history search (first `Esc` collapses an expanded hit, second closes)
+3. shortcuts help overlay
+4. other modal dialogs (network form, buffer options)
+5. settings view (in-pane, capture-phase listener; backs off while a real
    `<dialog>` is open on top so the dialog closes first)
-5. otherwise bare `Esc` acks the active buffer's unread marker (see
+6. otherwise bare `Esc` acks the active buffer's unread marker (see
    `behaviors/new-messages-marker.md`)
 
 `Esc` should not change buffers by itself.
@@ -239,11 +240,13 @@ Sections:
 - Buffer navigation
 - Layout and input
 - Channel switcher controls
+- History search controls
 
 Suggested rows:
 
 - `?` — Open keyboard shortcuts
 - `Ctrl+K` / `Cmd+K` — Open channel switcher
+- `Ctrl+Shift+F` / `Cmd+Shift+F` — Search message history
 - `Esc` — Close active overlay
 - `Alt+ArrowUp` — Previous buffer
 - `Alt+ArrowDown` — Next buffer
@@ -255,6 +258,7 @@ Suggested rows:
 - `Ctrl+B` / `Cmd+B` — Toggle sidebar
 - `Ctrl+L` / `Cmd+L` — Focus message input
 - `ArrowUp` / `ArrowDown` / `Enter` / `Esc` — Switcher navigation
+- `ArrowUp` / `ArrowDown` / `Enter` / `Esc` — History search: move, show context, collapse or close
 
 The overlay may be read-only and does not need search in v1.
 

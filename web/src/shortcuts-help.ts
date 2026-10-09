@@ -83,6 +83,7 @@ export function openHelpOverlay() {
     helpSection("General", [
       ["?", "Open keyboard shortcuts"],
       [combo("K"), "Open channel switcher"],
+      [combo("Shift+F"), "Search message history"],
       ["Esc", "Close active overlay / clear new-messages marker"],
     ]),
     helpSection("Buffer navigation", [
@@ -99,6 +100,7 @@ export function openHelpOverlay() {
       [combo("L"), "Focus message input"],
     ]),
     helpSection("Channel switcher", [["↑ / ↓ / Enter / Esc", "Move, jump, and close"]]),
+    helpSection("History search", [["↑ / ↓ / Enter / Esc", "Move, show context, collapse or close"]]),
   );
 
   dialog.appendChild(card);

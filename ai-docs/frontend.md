@@ -148,3 +148,4 @@ identicon on any load failure.
 ## Interaction specs
 
 - [keyboard-shortcuts.md](keyboard-shortcuts.md) defines the v1 keyboard shortcut set and channel switcher behavior.
+- [behaviors/history-search.md](behaviors/history-search.md) defines the history search overlay (`web/src/history-search.ts`): scope toggle, result rows, in-place context expansion, paging.

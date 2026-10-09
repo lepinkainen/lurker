@@ -1,6 +1,7 @@
 import { saveLayout, state } from "./app-state";
 import { currentNetworkStatusBufferId } from "./buffers";
 import { closeChannelSwitcher, isChannelSwitcherOpen, openChannelSwitcher } from "./channel-switcher";
+import { closeHistorySearch, isHistorySearchOpen, openHistorySearch } from "./history-search";
 import {
   focusInput,
   navigateBuffer,
@@ -35,11 +36,11 @@ function isTextEditingElement(target: EventTarget | null): boolean {
 }
 
 function closeTopOverlay() {
-  return closeChannelSwitcher() || closeHelpOverlay();
+  return closeChannelSwitcher() || closeHistorySearch() || closeHelpOverlay();
 }
 
 function isOverlayOpen() {
-  return isChannelSwitcherOpen() || isHelpOverlayOpen();
+  return isChannelSwitcherOpen() || isHistorySearchOpen() || isHelpOverlayOpen();
 }
 
 export function initKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
@@ -76,6 +77,12 @@ export function initKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
       e.preventDefault();
       openChannelSwitcher(deps, closeHelpOverlay);
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      closeHelpOverlay();
+      openHistorySearch();
       return;
     }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "b") {
@@ -135,5 +142,6 @@ export function cleanupKeyboardShortcuts() {
   cleanupKeydown?.();
   cleanupKeydown = null;
   closeChannelSwitcher();
+  closeHistorySearch();
   closeHelpOverlay();
 }

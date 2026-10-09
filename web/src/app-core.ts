@@ -5,6 +5,7 @@ import { activeBuffer, state } from "./app-state";
 import { type AppView, createAppView } from "./app-view";
 import { createConnection, type StateSyncDeps, syncStateFromServer } from "./connection";
 import { captureDom, type DomRefs } from "./dom";
+import { openHistorySearch } from "./history-search";
 import { bindInputHandlers } from "./input";
 import { cleanupKeyboardShortcuts, initKeyboardShortcuts } from "./keyboard-routing";
 import { onHashChange } from "./navigation";
@@ -70,6 +71,7 @@ export function start() {
     setSidebarDrawer(document.body.dataset.sidebarOpen !== "true");
   });
   d.shortcutsHelpBtnEl.addEventListener("click", () => openHelpOverlay());
+  d.historySearchBtnEl.addEventListener("click", () => openHistorySearch());
   d.bufferOptionsBtnEl.addEventListener("click", () => view.openActiveBufferOptions());
   document.getElementById("settings-btn")?.addEventListener("click", () => openSettingsView());
   document.addEventListener("click", onBackdropClick);

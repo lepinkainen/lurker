@@ -16,6 +16,7 @@ export type DomRefs = {
   bufferOptionsBtnEl: HTMLButtonElement;
   toggleMembersEl: HTMLButtonElement;
   shortcutsHelpBtnEl: HTMLButtonElement;
+  historySearchBtnEl: HTMLButtonElement;
   mobileMenuEl: HTMLButtonElement;
   inputEl: HTMLInputElement;
   inputForm: HTMLFormElement;
@@ -55,6 +56,7 @@ export function captureDom(): DomRefs {
     bufferOptionsBtnEl: mustEl<HTMLButtonElement>("buffer-options-btn"),
     toggleMembersEl: mustEl<HTMLButtonElement>("toggle-members"),
     shortcutsHelpBtnEl: mustEl<HTMLButtonElement>("shortcuts-help-btn"),
+    historySearchBtnEl: mustEl<HTMLButtonElement>("history-search-btn"),
     mobileMenuEl: mustEl<HTMLButtonElement>("mobile-menu"),
     inputEl: mustEl<HTMLInputElement>("input"),
     inputForm: mustEl<HTMLFormElement>("input-form"),

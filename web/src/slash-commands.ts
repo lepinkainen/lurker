@@ -1,4 +1,5 @@
 import type { Buffer } from "./app-state";
+import { openHistorySearch } from "./history-search";
 
 export type SlashCommand = {
   cmd: string;
@@ -63,6 +64,9 @@ function bufferTargetCommand(type: string, cmd: string, args: string, desc: stri
 }
 
 const registry: SlashCommandEntry[] = [
+  command("/search", "[text]", "Search message history", ({ args }) => {
+    openHistorySearch(args);
+  }),
   command("/join", "<channel>", "Join a channel", ({ buffer, args, sendCmd }) => {
     sendCmd({ type: "join", network_id: buffer.network_id, channel: args });
   }),
