@@ -55,7 +55,8 @@ render_inset() {
   ri_out=$3
   render "$ri_inner" "$tmpdir/inner.png"
   "$magick_cmd" -size "${ri_canvas}x${ri_canvas}" "xc:$bg" "$tmpdir/inner.png" \
-    -gravity center -composite -alpha remove -alpha off "$ri_out"
+    -gravity center -composite -alpha remove -alpha off \
+    -define png:exclude-chunks=date,time "$ri_out"
 }
 
 gen_web() {

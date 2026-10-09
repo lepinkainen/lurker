@@ -1,11 +1,58 @@
 package main
 
 import (
-	"context"
 	"testing"
 
 	ircdb "github.com/lepinkainen/lurker/db"
 )
+
+// seededStores opens a throwaway data dir and seeds the standard fixture.
+func seededStores(t *testing.T) (*ircdb.MultiStore, []seedNetwork) {
+	t.Helper()
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("open stores: %v", err)
+	}
+	t.Cleanup(func() { _ = stores.Close() })
+	networks := fixture()
+	if err := seed(t.Context(), stores, networks); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	return stores, networks
+}
+
+// TestSeedStatusMessages checks every network gets the status lines in
+// chronological order (RecentMessages orders by id, ids are insert-order v7).
+func TestSeedStatusMessages(t *testing.T) {
+	stores, networks := seededStores(t)
+	ctx := t.Context()
+	buffers, err := stores.ListAllBuffers(ctx)
+	if err != nil {
+		t.Fatalf("list buffers: %v", err)
+	}
+	statuses := 0
+	for _, buffer := range buffers {
+		if buffer.Kind != ircdb.BufferStatus {
+			continue
+		}
+		statuses++
+		messages, err := stores.RecentMessages(ctx, buffer.ID, 10)
+		if err != nil {
+			t.Fatalf("status messages: %v", err)
+		}
+		if len(messages) != len(statusLines) {
+			t.Fatalf("status messages = %d, want %d", len(messages), len(statusLines))
+		}
+		for i, want := range statusLines {
+			if got := messages[i]; got.Content != want.Content || got.Kind != want.Kind {
+				t.Errorf("status[%d] = %s %q, want %s %q", i, got.Kind, got.Content, want.Kind, want.Content)
+			}
+		}
+	}
+	if statuses != len(networks) {
+		t.Errorf("status buffers = %d, want %d", statuses, len(networks))
+	}
+}
 
 // TestPinnedFixtureRefsExist guards against typos drifting between
 // pinnedFixture and fixture: every pinned ref must name a real, non-archived
@@ -52,16 +99,8 @@ func TestPinnedFixtureRefsExist(t *testing.T) {
 // TestSeedAssignsPinOrder seeds a throwaway data dir and checks the pinned
 // channels land with dense pin_order values matching the fixture order.
 func TestSeedAssignsPinOrder(t *testing.T) {
-	stores, err := ircdb.OpenMultiStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("open stores: %v", err)
-	}
-	defer func() { _ = stores.Close() }()
-
-	ctx := context.Background()
-	if err := seed(ctx, stores, fixture()); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
+	stores, _ := seededStores(t)
+	ctx := t.Context()
 
 	settings, err := ircdb.ListBufferSettings(ctx, stores.Control)
 	if err != nil {

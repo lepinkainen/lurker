@@ -44,12 +44,6 @@ tasks:
         step binary    go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
         echo "Build OK — lint, tests, web build, and local applications"
 
-  build-backend:
-    desc: Build just the Go backend binary into build/ (no lint, tests, or frontend)
-    cmds:
-      - mkdir -p {{.BUILD_DIR}}
-      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP_NAME}} .
-
   build-linux:
     desc: Build the Linux binary into build/
     deps: [build-tui-linux]
@@ -93,20 +87,17 @@ tasks:
 
   desktop-dev:
     desc: Run the Tauri desktop shell in dev mode (reads LURKER_URL or ~/.config/lurker/desktop.yaml)
-    deps: [icons-desktop]
     cmds:
       - cd desktop && cargo tauri dev
 
   build-desktop:
     desc: Build the Tauri desktop shell release bundle
-    deps: [icons-desktop]
     cmds:
       - cd desktop && cargo tauri build
 
   install-linux:
     desc: Install the desktop shell for the current user under ~/.local (no root, no reboot)
     platforms: [linux]
-    deps: [icons-desktop]
     cmds:
       # Not build-desktop: that bundles deb/rpm/AppImage, and the AppImage step
       # needs NO_STRIP=1 on Fedora 44. The binary is all an install needs.
@@ -122,7 +113,6 @@ tasks:
   build-apple:
     desc: Build the native macOS app (Apple silicon)
     platforms: [darwin]
-    deps: [apple-icon]
     cmds:
       - >-
         xcodebuild -quiet
@@ -269,7 +259,6 @@ tasks:
   package-apple:
     desc: Build, Developer ID sign, notarize, and staple a macOS DMG
     platforms: [darwin]
-    deps: [apple-icon]
     env:
       LURKER_VERSION: '{{.VERSION}}'
     cmds:
@@ -325,15 +314,8 @@ tasks:
     cmds:
       - cd web && pnpm dev
 
-  gen-palette:
-    desc: Generate web/src/nick-palette.ts with perceptually-spaced OKLCH hues
-    cmds:
-      - node scripts/gen-nick-palette.mjs
-      - cd web && pnpm exec biome format --write src/nick-palette.ts
-
   web-build:
     desc: Build the frontend into web/dist
-    deps: [gen-palette, icons-web]
     cmds:
       - cd web && pnpm build
 
@@ -422,11 +404,6 @@ tasks:
     desc: Run the frontend integration tests (requires seeded backend)
     cmds:
       - cd web && pnpm test:integration
-
-  test-web-all:
-    desc: Run frontend unit + integration tests
-    cmds:
-      - cd web && pnpm test:all
 
   tidy:
     desc: Tidy Go module dependencies

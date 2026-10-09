@@ -14,7 +14,7 @@ flowchart TD
     dialog["dialog<br/>in:1 out:0"]
     dom["dom<br/>in:4 out:0"]
     emoji_autocomplete["emoji-autocomplete<br/>in:1 out:0"]
-    format["format<br/>in:6 out:1"]
+    format["format<br/>in:6 out:0"]
     highlights_api["highlights-api<br/>in:1 out:1"]
     http["http<br/>in:5 out:0"]
     input["input<br/>in:4 out:7"]
@@ -32,10 +32,9 @@ flowchart TD
     navigation["navigation<br/>in:1 out:2"]
     network_api["network-api<br/>in:1 out:2"]
     network_form["network-form<br/>in:1 out:3"]
-    nick["nick<br/>in:4 out:3"]
+    nick["nick<br/>in:4 out:2"]
     nick_autocomplete["nick-autocomplete<br/>in:1 out:1"]
     nick_colors["nick-colors<br/>in:5 out:1"]
-    nick_palette["nick-palette<br/>in:2 out:0"]
     preview["preview<br/>in:2 out:0"]
     read_tracker["read-tracker<br/>in:1 out:2"]
     reset["reset<br/>in:1 out:2"]
@@ -104,7 +103,6 @@ flowchart TD
     connection --> app_state
     connection --> buffers
     connection --> nick_colors
-    format --> nick_palette
     highlights_api --> http
     input --> app_state
     input --> emoji_autocomplete
@@ -148,7 +146,6 @@ flowchart TD
     network_form --> http
     nick --> format
     nick --> nick_colors
-    nick --> nick_palette
     nick_autocomplete --> app_state
     nick_colors --> app_state
     read_tracker --> app_state

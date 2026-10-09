@@ -42,7 +42,6 @@ type seedNetwork struct {
 type seedChannel struct {
 	Name     string
 	Topic    string
-	Members  []string
 	Archived bool
 	Lines    []seedLine
 }
@@ -93,11 +92,12 @@ func main() {
 	defer func() { _ = stores.Close() }()
 
 	ctx := context.Background()
-	if err := seed(ctx, stores, fixture()); err != nil {
+	networks := fixture()
+	if err := seed(ctx, stores, networks); err != nil {
 		slog.Error("seed", "err", err)
 		os.Exit(1)
 	}
-	if err := writeConfigYAML(*dataDir, fixture()); err != nil {
+	if err := writeConfigYAML(*dataDir, networks); err != nil {
 		slog.Error("write config.yaml", "err", err)
 		os.Exit(1)
 	}
@@ -140,11 +140,8 @@ func seed(ctx context.Context, stores *ircdb.MultiStore, networks []seedNetwork)
 			return err
 		}
 
-		if _, err := ircdb.EnsureStatusBuffer(ctx, stores, net.ID); err != nil {
-			return fmt.Errorf("status buffer %s: %w", n.Name, err)
-		}
 		if err := seedStatus(ctx, stores, logStore, net.ID, base); err != nil {
-			return err
+			return fmt.Errorf("seed status %s: %w", n.Name, err)
 		}
 
 		for _, c := range n.Channels {
@@ -204,23 +201,25 @@ func pinOrderOf(entries []ircdb.BufferSortEntry, id uuid.UUID) int64 {
 }
 
 func seedStatus(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID uuid.UUID, base time.Time) error {
-	localID, err := resolveLocalBuffer(ctx, stores, log, networkID, "", ircdb.BufferStatus)
+	localID, err := ircdb.EnsureStatusBuffer(ctx, stores, networkID)
 	if err != nil {
 		return err
 	}
-	lines := []seedLine{
-		{Sender: "*", Kind: "connecting", Content: "connecting to server", Offset: 0},
-		{Sender: "*", Kind: "connected", Content: "connected", Offset: 2 * time.Second},
-		{Sender: "*", Kind: "notice", Content: "*** Looking up your hostname...", Offset: 3 * time.Second},
-		{Sender: "*", Kind: "notice", Content: "*** Welcome to the network", Offset: 4 * time.Second},
-	}
-	return insertLines(ctx, log, localID, lines, base)
+	return insertLines(ctx, log, localID, statusLines, base)
+}
+
+// statusLines is the status buffer content seeded for every network.
+var statusLines = []seedLine{
+	{Sender: "*", Kind: "connecting", Content: "connecting to server", Offset: 0},
+	{Sender: "*", Kind: "connected", Content: "connected", Offset: 2 * time.Second},
+	{Sender: "*", Kind: "notice", Content: "*** Looking up your hostname...", Offset: 3 * time.Second},
+	{Sender: "*", Kind: "notice", Content: "*** Welcome to the network", Offset: 4 * time.Second},
 }
 
 // seedChannelBuffer seeds one channel and returns its global buffer ID so
 // callers can apply cross-network settings (e.g. pinning) afterwards.
 func seedChannelBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID uuid.UUID, c seedChannel, base time.Time) (uuid.UUID, error) {
-	localID, err := resolveLocalBuffer(ctx, stores, log, networkID, c.Name, ircdb.BufferChannel)
+	localID, _, _, err := stores.EnsureBuffer(ctx, networkID, c.Name, ircdb.BufferChannel)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -249,7 +248,7 @@ func setArchived(ctx context.Context, stores *ircdb.MultiStore, bufferID uuid.UU
 }
 
 func seedQueryBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.LogStore, networkID uuid.UUID, q seedQuery, base time.Time) error {
-	localID, err := resolveLocalBuffer(ctx, stores, log, networkID, q.Nick, ircdb.BufferQuery)
+	localID, _, _, err := stores.EnsureBuffer(ctx, networkID, q.Nick, ircdb.BufferQuery)
 	if err != nil {
 		return err
 	}
@@ -257,11 +256,6 @@ func seedQueryBuffer(ctx context.Context, stores *ircdb.MultiStore, log *ircdb.L
 		return err
 	}
 	return insertLines(ctx, log, localID, q.Lines, base)
-}
-
-func resolveLocalBuffer(ctx context.Context, stores *ircdb.MultiStore, _ *ircdb.LogStore, networkID uuid.UUID, name, kind string) (uuid.UUID, error) {
-	id, _, _, err := stores.EnsureBuffer(ctx, networkID, name, kind)
-	return id, err
 }
 
 func insertLines(ctx context.Context, log *ircdb.LogStore, bufferID uuid.UUID, lines []seedLine, base time.Time) error {
@@ -303,9 +297,6 @@ func fixture() []seedNetwork {
 				{
 					Name:  "#lurker",
 					Topic: "Lurker dev channel — test fixtures loaded",
-					// buildbot exercises IRCv3 bot rendering: fixture mode
-					// flags any nick ending in "bot" as a bot.
-					Members: []string{"alice", "bob", "carol", "buildbot", "lurkertest"},
 					Lines: []seedLine{
 						{Sender: "alice", Kind: "privmsg", Content: "morning folks", Offset: 1 * time.Hour},
 						{Sender: "bob", Kind: "privmsg", Content: "hey alice", Offset: 1*time.Hour + 30*time.Second},
@@ -318,9 +309,8 @@ func fixture() []seedNetwork {
 					},
 				},
 				{
-					Name:    "#go-nuts",
-					Topic:   "Go programming — https://go.dev",
-					Members: []string{"gopher1", "gopher2", "lurkertest"},
+					Name:  "#go-nuts",
+					Topic: "Go programming — https://go.dev",
 					Lines: []seedLine{
 						{Sender: "gopher1", Kind: "privmsg", Content: "anyone using generics for sql scanning yet?", Offset: 2 * time.Hour},
 						{Sender: "gopher2", Kind: "privmsg", Content: "yeah, works great with sqlc", Offset: 2*time.Hour + 45*time.Second},
@@ -337,9 +327,8 @@ func fixture() []seedNetwork {
 					// Link-heavy bot channel (##hntop-style): every line carries a
 					// story URL plus an HN comments URL back to back, most rows
 					// wrapping — the repro shape for link hit-testing in clients.
-					Name:    "##hntop",
-					Topic:   "HN Top Stories Live | Bot posts any story the instant it hits the top 30.",
-					Members: []string{"egobot", "lurkertest"},
+					Name:  "##hntop",
+					Topic: "HN Top Stories Live | Bot posts any story the instant it hits the top 30.",
 					Lines: []seedLine{
 						{Sender: "egobot", Kind: "privmsg", Content: "One Go binary, one YAML file, one SQLite database: I wrote my monitoring tool [2 brvier] https://rvier.fr/posts/why-i-wrote-my-own-monitoring-tool-EN https://news.ycombinator.com/item?id=49441101", Offset: 5 * time.Hour},
 						{Sender: "egobot", Kind: "privmsg", Content: "Show HN: TeXbrain, a LaTeX editor that runs pdfTeX in the browser via WASM [3 swimmingbrain] https://github.com/swimmingbrain/texbrain https://news.ycombinator.com/item?id=49441375", Offset: 5*time.Hour + 9*time.Minute},
@@ -381,9 +370,8 @@ func fixture() []seedNetwork {
 			Nick: "lurkertest", Realname: "Lurker Test",
 			Channels: []seedChannel{
 				{
-					Name:    "#debian",
-					Topic:   "Debian user support",
-					Members: []string{"deb1", "deb2", "lurkertest"},
+					Name:  "#debian",
+					Topic: "Debian user support",
 					Lines: []seedLine{
 						{Sender: "deb1", Kind: "privmsg", Content: "apt is hanging on trixie", Offset: 4 * time.Hour},
 						{Sender: "deb2", Kind: "privmsg", Content: "try --fix-missing", Offset: 4*time.Hour + 30*time.Second},

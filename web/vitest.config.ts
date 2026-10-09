@@ -24,11 +24,5 @@ export default defineConfig({
     setupFiles: ["tests/setup.ts"],
     include: ["tests/**/*.test.ts"],
     exclude: ["tests/**/*.integration.test.ts", "node_modules/**", "dist/**"],
-    coverage: {
-      provider: "v8",
-      reporter: ["text", "json-summary", "html"],
-      include: ["src/**/*.ts"],
-      exclude: ["src/**/*.d.ts"],
-    },
   },
 });

@@ -66,27 +66,28 @@ the nav becomes a horizontal tab strip (`mobile.css`).
 `web/public/favicon.svg` is the single source of truth for every app icon in the repo. Nothing
 else is drawn by hand, and no raster is a source for another raster.
 
-`scripts/gen-icons.sh` renders it with `rsvg-convert`, and the build regenerates whatever a given
-target needs, so editing the SVG is enough:
+`scripts/gen-icons.sh` renders it with `rsvg-convert` and ImageMagick. After editing the SVG,
+run `task icons` and commit the updated raster images alongside it:
 
 | Task | Produces | Runs from |
 |---|---|---|
-| `icons-web` | `web/public/` PWA icons (192, 512, maskable, apple-touch) | `web-build` |
-| `icons-desktop` | `desktop/icons/` Tauri set incl. `.ico`/`.icns` | `build-desktop`, `desktop-dev` |
-| `apple-icon` | `apple/…/AppIcon.appiconset/` | `build-apple` (macOS only) |
+| `icons-web` | `web/public/` PWA icons (192, 512, maskable, apple-touch) | Explicitly, or through `task icons` |
+| `icons-desktop` | `desktop/icons/` Tauri set incl. `.ico` | Explicitly, or through `task icons` |
+| `apple-icon` | `apple/…/AppIcon.appiconset/` | Explicitly, or through `task icons` (macOS only) |
 
-`task icons` runs all three. Each is fingerprinted on the SVG, so it is a no-op when nothing
-changed — a normal build never invokes the renderers. CI installs `librsvg2-bin` and `imagemagick`
-precisely so that a change to the SVG that was not committed alongside its rasters fails the build
-instead of shipping a stale icon.
+`task icons` is the only entry point that renders. Every build (web, Docker, desktop, Apple, CI)
+uses the committed rasters and needs no `rsvg-convert` or ImageMagick. Nothing checks that the
+rasters match the SVG: keeping them in sync is the committer's job. The desktop `.icns` is
+maintained separately; see the comment in `scripts/gen-icons.sh`.
 
 Two of the outputs are not plain renders, because they cannot be transparent: the maskable icon is
 cropped to an arbitrary shape by the launcher, and iOS composites the home screen icon onto white.
 Both put the artwork on an opaque `#0f1923` (the eye-shape fill), inset to leave the safe-zone
 padding the maskable spec wants — 384px of a 512px canvas, and 148 of 180 for apple-touch.
 
-Regenerating is deterministic: the same SVG produces byte-identical output. A diff in these files
-therefore means the SVG changed, not that someone re-ran the script.
+Regenerating is not byte-stable across machines: rsvg/libpng versions change the encoding, so a
+diff after a re-run does not by itself mean the artwork changed. Timestamp chunks are stripped so
+a re-run on the same machine leaves the tree clean.
 
 The one exception is `desktop/icons/icon.icns`, which is committed but **not** generated.
 ImageMagick's ICNS writer emits different bytes on every run, so regenerating it would dirty the

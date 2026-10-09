@@ -86,12 +86,14 @@ describe("highlightMentions", () => {
 const OKLCH_FUNCTION_RE = /^oklch\(/u;
 
 describe("nickColor", () => {
-  it("emits oklch with CSS vars for a server-shipped index", () => {
-    const c = nickColor(27);
-    expect(c).toMatch(OKLCH_FUNCTION_RE);
-    expect(c).toContain("var(--nick-l");
-    expect(c).toContain("var(--nick-c");
-    expect(c).toContain("deg)");
+  it.each([
+    [0, 0],
+    [1, 7.5],
+    [27, 202.5],
+    [47, 352.5],
+    [48, 0],
+  ])("keeps palette index %i at %f degrees", (index, hue) => {
+    expect(nickColor(index)).toBe(`oklch(var(--nick-l, 72%) var(--nick-c, 0.12) ${hue}deg)`);
   });
 
   it("renders unknown (no index) as neutral gray", () => {

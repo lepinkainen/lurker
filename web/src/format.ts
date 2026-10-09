@@ -1,4 +1,8 @@
-import { NICK_HUES } from "./nick-palette";
+// 48 hues 7.5° apart, shared by nick labels and identicons; matches Go
+// nickcolor.Hue and Apple nickHues. Wraps negative indexes like Apple does.
+export function nickHue(idx: number): number {
+  return (((idx % 48) + 48) % 48) * 7.5;
+}
 
 export type SysMessage = {
   sender?: string;
@@ -46,7 +50,7 @@ export function highlightMentions(html: string, nick: string): string {
 // index renders as neutral gray (chroma 0) rather than a wrong color.
 export function nickColor(idx: number | null | undefined): string {
   if (idx === null || idx === undefined) return "oklch(var(--nick-l, 72%) 0 0deg)";
-  const hue = NICK_HUES[idx % NICK_HUES.length] ?? 0;
+  const hue = nickHue(idx);
   return `oklch(var(--nick-l, 72%) var(--nick-c, 0.12) ${hue}deg)`;
 }
 

@@ -111,10 +111,6 @@ jobs:
         with:
           version: 3.x
 
-      # build-apple regenerates AppIcon.appiconset from web/public/favicon.svg.
-      - name: Install icon renderer
-        run: brew install librsvg
-
       - name: Install SwiftFormat
         # Pinned release binary; brew on the runner image lags and won't upgrade
         # an already-installed formula. Keep in step with --minversion in
@@ -205,12 +201,6 @@ jobs:
         uses: go-task/setup-task@v2
         with:
           version: 3.x
-
-      # web-build regenerates the PWA icons from web/public/favicon.svg, so a
-      # change to the SVG that was not committed alongside its rasters fails
-      # here instead of shipping a stale icon.
-      - name: Install icon renderers
-        run: sudo apt-get update && sudo apt-get install -y librsvg2-bin imagemagick
 
       - name: Build
         run: task build-ci

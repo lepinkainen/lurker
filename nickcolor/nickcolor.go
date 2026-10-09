@@ -13,7 +13,7 @@ import (
 )
 
 // Count is the palette size: perceptually-spaced OKLCH hues at equal angular
-// steps (360/Count degrees apart). Mirrored by web/src/nick-palette.ts.
+// steps (360/Count degrees apart). Mirrored by nickHue in web/src/format.ts.
 const Count = 48
 
 // Lightness/chroma for terminal rendering, matching the web defaults

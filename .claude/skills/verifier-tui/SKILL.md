@@ -17,7 +17,7 @@ task build-tui        # build/lurker-tui
 
 - Readiness probe: `curl -s localhost:8080/whoami`. Check `lsof -i :8080 -sTCP:LISTEN` first — a leftover server serves stale data.
 - **Stale-build trap:** the TUI is a compiled binary. Re-run `task build-tui` after every `cmd/tui/` edit or you are verifying the old build.
-- Use `dev-test-api`, not `dev-test`: the latter depends on `web-build` → `gen-palette`, which runs Vite and rewrites tracked `web/src/nick-palette.ts`, dirtying the worktree for a TUI-only run.
+- Use `dev-test-api` for TUI verification to skip the Vite build performed by `dev-test`.
 - Run the TUI on an **isolated tmux server** (`-L lurker-verify`). Works identically whether or not you are yourself inside tmux; never use bare `tmux`, that lands on the user's server:
 
 ```bash
@@ -70,9 +70,9 @@ Mouse is on (`tea.WithMouseCellMotion`), so terminal-native scroll and link-clic
 
 ## Fakes & fixtures
 
-`cmd/seedtest` (`task seed-test`) creates: network `libera` with `#lurker` (7 messages), `#go-nuts` (3), `#retired` (archived), query `alice` (3), query `spammer` (archived); network `oftc` with `#debian` (2); a 4-line status buffer per network. Pin order is deliberately non-alphabetical: `#go-nuts`, `#debian`, `#lurker` — so a fresh run should land on `libera/#go-nuts`.
+`cmd/seedtest` (`task seed-test`) creates: network `libera` with `#lurker` (8 messages), `#go-nuts` (6), `##hntop` (6, link-heavy bot lines with long wrapping URLs), `#retired` (archived), query `alice` (3), query `spammer` (archived); network `oftc` with `#debian` (2); a 4-line status buffer per network. Pin order is deliberately non-alphabetical: `#go-nuts`, `#debian`, `#lurker` — so a fresh run should land on `libera/#go-nuts`.
 
-- **No unread/marker state is seeded** and members are populated in the fixture struct but never inserted. So: members panes are empty, and there is no preset "N unread mid-backlog" fixture — everything reads unread on first launch. To get a real marker mid-backlog, ack once (Esc), then inject new messages.
+- **No unread/marker state or members are seeded.** Members panes are empty, and there is no preset "N unread mid-backlog" fixture — everything reads unread on first launch. To get a real marker mid-backlog, ack once (Esc), then inject new messages.
 - Seeded networks point at `127.0.0.1:1` and never connect. For **live arrivals**, run `task ergo` and `task irc-test-client` in separate terminals (Docker required), then attach a network via REST:
 
 ```bash

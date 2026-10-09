@@ -1,6 +1,5 @@
-import { nickColor, type SysMessage } from "./format";
+import { nickColor, nickHue, type SysMessage } from "./format";
 import { avatarUrlFor, isBotNick, nickColorIndex } from "./nick-colors";
-import { NICK_HUES } from "./nick-palette";
 
 // Nicks flagged with IRCv3 bot mode get a robot glyph instead of the
 // generated identicon — the identicon distinguishes humans from each other,
@@ -56,7 +55,7 @@ function identiconAvatar(nick: string): HTMLCanvasElement {
   const l = style.getPropertyValue("--nick-l").trim() || "72%";
   const cv = style.getPropertyValue("--nick-c").trim() || "0.12";
   // Unknown nick (no server color seen yet) draws gray, matching nickColor.
-  const hue = idx === undefined ? null : (NICK_HUES[idx % NICK_HUES.length] ?? 0);
+  const hue = idx === undefined ? null : nickHue(idx);
   ctx.fillStyle = hue === null ? `oklch(${l} 0 0deg)` : `oklch(${l} ${cv} ${hue}deg)`;
 
   // xorshift32 seeded from nick chars

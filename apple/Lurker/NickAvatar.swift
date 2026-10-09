@@ -1,12 +1,12 @@
 import SwiftUI
 
 // Deterministic per-nick avatar + color, ported from web/src/nick.ts and
-// web/src/nick-palette.ts. See ai-docs/nick-identicon.md for the full spec —
+// web/src/format.ts. See ai-docs/nick-identicon.md for the full spec —
 // this file and nick.ts are the two conforming implementations and must stay
 // in exact parity (same xorshift32 bitmap, same OKLCH tint).
 
-/// 48-entry hue ramp, `NICK_HUES[i] = i * 7.5` (0..352.5°). Mirrors the
-/// generated web/src/nick-palette.ts.
+/// 48-entry hue ramp, `i * 7.5` (0..352.5°). Mirrors `nickHue` in
+/// web/src/format.ts.
 let nickHues: [Double] = (0..<48).map { Double($0) * 7.5 }
 
 /// Resolves a server-assigned palette index to the tint used for a nick's
