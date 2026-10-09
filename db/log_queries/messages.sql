@@ -30,3 +30,11 @@ FROM (
 -- Explicit delete (not FK cascade) so the messages_ad trigger fires and
 -- keeps the external-content FTS index in sync.
 DELETE FROM messages WHERE buffer_id = ?;
+
+-- name: LogMessagesFrom :many
+-- Messages at or after a given message ID, oldest first. Together with
+-- LogMessagesBefore this builds a context window around a search hit.
+SELECT id, buffer_id, COALESCE(msgid,'') AS msgid, ts, sender, COALESCE(userhost,'') AS userhost,
+       COALESCE(account,'') AS account, kind, COALESCE(target,'') AS target, content
+FROM messages WHERE buffer_id = ? AND id >= ?
+ORDER BY id ASC LIMIT ?;

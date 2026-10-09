@@ -55,7 +55,7 @@ func TestDeleteBufferRemovesEverything(t *testing.T) {
 		t.Fatalf("sibling buffer damaged: msgs=%d err=%v", len(msgs), err)
 	}
 	// FTS must not surface deleted history (messages_ad trigger fired).
-	hits, err := SearchLogMessages(ctx, logStore.DB, "crypto", uuid.Nil, 10)
+	hits, err := SearchLogMessages(ctx, logStore.DB, "crypto", uuid.Nil, uuid.Nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

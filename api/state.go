@@ -297,7 +297,21 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 			before = parsed
 		}
 	}
-	msgs, err := s.loadHistory(r.Context(), bufferID, before, clampLimit(r.URL.Query().Get("limit"), 200, 500))
+	limit := clampLimit(r.URL.Query().Get("limit"), 200, 500)
+	var (
+		msgs []messageDTO
+		err  error
+	)
+	if around, ok := parseOptionalQueryUUID(w, r, "around", "bad around"); !ok {
+		return
+	} else if around != uuid.Nil {
+		// Context window for a search hit: ignores before.
+		var stored []ircdb.StoredMessage
+		stored, err = s.Stores.MessagesAround(r.Context(), bufferID, around, limit)
+		msgs = s.toMessageDTOs(r.Context(), stored)
+	} else {
+		msgs, err = s.loadHistory(r.Context(), bufferID, before, limit)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

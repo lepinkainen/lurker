@@ -173,6 +173,35 @@ func LogMessagesBefore(ctx context.Context, d *sql.DB, bufferID, before uuid.UUI
 	return beforeRowsToMessages(rows), nil
 }
 
+// LogMessagesFrom returns messages at or after a given message ID, oldest
+// first (the message itself included when it exists in the buffer).
+func LogMessagesFrom(ctx context.Context, d *sql.DB, bufferID, from uuid.UUID, limit int) ([]LogMessageRow, error) {
+	rows, err := logdb.New(d).LogMessagesFrom(ctx, logdb.LogMessagesFromParams{
+		BufferID: bufferID[:],
+		ID:       from[:],
+		Limit:    int64(limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]logMessageRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, logMessageRow{
+			ID:       scanUUID(r.ID),
+			BufferID: scanUUID(r.BufferID),
+			MsgID:    r.Msgid,
+			TS:       r.Ts,
+			Sender:   r.Sender,
+			Userhost: r.Userhost,
+			Account:  r.Account,
+			Kind:     r.Kind,
+			Target:   r.Target,
+			Content:  r.Content,
+		})
+	}
+	return out, nil
+}
+
 func recentRowsToMessages(rows []logdb.RecentLogMessagesRow) []logMessageRow {
 	out := make([]logMessageRow, 0, len(rows))
 	for _, r := range rows {
@@ -317,27 +346,57 @@ func BatchRecentLogMessages(ctx context.Context, d logdb.DBTX, bufferIDs []uuid.
 }
 
 // SearchLogMessages searches a per-network log DB using FTS. Returns messages
-// joined to their FTS rowid match. The internal rowid is not exposed.
+// newest first. bufferID == uuid.Nil searches every buffer in the DB; before
+// != uuid.Nil pages to hits strictly older than that message ID. Only
+// conversational kinds (privmsg/notice/action) are returned: sender is part
+// of the index, so a nick query would otherwise drown in join/part/quit rows.
 //
-// Kept on raw database/sql because sqlc cannot parse `messages_fts MATCH ?`
+// Kept on raw database/sql because sqlc cannot codegen the MATCH operator
 // against the FTS5 virtual table.
-func SearchLogMessages(ctx context.Context, d *sql.DB, query string, bufferID uuid.UUID, limit int) ([]LogMessageRow, error) {
+func SearchLogMessages(ctx context.Context, d *sql.DB, query string, bufferID, before uuid.UUID, limit int) ([]LogMessageRow, error) {
 	if limit <= 0 {
 		limit = 100
+	}
+	match := FTSQuery(query)
+	if match == "" {
+		return nil, nil
 	}
 	q := `SELECT m.id, m.buffer_id, COALESCE(m.msgid,''), m.ts, m.sender, COALESCE(m.userhost,''),
 		     COALESCE(m.account,''), m.kind, COALESCE(m.target,''), m.content
 	      FROM messages_fts f
-	      JOIN messages m ON m.rowid = f.rowid`
-	args := []any{query}
-	where := ` WHERE messages_fts MATCH ?`
+	      JOIN messages m ON m.rowid = f.rowid
+	      WHERE messages_fts MATCH ? AND m.kind IN ('privmsg','notice','action')`
+	args := []any{match}
 	if bufferID != uuid.Nil {
-		where += ` AND m.buffer_id = ?`
+		q += ` AND m.buffer_id = ?`
 		args = append(args, bufferID[:])
 	}
-	q += where + ` ORDER BY m.id DESC LIMIT ?`
+	if before != uuid.Nil {
+		q += ` AND m.id < ?`
+		args = append(args, before[:])
+	}
+	q += ` ORDER BY m.id DESC LIMIT ?`
 	args = append(args, limit)
 	return logMessagesQuery(ctx, d, q, args...)
+}
+
+// FTSQuery turns free text into a safe FTS5 MATCH expression: every
+// whitespace-separated token becomes a quoted phrase (embedded quotes
+// doubled), tokens are implicitly ANDed, and the last token gets a prefix
+// wildcard so results refine while the user is still typing. Returns "" for
+// blank input. FTS5 operators (AND/OR/NOT/NEAR, column filters) are never
+// interpreted — a search for `NOT` finds the word "not".
+func FTSQuery(text string) string {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return ""
+	}
+	parts := make([]string, len(fields))
+	for i, f := range fields {
+		parts[i] = `"` + strings.ReplaceAll(f, `"`, `""`) + `"`
+	}
+	parts[len(parts)-1] += "*"
+	return strings.Join(parts, " ")
 }
 
 func logMessagesQuery(ctx context.Context, d *sql.DB, q string, args ...any) ([]LogMessageRow, error) {

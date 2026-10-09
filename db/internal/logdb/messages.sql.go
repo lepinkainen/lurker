@@ -152,6 +152,68 @@ func (q *Queries) LogMessagesBefore(ctx context.Context, arg LogMessagesBeforePa
 	return items, nil
 }
 
+const logMessagesFrom = `-- name: LogMessagesFrom :many
+SELECT id, buffer_id, COALESCE(msgid,'') AS msgid, ts, sender, COALESCE(userhost,'') AS userhost,
+       COALESCE(account,'') AS account, kind, COALESCE(target,'') AS target, content
+FROM messages WHERE buffer_id = ? AND id >= ?
+ORDER BY id ASC LIMIT ?
+`
+
+type LogMessagesFromParams struct {
+	BufferID []byte
+	ID       []byte
+	Limit    int64
+}
+
+type LogMessagesFromRow struct {
+	ID       []byte
+	BufferID []byte
+	Msgid    string
+	Ts       string
+	Sender   string
+	Userhost string
+	Account  string
+	Kind     string
+	Target   string
+	Content  string
+}
+
+// Messages at or after a given message ID, oldest first. Together with
+// LogMessagesBefore this builds a context window around a search hit.
+func (q *Queries) LogMessagesFrom(ctx context.Context, arg LogMessagesFromParams) ([]LogMessagesFromRow, error) {
+	rows, err := q.db.QueryContext(ctx, logMessagesFrom, arg.BufferID, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogMessagesFromRow{}
+	for rows.Next() {
+		var i LogMessagesFromRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BufferID,
+			&i.Msgid,
+			&i.Ts,
+			&i.Sender,
+			&i.Userhost,
+			&i.Account,
+			&i.Kind,
+			&i.Target,
+			&i.Content,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recentLogMessages = `-- name: RecentLogMessages :many
 SELECT id, buffer_id, COALESCE(msgid,'') AS msgid, ts, sender, COALESCE(userhost,'') AS userhost,
        COALESCE(account,'') AS account, kind, COALESCE(target,'') AS target, content

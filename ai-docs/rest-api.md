@@ -170,21 +170,27 @@ Server-computed display fields (shared with the WS `message` event, see `websock
 Purpose:
 
 - page older messages for one global buffer ID
+- fetch a context window around one message (search hit → "show in context")
 
 Query parameters:
 
-- `before`
-- `limit`
+- `before` — message UUID; return up to `limit` messages older than it
+- `limit` — default 200, max 500
+- `around` — message UUID; return up to `limit/2` older messages, the message itself, and up to `limit/2` newer ones, oldest first. Overrides `before`. Invalid UUID → `400`.
 
 ## `GET /api/search`
 
 Query parameters:
 
-- `q` required
-- `network` optional
-- `buffer` optional
+- `q` required — free text. Sanitized server-side via `db.FTSQuery`: each whitespace token becomes a quoted FTS5 phrase (implicit AND), the last token gets a prefix wildcard. FTS5 operators are never interpreted, so arbitrary input can't produce a syntax error.
+- `buffer` optional — scope to one global buffer ID (the "this channel" default in clients)
+- `network` optional — scope to one network
+- `before` optional — message UUID; page to hits strictly older than it
+- `limit` optional — default 50, max 200
 
-Search runs against stored messages, not live IRC state.
+Response: `{query, network, buffer, results: [messageDTO…]}`, newest first. With no scope every network is searched and the hits are merged by ID (UUIDv7 → time order) before truncating to `limit`, so `before` paging is consistent across networks.
+
+Only conversational kinds (`privmsg`, `notice`, `action`) are returned. `sender` is in the FTS index, so searching a nick finds their messages without join/part/quit noise. Search runs against stored messages, not live IRC state. Clients fetch context for a hit with `GET /api/buffers/{id}/history?around=<hit id>`.
 
 ## `POST /api/upload`
 

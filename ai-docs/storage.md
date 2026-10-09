@@ -136,7 +136,7 @@ The wrappers convert between the project's domain types (`Network`, `Buffer`, `U
 
 A few queries deliberately remain on raw `database/sql` because sqlc cannot codegen them:
 
-- `SearchLogMessages` — FTS5 `messages_fts MATCH ?` against the virtual table
+- `SearchLogMessages` — FTS5 `messages_fts MATCH ?` against the virtual table; the MATCH text is always built by `FTSQuery` (quoted tokens, last-token prefix) so user input can't hit FTS5 syntax errors. Optional `before` cursor and a fixed kind filter (`privmsg`/`notice`/`action`). `MultiStore.MessagesAround` composes `LogMessagesBefore` + `LogMessagesFrom` (both sqlc) into a context window around a hit.
 - `ListMessagePreviewLinks`, `PreviewStore.GetMany` — dynamic `IN (?, ?, …)` arity
 - `UnreadCandidates`, `MarkNonYAMLNetworksDisabled` — dynamic `WHERE` / `IN` arity
 

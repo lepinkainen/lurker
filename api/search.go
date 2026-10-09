@@ -17,8 +17,13 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	before, ok := parseOptionalQueryUUID(w, r, "before", "bad before")
+	if !ok {
+		return
+	}
 
-	results, err := s.Stores.Search(r.Context(), q, networkID, bufferID, 100)
+	limit := clampLimit(r.URL.Query().Get("limit"), 50, 200)
+	results, err := s.Stores.Search(r.Context(), q, networkID, bufferID, before, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

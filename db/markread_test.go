@@ -21,7 +21,7 @@ func TestMultiStoreSearchAndMarkRead(t *testing.T) {
 	logStore, _ := ms.LogStore(n.ID)
 	id, _, _, _ := InsertLogMessage(ctx, logStore, LogMessageInput{BufferID: globalID, Sender: "alice", Kind: "privmsg", Content: "searchable needle"})
 
-	results, err := ms.Search(ctx, "needle", uuid.Nil, uuid.Nil, 10)
+	results, err := ms.Search(ctx, "needle", uuid.Nil, uuid.Nil, uuid.Nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

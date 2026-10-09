@@ -591,13 +591,17 @@ func (ms *MultiStore) MarkBufferLastSeen(ctx context.Context, globalBufferID, la
 }
 
 // Search searches stored messages and maps results back to global buffer IDs.
-func (ms *MultiStore) Search(ctx context.Context, query string, networkID, globalBufferID uuid.UUID, limit int) ([]StoredMessage, error) {
+// Results are newest first; before != uuid.Nil pages to hits strictly older
+// than that message ID. With no network or buffer scope every network is
+// searched and the hits are merged by ID (UUIDv7 byte order == time order)
+// so paging across networks stays consistent.
+func (ms *MultiStore) Search(ctx context.Context, query string, networkID, globalBufferID, before uuid.UUID, limit int) ([]StoredMessage, error) {
 	if globalBufferID != uuid.Nil {
 		buf, err := ms.resolveGlobalBuffer(ctx, globalBufferID)
 		if err != nil {
 			return nil, err
 		}
-		msgs, err := SearchLogMessages(ctx, buf.logStore.DB, query, buf.id, limit)
+		msgs, err := SearchLogMessages(ctx, buf.logStore.DB, query, buf.id, before, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -605,26 +609,30 @@ func (ms *MultiStore) Search(ctx context.Context, query string, networkID, globa
 	}
 
 	if networkID != uuid.Nil {
-		return ms.searchNetwork(ctx, networkID, query, limit)
+		return ms.searchNetwork(ctx, networkID, query, before, limit)
 	}
 
 	var out []StoredMessage
 	for _, id := range ms.NetworkIDs() {
-		mapped, err := ms.searchNetwork(ctx, id, query, limit)
+		mapped, err := ms.searchNetwork(ctx, id, query, before, limit)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, mapped...)
 	}
+	slices.SortFunc(out, func(a, b StoredMessage) int { return bytes.Compare(b.ID[:], a.ID[:]) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
 	return out, nil
 }
 
-func (ms *MultiStore) searchNetwork(ctx context.Context, networkID uuid.UUID, query string, limit int) ([]StoredMessage, error) {
+func (ms *MultiStore) searchNetwork(ctx context.Context, networkID uuid.UUID, query string, before uuid.UUID, limit int) ([]StoredMessage, error) {
 	logStore, err := ms.LogStore(networkID)
 	if err != nil {
 		return nil, err
 	}
-	msgs, err := SearchLogMessages(ctx, logStore.DB, query, uuid.Nil, limit)
+	msgs, err := SearchLogMessages(ctx, logStore.DB, query, uuid.Nil, before, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -637,6 +645,26 @@ func (ms *MultiStore) searchNetwork(ctx context.Context, networkID uuid.UUID, qu
 		})
 	}
 	return out, nil
+}
+
+// MessagesAround returns a context window centred on one message: up to
+// limit/2 older messages, the message itself, and up to limit/2 newer ones,
+// oldest first. Used to show a search hit in context.
+func (ms *MultiStore) MessagesAround(ctx context.Context, globalBufferID, around uuid.UUID, limit int) ([]StoredMessage, error) {
+	buf, err := ms.resolveGlobalBuffer(ctx, globalBufferID)
+	if err != nil {
+		return nil, err
+	}
+	half := max(limit/2, 1)
+	older, err := LogMessagesBefore(ctx, buf.logStore.DB, buf.id, around, half)
+	if err != nil {
+		return nil, err
+	}
+	newer, err := LogMessagesFrom(ctx, buf.logStore.DB, buf.id, around, half+1)
+	if err != nil {
+		return nil, err
+	}
+	return toStoredMessages(buf.networkID, globalBufferID, append(older, newer...)), nil
 }
 
 func (ms *MultiStore) resolveGlobalBuffer(ctx context.Context, globalBufferID uuid.UUID) (resolvedGlobalBuffer, error) {

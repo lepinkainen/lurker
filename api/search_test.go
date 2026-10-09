@@ -57,3 +57,49 @@ func TestSearchRoutesAcrossNetworksAndBuffers(t *testing.T) {
 		t.Fatalf("len(buffer results)=%d want 1", len(results))
 	}
 }
+
+func TestHistoryAroundReturnsContextWindow(t *testing.T) {
+	ctx := t.Context()
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stores.Close() }()
+	n, _ := stores.UpsertNetwork(ctx, ircdb.Network{Name: "Libera", Host: "irc.libera.chat", Port: 6697, TLS: true, Nick: "a"})
+	b, _, _, _ := stores.EnsureBuffer(ctx, n.ID, "#go", ircdb.BufferChannel)
+	ls, _ := stores.LogStore(n.ID)
+	var mid string
+	for i := range 5 {
+		id, _, _, _ := ircdb.InsertLogMessage(ctx, ls, ircdb.LogMessageInput{BufferID: b, Sender: "alice", Kind: "privmsg", Content: "m"})
+		if i == 2 {
+			mid = id.String()
+		}
+	}
+	s := &Server{Stores: stores}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/buffers/"+b.String()+"/history?around="+mid+"&limit=2", http.NoBody)
+	r.SetPathValue("id", b.String())
+	s.history(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Messages []struct {
+			ID string `json:"id"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Messages) != 3 || resp.Messages[1].ID != mid {
+		t.Fatalf("around window: %+v", resp.Messages)
+	}
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodGet, "/api/buffers/"+b.String()+"/history?around=nope", http.NoBody)
+	r.SetPathValue("id", b.String())
+	s.history(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("bad around: status=%d", w.Code)
+	}
+}
