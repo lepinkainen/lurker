@@ -519,6 +519,8 @@ function messageRow(message: Message, kind: MessageKind, continued = false) {
   }
 
   const nick = nickEl(message.sender || "", "nick", kind === "notice" ? `-${message.sender || "*"}-` : undefined);
+  // Own messages skip the hashed nick palette: plain foreground (white in dark themes).
+  if (self) nick.style.color = "var(--fg-0)";
   body.innerHTML = renderBodyHTML(message);
   if (kind === "action") {
     body.innerHTML = `${escapeHTML(message.sender || "")} ${renderBodyHTML(message)}`;

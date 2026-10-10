@@ -37,6 +37,8 @@ YAML fields (all optional except needing at least `colors` to be useful):
 | Nicks | `nicks.oklch_l`, `nicks.oklch_c` (also `saturation`/`lightness`/`hue_offset`) | hash-derived nick color params |
 | Color scheme | `color_scheme` | `dark` or `light`; sets CSS `color-scheme` (default `dark`) |
 
+Own messages (`is_self`) bypass the nick palette and render the nick in `--fg-0`.
+
 `id` is not in the file — it's derived from the filename via `slug()`
 (lowercase; spaces/`_`/`-` → `-`; other chars dropped).
 
