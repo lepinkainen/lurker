@@ -13,13 +13,44 @@ import UIKit
 // UIKit (`UIColor`, `UIPasteboard`). Keep all `#if os(...)` color/clipboard
 // branching confined to this file so the views stay platform-agnostic.
 
+#if os(macOS)
+extension NSColor {
+  /// Timeline surface. Dark mode uses the web client's `--bg-0` (#0b0c10):
+  /// the system `textBackgroundColor` (#1e1e1e) washes out the nick palette.
+  /// Light mode stays on the system color.
+  static let lurkerTimelineBackground = NSColor(name: "lurkerTimelineBackground") { appearance in
+    appearance.isDark ? NSColor(srgbRed: 0x0b / 255, green: 0x0c / 255, blue: 0x10 / 255, alpha: 1) : .textBackgroundColor
+  }
+
+  /// Primary message text. Dark mode uses the web client's `--fg-0` (#c0caf5).
+  static let lurkerTimelineText = NSColor(name: "lurkerTimelineText") { appearance in
+    appearance.isDark ? NSColor(srgbRed: 0xc0 / 255, green: 0xca / 255, blue: 0xf5 / 255, alpha: 1) : .labelColor
+  }
+}
+
+extension NSAppearance {
+  fileprivate var isDark: Bool {
+    bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+  }
+}
+#endif
+
 extension Color {
   /// Background behind the message timeline (the document/content surface).
   static var lurkerTimelineBackground: Color {
     #if os(macOS)
-    Color(nsColor: .textBackgroundColor)
+    Color(nsColor: .lurkerTimelineBackground)
     #else
     Color(uiColor: .systemBackground)
+    #endif
+  }
+
+  /// Primary message/nick text on the timeline surface.
+  static var lurkerTimelineText: Color {
+    #if os(macOS)
+    Color(nsColor: .lurkerTimelineText)
+    #else
+    .primary
     #endif
   }
 

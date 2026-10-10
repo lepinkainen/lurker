@@ -213,7 +213,7 @@ private func messageBlock(
     var nickAttributes: [NSAttributedString.Key: Any] = [
       .font: nickFont,
       // Own messages skip the nick palette (matches web).
-      .foregroundColor: message.isSelf == true ? NSColor.labelColor : NSColor(nickPaletteColor(message.senderColor)),
+      .foregroundColor: message.isSelf == true ? NSColor.lurkerTimelineText : NSColor(nickPaletteColor(message.senderColor)),
       .paragraphStyle: RowStyles.message,
       .toolTip: message.userhost ?? message.sender,
     ]
@@ -229,7 +229,7 @@ private func messageBlock(
     )
 
     let baseColor: NSColor =
-      message.displayKind == "action" ? .systemPurple : .labelColor
+      message.displayKind == "action" ? .systemPurple : .lurkerTimelineText
     let body = NSMutableAttributedString(
       attributedString: nsMessageBody(
         message,

@@ -66,7 +66,7 @@ struct MessageRow: View {
             .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
             Text(message.sender)
               .font(Theme.Fonts.nick.weight(message.isSelf == true ? .bold : .semibold))
-              .foregroundStyle(message.isSelf == true ? Color.primary : nickPaletteColor(message.senderColor))
+              .foregroundStyle(message.isSelf == true ? Color.lurkerTimelineText : nickPaletteColor(message.senderColor))
               .lineLimit(1)
               .truncationMode(.tail)
           }
@@ -102,7 +102,7 @@ struct MessageRow: View {
   private var messageBody: some View {
     Text(attributedBody(message))
       .font(Theme.Fonts.message)
-      .foregroundStyle(message.displayKind == "action" ? .purple : .primary)
+      .foregroundStyle(message.displayKind == "action" ? Color.purple : Color.lurkerTimelineText)
       .textSelection(.enabled)
   }
 

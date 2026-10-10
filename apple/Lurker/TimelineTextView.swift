@@ -86,7 +86,7 @@ struct TimelineTextView: NSViewRepresentable {
     textView.usesFindBar = true
     textView.importsGraphics = false
     textView.drawsBackground = true
-    textView.backgroundColor = .textBackgroundColor
+    textView.backgroundColor = .lurkerTimelineBackground
     textView.textContainerInset = NSSize(width: 0, height: 5)
     textView.textContainer?.widthTracksTextView = true
     textView.textContainer?.lineFragmentPadding = 0
@@ -109,7 +109,7 @@ struct TimelineTextView: NSViewRepresentable {
     scrollView.documentView = textView
     scrollView.hasVerticalScroller = true
     scrollView.drawsBackground = true
-    scrollView.backgroundColor = .textBackgroundColor
+    scrollView.backgroundColor = .lurkerTimelineBackground
     scrollView.contentView.postsBoundsChangedNotifications = true
 
     // NSTextView's legacy accessibility machinery ignores a subclass's
