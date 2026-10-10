@@ -200,7 +200,7 @@ func (m *model) applyMessageEvent(ev wsEvent) {
 	parsed, _ := time.Parse(time.RFC3339Nano, ev.TS)
 	msg := messageDTO{
 		ID: ev.ID, NetworkID: ev.NetworkID, BufferID: ev.BufferID,
-		TS: ev.TS, Sender: ev.Sender, Kind: ev.Kind, Target: ev.Target, Content: ev.Content,
+		TS: ev.TS, Sender: ev.Sender, Userhost: ev.Userhost, Kind: ev.Kind, Target: ev.Target, Content: ev.Content,
 		MentionsMe: ev.MentionsMe, Highlight: ev.Highlight, CountsAsUnread: ev.CountsAsUnread,
 		Muted:    ev.Muted,
 		IsSelf:   ev.IsSelf,

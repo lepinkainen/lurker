@@ -153,7 +153,21 @@ func systemMessageSymbol(_ message: Message) -> String {
 /// and the macOS NSTextView timeline.
 func systemMessageText(_ message: Message) -> String {
   let target = message.target ?? ""
+  let userhost = message.userhost.map { " (\($0))" } ?? ""
+  let reason = message.content.isEmpty ? "" : " (\(message.content))"
   switch message.kind {
+  case "join":
+    return "\(message.sender) joined\(userhost)"
+
+  case "part":
+    return "\(message.sender) left\(userhost)\(reason)"
+
+  case "quit":
+    return "\(message.sender) quit\(userhost)\(reason)"
+
+  case "kick":
+    return "\(target) was kicked by \(message.sender)\(userhost)\(reason)"
+
   case "away":
     return message.content.isEmpty
       ? "\(message.sender) is away"
@@ -163,7 +177,7 @@ func systemMessageText(_ message: Message) -> String {
     return "\(message.sender) is back"
 
   case "nick" where !target.isEmpty:
-    return "\(message.sender) is now known as \(target)"
+    return "\(message.sender)\(userhost) is now known as \(target)"
 
   case "account":
     return message.content.isEmpty

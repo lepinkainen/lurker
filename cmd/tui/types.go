@@ -51,6 +51,7 @@ type messageDTO struct {
 	BufferID       uuid.UUID `json:"buffer_id"`
 	TS             string    `json:"ts"`
 	Sender         string    `json:"sender"`
+	Userhost       string    `json:"userhost"`
 	Kind           string    `json:"kind"`
 	Target         string    `json:"target"`
 	Content        string    `json:"content"`
@@ -91,6 +92,7 @@ type wsEvent struct {
 	BufferID       uuid.UUID `json:"buffer_id"`
 	TS             string    `json:"ts"`
 	Sender         string    `json:"sender"`
+	Userhost       string    `json:"userhost"`
 	Kind           string    `json:"kind"`
 	Target         string    `json:"target"`
 	Content        string    `json:"content"`
