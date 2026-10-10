@@ -112,6 +112,7 @@ If collapsed presence is implemented:
 - Collapse runs of presence-only messages into a compact summary row.
 - Keep regular message ordering intact.
 - Expand-on-click is nice to have, not required for the first pass.
+- Quit/part + join by the same nick inside one run folds to `↔ nick nipped out` (IRCCloud behaviour); implemented client-side in web and Apple.
 
 ## Channel mode/status details
 

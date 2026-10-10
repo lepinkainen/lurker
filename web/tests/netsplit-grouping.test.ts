@@ -70,6 +70,34 @@ describe("groupPresenceRun", () => {
     expect(groups.every((g) => g.kind === "netsplit")).toBe(true);
   });
 
+  it("pairs a quit followed by a join from the same nick as a nipout", () => {
+    const groups = groupPresenceRun([msg("quit", "alice"), msg("join", "alice")]);
+    expect(groups).toHaveLength(1);
+    const g = groups[0];
+    if (g?.kind !== "nipout") throw new Error("expected nipout group");
+    expect(g.out.kind).toBe("quit");
+    expect(g.join.sender).toBe("alice");
+  });
+
+  it("pairs part+join too and keeps other events plain around the pair", () => {
+    const groups = groupPresenceRun([
+      msg("join", "bob"),
+      msg("part", "alice"),
+      msg("quit", "carol"),
+      msg("join", "alice"),
+    ]);
+    expect(groups.map((g) => g.kind)).toEqual(["plain", "nipout", "plain"]);
+    const tail = groups[2];
+    if (tail?.kind !== "plain") throw new Error("expected plain group");
+    expect(tail.items.map((m) => m.sender)).toEqual(["carol"]);
+  });
+
+  it("does not pair a join that precedes the quit or a different nick", () => {
+    const groups = groupPresenceRun([msg("join", "alice"), msg("quit", "alice"), msg("join", "bob")]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.kind).toBe("plain");
+  });
+
   it("handles empty input", () => {
     expect(groupPresenceRun([])).toEqual([]);
   });

@@ -319,13 +319,21 @@ func timelineItems(
   var lastDay: String?
   var presence = [Message]()
 
+  func emitGroup(_ group: [Message]) {
+    guard group.count > 1 else {
+      result.append(contentsOf: group.map(TimelineItem.message))
+      return
+    }
+    result.append(.presence(group[0].id, group))
+    if expandedGroups.contains(group[0].id) {
+      result.append(contentsOf: group.map(TimelineItem.message))
+    }
+  }
+
   func flushPresence() {
     guard !presence.isEmpty else { return }
     if buffer.collapsePresenceEvents, presence.count > 1 {
-      result.append(.presence(presence[0].id, presence))
-      if expandedGroups.contains(presence[0].id) {
-        result.append(contentsOf: presence.map(TimelineItem.message))
-      }
+      splitNipouts(presence).forEach(emitGroup)
     } else {
       result.append(contentsOf: presence.map(TimelineItem.message))
     }
@@ -352,6 +360,42 @@ func timelineItems(
   }
   flushPresence()
   return result
+}
+
+/// Splits a collapsed presence run into groups: each quit/part followed by a
+/// join from the same nick becomes its own two-message group ("nipped out",
+/// placed at the quit); everything else stays in plain groups in order.
+func splitNipouts(_ run: [Message]) -> [[Message]] {
+  var joinFor = [Int: Int]()
+  var used = Set<Int>()
+  for (i, m) in run.enumerated() where m.kind == "quit" || m.kind == "part" {
+    guard
+      let j = run.indices.first(where: { k in
+        k > i && !used.contains(k) && run[k].kind == "join" && run[k].sender == m.sender
+      })
+    else { continue }
+    joinFor[i] = j
+    used.insert(j)
+  }
+  var out = [[Message]]()
+  var plain = [Message]()
+  for (i, m) in run.enumerated() where !used.contains(i) {
+    guard let j = joinFor[i] else {
+      plain.append(m)
+      continue
+    }
+    if !plain.isEmpty { out.append(plain) }
+    plain = []
+    out.append([m, run[j]])
+  }
+  if !plain.isEmpty { out.append(plain) }
+  return out
+}
+
+/// True when `messages` is a nipout pair from `splitNipouts`.
+func isNipout(_ messages: [Message]) -> Bool {
+  messages.count == 2 && (messages[0].kind == "quit" || messages[0].kind == "part")
+    && messages[1].kind == "join" && messages[0].sender == messages[1].sender
 }
 
 // MARK: - TimelineItem

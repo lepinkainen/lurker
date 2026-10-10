@@ -387,6 +387,17 @@ function renderMessages(messagesEl: HTMLElement, stick: ScrollStick, ackBufferRe
         renderPlainRun(group.items);
         continue;
       }
+      if (group.kind === "nipout") {
+        messagesEl.appendChild(nipoutSummaryRow(group, rerender));
+        if (expandedPresenceGroups.has(nipoutGroupKey(group))) {
+          for (const message of [group.out, group.join]) {
+            const row = messageRow(message, msgDisplayKind(message));
+            row.classList.add("presence-expanded");
+            messagesEl.appendChild(row);
+          }
+        }
+        continue;
+      }
       messagesEl.appendChild(netsplitSummaryRow(group, rerender));
       const key = netsplitGroupKey(group);
       if (expandedPresenceGroups.has(key)) {
@@ -605,7 +616,11 @@ type NetsplitGroup = {
   quits: Message[];
   rejoins: Message[];
 };
-type PresenceGroup = { kind: "plain"; items: Message[] } | NetsplitGroup;
+// NipoutGroup is a quit/part immediately followed (within the same presence
+// run) by a join from the same nick — IRCCloud's "nipped out". Derived
+// client-side; it renders at the quit's position.
+type NipoutGroup = { kind: "nipout"; out: Message; join: Message };
+type PresenceGroup = { kind: "plain"; items: Message[] } | NetsplitGroup | NipoutGroup;
 
 // groupPresenceRun collates a run of presence messages by their server-side
 // netsplit annotation. A group renders at its first member's position;
@@ -616,7 +631,7 @@ export function groupPresenceRun(messages: Message[]): PresenceGroup[] {
   let plain: Message[] = [];
   const flushPlain = () => {
     if (plain.length > 0) {
-      out.push({ kind: "plain", items: plain });
+      out.push(...splitNipouts(plain));
       plain = [];
     }
   };
@@ -637,6 +652,76 @@ export function groupPresenceRun(messages: Message[]): PresenceGroup[] {
   }
   flushPlain();
   return out;
+}
+
+// splitNipouts pairs each quit/part with the next join by the same nick in
+// the run. Paired messages leave the plain run as a nipout group placed at
+// the quit; unpaired messages stay plain in their original order.
+function splitNipouts(items: Message[]): PresenceGroup[] {
+  const joinFor = new Map<number, number>();
+  const used = new Set<number>();
+  items.forEach((m, i) => {
+    if (m.kind !== "quit" && m.kind !== "part") return;
+    const j = items.findIndex((c, k) => k > i && !used.has(k) && c.kind === "join" && c.sender === m.sender);
+    if (j === -1) return;
+    joinFor.set(i, j);
+    used.add(j);
+  });
+  const out: PresenceGroup[] = [];
+  let plain: Message[] = [];
+  items.forEach((m, i) => {
+    if (used.has(i)) return;
+    const j = joinFor.get(i);
+    if (j === undefined) {
+      plain.push(m);
+      return;
+    }
+    if (plain.length > 0) out.push({ kind: "plain", items: plain });
+    plain = [];
+    out.push({ kind: "nipout", out: m, join: items[j] as Message });
+  });
+  if (plain.length > 0) out.push({ kind: "plain", items: plain });
+  return out;
+}
+
+function nipoutGroupKey(group: NipoutGroup) {
+  return `nipout:${group.out.id}`;
+}
+
+function nipoutSummaryRow(group: NipoutGroup, rerender: () => void) {
+  const key = nipoutGroupKey(group);
+  const expanded = expandedPresenceGroups.has(key);
+  const row = document.createElement("div");
+  row.className = `msg sys presence-summary nipout${expanded ? " expanded" : ""}`;
+  row.dataset.expanded = String(expanded);
+  row.setAttribute("role", "button");
+  row.tabIndex = 0;
+  row.setAttribute("aria-expanded", String(expanded));
+
+  const ts = document.createElement("span");
+  ts.className = "ts";
+  ts.textContent = formatTime(group.out.ts);
+  const gutter = document.createElement("span");
+  gutter.className = "gutter";
+  gutter.innerHTML = `<span class="arrow nil">↔</span>`;
+  const body = document.createElement("span");
+  body.className = "body";
+  body.append(nickEl(group.out.sender || "", "nick"), document.createTextNode(" nipped out"));
+
+  const toggle = () => {
+    if (expandedPresenceGroups.has(key)) expandedPresenceGroups.delete(key);
+    else expandedPresenceGroups.add(key);
+    rerender();
+  };
+  row.addEventListener("click", toggle);
+  row.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggle();
+  });
+
+  row.append(ts, gutter, body);
+  return row;
 }
 
 function netsplitGroupKey(group: NetsplitGroup) {

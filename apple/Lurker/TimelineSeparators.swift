@@ -131,7 +131,7 @@ struct PresenceSummary: View {
       }
     } label: {
       Label(summary, systemImage: "person.2.wave.2")
-        .font(.footnote.monospaced())
+        .font(Theme.Fonts.message)
         .foregroundStyle(.secondary)
         .padding(.vertical, 3)
     }
@@ -152,6 +152,9 @@ struct PresenceSummary: View {
 /// variant), shared by the SwiftUI DisclosureGroup and the macOS NSTextView
 /// timeline.
 func presenceSummaryText(_ messages: [Message]) -> String {
+  if isNipout(messages) {
+    return "↔ \(messages[0].sender) nipped out"
+  }
   if let split = messages.compactMap(\.netsplit).first {
     return "\(messages.count) users affected by netsplit \(split.serverA) ↔ \(split.serverB)"
   }

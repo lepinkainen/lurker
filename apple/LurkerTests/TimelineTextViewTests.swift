@@ -292,6 +292,23 @@ struct TimelineBlockTests {
   }
 
   @Test @MainActor
+  func `quit then join by same nick collapses to a nipout pair`() {
+    let buffer = makeBuffer(collapsePresence: true)
+    let quit = makeMessage(sender: "alice", kind: "quit", content: "", displayKind: "sys")
+    let other = makeMessage(sender: "bob", kind: "join", content: "", displayKind: "sys")
+    let join = makeMessage(sender: "alice", kind: "join", content: "", displayKind: "sys")
+    // items[0] is the day separator.
+    let items = timelineItems([quit, other, join], buffer: buffer)
+    guard case .presence(let id, let pair) = items[1] else { Issue.record("expected nipout group"); return }
+    #expect(id == quit.id)
+    #expect(pair.map(\.id) == [quit.id, join.id])
+    #expect(presenceSummaryText(pair) == "↔ alice nipped out")
+    // bob stays a single plain row.
+    guard case .message(let lone) = items[2] else { Issue.record("expected plain row"); return }
+    #expect(lone.id == other.id)
+  }
+
+  @Test @MainActor
   func `expanded presence group emits member rows`() {
     let join1 = makeMessage(sender: "a", kind: "join", content: "", displayKind: "sys")
     let join2 = makeMessage(sender: "b", kind: "join", content: "", displayKind: "sys")
