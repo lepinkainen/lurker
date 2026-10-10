@@ -212,7 +212,8 @@ private func messageBlock(
     block.append(avatarRun(for: message, model: context.model, font: nickFont))
     var nickAttributes: [NSAttributedString.Key: Any] = [
       .font: nickFont,
-      .foregroundColor: NSColor(nickPaletteColor(message.senderColor)),
+      // Own messages skip the nick palette (matches web).
+      .foregroundColor: message.isSelf == true ? NSColor.labelColor : NSColor(nickPaletteColor(message.senderColor)),
       .paragraphStyle: RowStyles.message,
       .toolTip: message.userhost ?? message.sender,
     ]

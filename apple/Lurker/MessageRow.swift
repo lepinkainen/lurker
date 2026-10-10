@@ -66,7 +66,7 @@ struct MessageRow: View {
             .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
             Text(message.sender)
               .font(Theme.Fonts.nick.weight(message.isSelf == true ? .bold : .semibold))
-              .foregroundStyle(nickPaletteColor(message.senderColor))
+              .foregroundStyle(message.isSelf == true ? Color.primary : nickPaletteColor(message.senderColor))
               .lineLimit(1)
               .truncationMode(.tail)
           }
