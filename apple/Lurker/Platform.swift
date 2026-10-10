@@ -15,16 +15,16 @@ import UIKit
 
 #if os(macOS)
 extension NSColor {
-  /// Timeline surface. Dark mode uses the web client's `--bg-0` (#0b0c10):
-  /// the system `textBackgroundColor` (#1e1e1e) washes out the nick palette.
-  /// Light mode stays on the system color.
+  /// Timeline surface. Dark mode uses the web IRCCloud Midnight theme's
+  /// `--bg-0` (#000000): the system `textBackgroundColor` (#1e1e1e) washes
+  /// out the nick palette. Light mode stays on the system color.
   static let lurkerTimelineBackground = NSColor(name: "lurkerTimelineBackground") { appearance in
-    appearance.isDark ? NSColor(srgbRed: 0x0b / 255, green: 0x0c / 255, blue: 0x10 / 255, alpha: 1) : .textBackgroundColor
+    appearance.isDark ? NSColor.black : .textBackgroundColor
   }
 
-  /// Primary message text. Dark mode uses the web client's `--fg-0` (#c0caf5).
+  /// Primary message text. Dark mode uses IRCCloud Midnight's `--fg-0` (#ffffff).
   static let lurkerTimelineText = NSColor(name: "lurkerTimelineText") { appearance in
-    appearance.isDark ? NSColor(srgbRed: 0xc0 / 255, green: 0xca / 255, blue: 0xf5 / 255, alpha: 1) : .labelColor
+    appearance.isDark ? NSColor.white : .labelColor
   }
 }
 
