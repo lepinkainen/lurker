@@ -384,11 +384,15 @@ func splitNipouts(_ run: [Message]) -> [[Message]] {
       plain.append(m)
       continue
     }
-    if !plain.isEmpty { out.append(plain) }
+    if !plain.isEmpty {
+      out.append(plain)
+    }
     plain = []
     out.append([m, run[j]])
   }
-  if !plain.isEmpty { out.append(plain) }
+  if !plain.isEmpty {
+    out.append(plain)
+  }
   return out
 }
 

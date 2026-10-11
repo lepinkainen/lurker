@@ -299,12 +299,16 @@ struct TimelineBlockTests {
     let join = makeMessage(sender: "alice", kind: "join", content: "", displayKind: "sys")
     // items[0] is the day separator.
     let items = timelineItems([quit, other, join], buffer: buffer)
-    guard case .presence(let id, let pair) = items[1] else { Issue.record("expected nipout group"); return }
+    guard case .presence(let id, let pair) = items[1] else { Issue.record("expected nipout group")
+      return
+    }
     #expect(id == quit.id)
     #expect(pair.map(\.id) == [quit.id, join.id])
     #expect(presenceSummaryText(pair) == "↔ alice nipped out")
     // bob stays a single plain row.
-    guard case .message(let lone) = items[2] else { Issue.record("expected plain row"); return }
+    guard case .message(let lone) = items[2] else { Issue.record("expected plain row")
+      return
+    }
     #expect(lone.id == other.id)
   }
 

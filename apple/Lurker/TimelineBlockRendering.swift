@@ -24,7 +24,9 @@ enum TimelineNSFonts {
 
   /// Same size as message rows: a smaller summary read as a visual glitch
   /// next to the individual join/part rows it stands in for.
-  static var presenceSummary: NSFont { message }
+  static var presenceSummary: NSFont {
+    message
+  }
 
   static func nick(isSelf: Bool) -> NSFont {
     .monospacedSystemFont(
