@@ -178,6 +178,8 @@ struct ComposerView: View {
     // Autofocus on buffer switch is desktop-only: on iOS programmatic focus
     // raises the software keyboard over the timeline the user came to read.
     .onChange(of: buffer.id) { _, _ in focused = true }
+    // Startup focus: neither trigger above fires at launch.
+    .onAppear { focused = true }
     #endif
   }
 

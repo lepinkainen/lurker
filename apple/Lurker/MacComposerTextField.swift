@@ -40,7 +40,8 @@ struct MacComposerTextField: NSViewRepresentable {
   }
 
   func makeNSView(context: Context) -> NSTextField {
-    let field = NSTextField()
+    let field = ComposerNSTextField()
+    field.onAttach = { [weak coordinator = context.coordinator] in coordinator?.parent.focused.wrappedValue == true }
     field.cell = ComposerTextFieldCell(textCell: "")
     field.isEditable = true
     field.isSelectable = true
@@ -93,6 +94,20 @@ struct MacComposerTextField: NSViewRepresentable {
     guard let width = proposal.width, width > 0 else { return nil }
     let size = nsView.cell!.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude))
     return CGSize(width: width, height: size.height)
+  }
+}
+
+/// Claims first responder when it joins a window while focus is requested, so
+/// the composer beats AppKit's initial key-view choice at launch.
+private final class ComposerNSTextField: NSTextField {
+  var onAttach: (() -> Bool)?
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    DispatchQueue.main.async { [weak self] in
+      guard let self, let window, isEnabled, currentEditor() == nil, onAttach?() == true else { return }
+      window.makeFirstResponder(self)
+    }
   }
 }
 
