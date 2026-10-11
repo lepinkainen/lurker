@@ -8,9 +8,9 @@ struct ComposerAutocompleteTests {
   // MARK: Internal
 
   @Test
-  func `nick prefix matches before substring`() {
+  func `nick matches prefix only`() {
     let matches = NickCompletion.matches(text: "al", members: members, ownNick: nil)
-    #expect(matches == ["alice", "Albert", "malice"])
+    #expect(matches == ["alice", "Albert"])
   }
 
   @Test

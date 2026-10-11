@@ -23,7 +23,6 @@ enum NickCompletion {
     let query = text.lowercased()
     var seen = Set<String>()
     var prefixes = [String]()
-    var contains = [String]()
     for member in members {
       let nick = member.nick
       guard !nick.isEmpty, member.`self` != true else { continue }
@@ -34,11 +33,9 @@ enum NickCompletion {
       guard seen.insert(lowered).inserted else { continue }
       if lowered.hasPrefix(query) {
         prefixes.append(nick)
-      } else if lowered.contains(query) {
-        contains.append(nick)
       }
     }
-    return Array((prefixes + contains).prefix(maxResults))
+    return Array(prefixes.prefix(maxResults))
   }
 
   /// Completing the first token always yields `"Nick: "` in the member's

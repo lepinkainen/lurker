@@ -459,10 +459,10 @@ describe("nick autocomplete", () => {
     expect(rows[0].textContent).toBe("Alice");
   });
 
-  it("sorts prefix matches before contains matches while preserving member order", () => {
+  it("matches nick prefix only, not substring, while preserving member order", () => {
     const { input, pop, buffer } = setup("ali");
     updateNickPop(input, pop, buffer);
-    expect([...pop.querySelectorAll(".ni")].map((row) => row.textContent)).toEqual(["Alice", "Alicia", "Malice"]);
+    expect([...pop.querySelectorAll(".ni")].map((row) => row.textContent)).toEqual(["Alice", "Alicia"]);
   });
 
   it("does not show popup for nick in the middle of a message", () => {

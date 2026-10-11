@@ -52,7 +52,6 @@ function matchNicks(buffer: Buffer, query: string): string[] {
   const selfNick = networkSelfNick(buffer);
   const seen = new Set<string>();
   const prefixes: string[] = [];
-  const contains: string[] = [];
 
   for (const member of members) {
     const nick = member.nick;
@@ -60,10 +59,9 @@ function matchNicks(buffer: Buffer, query: string): string[] {
     if (!nick || member.self || (selfNick !== "" && nickLower === selfNick) || seen.has(nickLower)) continue;
     seen.add(nickLower);
     if (nickLower.startsWith(lower)) prefixes.push(nick);
-    else if (nickLower.includes(lower)) contains.push(nick);
   }
 
-  return [...prefixes, ...contains].slice(0, MAX_RESULTS);
+  return prefixes.slice(0, MAX_RESULTS);
 }
 
 export function updateNickPop(inputEl: HTMLInputElement, popEl: HTMLElement, buffer: Buffer | undefined): boolean {
