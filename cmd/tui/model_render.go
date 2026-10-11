@@ -321,14 +321,19 @@ func formatTSTime(t time.Time) string {
 	return t.Local().Format("[15:04]")
 }
 
+// parens returns " (s)", or "" when s is empty.
+func parens(s string) string {
+	if s == "" {
+		return ""
+	}
+	return " (" + s + ")"
+}
+
 func formatMessage(m messageDTO, ownNick string) string {
 	ts := styleTimestamp.Render(formatTS(m.TS))
 	isSelf := m.Sender != "" && strings.EqualFold(m.Sender, ownNick)
 	content := mircFormat(m.Content)
-	uh := ""
-	if m.Userhost != "" {
-		uh = " (" + m.Userhost + ")"
-	}
+	uh := parens(m.Userhost)
 	// action prepends the timestamp outside any style wrap so styleAction's
 	// italic only applies to the event body itself.
 	action := func(body string) string {
@@ -358,15 +363,9 @@ func formatMessage(m messageDTO, ownNick string) string {
 	case "join":
 		return action(fmt.Sprintf("→ %s joined%s", m.Sender, uh))
 	case "part":
-		if m.Content != "" {
-			return action(fmt.Sprintf("← %s left%s (%s)", m.Sender, uh, m.Content))
-		}
-		return action(fmt.Sprintf("← %s left%s", m.Sender, uh))
+		return action(fmt.Sprintf("← %s left%s%s", m.Sender, uh, parens(m.Content)))
 	case "quit":
-		if m.Content != "" {
-			return action(fmt.Sprintf("⇠ %s quit%s (%s)", m.Sender, uh, m.Content))
-		}
-		return action(fmt.Sprintf("⇠ %s quit%s", m.Sender, uh))
+		return action(fmt.Sprintf("⇠ %s quit%s%s", m.Sender, uh, parens(m.Content)))
 	case "nick":
 		return action(fmt.Sprintf("— %s is now %s", m.Sender, m.Target))
 	case "kick":
