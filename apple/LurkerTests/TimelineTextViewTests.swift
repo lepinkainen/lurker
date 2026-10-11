@@ -295,10 +295,10 @@ struct TimelineBlockTests {
   func `quit then join by same nick collapses to a nipout pair`() {
     let buffer = makeBuffer(collapsePresence: true)
     let quit = makeMessage(sender: "alice", kind: "quit", content: "", displayKind: "sys")
-    let other = makeMessage(sender: "bob", kind: "join", content: "", displayKind: "sys")
     let join = makeMessage(sender: "alice", kind: "join", content: "", displayKind: "sys")
+    let other = makeMessage(sender: "bob", kind: "join", content: "", displayKind: "sys")
     // items[0] is the day separator.
-    let items = timelineItems([quit, other, join], buffer: buffer)
+    let items = timelineItems([quit, join, other], buffer: buffer)
     guard case .presence(let id, let pair) = items[1] else { Issue.record("expected nipout group")
       return
     }
@@ -310,6 +310,21 @@ struct TimelineBlockTests {
       return
     }
     #expect(lone.id == other.id)
+  }
+
+  @Test @MainActor
+  func `quit and join separated by another event stay a plain group`() {
+    let buffer = makeBuffer(collapsePresence: true)
+    let quitA = makeMessage(sender: "alice", kind: "quit", content: "", displayKind: "sys")
+    let quitB = makeMessage(sender: "bob", kind: "quit", content: "", displayKind: "sys")
+    let joinA = makeMessage(sender: "alice", kind: "join", content: "", displayKind: "sys")
+    let joinB = makeMessage(sender: "bob", kind: "join", content: "", displayKind: "sys")
+    let items = timelineItems([quitA, quitB, joinA, joinB], buffer: buffer)
+    guard case .presence(_, let group) = items[1] else { Issue.record("expected plain presence group")
+      return
+    }
+    #expect(group.count == 4)
+    #expect(items.count == 2)
   }
 
   @Test @MainActor

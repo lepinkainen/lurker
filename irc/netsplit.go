@@ -8,7 +8,7 @@ import (
 // Netsplit grouping tunables. Mirrored in web/src/netsplit.ts — keep in sync.
 const (
 	NetsplitQuitWindow   = 60 * time.Second
-	NetsplitRejoinWindow = 30 * time.Minute
+	NetsplitRejoinWindow = 2 * time.Hour
 	NetsplitMinQuits     = 2
 )
 
@@ -44,17 +44,17 @@ func looksLikeHost(s string) bool {
 		return false
 	}
 	// Restrict to LDH (letter-digit-hyphen) + dot, plus colon for IPv6
-	// literals. Rejects punctuation that real netsplit reasons never
-	// contain (`!`, `*`, `?`, `@`, `:` inside non-IPv6 — the colon check
-	// here is permissive on purpose). Without this restriction, "foo!bar
-	// baz.qux" would parse as a hostname pair.
+	// literals and `*` for masked server names (IRCnet hides leaf servers
+	// as `*.fi`). Rejects punctuation that real netsplit reasons never
+	// contain (`!`, `?`, `@`). Without this restriction, "foo!bar baz.qux"
+	// would parse as a hostname pair.
 	hasAlpha := false
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch {
 		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
 			hasAlpha = true
-		case c >= '0' && c <= '9', c == '.', c == '-', c == ':':
+		case c >= '0' && c <= '9', c == '.', c == '-', c == ':', c == '*':
 			// allowed
 		default:
 			return false

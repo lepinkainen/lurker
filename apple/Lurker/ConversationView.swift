@@ -362,33 +362,31 @@ func timelineItems(
   return result
 }
 
-/// Splits a collapsed presence run into groups: each quit/part followed by a
-/// join from the same nick becomes its own two-message group ("nipped out",
-/// placed at the quit); everything else stays in plain groups in order.
+/// Splits a collapsed presence run into groups: a quit/part immediately
+/// followed by a join from the same nick becomes its own two-message group
+/// ("nipped out"); everything else stays in plain groups in order. Strictly
+/// adjacent — any event in between breaks the pair, otherwise an unannotated
+/// netsplit renders as a wall of nipouts.
 func splitNipouts(_ run: [Message]) -> [[Message]] {
-  var joinFor = [Int: Int]()
-  var used = Set<Int>()
-  for (i, m) in run.enumerated() where m.kind == "quit" || m.kind == "part" {
-    guard
-      let j = run.indices.first(where: { k in
-        k > i && !used.contains(k) && run[k].kind == "join" && run[k].sender == m.sender
-      })
-    else { continue }
-    joinFor[i] = j
-    used.insert(j)
-  }
   var out = [[Message]]()
   var plain = [Message]()
-  for (i, m) in run.enumerated() where !used.contains(i) {
-    guard let j = joinFor[i] else {
-      plain.append(m)
+  var i = 0
+  while i < run.count {
+    let m = run[i]
+    if
+      i + 1 < run.count, m.kind == "quit" || m.kind == "part",
+      run[i + 1].kind == "join", run[i + 1].sender == m.sender
+    {
+      if !plain.isEmpty {
+        out.append(plain)
+      }
+      plain = []
+      out.append([m, run[i + 1]])
+      i += 2
       continue
     }
-    if !plain.isEmpty {
-      out.append(plain)
-    }
-    plain = []
-    out.append([m, run[j]])
+    plain.append(m)
+    i += 1
   }
   if !plain.isEmpty {
     out.append(plain)

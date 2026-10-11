@@ -83,13 +83,24 @@ describe("groupPresenceRun", () => {
     const groups = groupPresenceRun([
       msg("join", "bob"),
       msg("part", "alice"),
-      msg("quit", "carol"),
       msg("join", "alice"),
+      msg("quit", "carol"),
     ]);
     expect(groups.map((g) => g.kind)).toEqual(["plain", "nipout", "plain"]);
     const tail = groups[2];
     if (tail?.kind !== "plain") throw new Error("expected plain group");
     expect(tail.items.map((m) => m.sender)).toEqual(["carol"]);
+  });
+
+  it("does not pair when another event sits between the quit and the join (netsplit)", () => {
+    const groups = groupPresenceRun([
+      msg("quit", "alice"),
+      msg("quit", "bob"),
+      msg("join", "alice"),
+      msg("join", "bob"),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.kind).toBe("plain");
   });
 
   it("does not pair a join that precedes the quit or a different nick", () => {

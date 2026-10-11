@@ -654,32 +654,26 @@ export function groupPresenceRun(messages: Message[]): PresenceGroup[] {
   return out;
 }
 
-// splitNipouts pairs each quit/part with the next join by the same nick in
-// the run. Paired messages leave the plain run as a nipout group placed at
-// the quit; unpaired messages stay plain in their original order.
+// splitNipouts pairs a quit/part with an immediately following join by the
+// same nick. Strictly adjacent: any event in between (another quit, a join
+// by someone else) breaks the pair, otherwise an unannotated netsplit
+// renders as a wall of "nipped out" rows. Unpaired messages stay plain in
+// their original order.
 function splitNipouts(items: Message[]): PresenceGroup[] {
-  const joinFor = new Map<number, number>();
-  const used = new Set<number>();
-  items.forEach((m, i) => {
-    if (m.kind !== "quit" && m.kind !== "part") return;
-    const j = items.findIndex((c, k) => k > i && !used.has(k) && c.kind === "join" && c.sender === m.sender);
-    if (j === -1) return;
-    joinFor.set(i, j);
-    used.add(j);
-  });
   const out: PresenceGroup[] = [];
   let plain: Message[] = [];
-  items.forEach((m, i) => {
-    if (used.has(i)) return;
-    const j = joinFor.get(i);
-    if (j === undefined) {
-      plain.push(m);
-      return;
+  for (let i = 0; i < items.length; i++) {
+    const m = items[i] as Message;
+    const next = items[i + 1];
+    if ((m.kind === "quit" || m.kind === "part") && next?.kind === "join" && next.sender === m.sender) {
+      if (plain.length > 0) out.push({ kind: "plain", items: plain });
+      plain = [];
+      out.push({ kind: "nipout", out: m, join: next });
+      i++;
+      continue;
     }
-    if (plain.length > 0) out.push({ kind: "plain", items: plain });
-    plain = [];
-    out.push({ kind: "nipout", out: m, join: items[j] as Message });
-  });
+    plain.push(m);
+  }
   if (plain.length > 0) out.push({ kind: "plain", items: plain });
   return out;
 }

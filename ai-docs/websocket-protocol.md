@@ -281,7 +281,7 @@ A self nick change (registration alt nick, or a `NICK` on our own connection) al
 - `netsplit` — `{id, server_a, server_b}`
 - `message_ids` — earlier quit messages published before the cluster reached the netsplit threshold; clients patch these messages with the annotation and re-render
 
-Netsplit clustering is fully server-side: a cluster forms from ≥2 quits sharing a hostname-pair reason within 60s, joins by the same nicks within 30min are matched as rejoins, and every member message carries the shared `netsplit.id`. Clients group by id only — they never parse quit reasons or match nicks. The `buffer_update` `topic` field is stripped of mIRC codes before publish (DB keeps the raw topic).
+Netsplit clustering is fully server-side: a cluster forms from ≥2 quits sharing a hostname-pair reason within 60s (tokens may be masked, e.g. `hub.snt.utwente.nl *.fi` on IRCnet), joins by the same nicks within 2h are matched as rejoins, and every member message carries the shared `netsplit.id`. Clients group by id only — they never parse quit reasons or match nicks. The `buffer_update` `topic` field is stripped of mIRC codes before publish (DB keeps the raw topic).
 
 `channel_list`
 

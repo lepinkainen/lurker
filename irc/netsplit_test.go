@@ -63,7 +63,8 @@ func TestIsNetsplitReason(t *testing.T) {
 		{"a.b c.d ", false, "", ""},
 		{"a.b\tc.d", false, "", ""},
 		{"foo!bar baz.qux.example", false, "", ""},
-		{"*.net *.split", false, "", ""},
+		{"*.net *.split", true, "*.net", "*.split"},
+		{"hub.snt.utwente.nl *.fi", true, "hub.snt.utwente.nl", "*.fi"}, // IRCnet masked leaf
 		{"-.example.org x.example.org", true, "-.example.org", "x.example.org"},
 		{"123.example.org x.example.org", true, "123.example.org", "x.example.org"},
 		{"2001::1 fe80::1", false, "", ""}, // IPv6 literals (no dots) not supported; real netsplit reasons use hostnames

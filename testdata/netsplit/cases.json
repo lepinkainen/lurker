@@ -7,7 +7,8 @@
     {"in": "", "ok": false, "a": "", "b": ""},
     {"in": "a.b a.b", "ok": false, "a": "", "b": ""},
     {"in": "foo!bar baz.qux.example", "ok": false, "a": "", "b": ""},
-    {"in": "*.net *.split", "ok": false, "a": "", "b": ""}
+    {"in": "*.net *.split", "ok": true, "a": "*.net", "b": "*.split"},
+    {"in": "hub.snt.utwente.nl *.fi", "ok": true, "a": "hub.snt.utwente.nl", "b": "*.fi"}
   ],
   "casemap": [
     {"in": "Foo[bar]", "out": "foo{bar}"},
