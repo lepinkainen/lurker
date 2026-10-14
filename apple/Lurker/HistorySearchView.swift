@@ -31,16 +31,11 @@ struct HistorySearchView: View {
   @Environment(\.dismiss) private var dismiss
   @State private var query = ""
   @State private var scope = Scope.buffer
-  @State private var results = [Message]()
-  @State private var exhausted = false
-  @State private var searching = false
-  @State private var expandedID: UUID?
-  @State private var context = [Message]()
-  @State private var selection: UUID?
+  @State private var searchState = HistorySearchModel()
   @FocusState private var focused: Bool
 
   private var terms: [String] {
-    query.split(whereSeparator: \.isWhitespace).map(String.init)
+    HistorySearchModel.terms(query)
   }
 
   private var scopeBufferID: UUID? {
@@ -62,13 +57,16 @@ struct HistorySearchView: View {
   }
 
   private var matchCount: String {
-    if searching, results.isEmpty {
+    if searchState.unavailable {
+      return "Search unavailable"
+    }
+    if searchState.searching, searchState.results.isEmpty {
       return "Searching…"
     }
     if query.isEmpty {
       return ""
     }
-    return "\(results.count)\(exhausted ? "" : "+") matches"
+    return "\(searchState.results.count)\(searchState.exhausted ? "" : "+") matches"
   }
 
   #if os(macOS)
@@ -98,12 +96,12 @@ struct HistorySearchView: View {
 
       Divider()
 
-      List(results, selection: $selection) { message in
+      List(searchState.results, selection: $searchState.selection) { message in
         row(message)
           .tag(message.id)
           .contentShape(.rect)
           .onTapGesture { toggle(message.id) }
-          .onAppear { loadMoreIfLast(message) }
+          .onAppear { searchState.loadMoreIfLast(message, query: query, bufferID: scopeBufferID, transport: model.transport) }
       }
       .listStyle(.inset)
       .overlay { emptyState }
@@ -120,14 +118,19 @@ struct HistorySearchView: View {
     }
     .onAppear { focused = true }
     .onExitCommand {
-      if expandedID != nil {
-        expandedID = nil
+      if searchState.expandedID != nil {
+        searchState.expandedID = nil
       } else {
         dismiss()
       }
     }
-    .task(id: SearchKey(query: query, bufferID: scopeBufferID)) { await search() }
-    .task(id: expandedID) { await loadContext() }
+    .task(id: SearchKey(query: query, bufferID: scopeBufferID)) { await searchState.search(
+      query: query,
+      bufferID: scopeBufferID,
+      transport: model.transport,
+    ) }
+    .task(id: searchState.expandedID) { await searchState.loadContext(transport: model.transport) }
+    .onDisappear { searchState.cancel() }
   }
   #else
   private var iosBody: some View {
@@ -138,13 +141,13 @@ struct HistorySearchView: View {
           .listRowInsets(EdgeInsets())
       }
       Section(matchCount) {
-        ForEach(results) { message in
+        ForEach(searchState.results) { message in
           NavigationLink {
             SearchContextView(hit: message, terms: terms)
           } label: {
             row(message)
           }
-          .onAppear { loadMoreIfLast(message) }
+          .onAppear { searchState.loadMoreIfLast(message, query: query, bufferID: scopeBufferID, transport: model.transport) }
         }
       }
     }
@@ -153,13 +156,24 @@ struct HistorySearchView: View {
     .navigationTitle("Search")
     .navigationBarTitleDisplayMode(.inline)
     .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search messages")
-    .task(id: SearchKey(query: query, bufferID: scopeBufferID)) { await search() }
+    .onDisappear { searchState.cancel() }
+    .task(id: SearchKey(query: query, bufferID: scopeBufferID)) { await searchState.search(
+      query: query,
+      bufferID: scopeBufferID,
+      transport: model.transport,
+    ) }
   }
   #endif
 
   @ViewBuilder
   private var emptyState: some View {
-    if !query.isEmpty, !searching, results.isEmpty {
+    if searchState.unavailable, searchState.results.isEmpty {
+      ContentUnavailableView(
+        "Search unavailable",
+        systemImage: "network.slash",
+        description: Text("Connect to a server to search history."),
+      )
+    } else if !query.isEmpty, !searchState.searching, searchState.results.isEmpty {
       ContentUnavailableView.search(text: query)
     }
   }
@@ -191,11 +205,11 @@ struct HistorySearchView: View {
           }
           Text(highlighted(message.content, terms: terms))
             .font(Theme.Fonts.message)
-            .lineLimit(expandedID == message.id ? nil : 2)
+            .lineLimit(searchState.expandedID == message.id ? nil : 2)
         }
       }
-      if expandedID == message.id {
-        ContextCard(hit: message, messages: context, terms: terms)
+      if searchState.expandedID == message.id {
+        ContextCard(hit: message, messages: searchState.context, terms: terms)
           .padding(.leading, 36)
       }
     }
@@ -209,60 +223,13 @@ struct HistorySearchView: View {
   }
 
   private func toggleSelection() {
-    guard let selection else { return }
+    guard let selection = searchState.selection else { return }
     toggle(selection)
   }
 
   private func toggle(_ id: UUID) {
-    selection = id
-    expandedID = expandedID == id ? nil : id
-  }
-
-  private func loadMoreIfLast(_ message: Message) {
-    guard message.id == results.last?.id, !exhausted, !searching else { return }
-    Task { await search(before: message.id) }
-  }
-
-  private func search(before: UUID? = nil) async {
-    guard let transport = model.transport else { return }
-    if before == nil {
-      // Debounce: a fresh keystroke replaces this task via .task(id:).
-      try? await Task.sleep(for: .milliseconds(250))
-      guard !Task.isCancelled else { return }
-      expandedID = nil
-    }
-    guard !terms.isEmpty else {
-      results = []
-      exhausted = true
-      return
-    }
-    searching = true
-    defer { searching = false }
-    do {
-      let page = try await transport.searchMessages(query: query, bufferID: scopeBufferID, before: before)
-      guard !Task.isCancelled else { return }
-      results = before == nil ? page : results + page
-      exhausted = page.count < 50
-      if before == nil, selection == nil || !results.contains(where: { $0.id == selection }) {
-        selection = results.first?.id
-      }
-    } catch is CancellationError {
-      return
-    } catch {
-      if before == nil {
-        results = []
-      }
-      exhausted = true
-    }
-  }
-
-  private func loadContext() async {
-    context = []
-    guard
-      let expandedID, let transport = model.transport,
-      let hit = results.first(where: { $0.id == expandedID })
-    else { return }
-    context = (try? await transport.fetchContext(bufferID: hit.bufferID, around: hit.id)) ?? []
+    searchState.selection = id
+    searchState.expandedID = searchState.expandedID == id ? nil : id
   }
 
 }

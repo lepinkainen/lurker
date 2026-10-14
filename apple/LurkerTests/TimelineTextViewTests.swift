@@ -177,7 +177,7 @@ private func makeContext(
   buffer: Buffer? = nil,
   expandedGroups: Set<UUID> = [],
 ) -> TimelineRenderContext {
-  let defaults = UserDefaults(suiteName: "xyz.endymion.lurker.tests.\(UUID().uuidString)")!
+  let defaults = isolatedDefaults()
   let model = AppModel(transport: FixtureTransport(), defaults: defaults)
   return TimelineRenderContext(
     buffer: buffer ?? makeBuffer(),
@@ -351,7 +351,7 @@ private struct CoordinatorHarness {
   // MARK: Lifecycle
 
   init(buffer: Buffer, messages: [Message]) {
-    let defaults = UserDefaults(suiteName: "xyz.endymion.lurker.tests.\(UUID().uuidString)")!
+    let defaults = isolatedDefaults()
     model = AppModel(transport: nil, defaults: defaults, runsConnectionLoop: false)
     self.buffer = buffer
     model.buffers[buffer.id] = buffer

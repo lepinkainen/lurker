@@ -1,8 +1,14 @@
 import Foundation
 
-extension AppModel {
+// MARK: - CommandFailure
 
-  // MARK: Internal
+struct CommandFailure: Identifiable {
+  let id = UUID()
+  let message: String
+  let content: String?
+}
+
+extension AppModel {
 
   func start() {
     guard runsConnectionLoop else { return }
@@ -26,8 +32,12 @@ extension AppModel {
   }
 
   func stop() {
+    connectionGeneration += 1
     connectionTask?.cancel()
     connectionTask = nil
+    verifyTask?.cancel()
+    verifyTask = nil
+    syncing = false
     if let transport {
       Task { await transport.disconnect() }
     }
@@ -54,15 +64,18 @@ extension AppModel {
     switch connectionState {
     case .connected:
       guard let transport, !syncing else { return }
+      let generation = connectionGeneration
       syncing = true
       verifyTask = Task {
         do {
           try await transport.ping()
         } catch {
+          guard isCurrent(generation) else { return }
           // Cancelling the socket makes the receive loop throw, which sends
           // connectionLoop into its normal reconnect path.
           await transport.disconnect()
         }
+        guard isCurrent(generation) else { return }
         syncing = false
       }
 
@@ -79,25 +92,49 @@ extension AppModel {
   @discardableResult
   func send(_ command: ClientCommand) -> Task<Void, Never>? {
     guard let transport else { return nil }
+    let origin = selectedBufferID
+    let generation = connectionGeneration
+    let destination = command.channel ?? command.target
+      ?? command.bufferID.flatMap { buffers[$0]?.name }
+      ?? selectedBuffer?.name ?? "server"
+    let server = configuredURL?.absoluteString
     return Task {
       do {
         try await transport.send(command)
       } catch {
-        composerError = error.localizedDescription
-        // A failed plain message goes back into the composer instead of
-        // vanishing — the composer was cleared optimistically before the
-        // send. Only if the user hasn't started typing something new.
-        if command.type == "send", let content = command.content, composerText.isEmpty {
-          composerText = content
+        // A failed send still needs recovery after its connection is replaced.
+        // Keep that content in a separate notice, never in the new server's draft.
+        let sameSession = generation == connectionGeneration
+        if sameSession, selectedBufferID == origin {
+          composerError = error.localizedDescription
+          if command.type == "send", let content = command.content, composerText.isEmpty {
+            composerText = content
+          }
+        } else {
+          if sameSession, let origin, command.type == "send", let content = command.content {
+            inputHistory.recoverDraft(content, buffer: origin)
+          }
+          let action = command.type.replacingOccurrences(of: "_", with: " ").capitalized
+          let location = server.map { "\(destination) on \($0)" } ?? destination
+          commandFailures.append(CommandFailure(
+            message: "\(action) failed for \(location): \(error.localizedDescription)",
+            content: command.type == "send" ? command.content : nil,
+          ))
         }
       }
     }
   }
 
-  // MARK: Private
+  /// False once the task was cancelled or `stop()` replaced the connection;
+  /// every await in the connection path re-checks this before publishing state.
+  func isCurrent(_ generation: Int) -> Bool {
+    !Task.isCancelled && generation == connectionGeneration
+  }
 
-  private func connectionLoop() async {
+  /// Internal so transport tests can exercise the loop without notification setup.
+  func connectionLoop() async {
     guard let transport else { return }
+    let generation = connectionGeneration
     var attempt = 0
     while !Task.isCancelled {
       do {
@@ -105,14 +142,20 @@ extension AppModel {
         hydrated = false
         queuedEvents.removeAll(keepingCapacity: true)
         let stream = await transport.openEvents()
+        guard isCurrent(generation) else { return }
         let receiver = Task { @MainActor [weak self] in
           for try await event in stream {
-            self?.receive(event)
+            guard let self, isCurrent(generation) else { return }
+            receive(event)
           }
         }
         defer { receiver.cancel() }
-        serviceIdentity = try await transport.validateServer()
-        applySnapshot(try await transport.fetchState())
+        let identity = try await transport.validateServer()
+        guard isCurrent(generation) else { return }
+        serviceIdentity = identity
+        let snapshot = try await transport.fetchState()
+        guard isCurrent(generation) else { return }
+        applySnapshot(snapshot)
         hydrated = true
         for event in queuedEvents {
           apply(event)
@@ -125,7 +168,11 @@ extension AppModel {
       } catch is CancellationError {
         return
       } catch {
+        // URLSession cancellation can arrive as URLError.cancelled, not just
+        // CancellationError. An old session must not publish reconnect state.
+        guard isCurrent(generation) else { return }
         await transport.disconnect()
+        guard isCurrent(generation) else { return }
         hydrated = false
         attempt += 1
         let delay = min(30, 1 << min(attempt - 1, 5))

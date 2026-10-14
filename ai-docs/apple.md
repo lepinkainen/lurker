@@ -37,6 +37,7 @@ Source organization:
 
 - `AppModel.swift` owns observable state, initialization, selection, and composer/history actions. Extensions in `AppModel+Connection.swift`, `AppModel+Events.swift`, `AppModel+Sidebar.swift`, and `AppModel+Fixtures.swift` hold connection handling, server-event application, sidebar ordering/navigation, and preview fixtures. Stored properties stay in the core class; helpers shared across files have internal access.
 - `ConversationView.swift` composes the conversation and derives timeline items. `ComposerView.swift`, `MessageRow.swift`, and `TimelineSeparators.swift` contain the corresponding views; `TimelineFormatting.swift` holds shared formatting helpers.
+- `HistorySearchModel.swift` owns observable search results, pagination, and inline context requests. `HistorySearchView.swift` supplies query/scope input and platform-specific presentation.
 - `MacComposerTextField.swift` wraps a macOS `NSTextField` with its own field editor to intercept image Paste, including menu validation. Text paste and Undo remain AppKit operations; history, autocomplete, submission, and draft state stay in `ComposerView`/`AppModel`. The composer takes focus at launch (`onAppear` plus a window-attach hook in the field); iOS never autofocuses. iOS retains the SwiftUI text field. `Clipboard` in `Platform.swift` selects the original GIF/PNG/JPEG representation ahead of clipboard TIFF alternatives.
 - `TimelineTextView.swift` owns the macOS container, representable, and coordinator. `TimelineNSViews.swift` contains the native text/scroll/accessibility views; `TimelineDiff.swift`, `TimelineBlockRendering.swift`, `TimelineAvatarImages.swift`, and `PreviewTextAttachment.swift` hold diffing, attributed rows, bitmap caching, and preview attachments.
 
@@ -88,6 +89,47 @@ The model:
 - stores only client-local preferences and the selected endpoint in `UserDefaults`
 
 ## Development
+
+### Async request ownership
+
+The main-actor model can still receive obsolete results after an `await`.
+`AppModel.stop()` increments a connection generation and cancels the connection
+loop and focus ping. The loop checks cancellation and that generation before
+applying identity, snapshots, events, or reconnect state. The ping uses the same
+checks before disconnecting or clearing its status. Treat `URLError.cancelled`
+as canceled work when the owning task or session is obsolete; checking only
+`CancellationError` misses URLSession's error path.
+
+A failed send restores text only to its initiating buffer. If the user has
+switched channels, recovery updates the original stored draft without replacing
+newer text or ending input-history browsing. The failure also appears in a
+window-level notice naming the destination and server, with Copy Message for
+failed sends. Non-message commands use the same notice after a buffer switch.
+Notices queue until dismissed so concurrent failures do not replace each other.
+Completions from a replaced connection retain failed text in that notice instead
+of restoring it into the new session's drafts. Recovery and notices are in-memory.
+
+SwiftUI owns first-page search and inline-context tasks through `.task(id:)`.
+`HistorySearchModel` owns pagination tasks and cancels them when a new search
+starts or the view disappears. Search and context generations reject late
+successes, errors, and cleanup from obsolete requests. The page-loading flag is
+reserved before scheduling a page task, preventing duplicate loads from repeated
+row appearances. The macOS inline context also checks the expanded message ID
+before publishing a result.
+
+A new search invalidates obsolete requests immediately but keeps the expanded
+context visible through the debounce. Without a transport, search preserves the
+previous results and context and displays Search unavailable, rather than claiming
+zero matches. Pagination stays disabled until a search can run again.
+
+`ConcurrencyRegressionTests.swift` holds transport responses with continuations,
+changes the active buffer, query, or session, then releases the old response.
+It covers both late success and URLSession cancellation errors without sleeps.
+The search model's injected debounce lets tests bypass the production 250 ms
+delay. Existing first-page cancellation behavior remains covered by a passing
+control case.
+
+### Build and checks
 
 Build and open the app:
 

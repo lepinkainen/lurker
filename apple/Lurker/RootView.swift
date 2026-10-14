@@ -9,6 +9,7 @@ struct RootView: View {
   var body: some View {
     @Bindable var model = model
     layout
+      .safeAreaInset(edge: .top, spacing: 0) { commandFailureBanner }
       .sheet(isPresented: $model.showingConnectionEditor) {
         ConnectionEditor(required: model.configuredURL == nil)
           .environment(model)
@@ -90,6 +91,24 @@ struct RootView: View {
   #if os(iOS)
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   #endif
+
+  @ViewBuilder
+  private var commandFailureBanner: some View {
+    if let failure = model.commandFailures.first {
+      HStack(alignment: .top) {
+        Label(failure.message, systemImage: "exclamationmark.triangle")
+          .textSelection(.enabled)
+        Spacer()
+        if let content = failure.content {
+          Button("Copy Message") { Clipboard.copy(content) }
+        }
+        Button("Dismiss") { model.commandFailures.removeAll { $0.id == failure.id } }
+      }
+      .padding()
+      .background(.regularMaterial)
+      .accessibilityIdentifier("commandFailureBanner")
+    }
+  }
 
   // iPhone (compact width) gets a NavigationStack that pushes the conversation:
   // NavigationSplitView only auto-pushes its detail column when the sidebar is a

@@ -146,6 +146,7 @@ final class AppModel {
   var showingSettings = false
   var composerText = ""
   var composerError: String?
+  var commandFailures = [CommandFailure]()
   // True while an attached image upload is in flight (disables the attach
   // affordance and shows a small progress indicator in the composer).
   var isUploading = false
@@ -170,6 +171,8 @@ final class AppModel {
 
   @ObservationIgnored var transport: (any LurkerTransport)?
   @ObservationIgnored var connectionTask: Task<Void, Never>?
+  /// Invalidates async completions when the configured server is replaced.
+  @ObservationIgnored var connectionGeneration = 0
   @ObservationIgnored var queuedEvents = [ServerEvent]()
   @ObservationIgnored var hydrated = false
   @ObservationIgnored let defaults: UserDefaults

@@ -1409,10 +1409,6 @@ struct AppModelTests {
 
   // MARK: Private
 
-  private func isolatedDefaults() -> UserDefaults {
-    UserDefaults(suiteName: "xyz.endymion.lurker.tests.\(UUID().uuidString)")!
-  }
-
   private func network(id: UUID) -> Network {
     Network(
       id: id,
@@ -1561,4 +1557,9 @@ private actor HistoryStubTransport: LurkerTransport {
 
   private var page = [Message]()
 
+}
+
+/// A fresh UserDefaults suite per test so persisted state never leaks between tests.
+func isolatedDefaults() -> UserDefaults {
+  UserDefaults(suiteName: "xyz.endymion.lurker.tests.\(UUID().uuidString)")!
 }

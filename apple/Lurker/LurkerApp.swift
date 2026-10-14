@@ -19,7 +19,14 @@ struct LurkerApp: App {
         _model = State(initialValue: AppModel())
         return
       }
-      _model = State(initialValue: AppModel(transport: FixtureTransport()))
+      let model = AppModel(transport: FixtureTransport())
+      if ProcessInfo.processInfo.arguments.contains("-ui-testing-command-failures") {
+        model.commandFailures = [
+          CommandFailure(message: "Send failed for #previous on localhost:8080", content: "recover this message"),
+          CommandFailure(message: "Join failed for #another on localhost:8080", content: nil),
+        ]
+      }
+      _model = State(initialValue: model)
     } else {
       _model = State(initialValue: AppModel())
     }

@@ -10,6 +10,9 @@ final class LurkerUITests: XCTestCase {
     continueAfterFailure = false
     app = XCUIApplication()
     app.launchArguments = ["-ui-testing"]
+    if name.contains("CommandFailure") {
+      app.launchArguments += ["-ui-testing-command-failures"]
+    }
     if name.contains("LiveIRC") {
       app.launchArguments += [
         "-ui-testing-live",
@@ -18,6 +21,40 @@ final class LurkerUITests: XCTestCase {
       ]
     }
     app.launch()
+  }
+
+  func testCommandFailureNoticeCopiesMessageAndDismissesInOrder() {
+    let pasteboard = NSPasteboard.general
+    let savedItems = pasteboard.pasteboardItems?.map { item in
+      item.types.compactMap { type in item.data(forType: type).map { (type, $0) } }
+    } ?? []
+    defer {
+      pasteboard.clearContents()
+      pasteboard.writeObjects(savedItems.map { values in
+        let item = NSPasteboardItem()
+        for (type, data) in values { item.setData(data, forType: type) }
+        return item
+      })
+    }
+
+    let first = app.staticTexts["Send failed for #previous on localhost:8080"]
+    XCTAssertTrue(first.waitForExistence(timeout: 5))
+    selectBuffer("#lurker-full")
+    XCTAssertTrue(first.exists)
+    app.buttons["Copy Message"].click()
+    XCTAssertEqual(pasteboard.string(forType: .string), "recover this message")
+    XCTAssertTrue(first.exists)
+    let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+    screenshot.name = "apple-command-failure-recovery"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+    app.buttons["Dismiss"].click()
+    let second = app.staticTexts["Join failed for #another on localhost:8080"]
+    XCTAssertTrue(second.waitForExistence(timeout: 3))
+    XCTAssertFalse(first.exists)
+    XCTAssertFalse(app.buttons["Copy Message"].exists)
+    app.buttons["Dismiss"].click()
+    XCTAssertFalse(second.exists)
   }
 
   func testDailyDriverLayout() {

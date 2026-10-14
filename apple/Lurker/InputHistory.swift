@@ -90,6 +90,15 @@ struct InputHistory {
     perBuffer[buffer] = state
   }
 
+  /// Recover a failed send without overwriting newer text or ending a history
+  /// browse. Unlike a buffer switch, recovery must preserve the browse cursor.
+  mutating func recoverDraft(_ text: String, buffer: UUID) {
+    var state = perBuffer[buffer] ?? BufferState()
+    guard state.draft.isEmpty else { return }
+    state.draft = text
+    perBuffer[buffer] = state
+  }
+
   /// The draft to restore when entering a buffer; also ends any browse.
   mutating func restoreDraft(buffer: UUID) -> String {
     var state = perBuffer[buffer] ?? BufferState()

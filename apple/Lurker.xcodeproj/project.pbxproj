@@ -35,6 +35,7 @@
 		A20000000000000000000002 /* SlashCommandsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* SlashCommandsTests.swift */; };
 		A20000000000000000000003 /* WireModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* WireModelTests.swift */; };
 		A20000000000000000000004 /* AppModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000004 /* AppModelTests.swift */; };
+		A20000000000000000000009 /* ConcurrencyRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000009 /* ConcurrencyRegressionTests.swift */; };
 		A20000000000000000000005 /* ComposerAutocompleteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000005 /* ComposerAutocompleteTests.swift */; };
 		A20000000000000000000006 /* InputHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000006 /* InputHistoryTests.swift */; };
 		A20000000000000000000007 /* ImageEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000007 /* ImageEncodingTests.swift */; };
@@ -55,6 +56,7 @@
 		A10000000000000000000026 /* TimelineAvatarImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000028 /* TimelineAvatarImages.swift */; };
 		A10000000000000000000027 /* MacComposerTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000029 /* MacComposerTextField.swift */; };
 		A10000000000000000000028 /* HistorySearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002A /* HistorySearchView.swift */; };
+		A10000000000000000000029 /* HistorySearchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002B /* HistorySearchModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -106,6 +108,7 @@
 		B20000000000000000000002 /* SlashCommandsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommandsTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000003 /* WireModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireModelTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000004 /* AppModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelTests.swift; sourceTree = "<group>"; };
+		B20000000000000000000009 /* ConcurrencyRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConcurrencyRegressionTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000005 /* ComposerAutocompleteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerAutocompleteTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000006 /* InputHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputHistoryTests.swift; sourceTree = "<group>"; };
 		B20000000000000000000007 /* ImageEncodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageEncodingTests.swift; sourceTree = "<group>"; };
@@ -129,6 +132,7 @@
 		B10000000000000000000028 /* TimelineAvatarImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TimelineAvatarImages.swift"; sourceTree = "<group>"; };
 		B10000000000000000000029 /* MacComposerTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacComposerTextField.swift; sourceTree = "<group>"; };
 		B1000000000000000000002A /* HistorySearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySearchView.swift; sourceTree = "<group>"; };
+		B1000000000000000000002B /* HistorySearchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySearchModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -181,6 +185,7 @@
 				B10000000000000000000028 /* TimelineAvatarImages.swift */,
 				B10000000000000000000029 /* MacComposerTextField.swift */,
 				B1000000000000000000002A /* HistorySearchView.swift */,
+				B1000000000000000000002B /* HistorySearchModel.swift */,
 				B10000000000000000000023 /* AppModel+Fixtures.swift */,
 				B10000000000000000000022 /* PreviewTextAttachment.swift */,
 				B10000000000000000000021 /* TimelineBlockRendering.swift */,
@@ -204,6 +209,7 @@
 				B20000000000000000000002 /* SlashCommandsTests.swift */,
 				B20000000000000000000003 /* WireModelTests.swift */,
 				B20000000000000000000004 /* AppModelTests.swift */,
+				B20000000000000000000009 /* ConcurrencyRegressionTests.swift */,
 				B20000000000000000000005 /* ComposerAutocompleteTests.swift */,
 				B20000000000000000000006 /* InputHistoryTests.swift */,
 				B20000000000000000000007 /* ImageEncodingTests.swift */,
@@ -333,6 +339,7 @@
 				A10000000000000000000026,
 				A10000000000000000000027,
 				A10000000000000000000028,
+				A10000000000000000000029,
 				A10000000000000000000018, A10000000000000000000019, A1000000000000000000001A, A1000000000000000000001B, A1000000000000000000001C, A1000000000000000000001D, A1000000000000000000001E, A1000000000000000000001F, A10000000000000000000020, A10000000000000000000021,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -340,7 +347,7 @@
 		E20000000000000000000002 = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003, A20000000000000000000004, A20000000000000000000005, A20000000000000000000006, A20000000000000000000007, A20000000000000000000008);
+			files = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003, A20000000000000000000004, A20000000000000000000005, A20000000000000000000006, A20000000000000000000007, A20000000000000000000008, A20000000000000000000009);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		E30000000000000000000002 = {
