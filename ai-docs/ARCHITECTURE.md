@@ -13,6 +13,7 @@ This document is for AI agents and other technical readers. It gives the system 
 - [frontend.md](frontend.md) — web UI layout, source-of-truth rules, hydration model
 - [apple.md](apple.md) — native SwiftUI client, endpoint policy, state model, packaging
 - [apple-pitfalls.md](apple-pitfalls.md) — Lurker-specific SwiftUI/macOS crash and layout pitfalls, with fixes
+- [apple-skills.md](apple-skills.md) — repository-local Apple development skills and adaptation notes
 - [theming.md](theming.md) — YAML themes, loader, `GET /api/themes`, how to add a theme
 - [tui.md](tui.md) — terminal UI client, configuration, keyboard controls, API usage
 - [desktop.md](desktop.md) — Tauri desktop shell (PoC): remote-URL design, external links, Rust-side uploads, Linux/WebKitGTK requirements
