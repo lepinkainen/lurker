@@ -13,7 +13,7 @@ func TestNickPublishesPresenceAndUpdatesSelfNick(t *testing.T) {
 	defer unsub()
 	client := newTestClient(t)
 	var currentNick string
-	f.Handler.connectedHook = func(nick string) { currentNick = nick }
+	f.Handler.connectedHook = func(nick string) bool { currentNick = nick; return true }
 
 	f.Handler.onNick(client, mustEvent(t, ":tester!u@h NICK newtester"))
 

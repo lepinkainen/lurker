@@ -97,55 +97,61 @@ func (h *handler) storeEvent(e girc.Event, bufName, bufKind, kind, target, conte
 			h.publishBufferUpdate(BufferUpdateEvent{Type: "buffer_update", ID: bufID, NetworkID: h.networkID, Archived: new(false)})
 		}
 	}
-	id, storedTS, inserted, err := ircdb.InsertLogMessage(ctx, h.db, ircdb.LogMessageInput{
-		BufferID:  bufID,
-		MsgID:     msgID,
-		Timestamp: ts,
-		Sender:    sender,
-		Userhost:  userhost,
-		Account:   account,
-		Kind:      kind,
-		Target:    target,
-		Content:   content,
-		Raw:       raw,
-	})
-	if err != nil {
-		slog.Error("insert message", "err", err, "network", h.networkName, "kind", kind)
-		return
-	}
-	if !inserted || h.hub == nil {
-		return
-	}
 	nick := ""
 	if h.nickFn != nil {
 		nick = h.nickFn()
 	}
-	nsMeta := h.trackNetsplit(bufID, id, bufKind, kind, sender, content, storedTS, ts)
-	ev := (&MessageEvent{
-		Type:      "message",
-		ID:        id,
-		NetworkID: h.networkID,
-		BufferID:  bufID,
-		MsgID:     msgID,
-		TS:        storedTS,
-		Sender:    sender,
-		Userhost:  userhost,
-		Account:   account,
-		Kind:      kind,
-		Target:    target,
-		Content:   content,
-	}).WithSemantics(nick)
-	ev.Muted = muted
-	ev.Netsplit = nsMeta
-	h.hub.Publish(ev)
-	h.enqueuePreviews(id, bufID, bufKind, kind, content)
+	// Insert and publish under the stream lock: a snapshot can then never
+	// contain the row without the event having gone out before it, nor see
+	// the event's sequence without the row (see hub.Hub).
+	err = h.hub.Do(func(publish func(any)) error {
+		id, storedTS, inserted, ierr := ircdb.InsertLogMessage(ctx, h.db, ircdb.LogMessageInput{
+			BufferID:  bufID,
+			MsgID:     msgID,
+			Timestamp: ts,
+			Sender:    sender,
+			Userhost:  userhost,
+			Account:   account,
+			Kind:      kind,
+			Target:    target,
+			Content:   content,
+			Raw:       raw,
+		})
+		if ierr != nil || !inserted {
+			return ierr
+		}
+		nsMeta := h.trackNetsplit(bufID, id, bufKind, kind, sender, content, storedTS, ts, publish)
+		ev := (&MessageEvent{
+			Type:      "message",
+			ID:        id,
+			NetworkID: h.networkID,
+			BufferID:  bufID,
+			MsgID:     msgID,
+			TS:        storedTS,
+			Sender:    sender,
+			Userhost:  userhost,
+			Account:   account,
+			Kind:      kind,
+			Target:    target,
+			Content:   content,
+		}).WithSemantics(nick)
+		ev.Muted = muted
+		ev.Netsplit = nsMeta
+		publish(ev)
+		h.enqueuePreviews(id, bufID, bufKind, kind, content)
+		return nil
+	})
+	if err != nil {
+		slog.Error("insert message", "err", err, "network", h.networkName, "kind", kind)
+	}
 }
 
 // trackNetsplit feeds stored channel quit/join messages through the live
 // netsplit tracker. Returns the annotation for the outgoing message event
 // (nil when it isn't part of a qualified netsplit) and publishes a
-// retroactive NetsplitEvent for earlier quits when a cluster qualifies.
-func (h *handler) trackNetsplit(bufID, msgID uuid.UUID, bufKind, kind, sender, content, storedTS string, fallbackTS time.Time) *NetsplitMeta {
+// retroactive NetsplitEvent (through publish) for earlier quits when a
+// cluster qualifies.
+func (h *handler) trackNetsplit(bufID, msgID uuid.UUID, bufKind, kind, sender, content, storedTS string, fallbackTS time.Time, publish func(any)) *NetsplitMeta {
 	if bufKind != ircdb.BufferChannel || (kind != "quit" && kind != "join") {
 		return nil
 	}
@@ -158,7 +164,7 @@ func (h *handler) trackNetsplit(bufID, msgID uuid.UUID, bufKind, kind, sender, c
 	}
 	meta, retro := h.netsplits.OnQuit(bufID, msgID, sender, content, eventTS)
 	if meta != nil && len(retro) > 0 {
-		h.hub.Publish(&NetsplitEvent{
+		publish(&NetsplitEvent{
 			Type:       "netsplit",
 			NetworkID:  h.networkID,
 			BufferID:   bufID,

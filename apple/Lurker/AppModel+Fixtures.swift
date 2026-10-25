@@ -12,7 +12,6 @@ extension AppModel {
     model.applySnapshot(FixtureTransport.snapshot())
     model.serviceIdentity = FixtureTransport.identity
     model.connectionState = .connected
-    model.hydrated = true
     model.selectedBufferID = FixtureTransport.channelID
     return model
   }
@@ -140,7 +139,6 @@ extension AppModel {
     )
     model.serviceIdentity = FixtureTransport.identity
     model.connectionState = .connected
-    model.hydrated = true
     model.selectedBufferID = firstChannelID
     return model
   }

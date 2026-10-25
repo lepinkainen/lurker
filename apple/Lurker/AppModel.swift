@@ -173,8 +173,6 @@ final class AppModel {
   @ObservationIgnored var connectionTask: Task<Void, Never>?
   /// Invalidates async completions when the configured server is replaced.
   @ObservationIgnored var connectionGeneration = 0
-  @ObservationIgnored var queuedEvents = [ServerEvent]()
-  @ObservationIgnored var hydrated = false
   @ObservationIgnored let defaults: UserDefaults
   @ObservationIgnored let runsConnectionLoop: Bool
 
@@ -570,7 +568,6 @@ final class AppModel {
     historyAnchor = nil
     channelList = nil
     selectedBufferID = nil
-    hydrated = false
   }
 
   // MARK: Private

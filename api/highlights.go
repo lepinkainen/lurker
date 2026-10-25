@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
 	"github.com/lepinkainen/lurker/irc"
 )
 
@@ -22,6 +23,7 @@ type highlightsRequest struct {
 // highlightsEvent notifies connected clients that the global highlight
 // pattern list changed (parity with the buffer_settings event).
 type highlightsEvent struct {
+	hub.Stamp
 	Type     string   `json:"type"`
 	Patterns []string `json:"patterns"`
 }
@@ -57,7 +59,7 @@ func (s *Server) putHighlights(w http.ResponseWriter, r *http.Request) {
 	}
 	irc.SetHighlightPatterns(patterns)
 	if s.Hub != nil {
-		s.Hub.Publish(highlightsEvent{Type: "highlights", Patterns: patterns})
+		s.Hub.Publish(&highlightsEvent{Type: "highlights", Patterns: patterns})
 	}
 	writeJSON(w, http.StatusOK, highlightsRequest{Patterns: patterns})
 }

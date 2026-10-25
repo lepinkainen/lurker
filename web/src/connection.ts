@@ -13,9 +13,6 @@ import { registerMemberNickColors, registerMessageNickColors, registerNetworkNic
 export const RECONNECT_BASE_MS = 1000;
 export const RECONNECT_MAX_MS = 30_000;
 export const WS_STALE_MS = 60_000;
-// /api/state can 503 transiently (a mark_read raced the snapshot, a log DB
-// was busy). The socket stays healthy, so nothing else would trigger a retry.
-export const STATE_SYNC_RETRY_MS = 2000;
 export const WS_HEALTHCHECK_MS = 10_000;
 
 // Grouped collaborator interfaces. Rendering, navigation, and transport are
@@ -37,7 +34,7 @@ export type Navigation = {
 };
 
 export type Transport = {
-  syncState: () => Promise<void>;
+  applySnapshot: (snapshot: StateResponse) => void;
   handleMessage: (msg: unknown) => void;
 };
 
@@ -82,32 +79,21 @@ type ReconnectDeps = {
   connectWS: () => void;
 };
 
-export async function syncStateFromServer(deps: StateSyncDeps) {
-  const [stateRes, updateRes, tailscaleRes] = await Promise.all([
-    fetch("/api/state"),
-    fetch("/api/update-status", { headers: { Accept: "application/json" } }).catch(() => null),
-    fetch("/api/tailscale-status", { headers: { Accept: "application/json" } }).catch(() => null),
-  ]);
-  if (!stateRes.ok) throw new Error(`state ${stateRes.status}`);
-  const s: StateResponse = await stateRes.json();
+// applyStateSnapshot installs the `state` frame the server sends in answer
+// to hello: the full picture as of its seq. Everything is replaced; the
+// stream then carries only events newer than that seq.
+export function applyStateSnapshot(s: StateResponse, deps: StateSyncDeps) {
   state.me.nick = s.current_nick || s.nick || s.user?.nick || s.networks?.[0]?.nick || "you";
   // The snapshot is authoritative: networks/buffers deleted while this tab
   // was offline (their buffer_deleted / network events never reached us)
-  // must go, along with everything hanging off them. Live deletions are
-  // handled by the ws-router; this only covers what happened while offline.
-  // Live events keep applying while this fetch is in flight, so a buffer or
-  // network created after the snapshot was taken is already in local state
-  // but not in the response. The ws-router records those ids in
-  // createdDuringSync; spare them, prune everything else that's missing.
-  const created = state.createdDuringSync;
-  state.createdDuringSync = new Set();
+  // must go, along with everything hanging off them.
   const liveNetworks = new Set((s.networks || []).map((n) => n.id));
   for (const id of [...state.networks.keys()]) {
-    if (!(liveNetworks.has(id) || created.has(id))) state.networks.delete(id);
+    if (!liveNetworks.has(id)) state.networks.delete(id);
   }
   const liveBuffers = new Set((s.buffers || []).map((b) => b.id));
   for (const id of [...state.buffers.keys()]) {
-    if (liveBuffers.has(id) || created.has(id)) continue;
+    if (liveBuffers.has(id)) continue;
     state.buffers.delete(id);
     state.messages.delete(id);
     state.members.delete(id);
@@ -147,16 +133,6 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
     state.members.set(id, members as Member[]);
     registerMemberNickColors(members as Member[], state.buffers.get(id)?.network_id);
   }
-  if (updateRes?.ok) {
-    state.updateStatus = (await updateRes.json()) as UpdateStatus;
-  } else {
-    state.updateStatus = null;
-  }
-  if (tailscaleRes?.ok) {
-    state.tailscaleStatus = (await tailscaleRes.json()) as TailscaleStatus;
-  } else {
-    state.tailscaleStatus = null;
-  }
   deps.renderer.renderSidebar();
   deps.renderer.renderHeader();
   deps.renderer.renderActiveView();
@@ -174,15 +150,22 @@ export async function syncStateFromServer(deps: StateSyncDeps) {
   }
 }
 
+// fetchAuxStatus refreshes the side-channel status endpoints shown in the
+// settings dialog. Independent of the stream; failures leave them null.
+async function fetchAuxStatus() {
+  const [updateRes, tailscaleRes] = await Promise.all([
+    fetch("/api/update-status", { headers: { Accept: "application/json" } }).catch(() => null),
+    fetch("/api/tailscale-status", { headers: { Accept: "application/json" } }).catch(() => null),
+  ]);
+  state.updateStatus = updateRes?.ok ? ((await updateRes.json()) as UpdateStatus) : null;
+  state.tailscaleStatus = tailscaleRes?.ok ? ((await tailscaleRes.json()) as TailscaleStatus) : null;
+}
+
 export function hydrate(deps: HydrateDeps) {
-  // Open the WebSocket first, then let the `open` handler run syncState once the
-  // socket has subscribed. Fetching the /api/state snapshot before subscribing
-  // would drop any events published between the snapshot (T0) and the WS
-  // subscribe (T0+delay). Flagging needsStateSyncOnConnect makes first load use
-  // the same open-then-sync ordering as reconnect, which is already correct.
+  // Everything comes over the socket: the open handler sends hello and the
+  // server answers with the state snapshot (or a replay from our cursor).
   state.backendStatus = "connecting";
   deps.renderer.renderStatus();
-  state.needsStateSyncOnConnect = true;
   state.reconnectAttempts = 0;
   deps.scheduleReconnect(0);
 }
@@ -234,30 +217,11 @@ export function checkWebSocketHealth(deps: HealthCheckDeps) {
   if (state.ws === ws) state.ws = null;
   state.wsReady = false;
   state.backendStatus = "offline";
-  state.needsStateSyncOnConnect = true;
   if (!deps.domReady()) return;
   deps.renderer.renderStatus();
   deps.renderer.updateInputEnabled();
   deps.renderer.renderSidebar();
   deps.scheduleReconnect(0);
-}
-
-function syncStateWithRetry(ws: WebSocket, deps: WebSocketRuntimeDeps) {
-  deps.transport
-    .syncState()
-    .then(() => {
-      state.needsStateSyncOnConnect = false;
-    })
-    .catch((err) => {
-      console.error("reconnect state sync failed", err);
-      window.setTimeout(() => {
-        // Still the live socket and still unsynced: try again. A closed
-        // socket's reconnect handler will sync on its own open.
-        if (state.ws === ws && ws.readyState === WebSocket.OPEN && state.needsStateSyncOnConnect) {
-          syncStateWithRetry(ws, deps);
-        }
-      }, STATE_SYNC_RETRY_MS);
-    });
 }
 
 function connectWS(deps: WebSocketRuntimeDeps) {
@@ -276,21 +240,42 @@ function connectWS(deps: WebSocketRuntimeDeps) {
     deps.renderer.renderStatus();
     deps.renderer.updateInputEnabled();
     deps.renderer.renderSidebar();
-    if (state.needsStateSyncOnConnect) syncStateWithRetry(ws, deps);
+    // Resume from our cursor: the server replays what we missed when it
+    // still has it, otherwise answers with a full `state` snapshot.
+    ws.send(JSON.stringify({ type: "hello", since: state.lastSeq }));
+    fetchAuxStatus().then(
+      () => deps.renderer.renderStatus(),
+      () => undefined,
+    );
   });
   ws.addEventListener("message", (ev) => {
     state.lastWSActivityAt = Date.now();
+    let parsed: { type?: string; seq?: number };
     try {
-      deps.transport.handleMessage(JSON.parse(ev.data));
+      parsed = JSON.parse(ev.data);
     } catch {
       console.warn("non-json ws frame", ev.data);
+      return;
     }
+    // One rule for every sequenced frame (snapshot included): at or below
+    // the cursor it is already applied, otherwise apply and advance.
+    if (typeof parsed.seq === "number") {
+      if (parsed.seq <= state.lastSeq) return;
+      state.lastSeq = parsed.seq;
+    }
+    if (parsed.type === "state") {
+      deps.transport.applySnapshot(parsed as StateResponse);
+      return;
+    }
+    deps.transport.handleMessage(parsed);
   });
   ws.addEventListener("close", () => {
     if (state.ws === ws) state.ws = null;
     state.wsReady = false;
     state.backendStatus = "offline";
-    state.needsStateSyncOnConnect = true;
+    // history_result frames are socket-local (no seq, never replayed): a
+    // request lost with this socket must not block paging after resume.
+    state.loadingHistory.clear();
     if (!deps.domReady()) return;
     deps.renderer.renderStatus();
     deps.renderer.updateInputEnabled();

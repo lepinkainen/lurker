@@ -4,6 +4,7 @@ import (
 	"github.com/google/uuid"
 
 	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
 )
 
 // Network configuration broadcasts. Mirrors the buffer_settings pattern: the
@@ -12,11 +13,13 @@ import (
 // and comes from the IRC runtime.
 
 type networkEvent struct {
+	hub.Stamp
 	Type    string     `json:"type"` // "network_created" | "network_updated"
 	Network networkDTO `json:"network"`
 }
 
 type networkDeletedEvent struct {
+	hub.Stamp
 	Type string    `json:"type"`
 	ID   uuid.UUID `json:"id"`
 }
@@ -27,6 +30,7 @@ type networkSortEntryDTO struct {
 }
 
 type networkReorderEvent struct {
+	hub.Stamp
 	Type     string                `json:"type"`
 	Networks []networkSortEntryDTO `json:"networks"`
 }
@@ -43,13 +47,5 @@ func (s *Server) HandleNickChanged(n ircdb.Network) {
 	if s.Manager != nil {
 		status = s.Manager.StateSnapshot()[n.ID]
 	}
-	s.publish(networkEvent{Type: "network_updated", Network: s.toNetworkDTO(n, status)})
-}
-
-// publish is a nil-safe Hub.Publish for handlers that tests may construct
-// without a hub.
-func (s *Server) publish(e any) {
-	if s.Hub != nil {
-		s.Hub.Publish(e)
-	}
+	s.Hub.Publish(&networkEvent{Type: "network_updated", Network: s.toNetworkDTO(n, status)})
 }

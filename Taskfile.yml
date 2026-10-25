@@ -389,6 +389,16 @@ tasks:
     cmds:
       - node web/scripts/lint-mermaid.mjs {{.CLI_ARGS}}
 
+  tlc:
+    desc: Model-check formal/*.tla with TLC (needs java; TLA2TOOLS_JAR defaults to formal/tla2tools.jar)
+    vars:
+      TLA2TOOLS_JAR: '{{.TLA2TOOLS_JAR | default "formal/tla2tools.jar"}}'
+      SPECS:
+        sh: ls formal/*.tla | xargs -n1 basename | sed 's/\.tla$//'
+    cmds:
+      - for: { var: SPECS }
+        cmd: java -XX:+UseParallelGC -cp {{.TLA2TOOLS_JAR}} tlc2.TLC -nowarning -deadlock -workers auto -metadir build/tlc -config formal/{{.ITEM}}.cfg formal/{{.ITEM}}.tla
+
   lint-web:
     desc: Type-check and lint the frontend
     cmds:

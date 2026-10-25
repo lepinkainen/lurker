@@ -92,6 +92,10 @@ Assertion caveats: Ergo timestamps/msgids are nondeterministic (assert on conten
 - Use unique channel names per run (e.g. time-based suffix): the container keeps in-memory history for its whole lifetime, so a rerun against a kept-alive server sees earlier messages. Restarting the container resets all state (history is RAM-only, datastore is throwaway).
 - Server behavior knobs live in `testdata/ergo/ircd.yaml` (e.g. `history.chathistory-maxmessages`, `limits.multiline`); it's a trimmed Ergo default.yaml, so new sections can be copied from upstream when a test needs them.
 
+## Formal models (TLA+)
+
+`formal/` holds TLA+ specs of the concurrency-sensitive parts, each with a TLC config that reproduces a found bug or proves a fix's invariant; every spec names the Go/TS it models and the tests that pin the counterexamples. Run them with `task tlc` (needs a Java runtime and `tla2tools.jar`; `TLA2TOOLS_JAR` points at the jar, default `formal/tla2tools.jar`). See `formal/README.md` for what each model covers and which configurations are expected to fail.
+
 ## Build and developer workflow
 
 Preferred commands come from `Taskfile.yml`:

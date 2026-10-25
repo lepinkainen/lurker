@@ -31,6 +31,7 @@ type job struct {
 // Event is published over the hub once previews are ready for a
 // message. Only displayable previews are included.
 type Event struct {
+	hub.Stamp
 	Type      string            `json:"type"`
 	MessageID uuid.UUID         `json:"message_id"`
 	NetworkID uuid.UUID         `json:"network_id"`

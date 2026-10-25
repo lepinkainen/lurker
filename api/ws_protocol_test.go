@@ -34,8 +34,13 @@ func (w publishOnHijack) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 func TestStreamSubscribesBeforeHandshake(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stores.Close() })
 	h := hub.New()
-	s := &Server{Hub: h}
+	s := &Server{Hub: h, Stores: stores}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.stream(publishOnHijack{ResponseWriter: w, hub: h}, r)
 	}))
@@ -50,14 +55,19 @@ func TestStreamSubscribesBeforeHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = c.CloseNow() }()
+	sendCmd(t, ctx, c, clientCmd{Type: "hello"})
 	var event struct {
 		Type string `json:"type"`
 	}
-	if err := wsjson.Read(ctx, c, &event); err != nil {
-		t.Fatal(err)
-	}
-	if event.Type != "during_handshake" {
-		t.Fatalf("event=%q, want publication during handshake", event.Type)
+	// The unsequenced handshake publication is forwarded after the state
+	// snapshot that answers hello.
+	for _, want := range []string{"state", "during_handshake"} {
+		if err := wsjson.Read(ctx, c, &event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Type != want {
+			t.Fatalf("event=%q, want %q", event.Type, want)
+		}
 	}
 }
 
@@ -411,8 +421,41 @@ func (ts *testWSServer) defaultStatusBuffer(t *testing.T, networkID uuid.UUID) u
 	return bufID
 }
 
-// dial connects a WebSocket client to the test server.
+// dial connects a WebSocket client to the test server and completes the
+// hello handshake, consuming the state snapshot.
 func (ts *testWSServer) dial(t *testing.T) *websocket.Conn {
+	t.Helper()
+	c, snap := ts.dialSince(t, 0)
+	if snap == nil {
+		t.Fatal("hello without a cursor must answer with a state snapshot")
+	}
+	return c
+}
+
+// dialSince connects with a resume cursor. Returns the state snapshot when
+// the server answered with one (nil when it replayed instead); replayed
+// events are left on the socket for the caller to read.
+func (ts *testWSServer) dialSince(t *testing.T, since uint64) (*websocket.Conn, *stateEvent) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	t.Cleanup(cancel)
+	c := dialRaw(t, ts)
+	sendCmd(t, ctx, c, clientCmd{Type: "hello", Since: since})
+	if since != 0 {
+		return c, nil
+	}
+	var snap stateEvent
+	if err := wsjson.Read(ctx, c, &snap); err != nil {
+		t.Fatal(err)
+	}
+	if snap.Type != "state" {
+		t.Fatalf("first frame = %q, want state", snap.Type)
+	}
+	return c, &snap
+}
+
+// dialRaw opens a socket without performing the hello handshake.
+func dialRaw(t *testing.T, ts *testWSServer) *websocket.Conn {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	t.Cleanup(cancel)
@@ -530,7 +573,7 @@ func TestMarkReadBroadcastsBufferUpdate(t *testing.T) {
 
 	select {
 	case ev := <-events:
-		got, ok := ev.(bufferLastSeenEvent)
+		got, ok := ev.(*bufferLastSeenEvent)
 		if !ok {
 			t.Fatalf("event type = %T", ev)
 		}
@@ -588,7 +631,7 @@ func TestMarkReadComputesResidualUnread(t *testing.T) {
 
 	select {
 	case ev := <-events:
-		got, ok := ev.(bufferLastSeenEvent)
+		got, ok := ev.(*bufferLastSeenEvent)
 		if !ok {
 			t.Fatalf("event type = %T", ev)
 		}
@@ -655,7 +698,7 @@ func TestMarkReadStaleAckDoesNotRegress(t *testing.T) {
 
 	select {
 	case ev := <-events:
-		got, ok := ev.(bufferLastSeenEvent)
+		got, ok := ev.(*bufferLastSeenEvent)
 		if !ok {
 			t.Fatalf("event type = %T", ev)
 		}

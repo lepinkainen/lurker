@@ -383,18 +383,6 @@ describe("ws-router network configuration events", () => {
     expect(view.renderPromptNick).toHaveBeenCalledTimes(2);
   });
 
-  it("records ids created while a state sync is pending", () => {
-    const view = fakeView();
-    state.needsStateSyncOnConnect = true;
-    const route = createWSRouter(view);
-    route({ type: "network_created", network: net("n1") });
-    route({ type: "buffer_created", id: "b1", network_id: "n1", name: "#a", kind: "channel" });
-    expect([...state.createdDuringSync]).toEqual(["n1", "b1"]);
-    state.needsStateSyncOnConnect = false;
-    route({ type: "buffer_created", id: "b2", network_id: "n1", name: "#b", kind: "channel" });
-    expect(state.createdDuringSync.has("b2")).toBe(false);
-  });
-
   it("network_deleted removes the network and its buffers", () => {
     const view = fakeView();
     state.networks.set("n1", net("n1"));

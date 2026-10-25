@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
 )
 
 type reorderBuffersRequest struct {
@@ -19,6 +20,7 @@ type bufferSortEntryDTO struct {
 }
 
 type bufferReorderEvent struct {
+	hub.Stamp
 	Type      string               `json:"type"`
 	NetworkID uuid.UUID            `json:"network_id"`
 	Buffers   []bufferSortEntryDTO `json:"buffers"`
@@ -52,8 +54,6 @@ func (s *Server) reorderNetworkBuffers(w http.ResponseWriter, r *http.Request) {
 	for _, e := range entries {
 		event.Buffers = append(event.Buffers, bufferSortEntryDTO{ID: e.ID, SortOrder: e.SortOrder})
 	}
-	if s.Hub != nil {
-		s.Hub.Publish(event)
-	}
+	s.Hub.Publish(&event)
 	writeJSON(w, http.StatusOK, event)
 }

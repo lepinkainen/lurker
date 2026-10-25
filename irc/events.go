@@ -3,6 +3,7 @@ package irc
 import (
 	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
 	"github.com/lepinkainen/lurker/mirc"
 )
 
@@ -74,6 +75,7 @@ func CoreFromStored(m ircdb.StoredMessage) MessageCore {
 // MessageEvent is published after a message row is successfully written.
 // The JSON tags match the wire shape sent to WebSocket clients.
 type MessageEvent struct {
+	hub.Stamp
 	Type string `json:"type"`
 	MessageCore
 }
@@ -91,6 +93,7 @@ func (e *MessageEvent) WithSemantics(nick string) *MessageEvent {
 // earlier quits went out before the cluster qualified, so clients patch the
 // listed messages and re-render.
 type NetsplitEvent struct {
+	hub.Stamp
 	Type       string       `json:"type"`
 	NetworkID  uuid.UUID    `json:"network_id"`
 	BufferID   uuid.UUID    `json:"buffer_id"`
@@ -102,6 +105,7 @@ type NetsplitEvent struct {
 // messages into a buffer. Clients refetch the buffer's history (or ignore
 // the event — the rows are there on next load either way).
 type HistoryBackfillEvent struct {
+	hub.Stamp
 	Type      string    `json:"type"`
 	NetworkID uuid.UUID `json:"network_id"`
 	BufferID  uuid.UUID `json:"buffer_id"`
@@ -111,6 +115,7 @@ type HistoryBackfillEvent struct {
 // BufferCreatedEvent is published the first time we see activity in a
 // buffer that didn't exist yet (autojoin, inbound PM, network status).
 type BufferCreatedEvent struct {
+	hub.Stamp
 	Type      string    `json:"type"`
 	ID        uuid.UUID `json:"id"`
 	NetworkID uuid.UUID `json:"network_id"`
@@ -124,6 +129,7 @@ type BufferCreatedEvent struct {
 // distinguish "unchanged" (nil, omitted from JSON) from "set to zero value"
 // (e.g. a cleared topic must reach clients as an explicit empty string).
 type BufferUpdateEvent struct {
+	hub.Stamp
 	Type       string    `json:"type"`
 	ID         uuid.UUID `json:"id"`
 	NetworkID  uuid.UUID `json:"network_id"`
@@ -137,6 +143,7 @@ type BufferUpdateEvent struct {
 
 // PresenceEvent is a lightweight stream event for user presence-ish changes.
 type PresenceEvent struct {
+	hub.Stamp
 	Type      string    `json:"type"`
 	NetworkID uuid.UUID `json:"network_id"`
 	BufferID  uuid.UUID `json:"buffer_id,omitzero"`
@@ -151,6 +158,7 @@ type PresenceEvent struct {
 // here — clients refetch member lists (or the later avatar proxy endpoint)
 // once they see HasAvatar flip.
 type AvatarEvent struct {
+	hub.Stamp
 	Type      string    `json:"type"`
 	NetworkID uuid.UUID `json:"network_id"`
 	Nick      string    `json:"nick"`
@@ -159,6 +167,7 @@ type AvatarEvent struct {
 
 // MemberListEvent publishes the full known member list for a channel.
 type MemberListEvent struct {
+	hub.Stamp
 	Type      string        `json:"type"`
 	NetworkID uuid.UUID     `json:"network_id"`
 	BufferID  uuid.UUID     `json:"buffer_id"`
@@ -187,6 +196,7 @@ type ChannelUser struct {
 
 // NetworkStateEvent announces connection state transitions.
 type NetworkStateEvent struct {
+	hub.Stamp
 	Type      string    `json:"type"`
 	NetworkID uuid.UUID `json:"network_id"`
 	State     string    `json:"state"` // "connecting" | "connected" | "disconnected"
@@ -202,6 +212,7 @@ type ChannelListEntry struct {
 // ChannelListEvent delivers /LIST results. Streaming: one event per batch of
 // entries, final event has Done=true.
 type ChannelListEvent struct {
+	hub.Stamp
 	Type      string             `json:"type"`
 	NetworkID uuid.UUID          `json:"network_id"`
 	Entries   []ChannelListEntry `json:"entries"`

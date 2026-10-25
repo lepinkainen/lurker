@@ -66,7 +66,7 @@ func sortedWith(base []string, extra ...string) []string {
 func TestMessageEventWireKeySet(t *testing.T) {
 	ev := irc.MessageEvent{Type: "message", MessageCore: fullCore()}
 	got := jsonKeys(t, ev)
-	want := sortedWith(coreWireKeys, "type")
+	want := sortedWith(coreWireKeys, "type", "seq")
 	if !slices.Equal(got, want) {
 		t.Fatalf("MessageEvent JSON keys = %v\nwant %v", got, want)
 	}

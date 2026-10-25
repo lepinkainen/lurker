@@ -8,8 +8,7 @@ The TUI is a private-network client for the existing single-user backend. It doe
 
 Current capabilities:
 
-- fetch initial state from `/api/state`
-- connect to `/api/stream` for live events
+- connect to `/api/stream`; the state snapshot (or a replay) arrives over it in answer to `hello`
 - render networks and buffers in a left sidebar
 - render the active buffer's recent messages in the main pane
 - show channel topics in the header when available
@@ -108,14 +107,11 @@ Timestamps are displayed in local time as `[HH:MM]`.
 Startup flow:
 
 1. load TUI config
-2. connect to `/api/stream`
-3. fetch `/api/state` (subscribe-then-snapshot, so nothing published in between is missed)
-4. populate networks, buffers, topics, and `initial_messages`
-5. consume WebSocket events until disconnect or quit
+2. connect to `/api/stream` and send `hello {since: lastSeq}` as the first frame (`lastSeq` is 0 on startup)
+3. the server answers with a replay of the missed events or with a `state` frame; `applyState` installs the latter (networks, buffers, topics, counts, members, `initial_messages`)
+4. consume WebSocket events until disconnect or quit
 
-Every reconnect repeats steps 3–4: the snapshot replaces local networks, buffers, unread counts, members and each buffer's recent message window, so state missed while the socket was down is recovered. Live events arriving between connect and snapshot are queued and replayed after the snapshot is applied. The guards against double-applying live in the event handlers themselves, so they also cover events still in flight when the snapshot lands: message events at/below the per-buffer newest snapshot id are dropped (in the window, or older and already in its unread totals — the server reads both in one transaction so they agree), mark_read echoes whose `last_seen_id` does not advance past the current one are ignored (max-wins), and `buffer_created` for a known buffer is a no-op. Snapshot results are tagged with a per-connection generation; a result or retry from a superseded connection is ignored. If the pending queue overflows (1000 events) the in-flight snapshot is superseded and a fresh one is fetched. A failed snapshot fetch retries every 5s and shows "State sync failed" in the status line (also on the initial loading screen). Until the snapshot lands the status line reads "Syncing state…".
-
-An equal-position `mark_read` response is accepted while a local optimistic acknowledgement awaits confirmation, so server-provided residual unread counts and the marker can be restored. Applying a snapshot clears that pending acknowledgement and resets history-loading flags, including requests lost on disconnect or queue overflow. Pagination is available again after synchronization finishes. A disconnect invalidates outstanding snapshot results and retries immediately.
+Every reconnect repeats steps 2–3 with the current cursor, so state missed while the socket was down comes back either as a replay or as a fresh snapshot. `readWSEvent` decodes the `state` frame separately (its `networks`/`buffers`/`members` keys collide with other events' shapes) and `handleWSEvent` applies one rule to every sequenced frame: `seq` at or below `lastSeq` is dropped, anything newer applies and advances the cursor. There is no pending queue, snapshot boundary, optimistic-ack bookkeeping or per-connection generation anymore — stream order makes them unnecessary (`formal/ClientSync.tla`). Until the first frame lands the status line reads "Syncing state…". Applying a snapshot resets history-loading flags, so pagination is available again after a reconnect.
 
 Consumed WebSocket events:
 
@@ -142,10 +138,10 @@ The client currently ignores ack responses except as generic WebSocket events wi
 
 - `cmd/tui/main.go` — CLI flag parsing, config load, Bubble Tea program startup
 - `cmd/tui/config.go` — YAML config lookup and defaults
-- `cmd/tui/client.go` — `/api/state`, WebSocket connection, event reader, send command
-- `cmd/tui/model.go` — Bubble Tea model struct, `Init`/`Update`, fetch/WS commands, state application, read tracking
+- `cmd/tui/client.go` — WebSocket connection, frame decoding (`state` vs events), event reader, send command
+- `cmd/tui/model.go` — Bubble Tea model struct, `Init`/`Update`, WS commands and the hello handshake, state application, read tracking
 - `cmd/tui/model_input.go` — key and mouse handling, switcher keys, input submit, history, nick autocomplete
-- `cmd/tui/model_events.go` — WebSocket event application (messages, buffers, networks, history results, pending-event replay)
+- `cmd/tui/model_events.go` — WebSocket event application (seq gate, state frame, messages, buffers, networks, history results)
 - `cmd/tui/model_render.go` — viewport, unread bar, message formatting, `View` and pane rendering
 - `cmd/tui/sidebar.go` — sidebar item construction, navigation, archive fold, selection
 - `cmd/tui/types.go` — API DTOs, WebSocket event union, Bubble Tea messages

@@ -32,6 +32,9 @@ extension AppModel {
   /// Internal (not private) so unit tests can drive server events directly.
   func apply(_ event: ServerEvent) {
     switch event {
+    case .state(let snapshot):
+      applySnapshot(snapshot)
+
     case .message(let message):
       apply(message)
 
@@ -184,11 +187,9 @@ extension AppModel {
     }
   }
 
+  /// Stream frames arrive in server order with duplicates already dropped
+  /// by the transport's cursor, so they apply directly.
   func receive(_ event: ServerEvent) {
-    guard hydrated else {
-      queuedEvents.append(event)
-      return
-    }
     apply(event)
   }
 

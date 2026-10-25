@@ -3,7 +3,7 @@ import "./mobile.css";
 import { createSetActive } from "./active-buffer";
 import { activeBuffer, state } from "./app-state";
 import { type AppView, createAppView } from "./app-view";
-import { createConnection, type StateSyncDeps, syncStateFromServer } from "./connection";
+import { applyStateSnapshot, createConnection, type StateSyncDeps } from "./connection";
 import { captureDom, type DomRefs } from "./dom";
 import { openHistorySearch } from "./history-search";
 import { bindInputHandlers } from "./input";
@@ -104,7 +104,7 @@ export function start() {
       updateInputEnabled: view.updateInputEnabled,
     },
     transport: {
-      syncState: () => syncStateFromServer(syncStateDeps),
+      applySnapshot: (s) => applyStateSnapshot(s, syncStateDeps),
       handleMessage: (msg) => routeWSMessage?.(msg),
     },
   });

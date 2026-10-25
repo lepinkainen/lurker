@@ -132,6 +132,12 @@ extension AppModel {
   }
 
   /// Internal so transport tests can exercise the loop without notification setup.
+  ///
+  /// Everything arrives over the stream: the transport's hello handshake
+  /// yields either a replay of what this client missed or a `state`
+  /// snapshot, then live events, all in one order with the transport
+  /// dropping anything already applied. There is no separate state fetch
+  /// to race the stream (ai-docs/websocket-protocol.md).
   func connectionLoop() async {
     guard let transport else { return }
     let generation = connectionGeneration
@@ -139,8 +145,10 @@ extension AppModel {
     while !Task.isCancelled {
       do {
         connectionState = attempt == 0 ? .connecting : .reconnecting(0)
-        hydrated = false
-        queuedEvents.removeAll(keepingCapacity: true)
+        // history_result frames are socket-local (never replayed): forget
+        // requests the old socket may have lost, or paging stays blocked
+        // for those buffers after a replay-only resume.
+        historyLoading.removeAll(keepingCapacity: true)
         let stream = await transport.openEvents()
         guard isCurrent(generation) else { return }
         let receiver = Task { @MainActor [weak self] in
@@ -153,14 +161,6 @@ extension AppModel {
         let identity = try await transport.validateServer()
         guard isCurrent(generation) else { return }
         serviceIdentity = identity
-        let snapshot = try await transport.fetchState()
-        guard isCurrent(generation) else { return }
-        applySnapshot(snapshot)
-        hydrated = true
-        for event in queuedEvents {
-          apply(event)
-        }
-        queuedEvents.removeAll(keepingCapacity: true)
         connectionState = .connected
         attempt = 0
         try await receiver.value
@@ -173,7 +173,6 @@ extension AppModel {
         guard isCurrent(generation) else { return }
         await transport.disconnect()
         guard isCurrent(generation) else { return }
-        hydrated = false
         attempt += 1
         let delay = min(30, 1 << min(attempt - 1, 5))
         connectionState = .offline(error.localizedDescription)

@@ -81,7 +81,6 @@ export function createWSRouter(view: AppView, sendCmd: (cmd: Record<string, unkn
       case "ping":
         break;
       case "buffer_created": {
-        if (state.needsStateSyncOnConnect) state.createdDuringSync.add(m.id);
         const net = state.networks.get(m.network_id);
         const isDatasource = net?.kind !== undefined && net.kind !== "irc";
         state.buffers.set(m.id, {
@@ -129,7 +128,6 @@ export function createWSRouter(view: AppView, sendCmd: (cmd: Record<string, unkn
         break;
       case "network_created":
       case "network_updated":
-        if (state.needsStateSyncOnConnect) state.createdDuringSync.add(m.network.id);
         state.networks.set(m.network.id, m.network);
         registerNetworkNickColor(m.network);
         view.renderSidebar();

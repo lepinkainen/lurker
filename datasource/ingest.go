@@ -25,28 +25,31 @@ func IngestPost(ctx context.Context, deps Deps, networkID, bufferID uuid.UUID, p
 		return uuid.Nil, false, fmt.Errorf("log store: %w", err)
 	}
 
-	id, storedTS, inserted, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
-		BufferID:  bufferID,
-		MsgID:     post.MsgID,
-		Timestamp: post.Timestamp,
-		Sender:    post.Sender,
-		Account:   post.Account,
-		Kind:      post.Kind,
-		Target:    post.Target,
-		Content:   post.Content,
-	})
-	if err != nil {
-		return uuid.Nil, false, fmt.Errorf("insert message: %w", err)
-	}
-	if !inserted {
-		return id, false, nil
-	}
-
-	if deps.Hub != nil {
+	var (
+		id       uuid.UUID
+		inserted bool
+	)
+	// Insert and publish atomically (see hub.Hub).
+	err = deps.Hub.Do(func(publish func(any)) error {
+		var storedTS string
+		var ierr error
+		id, storedTS, inserted, ierr = ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
+			BufferID:  bufferID,
+			MsgID:     post.MsgID,
+			Timestamp: post.Timestamp,
+			Sender:    post.Sender,
+			Account:   post.Account,
+			Kind:      post.Kind,
+			Target:    post.Target,
+			Content:   post.Content,
+		})
+		if ierr != nil || !inserted {
+			return ierr
+		}
 		// Empty nick: datasource has no "self" concept, so semantic flags
 		// (IsSelf, MentionsMe) stay zero. WithSemantics still computes the
 		// canonical DisplayKind from kind/content (e.g. action vs. privmsg).
-		deps.Hub.Publish((&irc.MessageEvent{
+		publish((&irc.MessageEvent{
 			Type:      "message",
 			ID:        id,
 			NetworkID: networkID,
@@ -59,6 +62,13 @@ func IngestPost(ctx context.Context, deps Deps, networkID, bufferID uuid.UUID, p
 			Target:    post.Target,
 			Content:   post.Content,
 		}).WithSemantics(""))
+		return nil
+	})
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("insert message: %w", err)
+	}
+	if !inserted {
+		return id, false, nil
 	}
 
 	if deps.Previews != nil && post.Content != "" {

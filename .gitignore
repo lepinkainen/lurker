@@ -32,3 +32,4 @@ __pycache__/
 .playwright-mcp/
 .pnpm-store/
 output/
+web/.vitest/

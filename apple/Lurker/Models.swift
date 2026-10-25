@@ -327,6 +327,8 @@ struct Member: Codable, Identifiable, Sendable, Hashable {
 // MARK: - StateSnapshot
 
 struct StateSnapshot: Codable, Sendable {
+  /// Stream position the snapshot reflects (the `state` frame's `seq`).
+  var seq: UInt64? = nil
   var networks: [Network]
   var buffers: [Buffer]
   var initialMessages: [String: [Message]]
@@ -586,6 +588,9 @@ struct ChannelListEvent: Decodable, Sendable {
 // MARK: - ServerEvent
 
 enum ServerEvent: Sendable {
+  /// Full snapshot answering hello (or replacing a cursor the server no
+  /// longer holds). Everything local is replaced by it.
+  case state(StateSnapshot)
   case message(Message)
   case bufferCreated(BufferCreatedEvent)
   case bufferDeleted(BufferDeletedEvent)
@@ -619,6 +624,7 @@ extension ServerEvent: Decodable {
   init(from decoder: Decoder) throws {
     let type = try Envelope(from: decoder).type
     switch type {
+    case "state": self = .state(try StateSnapshot(from: decoder))
     case "message": self = .message(try Message(from: decoder))
     case "buffer_created": self = .bufferCreated(try BufferCreatedEvent(from: decoder))
     case "buffer_deleted": self = .bufferDeleted(try BufferDeletedEvent(from: decoder))

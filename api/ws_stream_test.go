@@ -16,7 +16,7 @@ func TestStreamWriterOverflowCancelsCtx(t *testing.T) {
 	overflow := make(chan struct{})
 	close(overflow)
 	done := make(chan struct{})
-	go runStreamWriter(ctx, nil, cancel, make(chan any), overflow, done)
+	go runStreamWriter(ctx, nil, cancel, make(chan any), overflow, done, 0)
 	select {
 	case <-ctx.Done():
 	case <-time.After(time.Second):

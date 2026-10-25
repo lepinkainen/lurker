@@ -68,6 +68,7 @@ A bar pinned at the top of the message area, shown whenever the active buffer ha
 - **Never-visited buffer** (`last_seen_id` null): everything unread; marker at the first countable message.
 - **History replay / backfill**: derivation is by id comparison against `last_seen_id`, so replayed older messages can never create a new marker.
 - **Ack while disconnected**: client may clear optimistically but must retry `mark_read` on reconnect (or resync from `/api/state`, which restores the marker if the ack never landed — visible state stays truthful to the server).
+- **Resync and concurrent acks**: the snapshot, every `message` and every `buffer_update` are frames of one sequenced stream (`websocket-protocol.md`, "Stream protocol"). The server stores a message and publishes its event under one lock, and stores an ack, tallies and publishes its `buffer_update` under the same lock, so the counts in an echo cover exactly the messages whose events precede it and a `state` frame reflects exactly the events up to its `seq`. Clients apply frames in order and drop any at or below their cursor — nothing else is needed to keep badges exact. Modeled in `formal/ClientSync.tla` (`Atomic = FALSE` reproduces the double count the old two-step publishers allowed).
 - **Marker message hidden by presence filtering**: cannot happen for self/presence kinds (they never anchor); if the anchored message is filtered by other view options, render the divider above the nearest following visible message.
 
 ## Non-goals

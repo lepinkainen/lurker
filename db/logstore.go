@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +18,6 @@ import (
 type LogStore struct {
 	NetworkID uuid.UUID
 	DB        *sql.DB
-	insertMu  sync.Mutex // serializes live ID allocation and commit within this network
 }
 
 // OpenLogStore opens the per-network log DB for a validated network name.
@@ -64,13 +62,12 @@ type LogMessageInput struct {
 }
 
 // InsertLogMessage inserts an IRC event into the per-network log.
+//
+// Live inserts must run inside hub.Do together with the publish of their
+// message event: that lock is what makes id order equal commit order and
+// keeps every snapshot consistent with the stream. Backfill rows carry
+// historical ids and publish no per-message event, so they may run outside.
 func InsertLogMessage(ctx context.Context, store *LogStore, m LogMessageInput) (id uuid.UUID, ts string, inserted bool, err error) {
-	// Live ID order must match commit order for snapshot replay boundaries.
-	// Backfill uses historical IDs and is refreshed separately.
-	if !m.Backfill {
-		store.insertMu.Lock()
-		defer store.insertMu.Unlock()
-	}
 	ts = FormatTime(m.Timestamp)
 	newId := newID()
 	if m.Backfill && !m.Timestamp.IsZero() {

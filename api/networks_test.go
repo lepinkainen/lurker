@@ -603,7 +603,7 @@ func TestNetworkMutationsBroadcast(t *testing.T) {
 	}
 
 	created := createNetworkViaAPI(t, srv.Handler(), `{"name":"Libera","host":"irc.libera.chat","port":6697,"tls":true,"nick":"tester"}`)
-	if ev, ok := next().(networkEvent); !ok || ev.Type != "network_created" || ev.Network.ID != created.ID {
+	if ev, ok := next().(*networkEvent); !ok || ev.Type != "network_created" || ev.Network.ID != created.ID {
 		t.Fatalf("create published %#v", ev)
 	}
 
@@ -611,7 +611,7 @@ func TestNetworkMutationsBroadcast(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
 	}
-	if ev, ok := next().(networkEvent); !ok || ev.Type != "network_updated" || ev.Network.Nick != "other" {
+	if ev, ok := next().(*networkEvent); !ok || ev.Type != "network_updated" || ev.Network.Nick != "other" {
 		t.Fatalf("patch published %#v", ev)
 	}
 
@@ -619,7 +619,7 @@ func TestNetworkMutationsBroadcast(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reorder: %d %s", rec.Code, rec.Body.String())
 	}
-	if ev, ok := next().(networkReorderEvent); !ok || len(ev.Networks) != 1 || ev.Networks[0].ID != created.ID {
+	if ev, ok := next().(*networkReorderEvent); !ok || len(ev.Networks) != 1 || ev.Networks[0].ID != created.ID {
 		t.Fatalf("reorder published %#v", ev)
 	}
 
@@ -627,7 +627,7 @@ func TestNetworkMutationsBroadcast(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
 	}
-	if ev, ok := next().(networkDeletedEvent); !ok || ev.ID != created.ID {
+	if ev, ok := next().(*networkDeletedEvent); !ok || ev.ID != created.ID {
 		t.Fatalf("delete published %#v", ev)
 	}
 }

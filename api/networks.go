@@ -82,7 +82,7 @@ func (s *Server) createNetwork(w http.ResponseWriter, r *http.Request) {
 	}
 	dto := s.toNetworkDTO(created, stateString(irc.StateDisconnected))
 	writeJSON(w, http.StatusCreated, dto)
-	s.publish(networkEvent{Type: "network_created", Network: dto})
+	s.Hub.Publish(&networkEvent{Type: "network_created", Network: dto})
 }
 
 func (s *Server) reorderNetworks(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +116,7 @@ func (s *Server) reorderNetworks(w http.ResponseWriter, r *http.Request) {
 		order = append(order, networkSortEntryDTO{ID: dto.ID, SortOrder: dto.SortOrder})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"networks": out})
-	s.publish(networkReorderEvent{Type: "network_reorder", Networks: order})
+	s.Hub.Publish(&networkReorderEvent{Type: "network_reorder", Networks: order})
 }
 
 func (s *Server) patchNetwork(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +165,7 @@ func (s *Server) patchNetwork(w http.ResponseWriter, r *http.Request) {
 	}
 	dto := s.toNetworkDTO(updated, status)
 	writeJSON(w, http.StatusOK, dto)
-	s.publish(networkEvent{Type: "network_updated", Network: dto})
+	s.Hub.Publish(&networkEvent{Type: "network_updated", Network: dto})
 }
 
 // applyDisabledToggle persists a disabled change when the request includes one.
@@ -241,7 +241,7 @@ func (s *Server) deleteNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-	s.publish(networkDeletedEvent{Type: "network_deleted", ID: id})
+	s.Hub.Publish(&networkDeletedEvent{Type: "network_deleted", ID: id})
 }
 
 func (s *Server) getNetworkConnectCommands(w http.ResponseWriter, r *http.Request) {

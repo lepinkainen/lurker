@@ -813,7 +813,7 @@ func TestBuildClientConfiguresTLSInsecureSkipVerify(t *testing.T) {
 	}
 
 	m := NewManager(t.Context(), stores, nil)
-	client := m.buildClient(ctx, netrow.ID, NetworkConfig{Name: "ircnet", Nick: "tester", User: "tester", Realname: "tester"}, ServerConfig{Host: "irc.example", Port: 6697, TLS: true, TLSInsecure: true})
+	client := m.buildClient(ctx, netrow.ID, NetworkConfig{Name: "ircnet", Nick: "tester", User: "tester", Realname: "tester"}, ServerConfig{Host: "irc.example", Port: 6697, TLS: true, TLSInsecure: true}, 0)
 	if client.Config.TLSConfig == nil {
 		t.Fatal("expected TLS config")
 	}
@@ -827,12 +827,12 @@ func TestBuildClientConfiguresTLSInsecureSkipVerify(t *testing.T) {
 		t.Fatalf("max TLS version = %x, want Go default", client.Config.TLSConfig.MaxVersion)
 	}
 
-	explicit := m.buildClient(ctx, netrow.ID, NetworkConfig{Name: "ircnet", Nick: "tester", User: "tester", Realname: "tester"}, ServerConfig{Host: "irc.example", Port: 6697, TLS: true, TLSMaxVersion: tls.VersionTLS13})
+	explicit := m.buildClient(ctx, netrow.ID, NetworkConfig{Name: "ircnet", Nick: "tester", User: "tester", Realname: "tester"}, ServerConfig{Host: "irc.example", Port: 6697, TLS: true, TLSMaxVersion: tls.VersionTLS13}, 0)
 	if explicit.Config.TLSConfig.MaxVersion != tls.VersionTLS13 {
 		t.Fatalf("explicit max TLS version = %x, want TLS 1.3", explicit.Config.TLSConfig.MaxVersion)
 	}
 
-	fallback := m.buildClient(ctx, netrow.ID, NetworkConfig{Name: "ircnet", Nick: "tester", User: "tester", Realname: "tester"}, ServerConfig{Host: "irc.example", Port: 6697, TLS: true, TLSMaxVersion: tls.VersionTLS12})
+	fallback := m.buildClient(ctx, netrow.ID, NetworkConfig{Name: "ircnet", Nick: "tester", User: "tester", Realname: "tester"}, ServerConfig{Host: "irc.example", Port: 6697, TLS: true, TLSMaxVersion: tls.VersionTLS12}, 0)
 	if !slices.Contains(fallback.Config.TLSConfig.CipherSuites, tls.TLS_RSA_WITH_AES_128_GCM_SHA256) {
 		t.Fatalf("TLS 1.2 fallback ciphers = %#v, want RSA AES-128-GCM", fallback.Config.TLSConfig.CipherSuites)
 	}
@@ -866,14 +866,14 @@ func TestSelfNickConnectedBroadcastsOnlyOnActualChange(t *testing.T) {
 	m.SetNickChangedHook(func(n ircdb.Network) { broadcasts = append(broadcasts, n) })
 
 	// Reconnect with the same nick: no broadcast.
-	m.handleSelfNickConnected(netrow.ID, "tester")
+	m.handleSelfNickConnected(netrow.ID, 0, "tester")
 	if len(broadcasts) != 0 {
 		t.Fatalf("broadcasts on unchanged nick = %+v, want none", broadcasts)
 	}
 
 	// Alt nick at registration, or a NICK on our own connection: broadcast
 	// once, carrying the persisted row.
-	m.handleSelfNickConnected(netrow.ID, "tester_")
+	m.handleSelfNickConnected(netrow.ID, 0, "tester_")
 	if len(broadcasts) != 1 {
 		t.Fatalf("broadcasts = %d, want 1", len(broadcasts))
 	}
@@ -1057,5 +1057,66 @@ func TestMarkDisconnectedStaleGenDoesNotClobberNewRuntime(t *testing.T) {
 	}
 	if m.state[id] != StateConnecting.String() {
 		t.Errorf("state = %q, want %q", m.state[id], StateConnecting.String())
+	}
+}
+
+// Counterexamples from formal/ManagerLifecycle.tla (invariants
+// StateHasRuntime and ConnectedOwnsConn): once StopNetwork has removed a
+// runtime's entry, that runtime's late writes — setConnectingState after the
+// loop's ctx check, or girc's CONNECTED callback for a client being closed —
+// must not resurrect "connecting"/"connected" for the stopped network.
+func TestStoppedRuntimeWritesAreIgnored(t *testing.T) {
+	stores, err := ircdb.OpenMultiStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stores.Close() }()
+
+	m := NewManager(t.Context(), stores, nil)
+	id := uuid.Must(uuid.NewV7())
+	m.mu.Lock()
+	m.runtimeGen = 1
+	m.runtime[id] = networkRuntime{gen: 1, cancel: func() {}}
+	m.state[id] = StateDisconnected.String()
+	m.mu.Unlock()
+
+	if err := m.StopNetwork(id); err != nil {
+		t.Fatal(err)
+	}
+
+	// Trace 1: Start, ctx check passes, Stop, setConnectingState.
+	if m.setConnectingState(id, &girc.Client{}, 1) {
+		t.Fatal("stale runtime installed its client after StopNetwork")
+	}
+	if got := m.StateSnapshot()[id]; got != StateDisconnected.String() {
+		t.Fatalf("state after stale setConnectingState = %q, want disconnected", got)
+	}
+
+	// Trace 2: Start, dialing, Stop, CONNECTED callback.
+	if m.handleSelfNickConnected(id, 1, "tester") {
+		t.Fatal("stale CONNECTED accepted after StopNetwork")
+	}
+	if got := m.StateSnapshot()[id]; got != StateDisconnected.String() {
+		t.Fatalf("state after stale CONNECTED = %q, want disconnected", got)
+	}
+
+	// Trace 3: StopNetwork + StartNetwork installed gen 2; gen 1's CONNECTED
+	// must not claim "connected" for a connection gen 2 is still dialing.
+	m.mu.Lock()
+	m.runtimeGen = 2
+	m.runtime[id] = networkRuntime{gen: 2, cancel: func() {}}
+	m.state[id] = StateConnecting.String()
+	m.mu.Unlock()
+	if m.handleSelfNickConnected(id, 1, "tester") {
+		t.Fatal("CONNECTED from superseded gen accepted")
+	}
+	if got := m.StateSnapshot()[id]; got != StateConnecting.String() {
+		t.Fatalf("state after superseded CONNECTED = %q, want connecting", got)
+	}
+	if !m.handleSelfNickConnected(id, 2, "tester") {
+		t.Fatal("CONNECTED from the live gen rejected")
+	}
+	if got := m.StateSnapshot()[id]; got != StateConnected.String() {
+		t.Fatalf("state after live CONNECTED = %q, want connected", got)
 	}
 }

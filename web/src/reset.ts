@@ -20,8 +20,7 @@ export function resetAppState() {
     state.wsHealthTimer = null;
   }
   state.lastWSActivityAt = 0;
-  state.needsStateSyncOnConnect = false;
-  state.createdDuringSync.clear();
+  state.lastSeq = 0;
   state.loadingHistory.clear();
   state.historyExhausted.clear();
   state.me.nick = "you";

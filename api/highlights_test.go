@@ -144,7 +144,7 @@ func TestHighlightsPutPublishesEventAndUpdatesMatcher(t *testing.T) {
 
 	select {
 	case ev := <-events:
-		he, ok := ev.(highlightsEvent)
+		he, ok := ev.(*highlightsEvent)
 		if !ok || he.Type != "highlights" || len(he.Patterns) != 1 || he.Patterns[0] != "deploy" {
 			t.Fatalf("unexpected hub event: %#v", ev)
 		}

@@ -23,7 +23,13 @@ class FakeWebSocket extends EventTarget {
     this.readyState = FakeWebSocket.CLOSED;
     this.dispatchEvent(new Event("close"));
   });
-  send = vi.fn();
+  // The server answers hello with the state snapshot over the socket.
+  send = vi.fn((data: string) => {
+    if (JSON.parse(data).type !== "hello") return;
+    queueMicrotask(() => {
+      this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ type: "state", seq: 1, ...FIXTURE }) }));
+    });
+  });
 
   constructor(public url: string) {
     super();

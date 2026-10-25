@@ -85,7 +85,7 @@ func TestReorderNetworkBuffersPersistsOrder(t *testing.T) {
 	}
 
 	ev := <-events
-	re, ok := ev.(bufferReorderEvent)
+	re, ok := ev.(*bufferReorderEvent)
 	if !ok {
 		t.Fatalf("expected bufferReorderEvent, got %T", ev)
 	}

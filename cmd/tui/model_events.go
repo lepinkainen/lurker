@@ -47,7 +47,22 @@ func (m *model) applyNetworkEvent(ev wsEvent) {
 }
 
 func (m *model) handleWSEvent(ev wsEvent) {
+	// One rule for every sequenced frame, the state snapshot included: at or
+	// below the cursor it is already reflected (a replayed or in-flight
+	// duplicate), otherwise apply it and advance.
+	if ev.Seq != 0 {
+		if ev.Seq <= m.lastSeq {
+			return
+		}
+		m.lastSeq = ev.Seq
+	}
 	switch ev.Type {
+	case "state":
+		if ev.Snapshot != nil {
+			m.applyState(ev.Snapshot)
+			m.loading = false
+			m.status = ""
+		}
 	case "message":
 		m.applyMessageEvent(ev)
 	case "buffer_update":
@@ -138,57 +153,7 @@ func (m *model) applyChannelList(ev wsEvent) {
 	m.status = fmt.Sprintf("/list %s: %d channels", netName, len(entries))
 }
 
-// maxPendingEvents bounds the sync-time queue. On overflow the queue is
-// discarded and the caller must start a new snapshot fetch: the
-// dropped state is persisted server-side and lands in that fresh snapshot.
-// History responses cannot be recovered from a snapshot; applyState releases
-// their loading flags so pagination can resume after synchronization.
-// ponytail: a sustained >1000-events-per-snapshot-latency flood would loop
-// on resync; raise the cap if that ever happens in practice.
-const maxPendingEvents = 1000
-
-// queuePendingEvent appends ev; returns true if the queue overflowed and was
-// reset, meaning the in-flight snapshot is no longer sufficient.
-func (m *model) queuePendingEvent(ev wsEvent) bool {
-	if len(m.pendingEvents) >= maxPendingEvents {
-		m.pendingEvents = nil
-		return true
-	}
-	m.pendingEvents = append(m.pendingEvents, ev)
-	return false
-}
-
-// snapshotMessageBoundary returns, per buffer, the newest message id in the
-// snapshot window. Queued message events at or below it are already
-// accounted for by the snapshot (in the window, or older than it and folded
-// into its unread totals) and must not be replayed.
-func snapshotMessageBoundary(s *stateResponse) map[uuid.UUID]uuid.UUID {
-	out := map[uuid.UUID]uuid.UUID{}
-	for key, msgs := range s.InitialMessages {
-		id, err := uuid.Parse(key)
-		if err != nil {
-			continue
-		}
-		var maxID uuid.UUID
-		for _, msg := range msgs {
-			if !uuidLTE(msg.ID, maxID) {
-				maxID = msg.ID
-			}
-		}
-		if maxID != uuid.Nil {
-			out[id] = maxID
-		}
-	}
-	return out
-}
-
 func (m *model) applyMessageEvent(ev wsEvent) {
-	// Already reflected by the last snapshot (see snapshotBoundary). Live ids
-	// are time-ordered and always newer than any snapshot, so this only ever
-	// drops events that raced the snapshot fetch.
-	if maxID, ok := m.snapshotBoundary[ev.BufferID]; ok && uuidLTE(ev.ID, maxID) {
-		return
-	}
 	// Publications may arrive out of ID order, or after a history response
 	// already loaded the row. Keep the list ordered with a logarithmic lookup.
 	pos, found := slices.BinarySearchFunc(m.messages[ev.BufferID], ev.ID, func(msg messageDTO, id uuid.UUID) int {
@@ -258,12 +223,8 @@ func (m *model) applyBufferUpdate(ev wsEvent) {
 	// mark_read variant (discriminated by last_seen_id): counts and marker
 	// are taken verbatim — a nil MarkerID means caught up and clears the
 	// marker even on the active buffer (a remote ack dismisses everywhere).
-	// Equal-position echoes are stale unless a local optimistic ack still
-	// needs its authoritative residual counts and marker. Older positions
-	// must never roll back a newer acknowledgement.
-	if ev.LastSeenID != uuid.Nil && (!uuidLTE(ev.LastSeenID, b.LastSeenID) ||
-		(m.optimisticRead[bufID] && ev.LastSeenID == b.LastSeenID)) {
-		delete(m.optimisticRead, bufID)
+	// Stream order makes every frame that reaches here newer than our state.
+	if ev.LastSeenID != uuid.Nil {
 		b.LastSeenID = ev.LastSeenID
 		m.unread[bufID] = ev.Unread
 		m.mentions[bufID] = ev.Mentions
@@ -328,7 +289,6 @@ func (m *model) removeBuffer(id uuid.UUID) {
 	delete(m.members, id)
 	delete(m.unread, id)
 	delete(m.mentions, id)
-	delete(m.optimisticRead, id)
 	delete(m.historyLoading, id)
 	delete(m.historyExhaust, id)
 	if wasActive {

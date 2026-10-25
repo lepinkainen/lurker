@@ -98,18 +98,19 @@ worktree on every build. It is only read when bundling Tauri for macOS, which th
 
 ## Hydration model
 
-On load:
+On load and on every reconnect (`connection.ts`), everything comes over the socket (see `websocket-protocol.md`, "Stream protocol"):
 
-1. fetch `/api/state`
-2. populate maps for networks, buffers (including settings fields), messages, and members
-3. take server-derived read state per buffer verbatim (`unread`, `mentions`, `marker_id`, `marker_ts` — see `behaviors/new-messages-marker.md`)
-4. restore sidebar visibility from localStorage
-5. connect WebSocket stream
-6. apply incoming events incrementally (including `buffer_settings` for live settings sync)
+1. open the WebSocket; on `open` send `hello {since: state.lastSeq}` (0 on first load)
+2. the server answers with a replay of the missed events, or with one `state` frame: `applyStateSnapshot` replaces networks, buffers (settings and server-derived read state verbatim: `unread`, `mentions`, `marker_id`, `marker_ts` — see `behaviors/new-messages-marker.md`), messages and members, and prunes anything missing from it (deleted while offline)
+3. every sequenced frame runs through one gate in the socket's message handler: `seq` at or below `state.lastSeq` is dropped, otherwise it is applied and becomes the new cursor. The `state` frame is gated the same way
+4. apply incoming events incrementally (including `buffer_settings` for live settings sync)
+5. restore sidebar visibility from localStorage
+
+`/api/update-status` and `/api/tailscale-status` are fetched separately on open; they are not part of the stream. There is no event queue, snapshot boundary or stale-echo guard in the client — stream order makes them unnecessary (`formal/ClientSync.tla`).
 
 Buffer settings are mutated via `PATCH /api/buffers/{id}/settings` and the server publishes a `buffer_settings` hub event so all open clients stay in sync.
 
-See [rest-api.md](rest-api.md) for `/api/state` and [websocket-protocol.md](websocket-protocol.md) for incremental events.
+See [websocket-protocol.md](websocket-protocol.md) for the `state` frame and incremental events.
 
 ## Rendering model
 

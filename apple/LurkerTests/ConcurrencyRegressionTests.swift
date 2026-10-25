@@ -307,11 +307,10 @@ struct ConcurrencyRegressionTests {
     model.stop()
     model.resetServerState()
 
-    // Replacement hydration has finished before the old request returns.
+    // Replacement hydration has finished before the old stream yields.
     model.transport = FixtureTransport()
     let replacement = FixtureTransport.snapshot()
     model.applySnapshot(replacement)
-    model.hydrated = true
     model.connectionState = .connected
     if fails {
       await gate.finish(.failure(URLError(.cancelled)))
@@ -321,7 +320,6 @@ struct ConcurrencyRegressionTests {
     await oldLoop.value
 
     #expect(model.connectionState == .connected)
-    #expect(model.hydrated)
     #expect(Set(model.buffers.keys) == Set(replacement.buffers.map(\.id)))
   }
 
@@ -414,10 +412,6 @@ private struct ControlledTransport: LurkerTransport {
     FixtureTransport.identity
   }
 
-  func fetchState() async throws -> StateSnapshot {
-    try await stateAction()
-  }
-
   func send(_: ClientCommand) async throws {
     try await sendAction()
   }
@@ -430,8 +424,19 @@ private struct ControlledTransport: LurkerTransport {
     try await contextAction(bufferID, around)
   }
 
+  /// The hello answer: yields the gated snapshot as the `state` frame, or
+  /// fails the stream when the gate fails.
   func openEvents() async -> AsyncThrowingStream<ServerEvent, Error> {
-    AsyncThrowingStream { $0.finish() }
+    let stateAction = stateAction
+    return AsyncThrowingStream { continuation in
+      Task {
+        do {
+          continuation.yield(.state(try await stateAction()))
+        } catch {
+          continuation.finish(throwing: error)
+        }
+      }
+    }
   }
 
   func disconnect() async { }

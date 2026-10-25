@@ -164,7 +164,7 @@ func TestPatchBufferSettingsPersistsAndPublishes(t *testing.T) {
 
 	select {
 	case ev := <-events:
-		bs, ok := ev.(bufferSettingsEvent)
+		bs, ok := ev.(*bufferSettingsEvent)
 		if !ok || bs.ID != bufID || !bs.Pinned {
 			t.Fatalf("unexpected hub event: %#v", ev)
 		}

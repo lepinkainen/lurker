@@ -884,71 +884,6 @@ func TestApplyStateIsRepeatable(t *testing.T) {
 	}
 }
 
-// A failed snapshot fetch must schedule a retry rather than leave the TUI
-// "connected" on stale state.
-func TestStateFailedSchedulesRetry(t *testing.T) {
-	m := testModel()
-	m.client = newAPIClient("http://127.0.0.1:1")
-	next, cmd := m.Update(stateFailedMsg{err: errors.New("boom")})
-	if cmd == nil {
-		t.Fatal("no retry cmd scheduled")
-	}
-	if got := next.(model).status; !strings.Contains(got, "State sync failed") {
-		t.Fatalf("status = %q", got)
-	}
-}
-
-// Events that arrive while /api/state is in flight are queued and replayed
-// after the snapshot. One already in the snapshot must not double-apply; one
-// newer than the snapshot window must survive the overwrite.
-func TestEventsDuringSyncReplayedWithoutDuplicates(t *testing.T) {
-	m := testModel()
-	netID, bufID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	inSnap := uuid.Must(uuid.NewV7())
-	afterSnap := uuid.Must(uuid.NewV7()) // ids are time-ordered, like the backend's
-	snap := &stateResponse{
-		Networks:        []networkDTO{{ID: netID, Name: "net"}},
-		Buffers:         []bufferDTO{{ID: bufID, NetworkID: netID, Name: "#a", Kind: "channel", Joined: true}},
-		InitialMessages: map[string][]messageDTO{bufID.String(): {{ID: inSnap, BufferID: bufID, Kind: "privmsg", Content: "one"}}},
-	}
-	m.syncing = true
-	mk := func(id uuid.UUID) wsEventMsg {
-		return wsEventMsg(wsEvent{Type: "message", ID: id, NetworkID: netID, BufferID: bufID, Kind: "privmsg", Sender: "bob", Content: "x", CountsAsUnread: true})
-	}
-	next, _ := m.Update(mk(inSnap))
-	m2 := next.(model)
-	next, _ = m2.Update(mk(afterSnap))
-	m3 := next.(model)
-	if len(m3.messages[bufID]) != 0 {
-		t.Fatalf("events applied during sync: %d", len(m3.messages[bufID]))
-	}
-	next, _ = m3.Update(stateLoadedMsg{state: snap})
-	m4 := next.(model)
-	if got := len(m4.messages[bufID]); got != 2 {
-		t.Fatalf("messages = %d, want 2 (snapshot + one new, no dup)", got)
-	}
-	if m4.unread[bufID] != 1 {
-		t.Fatalf("unread = %d, want 1 (only the post-snapshot event counts)", m4.unread[bufID])
-	}
-	if m4.syncing || m4.pendingEvents != nil {
-		t.Fatal("sync state not cleared")
-	}
-}
-
-// Initial snapshot failures must be visible on the loading screen, not
-// hidden behind "Loading from …".
-func TestLoadingViewShowsSyncFailure(t *testing.T) {
-	m := testModel()
-	m.ready = true
-	m.cfg = &Config{BackendURL: "http://127.0.0.1:1"}
-	m.loading = true
-	m.client = newAPIClient("http://127.0.0.1:1")
-	next, _ := m.Update(stateFailedMsg{err: errors.New("boom")})
-	if v := next.(model).View(); !strings.Contains(v, "State sync failed") {
-		t.Fatalf("loading view hides failure:\n%s", v)
-	}
-}
-
 func TestBufferCreatedReplayIsIdempotent(t *testing.T) {
 	m := testModel()
 	netID, bufID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
@@ -956,119 +891,6 @@ func TestBufferCreatedReplayIsIdempotent(t *testing.T) {
 	m.handleWSEvent(wsEvent{Type: "buffer_created", ID: bufID, NetworkID: netID, Name: "#a", Kind: "channel"})
 	if len(m.buffers) != 1 {
 		t.Fatalf("buffers = %d, want 1", len(m.buffers))
-	}
-}
-
-// A snapshot result or retry from a superseded connection must not touch
-// the state of the connection that replaced it.
-func TestStaleSnapshotGenerationIgnored(t *testing.T) {
-	m := testModel()
-	m.syncGen = 2
-	m.syncing = true
-	stale := &stateResponse{Networks: []networkDTO{{ID: uuid.Must(uuid.NewV7()), Name: "old"}}}
-	next, _ := m.Update(stateLoadedMsg{gen: 1, state: stale})
-	got := next.(model)
-	if !got.syncing || len(got.networks) != 0 {
-		t.Fatal("stale snapshot applied")
-	}
-	if _, cmd := got.Update(stateFailedMsg{gen: 1, err: errors.New("x")}); cmd != nil {
-		t.Fatal("stale failure scheduled a retry")
-	}
-}
-
-// Queued messages older than the snapshot window are already folded into the
-// snapshot's unread totals; replaying them would append out of order and
-// double count. Mark_read echoes that don't advance past the snapshot's
-// last_seen_id are likewise stale.
-func TestReplaySkipsEventsBehindSnapshotBoundary(t *testing.T) {
-	m := testModel()
-	netID, bufID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	older := uuid.Must(uuid.NewV7())
-	inSnap := uuid.Must(uuid.NewV7())
-	newer := uuid.Must(uuid.NewV7())
-	snap := &stateResponse{
-		Networks: []networkDTO{{ID: netID, Name: "net"}},
-		Buffers: []bufferDTO{{
-			ID: bufID, NetworkID: netID, Name: "#a", Kind: "channel", Joined: true,
-			Unread: 5, LastSeenID: older,
-		}},
-		InitialMessages: map[string][]messageDTO{bufID.String(): {{ID: inSnap, BufferID: bufID, Kind: "privmsg"}}},
-	}
-	m.syncing = true
-	m.syncGen = 1
-	mk := func(id uuid.UUID) wsEvent {
-		return wsEvent{Type: "message", ID: id, NetworkID: netID, BufferID: bufID, Kind: "privmsg", Sender: "bob", CountsAsUnread: true}
-	}
-	m.queuePendingEvent(mk(older))
-	// stale mark_read echo: last_seen_id == snapshot's, unread 0
-	staleMarker := (*uuid.UUID)(nil)
-	m.queuePendingEvent(wsEvent{Type: "buffer_update", ID: bufID, LastSeenID: older, Unread: 0, MarkerID: staleMarker})
-	m.queuePendingEvent(mk(newer))
-
-	next, _ := m.Update(stateLoadedMsg{gen: 1, state: snap})
-	got := next.(model)
-	msgs := got.messages[bufID]
-	if len(msgs) != 2 || msgs[0].ID != inSnap || msgs[1].ID != newer {
-		t.Fatalf("messages = %v", msgs)
-	}
-	if got.unread[bufID] != 6 {
-		t.Fatalf("unread = %d, want 6 (snapshot 5 + one post-boundary message)", got.unread[bufID])
-	}
-}
-
-// Guards must hold for events delivered after the snapshot landed too (still
-// in wsChan when stateLoadedMsg was processed), not just for the queue.
-func TestGuardsApplyToEventsAfterSnapshot(t *testing.T) {
-	m := testModel()
-	netID, bufID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	older := uuid.Must(uuid.NewV7())
-	inSnap := uuid.Must(uuid.NewV7())
-	snap := &stateResponse{
-		Networks: []networkDTO{{ID: netID, Name: "net"}},
-		Buffers: []bufferDTO{{
-			ID: bufID, NetworkID: netID, Name: "#a", Kind: "channel", Joined: true,
-			Unread: 2, LastSeenID: older, MarkerID: inSnap,
-		}},
-		InitialMessages: map[string][]messageDTO{bufID.String(): {{ID: inSnap, BufferID: bufID, Kind: "privmsg"}}},
-	}
-	m.syncing = true
-	m.syncGen = 1
-	next, _ := m.Update(stateLoadedMsg{gen: 1, state: snap})
-	got := next.(model)
-
-	// stale mark_read echo arriving late
-	next, _ = got.Update(wsEventMsg(wsEvent{Type: "buffer_update", ID: bufID, LastSeenID: older, Unread: 0}))
-	got = next.(model)
-	if got.unread[bufID] != 2 || got.findBuffer(bufID).MarkerID != inSnap {
-		t.Fatalf("stale echo rolled back snapshot: unread=%d marker=%v", got.unread[bufID], got.findBuffer(bufID).MarkerID)
-	}
-	// message at/below boundary arriving late
-	next, _ = got.Update(wsEventMsg(wsEvent{Type: "message", ID: inSnap, BufferID: bufID, Kind: "privmsg", Sender: "bob", CountsAsUnread: true}))
-	got = next.(model)
-	if len(got.messages[bufID]) != 1 || got.unread[bufID] != 2 {
-		t.Fatalf("late in-snapshot message double-applied: msgs=%d unread=%d", len(got.messages[bufID]), got.unread[bufID])
-	}
-}
-
-// Overflowing the sync queue supersedes the in-flight snapshot and starts a
-// new fetch instead of silently dropping events.
-func TestPendingQueueOverflowResyncs(t *testing.T) {
-	m := testModel()
-	m.client = newAPIClient("http://127.0.0.1:1")
-	m.syncing = true
-	m.syncGen = 1
-	for range maxPendingEvents {
-		m.pendingEvents = append(m.pendingEvents, wsEvent{Type: "ping"})
-	}
-	next, cmd := m.Update(wsEventMsg(wsEvent{Type: "ping"}))
-	got := next.(model)
-	if got.syncGen != 2 || cmd == nil || len(got.pendingEvents) != 0 {
-		t.Fatalf("overflow did not resync: gen=%d cmd=%v pending=%d", got.syncGen, cmd != nil, len(got.pendingEvents))
-	}
-	// the superseded snapshot must now be ignored
-	next, _ = got.Update(stateLoadedMsg{gen: 1, state: &stateResponse{Networks: []networkDTO{{ID: uuid.Must(uuid.NewV7())}}}})
-	if got2 := next.(model); !got2.syncing || len(got2.networks) != 0 {
-		t.Fatal("superseded snapshot applied")
 	}
 }
 
@@ -1092,11 +914,6 @@ func TestOptimisticReadAcceptsResidualUnread(t *testing.T) {
 	if m.unread[b] != 1 || m.mentions[b] != 1 || buf.MarkerID != newer || buf.MarkerTS != ts {
 		t.Fatalf("residual unread lost: unread=%d mentions=%d buffer=%+v", m.unread[b], m.mentions[b], buf)
 	}
-	// Once confirmed, an equal-position stale echo cannot clear newer unread.
-	m.applyBufferUpdate(wsEvent{ID: b, LastSeenID: older})
-	if m.unread[b] != 1 || buf.MarkerID != newer {
-		t.Fatal("stale echo replaced confirmed residual unread")
-	}
 }
 
 func TestOptimisticReadDoesNotRegressNewerPosition(t *testing.T) {
@@ -1109,66 +926,12 @@ func TestOptimisticReadDoesNotRegressNewerPosition(t *testing.T) {
 	if m.findBuffer(b).LastSeenID != newer {
 		t.Fatal("ack of older loaded message regressed read position")
 	}
-	m.applyBufferUpdate(wsEvent{ID: b, LastSeenID: older, Unread: 5})
-	if m.unread[b] != 0 {
-		t.Fatal("older response replaced optimistic state")
-	}
+	// The server never reports an older position (max-wins), and stream
+	// order drops any stale frame before it gets here, so the echo's counts
+	// are taken verbatim.
 	m.applyBufferUpdate(wsEvent{ID: b, LastSeenID: newer, Unread: 1})
 	if m.unread[b] != 1 {
 		t.Fatal("server max-wins response was ignored")
-	}
-}
-
-func TestSnapshotSupersedesOptimisticRead(t *testing.T) {
-	m, _, b, _ := markerModel(t)
-	id, marker := seqUUID(100), seqUUID(101)
-	m.handleWSEvent(msgEvent(b, id))
-	m.activateBufferByID(b)
-	m.ackActiveRead()
-	m.applyState(&stateResponse{Buffers: []bufferDTO{{ID: b, LastSeenID: id, Unread: 2, MarkerID: marker}}})
-	m.applyBufferUpdate(wsEvent{ID: b, LastSeenID: id})
-	if m.unread[b] != 2 || m.findBuffer(b).MarkerID != marker {
-		t.Fatal("optimistic ack allowed stale echo to overwrite snapshot")
-	}
-}
-
-func TestPendingQueueOverflowReleasesHistory(t *testing.T) {
-	for _, resultTriggersOverflow := range []bool{false, true} {
-		t.Run(fmt.Sprint(resultTriggersOverflow), func(t *testing.T) {
-			m, a, _, _ := markerModel(t)
-			m.client = newAPIClient("http://127.0.0.1:1")
-			m.wsConn = &websocket.Conn{} // request command is inspected, not executed
-			m.messages[a] = []messageDTO{{ID: seqUUID(100), BufferID: a}}
-			if m.requestHistory() == nil {
-				t.Fatal("initial history request was blocked")
-			}
-			m.syncing = true
-			result := wsEvent{Type: "history_result", BufferID: a}
-			if !resultTriggersOverflow {
-				m.queuePendingEvent(result)
-			}
-			for len(m.pendingEvents) < maxPendingEvents {
-				m.queuePendingEvent(wsEvent{Type: "ping"})
-			}
-			trigger := wsEvent{Type: "ping"}
-			if resultTriggersOverflow {
-				trigger = result
-			}
-			next, _ := m.Update(wsEventMsg(trigger))
-			got := next.(model)
-			if got.requestHistory() != nil {
-				t.Fatal("history requested against a superseded snapshot")
-			}
-			snap := &stateResponse{
-				Networks: m.networks, Buffers: m.buffers,
-				InitialMessages: map[string][]messageDTO{a.String(): m.messages[a]},
-			}
-			next, _ = got.Update(stateLoadedMsg{gen: got.syncGen, state: snap})
-			got = next.(model)
-			if got.requestHistory() == nil {
-				t.Fatal("pagination remains blocked after synchronization")
-			}
-		})
 	}
 }
 
@@ -1184,23 +947,6 @@ func TestReconnectSnapshotReleasesHistory(t *testing.T) {
 	})
 	if m.requestHistory() == nil {
 		t.Fatal("lost history response blocks pagination after reconnect")
-	}
-}
-
-func TestDisconnectInvalidatesSnapshot(t *testing.T) {
-	m := testModel()
-	m.syncGen = 1
-	m.syncing = true
-	next, _ := m.Update(wsErrorMsg{err: errors.New("disconnected")})
-	got := next.(model)
-	status := got.status
-	next, _ = got.Update(stateLoadedMsg{gen: 1, state: &stateResponse{}})
-	got = next.(model)
-	if got.status != status || !got.syncing {
-		t.Fatal("dead connection snapshot replaced reconnect status")
-	}
-	if _, cmd := got.Update(stateFailedMsg{gen: 1, err: errors.New("failed")}); cmd != nil {
-		t.Fatal("dead connection snapshot scheduled a retry")
 	}
 }
 
@@ -1285,5 +1031,71 @@ func TestRebuildSidebarKeepsSelectedRow(t *testing.T) {
 	}{{ID: n2, SortOrder: 0}, {ID: n1, SortOrder: 1}}})
 	if got := m.sidebarItems[m.sidebarSel].bufferID; got != b2 {
 		t.Fatalf("selection moved to %v, want %v", got, b2)
+	}
+}
+
+// The whole resync story is one rule (formal/ClientSync.tla): every
+// sequenced frame at or below the cursor is already reflected and dropped,
+// everything newer applies and advances the cursor. The state frame is just
+// the first such frame after hello.
+func TestSequencedFramesGateOnCursor(t *testing.T) {
+	m := testModel()
+	netID, bufID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	inSnap, newer := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	snap := &stateResponse{
+		Seq:      10,
+		Networks: []networkDTO{{ID: netID, Name: "net"}},
+		Buffers: []bufferDTO{{
+			ID: bufID, NetworkID: netID, Name: "#a", Kind: "channel", Joined: true, Unread: 5,
+		}},
+		InitialMessages: map[string][]messageDTO{bufID.String(): {{ID: inSnap, BufferID: bufID, Kind: "privmsg"}}},
+	}
+	mk := func(seq uint64, id uuid.UUID) wsEventMsg {
+		return wsEventMsg(wsEvent{Type: "message", Seq: seq, ID: id, NetworkID: netID, BufferID: bufID, Kind: "privmsg", Sender: "bob", CountsAsUnread: true})
+	}
+	next, _ := m.Update(wsEventMsg(wsEvent{Type: "state", Seq: 10, Snapshot: snap}))
+	got := next.(model)
+	if got.lastSeq != 10 || got.loading || got.unread[bufID] != 5 {
+		t.Fatalf("state frame not applied: lastSeq=%d loading=%v unread=%d", got.lastSeq, got.loading, got.unread[bufID])
+	}
+	// A frame the snapshot already covers (still in flight when it was taken).
+	next, _ = got.Update(mk(10, inSnap))
+	got = next.(model)
+	// A stale state frame (replayed from an older connection) is ignored too.
+	next, _ = got.Update(wsEventMsg(wsEvent{Type: "state", Seq: 9, Snapshot: &stateResponse{Seq: 9}}))
+	got = next.(model)
+	if len(got.messages[bufID]) != 1 || got.unread[bufID] != 5 || len(got.networks) != 1 {
+		t.Fatalf("frame at/below cursor applied: msgs=%d unread=%d networks=%d", len(got.messages[bufID]), got.unread[bufID], len(got.networks))
+	}
+	next, _ = got.Update(mk(11, newer))
+	got = next.(model)
+	if len(got.messages[bufID]) != 2 || got.unread[bufID] != 6 || got.lastSeq != 11 {
+		t.Fatalf("newer frame not applied: msgs=%d unread=%d lastSeq=%d", len(got.messages[bufID]), got.unread[bufID], got.lastSeq)
+	}
+	// Unsequenced frames (ack, error, ping) never touch the cursor.
+	next, _ = got.Update(wsEventMsg(wsEvent{Type: "ping"}))
+	if got = next.(model); got.lastSeq != 11 {
+		t.Fatalf("unsequenced frame moved the cursor to %d", got.lastSeq)
+	}
+}
+
+// Every (re)connect opens with hello carrying the cursor, so the server can
+// replay exactly the gap instead of the client refetching a snapshot. A
+// history request lost with the old socket is forgotten (Codex review: a
+// replay-only resume never runs applyState, which used to reset it).
+func TestConnectSendsHelloWithCursorAndReleasesHistory(t *testing.T) {
+	m, a, _, sent := markerModel(t)
+	m.lastSeq = 41
+	m.historyLoading[a] = true
+	next, _ := m.Update(wsConnectedMsg{conn: nil, ch: make(chan wsEvent), cancel: func() {}})
+	got := next.(model)
+	if got.wsSendChan != nil {
+		close(got.wsSendChan)
+	}
+	if len(*sent) != 1 || (*sent)[0]["type"] != "hello" || (*sent)[0]["since"] != uint64(41) {
+		t.Fatalf("sent = %v, want one hello with since=41", *sent)
+	}
+	if got.historyLoading[a] {
+		t.Fatal("in-flight history request survived the reconnect")
 	}
 }

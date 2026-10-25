@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -23,21 +23,6 @@ func newAPIClient(baseURL string) *apiClient {
 		baseURL: strings.TrimRight(baseURL, "/"),
 		hjc:     &httpjson.Client{HTTP: &http.Client{}},
 	}
-}
-
-func (c *apiClient) fetchState(ctx context.Context) (*stateResponse, error) {
-	var state stateResponse
-	if err := c.hjc.DoJSON(ctx, httpjson.Request{URL: c.baseURL + "/api/state"}, &state); err != nil {
-		if herr, ok := errors.AsType[*httpjson.Error](err); ok {
-			preview := string(herr.Body)
-			if len(preview) > 200 {
-				preview = preview[:200]
-			}
-			return nil, fmt.Errorf("fetch state: server returned %d: %s", herr.Status, preview)
-		}
-		return nil, fmt.Errorf("fetch state: %w", err)
-	}
-	return &state, nil
 }
 
 func (c *apiClient) connectWS(ctx context.Context) (*websocket.Conn, error) {
@@ -66,8 +51,8 @@ func startWSReader(ctx context.Context, conn *websocket.Conn) <-chan wsEvent {
 	go func() {
 		defer close(ch)
 		for {
-			var ev wsEvent
-			if err := wsjson.Read(ctx, conn, &ev); err != nil {
+			ev, err := readWSEvent(ctx, conn)
+			if err != nil {
 				return
 			}
 			select {
@@ -78,6 +63,35 @@ func startWSReader(ctx context.Context, conn *websocket.Conn) <-chan wsEvent {
 		}
 	}()
 	return ch
+}
+
+// readWSEvent decodes one frame. The `state` frame is the full snapshot and
+// shares top-level keys (networks, buffers, members) with other events in
+// incompatible shapes, so it is decoded into stateResponse on its own.
+func readWSEvent(ctx context.Context, conn *websocket.Conn) (wsEvent, error) {
+	var raw json.RawMessage
+	if err := wsjson.Read(ctx, conn, &raw); err != nil {
+		return wsEvent{}, err
+	}
+	var head struct {
+		Type string `json:"type"`
+		Seq  uint64 `json:"seq"`
+	}
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return wsEvent{}, err
+	}
+	if head.Type == "state" {
+		var snap stateResponse
+		if err := json.Unmarshal(raw, &snap); err != nil {
+			return wsEvent{}, err
+		}
+		return wsEvent{Type: "state", Seq: head.Seq, Snapshot: &snap}, nil
+	}
+	var ev wsEvent
+	if err := json.Unmarshal(raw, &ev); err != nil {
+		return wsEvent{}, err
+	}
+	return ev, nil
 }
 
 func sendMessage(ctx context.Context, conn *websocket.Conn, bufferID uuid.UUID, content string) error {

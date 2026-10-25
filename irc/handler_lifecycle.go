@@ -9,8 +9,11 @@ import (
 )
 
 func (h *handler) onConnected(c *girc.Client, e girc.Event) {
-	if h.connectedHook != nil {
-		h.connectedHook(c.GetNick())
+	if h.connectedHook != nil && !h.connectedHook(c.GetNick()) {
+		// Stale runtime (StopNetwork raced registration): the client is
+		// being closed; publishing Connected now would override the
+		// Disconnected that StopNetwork already sent.
+		return
 	}
 	h.publishNetworkState(StateConnected)
 	h.logStatus(StateConnected.String(), "")
@@ -76,21 +79,24 @@ func (h *handler) logStatus(kind, content string) {
 		slog.Error("ensure status buffer", "err", err, "network", h.networkName)
 		return
 	}
-	id, ts, inserted, err := ircdb.InsertLogMessage(ctx, h.db, ircdb.LogMessageInput{
-		BufferID:  bufID,
-		Timestamp: time.Now(),
-		Sender:    "*",
-		Kind:      kind,
-		Content:   content,
-		Raw:       "",
+	_ = h.hub.Do(func(publish func(any)) error {
+		id, ts, inserted, err := ircdb.InsertLogMessage(ctx, h.db, ircdb.LogMessageInput{
+			BufferID:  bufID,
+			Timestamp: time.Now(),
+			Sender:    "*",
+			Kind:      kind,
+			Content:   content,
+			Raw:       "",
+		})
+		if err == nil && inserted {
+			publish((&MessageEvent{
+				Type: "message",
+				ID:   id, NetworkID: h.networkID, BufferID: bufID,
+				TS: ts, Sender: "*", Kind: kind, Content: content,
+			}).WithSemantics(""))
+		}
+		return err
 	})
-	if err == nil && inserted && h.hub != nil {
-		h.hub.Publish((&MessageEvent{
-			Type: "message",
-			ID:   id, NetworkID: h.networkID, BufferID: bufID,
-			TS: ts, Sender: "*", Kind: kind, Content: content,
-		}).WithSemantics(""))
-	}
 	if kind == StateDisconnected.String() {
 		h.publishNetworkState(StateDisconnected)
 	}

@@ -66,10 +66,11 @@ See [operations.md](operations.md) for the full response shape and configuration
 
 Purpose:
 
-- full snapshot for initial client hydration
+- the same full snapshot the WebSocket `state` frame carries, for tools, tests and debugging. Clients do not sync through this endpoint: they send `hello` on the stream and receive the snapshot (or a replay) there, see [websocket-protocol.md](websocket-protocol.md)
 
 Returns:
 
+- `type` (`"state"`) and `seq` — the stream position the snapshot reflects
 - `networks`
 - `buffers`
 - `initial_messages` keyed by buffer ID

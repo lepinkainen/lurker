@@ -69,7 +69,7 @@ func TestOnConnectedSendsConnectCommandsThenAutojoin(t *testing.T) {
 	defer unsub()
 
 	hookCalled := false
-	f.Handler.connectedHook = func(string) { hookCalled = true }
+	f.Handler.connectedHook = func(string) bool { hookCalled = true; return true }
 	f.Handler.connectCommands = []string{"PRIVMSG NickServ :IDENTIFY hunter2"}
 	f.Handler.autojoin = []string{"#alpha", "#beta"}
 

@@ -85,21 +85,42 @@ type stateManager interface {
 	Nick(networkID uuid.UUID) string
 }
 
-// state serves the full snapshot a client needs to render from scratch:
-// every network, every buffer, plus the last 100 messages per buffer.
-// All per-network log DB access is batched: O(networks) queries for both
-// recent messages and unread candidates.
+// state serves the same snapshot the WebSocket handshake sends, for tools
+// and tests. Clients sync over the stream (hello → state), not through this.
 func (s *Server) state(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	snap, err := s.stateSnapshot(r.Context())
+	if err != nil {
+		slog.Error("state snapshot", "err", err)
+		http.Error(w, "State snapshot unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(w, http.StatusOK, snap)
+}
+
+// stateSnapshot builds the full snapshot under the hub's stream lock, so it
+// is exactly the state as of the seq it carries: no event at or below that
+// seq is missing from it and none above it is in it.
+func (s *Server) stateSnapshot(ctx context.Context) (stateEvent, error) {
+	var out stateDTO
+	seq, err := s.Hub.Snapshot(func() error {
+		var err error
+		out, err = s.buildState(ctx)
+		return err
+	})
+	return stateEvent{Type: "state", Seq: seq, stateDTO: out}, err
+}
+
+// buildState assembles every network, every buffer, plus the last 100
+// messages per buffer. All per-network log DB access is batched:
+// O(networks) queries for both recent messages and unread candidates.
+func (s *Server) buildState(ctx context.Context) (stateDTO, error) {
 	nets, err := ircdb.ListNetworks(ctx, s.Stores.Control)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return stateDTO{}, err
 	}
 	bufs, err := s.Stores.ListAllBuffers(ctx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return stateDTO{}, err
 	}
 	out := stateDTO{
 		Networks:        make([]networkDTO, 0, len(nets)),
@@ -123,39 +144,12 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	}
 	recentByBuf, unreadByBuf, err := s.prefetchNetworkState(ctx, byNetwork, len(bufs))
 	if err != nil {
-		slog.Error("state snapshot", "err", err)
-		http.Error(w, "State snapshot unavailable", http.StatusServiceUnavailable)
-		return
+		return stateDTO{}, err
 	}
-	// A queued acknowledgement may have been tallied before messages in
-	// this snapshot. Reject changed cutoffs rather than replaying that older
-	// tally over newer counts. The client owns retrying the whole snapshot.
-	again, err := s.Stores.ListAllBuffers(ctx)
-	if err != nil || !sameReadPositions(bufs, again) {
-		http.Error(w, "Read positions changed; retry state snapshot", http.StatusServiceUnavailable)
-		return
-	}
-
 	for _, b := range bufs {
 		s.appendBufferToState(ctx, &out, b, kinds, recentByBuf, unreadByBuf)
 	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-func sameReadPositions(a, b []ircdb.Buffer) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	positions := make(map[uuid.UUID]uuid.UUID, len(a))
-	for _, buffer := range a {
-		positions[buffer.ID] = buffer.LastSeenID
-	}
-	for _, buffer := range b {
-		if pos, ok := positions[buffer.ID]; !ok || pos != buffer.LastSeenID {
-			return false
-		}
-	}
-	return true
+	return out, nil
 }
 
 func (s *Server) appendBufferToState(ctx context.Context, out *stateDTO, b ircdb.Buffer, kinds map[uuid.UUID]string, recentByBuf map[uuid.UUID][]ircdb.StoredMessage, unreadByBuf map[uuid.UUID]unreadTally) {

@@ -144,6 +144,18 @@ func (m *Manager) SetNickChangedHook(fn func(ircdb.Network)) {
 	m.nickChangedHook = fn
 }
 
+// ownsRuntimeLocked reports whether gen is the runtime currently installed
+// for networkID. Caller holds m.mu. Every write a runtime goroutine (or a
+// girc callback on its client) makes to conn/state must be gated on this:
+// StopNetwork removes the entry and a later StartNetwork installs a newer
+// gen, and the old goroutine's late writes would otherwise resurrect
+// "connecting"/"connected" for a network that has no runtime, or clobber the
+// new runtime's client. Modeled in formal/ManagerLifecycle.tla.
+func (m *Manager) ownsRuntimeLocked(networkID uuid.UUID, gen uint64) bool {
+	rt, ok := m.runtime[networkID]
+	return ok && rt.gen == gen
+}
+
 // handleSelfNickConnected is connectedHook's body, named so it's directly
 // testable. It runs when the handler observes our own nick at registration
 // (possibly an alternate nick) or via a NICK on our own connection: it
@@ -151,8 +163,17 @@ func (m *Manager) SetNickChangedHook(fn func(ircdb.Network)) {
 // actually changed from what was stored — fires nickChangedHook so the API
 // layer can broadcast network_updated. Without the change check, every
 // reconnect with an unchanged nick would broadcast noise.
-func (m *Manager) handleSelfNickConnected(networkID uuid.UUID, currentNick string) {
+//
+// Returns false, having changed nothing, when gen is no longer the installed
+// runtime: girc can deliver CONNECTED for a client StopNetwork is in the
+// middle of closing, and accepting it would leave the stopped network
+// reported as connected until the next StartNetwork.
+func (m *Manager) handleSelfNickConnected(networkID uuid.UUID, gen uint64, currentNick string) bool {
 	m.mu.Lock()
+	if !m.ownsRuntimeLocked(networkID, gen) {
+		m.mu.Unlock()
+		return false
+	}
 	m.state[networkID] = StateConnected.String()
 	if _, ok := m.membersLoaded[networkID]; !ok {
 		m.membersLoaded[networkID] = map[string]bool{}
@@ -167,18 +188,19 @@ func (m *Manager) handleSelfNickConnected(networkID uuid.UUID, currentNick strin
 	}
 	m.mu.Unlock()
 	if currentNick == "" {
-		return
+		return true
 	}
 	tCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	updated, err := ircdb.UpdateNetwork(tCtx, m.stores.Control, networkID, ircdb.Network{Nick: currentNick})
 	if err != nil {
 		slog.Warn("persist current nick", "network_id", networkID, "nick", currentNick, "err", err)
-		return
+		return true
 	}
 	if oldNick != currentNick && m.nickChangedHook != nil {
 		m.nickChangedHook(updated)
 	}
+	return true
 }
 
 // Start upserts and starts all configured networks.
@@ -306,33 +328,32 @@ func (m *Manager) LogOutbound(ctx context.Context, networkID uuid.UUID, target, 
 	if nick == "" {
 		return errors.New("irc: cannot log outbound message without known nick")
 	}
-	id, ts, inserted, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
-		BufferID:  bufID,
-		Timestamp: time.Now(),
-		Sender:    nick,
-		Kind:      kind,
-		Content:   content,
-	})
-	if err != nil {
-		return err
-	}
-	if !inserted || m.hub == nil {
+	return m.hub.Do(func(publish func(any)) error {
+		id, ts, inserted, err := ircdb.InsertLogMessage(ctx, logStore, ircdb.LogMessageInput{
+			BufferID:  bufID,
+			Timestamp: time.Now(),
+			Sender:    nick,
+			Kind:      kind,
+			Content:   content,
+		})
+		if err != nil || !inserted {
+			return err
+		}
+		publish((&MessageEvent{
+			Type:      "message",
+			ID:        id,
+			NetworkID: networkID,
+			BufferID:  bufID,
+			TS:        ts,
+			Sender:    nick,
+			Kind:      kind,
+			Content:   content,
+		}).WithSemantics(nick))
+		if m.previews != nil && (kind == "privmsg" || kind == "notice" || kind == "action") {
+			m.previews.Enqueue(networkID, bufID, id, content)
+		}
 		return nil
-	}
-	m.hub.Publish((&MessageEvent{
-		Type:      "message",
-		ID:        id,
-		NetworkID: networkID,
-		BufferID:  bufID,
-		TS:        ts,
-		Sender:    nick,
-		Kind:      kind,
-		Content:   content,
-	}).WithSemantics(nick))
-	if m.previews != nil && (kind == "privmsg" || kind == "notice" || kind == "action") {
-		m.previews.Enqueue(networkID, bufID, id, content)
-	}
-	return nil
+	})
 }
 
 // Join sends a JOIN command on a connected network.
@@ -738,31 +759,48 @@ func (m *Manager) refreshConnectCommands(ctx context.Context, log *slog.Logger, 
 // with TLS 1.2 forced when the initial dial fails and TLS downgrade is
 // possible. Tracks connection state in the manager and publishes hub events.
 func (m *Manager) attemptConnect(ctx context.Context, log *slog.Logger, networkID uuid.UUID, nc NetworkConfig, server ServerConfig, gen uint64) error {
-	client := m.buildClient(ctx, networkID, nc, server)
-	m.setConnectingState(networkID, client)
+	client := m.buildClient(ctx, networkID, nc, server, gen)
+	if !m.setConnectingState(networkID, client, gen) {
+		// StopNetwork won the race between runNetwork's ctx check and here;
+		// the loop sees ctx.Err() and exits. Dialing would only publish a
+		// stale "connecting" over the Disconnected StopNetwork just sent.
+		return nil
+	}
 
 	log.Info("connecting", "host", server.Host, "port", server.Port, "tls", server.TLS, "tls_max_version", tlsMaxVersionLabel(server))
 	err := m.connector(ctx, client, server)
 	if err != nil && ctx.Err() == nil && shouldFallbackToTLS12(server, err) {
-		err = m.connectWithTLS12Fallback(ctx, log, networkID, nc, server, err)
+		err = m.connectWithTLS12Fallback(ctx, log, networkID, nc, server, err, gen)
 	}
 	m.markDisconnected(networkID, gen)
 	return err
 }
 
-func (m *Manager) setConnectingState(networkID uuid.UUID, client *girc.Client) {
+// setConnectingState installs client as the network's connection and reports
+// Connecting. Returns false, having changed nothing, when gen no longer owns
+// the network (see ownsRuntimeLocked).
+func (m *Manager) setConnectingState(networkID uuid.UUID, client *girc.Client, gen uint64) bool {
 	m.mu.Lock()
+	if !m.ownsRuntimeLocked(networkID, gen) {
+		m.mu.Unlock()
+		return false
+	}
 	m.conn[networkID] = client
 	m.state[networkID] = StateConnecting.String()
 	m.mu.Unlock()
 	PublishNetworkState(m.hub, networkID, StateConnecting)
+	return true
 }
 
-func (m *Manager) connectWithTLS12Fallback(ctx context.Context, log *slog.Logger, networkID uuid.UUID, nc NetworkConfig, server ServerConfig, firstErr error) error {
+func (m *Manager) connectWithTLS12Fallback(ctx context.Context, log *slog.Logger, networkID uuid.UUID, nc NetworkConfig, server ServerConfig, firstErr error, gen uint64) error {
 	fallbackServer := server
 	fallbackServer.TLSMaxVersion = tls.VersionTLS12
-	fallbackClient := m.buildClient(ctx, networkID, nc, fallbackServer)
+	fallbackClient := m.buildClient(ctx, networkID, nc, fallbackServer, gen)
 	m.mu.Lock()
+	if !m.ownsRuntimeLocked(networkID, gen) {
+		m.mu.Unlock()
+		return firstErr
+	}
 	m.conn[networkID] = fallbackClient
 	m.mu.Unlock()
 	log.Warn("connection failed, retrying with TLS 1.2 compatibility", "err", firstErr)
@@ -834,7 +872,7 @@ func tlsMaxVersionLabel(server ServerConfig) string {
 	}
 }
 
-func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc NetworkConfig, server ServerConfig) *girc.Client {
+func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc NetworkConfig, server ServerConfig, gen uint64) *girc.Client {
 	user := nc.User
 	if user == "" {
 		user = nc.Nick
@@ -909,8 +947,8 @@ func (m *Manager) buildClient(ctx context.Context, networkID uuid.UUID, nc Netwo
 	m.avatars[networkID] = avs
 	m.mu.Unlock()
 
-	h := &handler{stores: m.stores, db: logStore, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectCommands: nc.ConnectCommands, userChannels: newUserChannels(), bots: bots, avatars: avs, nickFn: func() string { return m.Nick(networkID) }, connectedHook: func(currentNick string) {
-		m.handleSelfNickConnected(networkID, currentNick)
+	h := &handler{stores: m.stores, db: logStore, hub: m.hub, previews: m.previews, networkID: networkID, networkName: nc.Name, autojoin: nc.Channels, connectCommands: nc.ConnectCommands, userChannels: newUserChannels(), bots: bots, avatars: avs, nickFn: func() string { return m.Nick(networkID) }, connectedHook: func(currentNick string) bool {
+		return m.handleSelfNickConnected(networkID, gen, currentNick)
 	}, memberListHook: func(channel string) {
 		m.mu.Lock()
 		if _, ok := m.membersLoaded[networkID]; !ok {

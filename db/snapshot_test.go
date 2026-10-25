@@ -2,9 +2,7 @@ package db
 
 import (
 	"bytes"
-	"context"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -54,59 +52,5 @@ func TestSnapshotNetworkWindowAndUnreadAgree(t *testing.T) {
 		if bytes.Compare(c.ID[:], maxID[:]) > 0 {
 			t.Fatalf("unread candidate %s newer than window max %s", c.ID, maxID)
 		}
-	}
-}
-
-func TestInsertLockIsPerNetworkAndSkipsBackfill(t *testing.T) {
-	ms, err := OpenMultiStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = ms.Close() })
-	var stores []*LogStore
-	var buffers []uuid.UUID
-	for _, name := range []string{"a", "b"} {
-		n, err := ms.UpsertNetwork(t.Context(), Network{Name: name, Host: "h", Port: 6667, Nick: "me"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		buf, _, _, err := ms.EnsureBuffer(t.Context(), n.ID, "#test", BufferChannel)
-		if err != nil {
-			t.Fatal(err)
-		}
-		store, err := ms.LogStore(n.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		stores = append(stores, store)
-		buffers = append(buffers, buf)
-	}
-	stores[0].insertMu.Lock()
-	defer stores[0].insertMu.Unlock()
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
-	defer cancel()
-	for _, tc := range []struct {
-		name     string
-		index    int
-		backfill bool
-	}{{"other network", 1, false}, {"backfill", 0, true}} {
-		t.Run(tc.name, func(t *testing.T) {
-			done := make(chan error, 1)
-			go func() {
-				_, _, _, err := InsertLogMessage(ctx, stores[tc.index], LogMessageInput{
-					BufferID: buffers[tc.index], Kind: "privmsg", Sender: "bob",
-					Backfill: tc.backfill, Timestamp: time.Now().Add(-time.Hour),
-				})
-				done <- err
-			}()
-			select {
-			case err := <-done:
-				if err != nil {
-					t.Fatal(err)
-				}
-			case <-ctx.Done():
-				t.Fatal("insert blocked on another network's live insert lock")
-			}
-		})
 	}
 }

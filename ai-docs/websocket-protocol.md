@@ -11,7 +11,28 @@ The stream serves two roles:
 
 See [rest-api.md](rest-api.md) for the REST surface and [irc-runtime.md](irc-runtime.md) for how server events are produced.
 
-The server subscribes to the event hub before completing the WebSocket handshake. Clients can open the socket before fetching `/api/state` and queue events during the fetch. This ordering needs the updated backend; older backends open the socket before subscribing, leaving a small gap. No ready frame or client protocol change is required. The web client applies live events while its `/api/state` fetch is in flight and then prunes networks/buffers the snapshot lacks; ids that arrived via `buffer_created` / `network_created` while the fetch was pending are recorded and spared, so a buffer created mid-fetch survives while a buffer deleted offline (even the newest one) is pruned. `/api/state` may answer 503 when a snapshot could not be taken consistently (see [rest-api.md](rest-api.md)); clients keep their current state and retry (web: 2s while the socket stays open; TUI: 5s; Apple: full reconnect with backoff).
+## Stream protocol: hello, seq, state
+
+The stream is a single totally ordered event log, the same shape as Discord's gateway sequence or a Matrix sync token. Every stream event carries `seq`, a strictly increasing integer assigned by the server at publish time (`hub.Hub`). Frames that are not part of the log — `ack`, `error`, `ping`, `history_result`, `ignorelist_result` — carry no `seq`.
+
+**Handshake.** The first command on every socket must be `hello`:
+
+```json
+{ "type": "hello", "since": 0 }
+```
+
+`since` is the client's cursor: the `seq` of the last frame it applied, `0` when it has none. The server answers in one of two ways, then forwards live events:
+
+- **Replay** — when its in-memory ring (the last 4096 events) still holds every event after `since`, it sends them in order and nothing else. The client is caught up without a snapshot.
+- **State snapshot** — otherwise (first connect, cursor too old, or a cursor from a previous server process) it sends one `state` frame: the same body as `GET /api/state` plus `"type": "state"` and `seq`, the stream position the snapshot reflects.
+
+Any command before `hello` is answered with an `error` and the socket is closed.
+
+**Client rule.** One rule covers first load, reconnect, replay and in-flight duplicates: a sequenced frame with `seq` at or below the cursor is already reflected and is dropped; any other sequenced frame is applied and the cursor becomes its `seq`. The `state` frame replaces all local state and sets the cursor to its `seq`. No client keeps a queue, a per-buffer boundary or a stale-echo guard; see `formal/ClientSync.tla`.
+
+**Why it is exact.** The server runs every DB write that produces a stream event inside the same lock that assigns `seq` (`hub.Do`): message inserts with their `message` event, `mark_read` with its `buffer_update` tally. The snapshot is read under that lock too. So stream order is DB order, a `buffer_update`'s counts cover exactly the messages whose events precede it, and a `state` frame contains exactly the effects of events up to its `seq`. Sequence numbers restart from a wall-clock-derived base (seconds since the epoch, shifted by 20 bits) on every server start, so a cursor from an earlier process never replays against the wrong history; they stay below 2^53 so JavaScript clients can compare them as plain numbers.
+
+The server subscribes to the hub before completing the WebSocket handshake, so no event published between the handshake and the hello answer can be missed; the `seq` gate drops whatever the snapshot or replay already covered.
 
 ## Client commands
 
@@ -19,6 +40,7 @@ Current client command envelope fields:
 
 - `type`
 - `req_id`
+- `since` — stream cursor, `hello` only
 - `buffer_id` — UUIDv7 string
 - `network_id` — UUIDv7 string
 - `channel`
@@ -29,6 +51,10 @@ Current client command envelope fields:
 - `message_id` — UUIDv7 string
 
 ### Supported command types
+
+#### Session
+
+- `hello` — must be the first command on a socket; `since` is the resume cursor (see "Stream protocol" above). Answered with a replay or a `state` frame, never with an `ack`.
 
 #### Core messaging
 
@@ -136,8 +162,9 @@ Client handling: web shows `message` in the composer note (`.upload-note`, same 
 
 ## Stream event types
 
-Currently published events:
+Every event below carries `seq` (see "Stream protocol"). Currently published events:
 
+- `state` — the full snapshot answering `hello` (never published on the hub; sent only on the socket that asked). Body as `GET /api/state`
 - `message` — inbound or locally-logged outbound message
 - `buffer_created` — first-time buffer registration
 - `buffer_deleted` — buffer and its history permanently deleted
@@ -204,7 +231,7 @@ Partial update: every field below except `id`/`network_id` is optional, and an a
 Two server-side variants share this type:
 
 - **topic/joined variant** (IRC runtime): `topic`, `topic_set_by`, `topic_set_at`, `joined`, `archived` — never carries read-state fields.
-- **mark_read echo** (broadcast to all clients, sender included): `last_seen_id`, `marker_id`, `marker_ts`, `unread`, `mentions` — never carries topic/joined. `marker_id` is **always present** on this variant; JSON `null` means the buffer is caught up and clients must drop the "New messages" marker/bar/badges.
+- **mark_read echo** (broadcast to all clients, sender included): `last_seen_id`, `marker_id`, `marker_ts`, `unread`, `mentions` — never carries topic/joined. `marker_id` is **always present** on this variant; JSON `null` means the buffer is caught up and clients must drop the "New messages" marker/bar/badges. The counts are tallied under the stream lock, so they cover exactly the `message` events that precede this frame; clients take them verbatim.
 
 - `id`
 - `network_id`

@@ -422,10 +422,6 @@ actor FixtureTransport: LurkerTransport {
     Self.identity
   }
 
-  func fetchState() async throws -> StateSnapshot {
-    Self.snapshot()
-  }
-
   func fetchHistory(bufferID: UUID, before: UUID?) async throws -> [Message] {
     guard bufferID == Self.fullChannelID else { return [] }
     let all = Self.fullMessages
@@ -496,8 +492,12 @@ actor FixtureTransport: LurkerTransport {
     )
   }
 
+  /// Answers hello with the fixture snapshot, then stays open like a quiet
+  /// server would.
   func openEvents() async -> AsyncThrowingStream<ServerEvent, Error> {
-    AsyncThrowingStream { _ in }
+    AsyncThrowingStream { continuation in
+      continuation.yield(.state(Self.snapshot()))
+    }
   }
 
   func send(_: ClientCommand) async throws {

@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
 	"github.com/lepinkainen/lurker/internal/closeutil"
 )
 
@@ -30,6 +31,9 @@ type clientCmd struct {
 	Before    uuid.UUID `json:"before,omitzero"`
 	Limit     int       `json:"limit,omitzero"`
 	MessageID uuid.UUID `json:"message_id,omitzero"`
+	// Since is the hello command's resume cursor: the seq of the last event
+	// the client applied (0 = none, take a full snapshot).
+	Since uint64 `json:"since,omitzero"`
 	// internal is true when handleCmd was re-entered from cmdInput after
 	// parseInput already resolved the buffer/network. Skips the kind gate
 	// so the input → send/join/… hot path pays one buffer lookup, not two.
@@ -58,6 +62,7 @@ type historyResult struct {
 }
 
 type bufferLastSeenEvent struct {
+	hub.Stamp
 	Type       string    `json:"type"`
 	ID         uuid.UUID `json:"id"`
 	NetworkID  uuid.UUID `json:"network_id"`
@@ -69,6 +74,15 @@ type bufferLastSeenEvent struct {
 	MarkerTS string     `json:"marker_ts,omitzero"`
 	Unread   int        `json:"unread"`
 	Mentions int        `json:"mentions"`
+}
+
+// stateEvent is the full snapshot a client renders from scratch, sent as the
+// first frame after hello (or served by GET /api/state). seq is the stream
+// position it reflects: events at or below it are already in the snapshot.
+type stateEvent struct {
+	Type string `json:"type"`
+	Seq  uint64 `json:"seq"`
+	stateDTO
 }
 
 // ignoreEntryWire is the wire shape of one ignore entry (mask + level).
@@ -132,12 +146,14 @@ type wsManager interface {
 	modeOps
 }
 
-// stream is the WebSocket endpoint. It subscribes to the event hub and
-// forwards every published event as JSON; it also reads client commands
-// and dispatches them to the IRC manager or the SQLite store.
+// stream is the WebSocket endpoint. It subscribes to the event hub, brings
+// the client up to date (hello → replay or state snapshot), then forwards
+// every later published event as JSON; it also reads client commands and
+// dispatches them to the IRC manager or the SQLite store.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
-	// Subscribe before accepting: once the handshake completes, clients can
-	// fetch a snapshot knowing subsequent publications will reach the socket.
+	// Subscribe before accepting so nothing published between the handshake
+	// and the hello is missed; the seq gate in the writer drops whatever the
+	// snapshot or replay already covered.
 	events, overflow, unsub := s.Hub.Subscribe(256)
 	defer unsub()
 
@@ -155,10 +171,52 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
+	lastSeq, ok := s.handshake(ctx, c)
+	if !ok {
+		return
+	}
 	done := make(chan struct{})
-	go runStreamWriter(ctx, c, cancel, events, overflow, done)
+	go runStreamWriter(ctx, c, cancel, events, overflow, done, lastSeq)
 	go runStreamPinger(ctx, c, cancel)
 	s.runStreamReader(ctx, c, cancel, done)
+}
+
+// handshake reads the client's hello and brings it up to date: the events
+// after its cursor when the hub's ring still holds them all, otherwise a
+// full state snapshot. Returns the seq the client is now synced through.
+func (s *Server) handshake(ctx context.Context, c *websocket.Conn) (uint64, bool) {
+	hctx, hcancel := context.WithTimeout(ctx, 10*time.Second)
+	defer hcancel()
+	var hello clientCmd
+	if err := wsjson.Read(hctx, c, &hello); err != nil {
+		return 0, false
+	}
+	if hello.Type != "hello" {
+		writeWSErr(ctx, c, hello.ReqID, "first command must be hello")
+		return 0, false
+	}
+	if hello.Since != 0 {
+		if evs, ok := s.Hub.Replay(hello.Since); ok {
+			last := hello.Since
+			for _, ev := range evs {
+				if err := wsjson.Write(ctx, c, ev); err != nil {
+					return 0, false
+				}
+				last = ev.SeqNo()
+			}
+			return last, true
+		}
+	}
+	snap, err := s.stateSnapshot(ctx)
+	if err != nil {
+		slog.Error("state snapshot", "err", err)
+		writeWSErr(ctx, c, hello.ReqID, "state snapshot unavailable")
+		return 0, false
+	}
+	if err := wsjson.Write(ctx, c, snap); err != nil {
+		return 0, false
+	}
+	return snap.Seq, true
 }
 
 // wsPingInterval is the server-side heartbeat period. The web client treats
@@ -194,14 +252,15 @@ func runStreamPinger(ctx context.Context, c *websocket.Conn, cancel context.Canc
 }
 
 // runStreamWriter forwards every event published on the hub channel to the
-// WebSocket. The 10s write timeout is per-message; a stalled client tears
-// down the connection rather than backing up the hub. If the hub signals
-// overflow (this subscriber fell behind and an event was dropped) the
-// writer returns, tearing down the connection so the client reconnects and
-// resyncs from a fresh snapshot. Returning also cancels ctx so the reader,
-// blocked in wsjson.Read, unblocks and closes the socket instead of leaving
-// a silent half-dead connection open.
-func runStreamWriter(ctx context.Context, c *websocket.Conn, cancel context.CancelFunc, events <-chan any, overflow <-chan struct{}, done chan<- struct{}) {
+// WebSocket, skipping sequenced events at or below lastSeq (already covered
+// by the handshake's snapshot or replay). The 10s write timeout is
+// per-message; a stalled client tears down the connection rather than
+// backing up the hub. If the hub signals overflow (this subscriber fell
+// behind and an event was dropped) the writer returns, tearing down the
+// connection so the client reconnects and resumes. Returning also cancels
+// ctx so the reader, blocked in wsjson.Read, unblocks and closes the socket
+// instead of leaving a silent half-dead connection open.
+func runStreamWriter(ctx context.Context, c *websocket.Conn, cancel context.CancelFunc, events <-chan any, overflow <-chan struct{}, done chan<- struct{}, lastSeq uint64) {
 	defer close(done)
 	defer cancel()
 	for {
@@ -213,6 +272,12 @@ func runStreamWriter(ctx context.Context, c *websocket.Conn, cancel context.Canc
 		case ev, ok := <-events:
 			if !ok {
 				return
+			}
+			if sv, ok := ev.(hub.Event); ok {
+				if sv.SeqNo() <= lastSeq {
+					continue
+				}
+				lastSeq = sv.SeqNo()
 			}
 			wctx, wcancel := context.WithTimeout(ctx, 10*time.Second)
 			err := wsjson.Write(wctx, c, ev)
@@ -463,18 +528,20 @@ func (s *Server) cmdMarkRead(ctx context.Context, c *websocket.Conn, cmd clientC
 		writeWSErr(ctx, c, cmd.ReqID, err.Error())
 		return
 	}
-	// effective may differ from cmd.MessageID: the store enforces existence
-	// and monotonicity, so a stale ack yields the newer stored position and
-	// the broadcast below carries the winning state.
-	effective, err := s.Stores.MarkBufferLastSeen(ctx, cmd.BufferID, cmd.MessageID)
-	if err != nil {
-		writeWSErr(ctx, c, cmd.ReqID, err.Error())
-		return
+	nick := ""
+	if s.Manager != nil {
+		nick = s.Manager.Nick(networkID)
 	}
-	if s.Hub != nil {
-		nick := ""
-		if s.Manager != nil {
-			nick = s.Manager.Nick(networkID)
+	// Store, tally and publish under the stream lock: the counts then cover
+	// exactly the messages whose events precede this one in the stream, so
+	// no client can count a message twice (see hub.Hub). effective may
+	// differ from cmd.MessageID: the store enforces existence and
+	// monotonicity, so a stale ack yields the newer stored position and the
+	// broadcast carries the winning state.
+	err = s.Hub.Do(func(publish func(any)) error {
+		effective, merr := s.Stores.MarkBufferLastSeen(ctx, cmd.BufferID, cmd.MessageID)
+		if merr != nil {
+			return merr
 		}
 		tally := s.computeUnreadCounts(ctx, networkID, cmd.BufferID, effective, nick)
 		var markerID *uuid.UUID
@@ -482,11 +549,16 @@ func (s *Server) cmdMarkRead(ctx context.Context, c *websocket.Conn, cmd clientC
 			m := tally.MarkerID
 			markerID = &m
 		}
-		s.Hub.Publish(bufferLastSeenEvent{
+		publish(&bufferLastSeenEvent{
 			Type: "buffer_update", ID: cmd.BufferID, NetworkID: networkID,
 			LastSeenID: effective, MarkerID: markerID, MarkerTS: markerTS(tally.MarkerID),
 			Unread: tally.Unread, Mentions: tally.Mentions,
 		})
+		return nil
+	})
+	if err != nil {
+		writeWSErr(ctx, c, cmd.ReqID, err.Error())
+		return
 	}
 	writeWSAck(ctx, c, cmd.ReqID)
 }

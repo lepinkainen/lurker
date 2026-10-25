@@ -74,6 +74,8 @@ type channelMember struct {
 }
 
 type stateResponse struct {
+	// Seq is the stream position the snapshot reflects (see wsEvent.Seq).
+	Seq             uint64                     `json:"seq"`
 	Networks        []networkDTO               `json:"networks"`
 	Buffers         []bufferDTO                `json:"buffers"`
 	InitialMessages map[string][]messageDTO    `json:"initial_messages"`
@@ -84,6 +86,15 @@ type stateResponse struct {
 // Fields not relevant to a given type are zero-valued.
 type wsEvent struct {
 	Type string `json:"type"`
+	// Seq is the event's position in the server's stream (0 on frames that
+	// are not part of it: ack, error, ping, command results). The model
+	// drops frames at or below its cursor and sends the cursor back as
+	// hello.since on reconnect (ai-docs/websocket-protocol.md).
+	Seq uint64 `json:"seq"`
+	// Snapshot carries the `state` frame, decoded separately by readWSEvent
+	// because its networks/buffers/members keys collide with the event
+	// fields below.
+	Snapshot *stateResponse `json:"-"`
 	// error envelope
 	Message string `json:"message"`
 	// message
@@ -167,16 +178,6 @@ type channelListEntry struct {
 }
 
 // tea messages
-
-type stateLoadedMsg struct {
-	gen   int
-	state *stateResponse
-}
-
-type stateFailedMsg struct {
-	gen int
-	err error
-}
 
 type wsConnectedMsg struct {
 	conn   *websocket.Conn

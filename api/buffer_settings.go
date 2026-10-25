@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
 )
 
 type bufferSettingsPatchDTO struct {
@@ -18,6 +19,7 @@ type bufferSettingsPatchDTO struct {
 }
 
 type bufferSettingsEvent struct {
+	hub.Stamp
 	Type                   string    `json:"type"`
 	ID                     uuid.UUID `json:"id"`
 	ShowEmbeds             bool      `json:"show_embeds"`
@@ -43,6 +45,7 @@ type pinnedSortEntryDTO struct {
 }
 
 type pinnedReorderEvent struct {
+	hub.Stamp
 	Type    string               `json:"type"`
 	Buffers []pinnedSortEntryDTO `json:"buffers"`
 }
@@ -67,9 +70,7 @@ func (s *Server) reorderPinnedBuffers(w http.ResponseWriter, r *http.Request) {
 	for _, e := range entries {
 		event.Buffers = append(event.Buffers, pinnedSortEntryDTO{ID: e.ID, PinOrder: e.SortOrder})
 	}
-	if s.Hub != nil {
-		s.Hub.Publish(event)
-	}
+	s.Hub.Publish(&event)
 	writeJSON(w, http.StatusOK, event)
 }
 
@@ -103,7 +104,7 @@ func (s *Server) patchBufferSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	event := bufferSettingsEventFrom(settings)
 	if s.Hub != nil {
-		s.Hub.Publish(event)
+		s.Hub.Publish(&event)
 	}
 	writeJSON(w, http.StatusOK, event)
 }

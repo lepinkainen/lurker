@@ -1520,10 +1520,6 @@ private actor HistoryStubTransport: LurkerTransport {
     throw Unsupported()
   }
 
-  func fetchState() async throws -> StateSnapshot {
-    throw Unsupported()
-  }
-
   func updateBuffer(id _: UUID, patch _: BufferSettingsPatch) async throws -> BufferSettingsEvent {
     throw Unsupported()
   }

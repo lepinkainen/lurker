@@ -120,6 +120,7 @@ export type Member = {
 };
 
 export type StateResponse = {
+  seq?: number;
   current_nick?: string;
   nick?: string;
   user?: { nick: string };
@@ -174,11 +175,10 @@ export type AppState = {
   reconnectTicker: number | null;
   lastWSActivityAt: number;
   wsHealthTimer: number | null;
-  needsStateSyncOnConnect: boolean;
-  // Network/buffer ids created by live events while a /api/state fetch is
-  // pending. The snapshot may predate them; the prune in syncStateFromServer
-  // must not treat their absence as "deleted while offline".
-  createdDuringSync: Set<string>;
+  // Stream cursor: seq of the last applied server event (state snapshot
+  // included). Sent as `since` on every hello so a reconnect replays only
+  // what was missed; events at or below it are dropped (connection.ts).
+  lastSeq: number;
   loadingHistory: Set<string>;
   historyExhausted: Set<string>;
   me: { nick: string };
@@ -250,8 +250,7 @@ export const state: AppState = {
   reconnectTicker: null,
   lastWSActivityAt: 0,
   wsHealthTimer: null,
-  needsStateSyncOnConnect: false,
-  createdDuringSync: new Set(),
+  lastSeq: 0,
   loadingHistory: new Set(),
   historyExhausted: new Set(),
   me: { nick: "you" },

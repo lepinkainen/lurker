@@ -7,11 +7,13 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
+	"github.com/lepinkainen/lurker/hub"
 )
 
 // bufferDeletedEvent announces that a buffer and its entire history are gone.
 // Clients drop all per-buffer state and reselect if it was active.
 type bufferDeletedEvent struct {
+	hub.Stamp
 	Type      string    `json:"type"`
 	ID        uuid.UUID `json:"id"`
 	NetworkID uuid.UUID `json:"network_id"`
@@ -48,7 +50,7 @@ func (s *Server) cmdDeleteBuffer(ctx context.Context, c *websocket.Conn, cmd cli
 		return
 	}
 	if s.Hub != nil {
-		s.Hub.Publish(bufferDeletedEvent{Type: "buffer_deleted", ID: cmd.BufferID, NetworkID: networkID})
+		s.Hub.Publish(&bufferDeletedEvent{Type: "buffer_deleted", ID: cmd.BufferID, NetworkID: networkID})
 	}
 	writeWSAck(ctx, c, cmd.ReqID)
 }
@@ -74,7 +76,8 @@ func (s *Server) cmdArchiveBuffer(ctx context.Context, c *websocket.Conn, cmd cl
 		return
 	}
 	if s.Hub != nil {
-		s.Hub.Publish(bufferSettingsEventFrom(settings))
+		ev := bufferSettingsEventFrom(settings)
+		s.Hub.Publish(&ev)
 	}
 	writeWSAck(ctx, c, cmd.ReqID)
 }

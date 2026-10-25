@@ -76,7 +76,7 @@ Credentials, paths, queries, and fragments are rejected. App Transport Security 
 
 ## Hydration and live events
 
-`AppModel` opens the WebSocket stream before fetching `/api/state`. Events received during hydration are queued, the snapshot is installed, and queued events are then applied in order. This avoids losing messages in the state-fetch window.
+`AppModel` opens the WebSocket stream and `LurkerAPI` performs the hello handshake (`ai-docs/websocket-protocol.md`): the server answers with a `state` snapshot, or with a replay of every event after the transport's cursor when it still holds them. `LurkerAPI.lastSeq` is that cursor; it drops frames at or below it and advances on each applied frame, so the model applies events directly in server order with no hydration queue and no separate state fetch to race the stream.
 
 The model:
 

@@ -12,15 +12,18 @@ import (
 // handler is the glue between a girc.Client and the SQLite store. One
 // instance per network connection.
 type handler struct {
-	stores              *ircdb.MultiStore
-	db                  *ircdb.LogStore
-	hub                 *hub.Hub
-	previews            PreviewEnqueuer
-	networkID           uuid.UUID
-	networkName         string
-	autojoin            []string
-	connectCommands     []string
-	connectedHook       func(currentNick string)
+	stores          *ircdb.MultiStore
+	db              *ircdb.LogStore
+	hub             *hub.Hub
+	previews        PreviewEnqueuer
+	networkID       uuid.UUID
+	networkName     string
+	autojoin        []string
+	connectCommands []string
+	// connectedHook reports our own nick to the Manager; false means the
+	// runtime that built this client has since been stopped and the event
+	// must be ignored (see Manager.handleSelfNickConnected).
+	connectedHook       func(currentNick string) bool
 	nickFn              func() string
 	memberListHook      func(channel string)
 	clearMemberListHook func(channel string)

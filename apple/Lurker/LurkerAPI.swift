@@ -37,13 +37,14 @@ struct ClientCommand: Encodable, Sendable, Equatable {
   var before: UUID?
   var limit: Int?
   var messageID: UUID?
+  /// hello only: the stream cursor to resume from (0 = full snapshot).
+  var since: UInt64?
 }
 
 // MARK: - LurkerTransport
 
 protocol LurkerTransport: Sendable {
   func validateServer() async throws -> ServiceIdentity
-  func fetchState() async throws -> StateSnapshot
   func fetchHistory(bufferID: UUID, before: UUID?) async throws -> [Message]
   func updateBuffer(id: UUID, patch: BufferSettingsPatch) async throws -> BufferSettingsEvent
   func reorderNetworks(ids: [UUID]) async throws -> [Network]
@@ -122,6 +123,11 @@ actor LurkerAPI: LurkerTransport {
 
   let baseURL: URL
 
+  /// Stream cursor: seq of the last frame handed to the model. Sent as
+  /// hello.since on every reconnect; survives socket replacement so a
+  /// resume replays only the gap.
+  private(set) var lastSeq: UInt64 = 0
+
   func validateServer() async throws -> ServiceIdentity {
     let identity: ServiceIdentity = try await get("whoami")
     guard identity.name.lowercased() == "lurker" else {
@@ -132,10 +138,6 @@ actor LurkerAPI: LurkerTransport {
       throw LurkerAPIError.untrustedPath
     }
     return identity
-  }
-
-  func fetchState() async throws -> StateSnapshot {
-    try await get("api/state")
   }
 
   func fetchHistory(bufferID: UUID, before: UUID?) async throws -> [Message] {
@@ -221,16 +223,27 @@ actor LurkerAPI: LurkerTransport {
     return try await requestJSON(request)
   }
 
+  /// Opens the stream and performs the hello handshake. The server answers
+  /// with a replay of every event after `lastSeq` when it still holds them,
+  /// otherwise with a `state` snapshot; either way frames then carry `seq`
+  /// and anything at or below the cursor is dropped here, so the model only
+  /// ever sees each change once and in order (ai-docs/websocket-protocol.md).
   func openEvents() -> AsyncThrowingStream<ServerEvent, Error> {
     socket?.cancel(with: .goingAway, reason: nil)
     var components = URLComponents(url: url("api/stream"), resolvingAgainstBaseURL: false)!
     components.scheme = "ws"
     let task = session.webSocketTask(with: components.url!)
+    // The `state` frame answering hello carries 100 messages per buffer plus
+    // every member list in one message; URLSession's default 1 MiB cap would
+    // fail the receive before any state is applied, on every reconnect.
+    task.maximumMessageSize = 64 << 20
     socket = task
     task.resume()
     return AsyncThrowingStream { continuation in
       let reader = Task {
         do {
+          let hello = try self.encoder.encode(ClientCommand(type: "hello", since: self.lastSeq))
+          try await task.send(.string(String(decoding: hello, as: UTF8.self)))
           while !Task.isCancelled {
             let frame = try await task.receive()
             let data: Data
@@ -245,6 +258,12 @@ actor LurkerAPI: LurkerTransport {
 
             @unknown default:
               throw LurkerAPIError.textExpected
+            }
+            if let seq = try self.decoder.decode(SequencedFrame.self, from: data).seq {
+              if seq <= self.lastSeq {
+                continue
+              }
+              self.lastSeq = seq
             }
             continuation.yield(try self.decoder.decode(ServerEvent.self, from: data))
           }
@@ -357,6 +376,12 @@ actor LurkerAPI: LurkerTransport {
   }
 
   // MARK: Private
+
+  /// Just the sequence number of an incoming frame, read before the event
+  /// itself so the cursor gate runs on every frame type.
+  private struct SequencedFrame: Decodable {
+    let seq: UInt64?
+  }
 
   private let session: URLSession
   private var socket: URLSessionWebSocketTask?

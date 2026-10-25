@@ -76,53 +76,6 @@ func TestStateRejectsIncompleteNetworkSnapshot(t *testing.T) {
 	}
 }
 
-type stateReadRaceManager struct {
-	*mockManager
-	onNick func()
-}
-
-func (m *stateReadRaceManager) Nick(id uuid.UUID) string {
-	if m.onNick != nil {
-		fn := m.onNick
-		m.onNick = nil
-		fn()
-	}
-	return m.mockManager.Nick(id)
-}
-
-func TestStateRejectsReadPositionRaceWithoutInternalRetry(t *testing.T) {
-	stores, server, network, buffer := newHistoryTestServer(t)
-	ids := insertHistoryMessages(t, stores, network.ID, buffer, 1)
-	server.Manager = &stateReadRaceManager{mockManager: newMockManager(), onNick: func() {
-		// The ack would publish unread=0. A later insertion belongs in the
-		// snapshot, but not in that queued acknowledgement's counts.
-		if _, err := stores.MarkBufferLastSeen(t.Context(), buffer, ids[0]); err != nil {
-			t.Fatal(err)
-		}
-		insertHistoryMessages(t, stores, network.ID, buffer, 1)
-	}}
-	r := httptest.NewRequest(http.MethodGet, "/api/state", nil)
-	w := httptest.NewRecorder()
-	server.state(w, r)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("raced snapshot status=%d, want 503", w.Code)
-	}
-	w = httptest.NewRecorder()
-	server.state(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("retry status=%d body=%s", w.Code, w.Body.String())
-	}
-	var state stateDTO
-	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
-		t.Fatal(err)
-	}
-	for _, b := range state.Buffers {
-		if b.ID == buffer && (b.LastSeenID != ids[0] || b.Unread != 1) {
-			t.Fatalf("retry read state=%+v", b)
-		}
-	}
-}
-
 func TestTallyUnreadSkipsSelfAndAnchorsMarker(t *testing.T) {
 	id1 := uuid.Must(uuid.NewV7())
 	id2 := uuid.Must(uuid.NewV7())
