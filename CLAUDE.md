@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Lurker: single-user IRCCloud-style bouncer + web client backend. Go service + Vite/TypeScript web UI. SQLite storage. Private network only (Tailscale), no app-layer auth, no multi-user. Greenfield — no backwards-compat constraints.
 
+Single-user development project: the only user is the developer, and every client (web, TUI, Apple) ships from this repo alongside the backend. When adding or changing features, do **not** keep backwards compatibility (old wire formats, fallback paths for older clients or backends, deprecated fields) unless it is practically free to implement. Prefer the clean break: change the protocol, update every client in the same change, delete the old path. The "client/backend version skew" note below is about *reporting* skew so a stale deployed image isn't mistaken for a bug, not a mandate to support old versions.
+
 See `PROJECT.md`, `AGENTS.md`, `ai-docs/ARCHITECTURE.md` (and subdocs: `storage.md`, `rest-api.md`, `websocket-protocol.md`, `irc-runtime.md`, `frontend.md`, `testing-and-build.md`, `operations.md`). Runtime behavior specs hard to unit-test live in `ai-docs/behaviors/`.
 
 It's fine to push features directly to main. Only use branches for major refactoring.
