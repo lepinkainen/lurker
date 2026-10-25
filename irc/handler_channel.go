@@ -1,11 +1,13 @@
 package irc
 
 import (
+	"context"
 	"log/slog"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	ircdb "github.com/lepinkainen/lurker/db"
 	"github.com/lepinkainen/lurker/mirc"
 	"github.com/lrstanley/girc"
@@ -67,36 +69,41 @@ func (h *handler) onKick(c *girc.Client, e girc.Event) {
 	}
 	ctx, cancel := h.eventContext()
 	defer cancel()
+	selfKicked := c != nil && strings.EqualFold(kickedNick, c.GetNick())
 	globalBufID, err := h.ensureBuffer(ctx, channel, ircdb.BufferChannel)
 	if err != nil {
 		slog.Error("ensure kick buffer", "err", err, "network", h.networkName, "buffer", channel)
 	} else {
-		if h.hub != nil {
-			h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, BufferID: globalBufID, Nick: kickedNick, State: "kick"})
-		}
-		if c != nil && strings.EqualFold(kickedNick, c.GetNick()) {
-			if h.clearMemberListHook != nil {
-				h.clearMemberListHook(channel)
-			}
-			delete(h.lastMemberListHash, channel)
-			if h.setJoinedHook != nil {
-				h.setJoinedHook(channel, false)
-			}
-			ev := BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: new(false)}
-			if h.syncBufferArchived(ctx, globalBufID, true) {
-				ev.Archived = new(true)
-			}
-			h.publishBufferUpdate(ev)
+		h.hub.Publish(&PresenceEvent{Type: "presence", NetworkID: h.networkID, BufferID: globalBufID, Nick: kickedNick, State: "kick"})
+		if selfKicked {
+			h.onSelfKicked(ctx, channel, globalBufID)
 			h.publishMemberList(c, channel)
 		}
 	}
-	if c != nil && strings.EqualFold(kickedNick, c.GetNick()) {
+	if selfKicked {
 		h.userChannels.dropChannel(channel)
 	} else {
 		h.userChannels.removeUser(kickedNick, channel)
 	}
 	// target = the kicked nick
 	h.storeEvent(e, channel, ircdb.BufferChannel, "kick", kickedNick, reason)
+}
+
+// onSelfKicked drops our membership state for channel and announces the
+// buffer as parted (and archived, when that changed).
+func (h *handler) onSelfKicked(ctx context.Context, channel string, globalBufID uuid.UUID) {
+	if h.clearMemberListHook != nil {
+		h.clearMemberListHook(channel)
+	}
+	delete(h.lastMemberListHash, channel)
+	if h.setJoinedHook != nil {
+		h.setJoinedHook(channel, false)
+	}
+	ev := BufferUpdateEvent{Type: "buffer_update", ID: globalBufID, NetworkID: h.networkID, Joined: new(false)}
+	if h.syncBufferArchived(ctx, globalBufID, true) {
+		ev.Archived = new(true)
+	}
+	h.publishBufferUpdate(ev)
 }
 
 func (h *handler) onTopic(_ *girc.Client, e girc.Event) {

@@ -504,44 +504,7 @@ func (m model) renderSidebar(height int) string {
 	sb.WriteByte('\n')
 
 	for i, item := range m.sidebarItems {
-		var line string
-		if item.isHeader {
-			state := m.networkStates[item.networkID]
-			label := item.label
-			if state != "" && state != "connected" {
-				label += " (" + state + ")"
-			}
-			line = styleNetHeader.Width(sidebarWidth - 2).Render(label)
-		} else {
-			unread := m.unread[item.bufferID]
-			mentions := m.mentions[item.bufferID]
-			label := item.label
-			suffix := ""
-			if unread > 0 {
-				if unread > 99 {
-					suffix = " (99+)"
-				} else {
-					suffix = fmt.Sprintf(" (%d)", unread)
-				}
-			}
-			full := label + suffix
-
-			switch {
-			case i == m.sidebarSel:
-				line = styleSelected.Width(sidebarWidth - 2).Render(full)
-			case item.isArchiveToggle:
-				line = styleArchiveToggle.Width(sidebarWidth - 2).Render(label)
-			case mentions > 0:
-				line = styleBufferMention.Width(sidebarWidth - 2).Render(full)
-			case unread > 0:
-				line = styleBufferUnread.Width(sidebarWidth - 2).Render(full)
-			case item.dim:
-				line = styleBufferArchived.Width(sidebarWidth - 2).Render(label)
-			default:
-				line = styleBufferItem.Width(sidebarWidth - 2).Render(label)
-			}
-		}
-		sb.WriteString(line)
+		sb.WriteString(m.renderSidebarItem(i, item))
 		sb.WriteByte('\n')
 	}
 	if len(m.sidebarItems) == 0 {
@@ -554,6 +517,43 @@ func (m model) renderSidebar(height int) string {
 		content += "\n"
 	}
 	return content
+}
+
+// renderSidebarItem renders one sidebar row: a network header with its
+// connection state, or a buffer row styled by selection, unread and mentions.
+func (m model) renderSidebarItem(i int, item sidebarItem) string {
+	if item.isHeader {
+		state := m.networkStates[item.networkID]
+		label := item.label
+		if state != "" && state != "connected" {
+			label += " (" + state + ")"
+		}
+		return styleNetHeader.Width(sidebarWidth - 2).Render(label)
+	}
+	unread := m.unread[item.bufferID]
+	mentions := m.mentions[item.bufferID]
+	label := item.label
+	full := label
+	switch {
+	case unread > 99:
+		full += " (99+)"
+	case unread > 0:
+		full += fmt.Sprintf(" (%d)", unread)
+	}
+	switch {
+	case i == m.sidebarSel:
+		return styleSelected.Width(sidebarWidth - 2).Render(full)
+	case item.isArchiveToggle:
+		return styleArchiveToggle.Width(sidebarWidth - 2).Render(label)
+	case mentions > 0:
+		return styleBufferMention.Width(sidebarWidth - 2).Render(full)
+	case unread > 0:
+		return styleBufferUnread.Width(sidebarWidth - 2).Render(full)
+	case item.dim:
+		return styleBufferArchived.Width(sidebarWidth - 2).Render(label)
+	default:
+		return styleBufferItem.Width(sidebarWidth - 2).Render(label)
+	}
 }
 
 func (m model) renderMembers(height int) string {
