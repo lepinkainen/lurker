@@ -38,8 +38,9 @@ struct ComposerView: View {
       HStack(alignment: .bottom, spacing: 8) {
         Text(model.selectedNetwork?.nick ?? "you")
           .font(Theme.Fonts.nick.weight(.semibold))
-          .foregroundStyle(.white)
-        //          .padding(.bottom, 6)
+          // Same color own messages use in the timeline; a fixed white
+          // vanished against the light-appearance composer background.
+          .foregroundStyle(Color.lurkerTimelineText)
         #if os(macOS)
         MacComposerTextField(
           text: $model.composerText,
