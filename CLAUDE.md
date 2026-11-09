@@ -85,6 +85,7 @@ This prevents wasted debugging of a "missing" feature that is actually a stale b
 ### Constraints
 
 - `llm-shared/` is a git submodule. Do not edit. Exclude when scanning. Report issues, don't fix.
+- Dependabot alerts: whenever open alerts surface (e.g. `task push` prints `N Dependabot alerts`), act on them in the same session, don't just report them. List with `gh api repos/lepinkainen/lurker/dependabot/alerts --jq '.[] | select(.state=="open")'`, bump the affected package to the first patched version or later (raise the manifest floor, not just the lockfile, so it can't regress; for transitive deps bump the direct parent or add a `pnpm-workspace.yaml` override), run the relevant tests, and commit as `fix(deps): …` naming the GHSA. Only stop and ask when no patched version exists or the fix needs a major-version bump.
 - No auth, no multi-user, no public-internet assumptions unless asked.
 - Web UI scope minimal, v1-aligned.
 - `README.md` stays concise/human; do not document features/config/APIs there. Use `ai-docs/`.
