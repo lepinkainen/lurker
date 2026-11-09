@@ -63,7 +63,7 @@ Hover-revealed affordances (macOS only) follow an opacity-fade rule, never inser
 
 ## Connection and trust model
 
-The client accepts one base endpoint and uses the backend's existing REST and WebSocket APIs without server changes. It validates `/whoami` before saving a server and also checks `/api/tailscale-status`.
+The client accepts one base endpoint and uses the backend's existing REST and WebSocket APIs without server changes. It validates `/whoami` before saving a server and also checks `/api/tailscale-status` on every connect: anything but `local`/`tailscale` fails the attempt with `LurkerAPIError.untrustedPath`, whose message names the `remote_ip` the backend saw (typically a NAT hop such as a Docker bridge gateway rewriting the source address). `AppModel.connectionError` keeps the last failure's reason through the retry countdown; the sync banner shows it under "Retrying in Ns" and the toolbar status tooltip repeats it, until a connect succeeds.
 
 Only plain HTTP endpoints in the following locations are accepted:
 

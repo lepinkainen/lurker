@@ -142,6 +142,7 @@ extension AppModel {
     guard let transport else { return }
     let generation = connectionGeneration
     var attempt = 0
+    connectionError = nil
     while !Task.isCancelled {
       do {
         connectionState = attempt == 0 ? .connecting : .reconnecting(0)
@@ -162,6 +163,7 @@ extension AppModel {
         guard isCurrent(generation) else { return }
         serviceIdentity = identity
         connectionState = .connected
+        connectionError = nil
         attempt = 0
         try await receiver.value
         throw LurkerAPIError.disconnected
@@ -175,6 +177,7 @@ extension AppModel {
         guard isCurrent(generation) else { return }
         attempt += 1
         let delay = min(30, 1 << min(attempt - 1, 5))
+        connectionError = error.localizedDescription
         connectionState = .offline(error.localizedDescription)
         for remaining in stride(from: delay, through: 1, by: -1) {
           if skipReconnectDelay {

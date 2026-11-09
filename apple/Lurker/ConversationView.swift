@@ -79,12 +79,22 @@ private struct SyncBanner: View {
   var body: some View {
     Group {
       if visible {
-        HStack(spacing: 6) {
-          ProgressView()
-            .controlSize(.small)
-          Text(text)
-            .font(.callout)
-            .foregroundStyle(.secondary)
+        VStack(spacing: 2) {
+          HStack(spacing: 6) {
+            ProgressView()
+              .controlSize(.small)
+            Text(text)
+              .font(.callout)
+              .foregroundStyle(.secondary)
+          }
+          if let error = model.connectionError, model.connectionState != .connected {
+            Text(error)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .multilineTextAlignment(.center)
+              .textSelection(.enabled)
+              .padding(.horizontal, Theme.rowHorizontalInset)
+          }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 5)

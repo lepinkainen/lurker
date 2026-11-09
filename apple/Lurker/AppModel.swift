@@ -131,6 +131,10 @@ final class AppModel {
   /// (behaviors/timeline-scrolling.md).
   var scrollToBottomRequest = 0
   var connectionState = ConnectionState.notConfigured
+  /// Why the last connection attempt failed. Outlives `.offline` into the
+  /// `.reconnecting` countdown so the UI can keep showing the reason; cleared
+  /// on a successful connect or a new connection loop.
+  var connectionError: String?
   // True while an app-focus ping is probing a nominally-connected socket; the
   // displayed state can't be trusted until the probe resolves.
   var syncing = false

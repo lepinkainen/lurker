@@ -310,8 +310,8 @@ private struct ConnectionStatusButton: View {
   }
 
   private var connectionHelp: String {
-    if case .offline(let error) = model.connectionState {
-      return error
+    if model.connectionState != .connected, let error = model.connectionError {
+      return "\(model.connectionState.label): \(error)"
     }
     return model.serviceIdentity.map { "Lurker \($0.version) • \($0.hash)" }
       ?? model.connectionState.label

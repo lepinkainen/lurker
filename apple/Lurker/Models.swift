@@ -23,6 +23,9 @@ struct ServiceIdentity: Codable, Sendable, Equatable {
 
 struct TailscaleStatus: Codable, Sendable, Equatable {
   let status: String
+  /// The address the backend saw this client connect from. Shown when the
+  /// path is rejected: a proxy or NAT hop rewriting it is the usual cause.
+  let remoteIP: String
 }
 
 // MARK: - Network
@@ -739,6 +742,7 @@ private enum WireKeyTransform {
     "message_id": "messageID",
     "message_ids": "messageIDs",
     "network_id": "networkID",
+    "remote_ip": "remoteIP",
     "req_id": "reqID",
   ]
 

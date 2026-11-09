@@ -294,6 +294,41 @@ struct ConcurrencyRegressionTests {
     #expect(!model.syncing)
   }
 
+  @Test
+  func `rejected network path keeps its reason visible through the retry countdown`() async throws {
+    var transport = ControlledTransport()
+    transport.validateAction = {
+      throw LurkerAPIError.untrustedPath(remoteIP: "192.168.16.1", status: "external")
+    }
+    let model = makeModel(transport: transport)
+    let loop = Task { await model.connectionLoop() }
+    defer { loop.cancel() }
+
+    let deadline = ContinuousClock.now + .seconds(5)
+    while ContinuousClock.now < deadline {
+      if case .reconnecting(let seconds) = model.connectionState, seconds > 0 {
+        break
+      }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+
+    guard case .reconnecting(let seconds) = model.connectionState else {
+      Issue.record("expected retry countdown, got \(model.connectionState)")
+      return
+    }
+    #expect(seconds > 0)
+    let error = try #require(model.connectionError)
+    #expect(error.contains("192.168.16.1"))
+    #expect(error.contains("external"))
+  }
+
+  @Test
+  func `tailscale status decodes the remote address the backend saw`() throws {
+    let data = Data(#"{"remote_ip":"192.168.16.1","status":"external"}"#.utf8)
+    let status = try JSONDecoder.lurker().decode(TailscaleStatus.self, from: data)
+    #expect(status == TailscaleStatus(status: "external", remoteIP: "192.168.16.1"))
+  }
+
   @Test(arguments: [false, true])
   func `stopped connection cannot overwrite replacement state`(fails: Bool) async {
     let gate = RequestGate<StateSnapshot>()
@@ -407,9 +442,10 @@ private struct ControlledTransport: LurkerTransport {
   var stateAction: @Sendable () async throws -> StateSnapshot = { FixtureTransport.snapshot() }
   var searchAction: @Sendable (String, UUID?, UUID?) async throws -> [Message] = { _, _, _ in [] }
   var contextAction: @Sendable (UUID, UUID) async throws -> [Message] = { _, _ in [] }
+  var validateAction: @Sendable () async throws -> ServiceIdentity = { FixtureTransport.identity }
 
   func validateServer() async throws -> ServiceIdentity {
-    FixtureTransport.identity
+    try await validateAction()
   }
 
   func send(_: ClientCommand) async throws {

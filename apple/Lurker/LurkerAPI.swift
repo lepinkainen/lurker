@@ -7,18 +7,27 @@ enum LurkerAPIError: LocalizedError, Sendable {
   case invalidResponse
   case httpStatus(Int, String)
   case wrongService
-  case untrustedPath
+  case untrustedPath(remoteIP: String, status: String)
   case disconnected
   case textExpected
+
+  // MARK: Internal
 
   var errorDescription: String? {
     switch self {
     case .invalidResponse: "The server returned an invalid response."
+
     case .httpStatus(let code, let message):
       message.isEmpty ? "Server returned HTTP \(code)." : message
+
     case .wrongService: "This address does not identify a Lurker server."
-    case .untrustedPath: "The server connection is not local or routed through Tailscale."
+
+    case .untrustedPath(let remoteIP, let status):
+      "The server sees this device as \(remoteIP) (\(status)), not a local or Tailscale address. "
+        + "A proxy or NAT between this device and the server is rewriting the source address."
+
     case .disconnected: "The live connection is not ready."
+
     case .textExpected: "The server returned an unsupported WebSocket frame."
     }
   }
@@ -135,7 +144,7 @@ actor LurkerAPI: LurkerTransport {
     }
     let path: TailscaleStatus = try await get("api/tailscale-status")
     guard path.status == "local" || path.status == "tailscale" else {
-      throw LurkerAPIError.untrustedPath
+      throw LurkerAPIError.untrustedPath(remoteIP: path.remoteIP, status: path.status)
     }
     return identity
   }
