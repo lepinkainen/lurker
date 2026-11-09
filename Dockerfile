@@ -14,8 +14,8 @@ FROM node:lts-alpine AS web-builder
 
 WORKDIR /web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
-# pnpm major matches pnpm/action-setup `version: 10` in .github/workflows/ci.yml.
-RUN npm install -g pnpm@10 && pnpm install --frozen-lockfile
+# pnpm major matches pnpm/action-setup `version: 12` in .github/workflows/ci.yml.
+RUN npm install -g pnpm@12 && pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
 

@@ -1,6 +1,9 @@
 # Pinned dev tools. swiftformat must match `--minversion` in
 # apple/airbnb.swiftformat and the pinned download in .github/workflows/ci.yml —
 # bump all three together or lint output drifts between local and CI.
+# pnpm's major must match pnpm/action-setup `version:` in
+# .github/workflows/ci.yml and `npm install -g pnpm@…` in the Dockerfile.
 [tools]
+pnpm = "12"
 rust = "latest"
 swiftformat = "0.63.0"
