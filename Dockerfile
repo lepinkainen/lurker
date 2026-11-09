@@ -6,14 +6,16 @@
 #
 # The cost is that a new LTS major arrives silently, with no PR and no diff. If
 # the frontend build breaks with nothing in the repo having changed, check
-# whether Node's Active LTS just rolled -- the next roll is 2026-10-28 (v26).
+# whether Node's Active LTS just rolled (v26 became LTS on 2026-10-28 and
+# dropped the bundled corepack, which is why pnpm is installed via npm below).
 # Node only runs in this build stage and in CI; the shipped image is the Go
 # binary plus web/dist, so a bad major fails the build rather than production.
 FROM node:lts-alpine AS web-builder
 
 WORKDIR /web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+# pnpm major matches pnpm/action-setup `version: 10` in .github/workflows/ci.yml.
+RUN npm install -g pnpm@10 && pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
 
